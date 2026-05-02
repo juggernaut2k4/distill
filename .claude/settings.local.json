@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx create-next-app@14:*)",
+      "Bash(npm install:*)",
+      "Bash(npm info:*)",
+      "Bash(npx tsc:*)",
+      "Bash(cat:*)",
+      "Bash(python3:*)",
+      "Bash(npm run build:*)",
+      "Bash(npx vitest run --reporter=verbose)",
+      "Bash(npx vitest run --reporter=verbose --coverage)",
+      "Bash(git add:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
