@@ -6,7 +6,7 @@ const isPlaceholder = !process.env.RESEND_API_KEY ||
 const resend = isPlaceholder ? null : new Resend(process.env.RESEND_API_KEY)
 
 const FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? 'hello@hello-clio.com'
-const FROM_NAME = process.env.RESEND_FROM_NAME ?? 'Distill'
+const FROM_NAME = process.env.RESEND_FROM_NAME ?? 'Clio'
 const FROM = `${FROM_NAME} <${FROM_EMAIL}>`
 
 export interface User {

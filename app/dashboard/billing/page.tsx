@@ -74,7 +74,7 @@ export default async function BillingPage() {
 
         {/* Invoice note */}
         <p className="text-xs text-[#475569] text-center">
-          Billing is managed securely through Stripe. Distill does not store payment details.
+          Billing is managed securely through Stripe. Clio does not store payment details.
         </p>
       </div>
     </div>

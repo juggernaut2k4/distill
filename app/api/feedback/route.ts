@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
         try {
           const { inngest } = await import('@/inngest/client')
           await inngest.send({
-            name: 'distill/feedback.received',
+            name: 'clio/feedback.received',
             data: {
               userId: user.id,
               deliveryLogId: latestDelivery.id,
@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
     // Return TwiML response acknowledging receipt
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Message>Thanks for your feedback! It helps us sharpen your daily insights. — Distill</Message>
+  <Message>Thanks for your feedback! It helps us sharpen your daily insights. — Clio</Message>
 </Response>`
 
     return new Response(twiml, {

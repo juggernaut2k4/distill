@@ -3,7 +3,7 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
 import { sendSMS } from '@/lib/delivery/sms'
 
 /**
- * Feedback processor — triggered by 'distill/feedback.received' event.
+ * Feedback processor — triggered by 'clio/feedback.received' event.
  * Updates delivery log, adjusts feedback weights, calculates AI Readiness Score.
  */
 export const feedbackProcessor = inngest.createFunction(
@@ -11,7 +11,7 @@ export const feedbackProcessor = inngest.createFunction(
     id: 'feedback-processor',
     name: 'Process User Feedback',
     retries: 3,
-    triggers: [{ event: 'distill/feedback.received' }],
+    triggers: [{ event: 'clio/feedback.received' }],
   },
   async ({ event, step }) => {
     const { userId, deliveryLogId, feedback } = event.data as {

@@ -1,4 +1,4 @@
-// Content taxonomy constants for Distill
+// Content taxonomy constants for Clio
 // These define the allowed tag values for content matching and user profiling
 
 export const ROLES = [

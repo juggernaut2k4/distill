@@ -47,9 +47,9 @@ function Hero() {
             </div>
 
             <h1 className="text-7xl lg:text-8xl font-extrabold tracking-tight text-white leading-[0.9] mb-6">
-              AI,{' '}
+              Meet{' '}
               <span className="bg-gradient-to-r from-[#7C3AED] to-[#06B6D4] bg-clip-text text-transparent">
-                distilled.
+                Clio.
               </span>
             </h1>
 
@@ -122,7 +122,7 @@ function PhoneMockup() {
             <span className="text-xs font-bold text-white">D</span>
           </div>
           <div>
-            <p className="text-xs font-semibold text-white">Distill</p>
+            <p className="text-xs font-semibold text-white">Clio</p>
             <p className="text-xs text-[#475569]">Today 7:02 AM</p>
           </div>
         </div>
@@ -296,7 +296,7 @@ function Testimonials() {
     {
       initials: 'A',
       color: '#7C3AED',
-      quote: 'I went from dreading AI conversations to leading them. Distill gave me the vocabulary and confidence I was missing.',
+      quote: 'I went from dreading AI conversations to leading them. Clio gave me the vocabulary and confidence I was missing.',
       name: 'CEO, Fortune 500 Retail',
     },
     {

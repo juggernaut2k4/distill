@@ -6,13 +6,13 @@ import './globals.css'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'Distill — AI, distilled.',
+  title: 'Clio — Meet your AI advisor.',
   description: '15 seconds a day. Zero jargon. Total confidence.',
   openGraph: {
-    title: 'Distill — AI, distilled.',
+    title: 'Clio — Meet your AI advisor.',
     description: '15 seconds a day. Zero jargon. Total confidence.',
     url: 'https://hello-clio.com',
-    siteName: 'Distill',
+    siteName: 'Clio',
     locale: 'en_US',
     type: 'website',
   },

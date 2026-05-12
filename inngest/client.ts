@@ -9,11 +9,11 @@ if (isPlaceholder) {
 }
 
 /**
- * Inngest client for Distill.
+ * Inngest client for Clio.
  * Initialized with INNGEST_EVENT_KEY env var.
  * Falls back to 'development' key in mock mode — functions still register locally.
  */
 export const inngest = new Inngest({
-  id: 'distill',
+  id: 'clio',
   eventKey,
 })

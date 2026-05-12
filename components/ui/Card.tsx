@@ -6,7 +6,7 @@ export interface CardProps extends HTMLAttributes<HTMLDivElement> {
 }
 
 /**
- * Dark surface card component matching the Distill design system.
+ * Dark surface card component matching the Clio design system.
  */
 export function Card({ elevated = false, className, children, ...props }: CardProps) {
   return (

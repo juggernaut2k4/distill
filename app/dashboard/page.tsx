@@ -54,7 +54,7 @@ export default async function DashboardPage() {
         {/* Logo */}
         <div className="px-6 py-6 border-b border-[#222222]">
           <span className="text-xl font-extrabold tracking-tight text-white">
-            Distill
+            Clio
           </span>
           <span className="ml-2 text-xs text-[#7C3AED] font-semibold uppercase tracking-widest">
             AI

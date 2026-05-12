@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
     if (intent === 'command') {
       // Handle STOP/PAUSE commands
       return new Response(
-        `<?xml version="1.0" encoding="UTF-8"?><Response><Message>You've been paused. Reply START to resume your Distill insights.</Message></Response>`,
+        `<?xml version="1.0" encoding="UTF-8"?><Response><Message>You've been paused. Reply START to resume your Clio insights.</Message></Response>`,
         { headers: { 'Content-Type': 'text/xml' } }
       )
     }
