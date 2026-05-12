@@ -1134,11 +1134,11 @@ async function assignDedicatedNumber(userId: string): Promise<string> {
 
 ### 5.3 Inbound Webhook Flow
 
-**Webhook URL:** `https://getdistill.ai/api/webhooks/twilio`
+**Webhook URL:** `https://hello-clio.com/api/webhooks/twilio`
 
 **Configure in Twilio Console:**
 - For each phone number (shared or dedicated)
-- Set "A MESSAGE COMES IN" webhook to: `https://getdistill.ai/api/webhooks/twilio`
+- Set "A MESSAGE COMES IN" webhook to: `https://hello-clio.com/api/webhooks/twilio`
 - Method: POST
 
 **Flow:**
@@ -1260,7 +1260,7 @@ Create 3 products with corresponding price IDs.
 
 ### 6.4 Webhook Events Handled
 
-Configure Stripe webhook endpoint: `https://getdistill.ai/api/webhooks/stripe`
+Configure Stripe webhook endpoint: `https://hello-clio.com/api/webhooks/stripe`
 
 **Events to Listen For:**
 
@@ -1682,7 +1682,7 @@ TWILIO_AUTH_TOKEN=PLACEHOLDER_TWILIO_AUTH_TOKEN
 TWILIO_PHONE_POOL=+15550000001,+15550000002
 
 # Webhook URL for inbound SMS
-TWILIO_WEBHOOK_URL=https://getdistill.ai/api/webhooks/twilio
+TWILIO_WEBHOOK_URL=https://hello-clio.com/api/webhooks/twilio
 ```
 
 **Usage:**
@@ -1698,13 +1698,13 @@ TWILIO_WEBHOOK_URL=https://getdistill.ai/api/webhooks/twilio
 RESEND_API_KEY=PLACEHOLDER_RESEND_API_KEY
 
 # From email (must be verified domain)
-RESEND_FROM_EMAIL=hello@getdistill.ai
+RESEND_FROM_EMAIL=hello@hello-clio.com
 RESEND_FROM_NAME=Distill
 ```
 
 **Usage:**
 - All transactional emails sent from `RESEND_FROM_EMAIL`
-- Domain `getdistill.ai` must be verified in Resend dashboard
+- Domain `hello-clio.com` must be verified in Resend dashboard
 
 ---
 
@@ -1755,7 +1755,7 @@ INNGEST_SIGNING_KEY=PLACEHOLDER_INNGEST_SIGNING_KEY
 
 ```bash
 # Public app URL
-NEXT_PUBLIC_APP_URL=https://getdistill.ai
+NEXT_PUBLIC_APP_URL=https://hello-clio.com
 
 # Node environment
 NODE_ENV=development

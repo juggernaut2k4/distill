@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
 
     // Verify Twilio webhook signature
     const signature = request.headers.get('x-twilio-signature') ?? ''
-    const webhookUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? 'https://getdistill.ai'}/api/ask`
+    const webhookUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'}/api/ask`
 
     if (!verifyTwilioSignature(request, bodyRecord, webhookUrl)) {
       return NextResponse.json({ error: 'Invalid signature' }, { status: 403 })

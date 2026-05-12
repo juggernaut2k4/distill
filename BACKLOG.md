@@ -6,12 +6,12 @@ These are the tasks that require your personal action — account creation, fina
 
 ## Day 1 — Do These First (Accounts & Keys)
 
-- [ ] **1. Register domain** — buy `getdistill.ai` or `distill.ai` at Namecheap / GoDaddy / Cloudflare Registrar
+- [ ] **1. Register domain** — buy `hello-clio.com` or `distill.ai` at Namecheap / GoDaddy / Cloudflare Registrar
 - [ ] **2. Create Vercel account** — vercel.com → sign up with GitHub → import the `distill` repo once it's pushed
 - [ ] **3. Create Supabase project** — supabase.com → New project → name it `distill-prod` → copy URL + anon key + service role key
 - [ ] **4. Create Clerk application** — clerk.com → New application → name it `Distill` → copy publishable key + secret key
 - [ ] **5. Create Stripe account** — stripe.com → complete business verification → copy publishable key + secret key
-- [ ] **6. Create Resend account** — resend.com → add and verify your domain → create API key → set FROM address to hello@getdistill.ai
+- [ ] **6. Create Resend account** — resend.com → add and verify your domain → create API key → set FROM address to hello@hello-clio.com
 - [ ] **7. Create Twilio account** — twilio.com → complete identity verification → buy 2–3 US phone numbers for the shared pool → copy Account SID + Auth Token
 - [ ] **8. Create Anthropic account (API)** — console.anthropic.com → add payment method → create API key
 - [ ] **9. Create NewsAPI account** — newsapi.org → sign up → copy API key
@@ -30,10 +30,10 @@ These are the tasks that require your personal action — account creation, fina
   - Executive Monthly: $49.00/mo recurring
   - Executive Annual: $399.00/yr recurring
   - Copy all 6 Price IDs into Vercel env vars
-- [ ] **13. Set up Stripe webhook** — Stripe dashboard → Webhooks → Add endpoint → URL: `https://getdistill.ai/api/webhooks/stripe` → select events: customer.subscription.*, invoice.payment_failed
-- [ ] **14. Set up Twilio webhook** — for each phone number you bought → configure inbound SMS webhook URL: `https://getdistill.ai/api/webhooks/twilio`
+- [ ] **13. Set up Stripe webhook** — Stripe dashboard → Webhooks → Add endpoint → URL: `https://hello-clio.com/api/webhooks/stripe` → select events: customer.subscription.*, invoice.payment_failed
+- [ ] **14. Set up Twilio webhook** — for each phone number you bought → configure inbound SMS webhook URL: `https://hello-clio.com/api/webhooks/twilio`
 - [ ] **15. Run Supabase migration** — in your terminal: `npx supabase db push` (or paste schema.sql into Supabase SQL editor)
-- [ ] **16. Connect domain to Vercel** — Vercel project → Domains → add getdistill.ai → update DNS at your registrar
+- [ ] **16. Connect domain to Vercel** — Vercel project → Domains → add hello-clio.com → update DNS at your registrar
 
 ---
 
@@ -61,7 +61,7 @@ These are the tasks that require your personal action — account creation, fina
 ## Growth (After Launch)
 
 - [ ] **28. Set up Stripe Customer Portal** — Stripe dashboard → Customer Portal → enable plan switching + cancellation
-- [ ] **29. Set up email DNS records** — SPF, DKIM, DMARC for getdistill.ai via Resend → improves deliverability
+- [ ] **29. Set up email DNS records** — SPF, DKIM, DMARC for hello-clio.com via Resend → improves deliverability
 - [ ] **30. Connect analytics** — add Vercel Analytics or Posthog to track onboarding drop-off, conversion
 
 ---

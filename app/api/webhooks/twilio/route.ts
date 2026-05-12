@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
     // Verify Twilio webhook signature
     const signature = request.headers.get('x-twilio-signature') ?? ''
     const webhookUrl = process.env.TWILIO_WEBHOOK_URL ??
-      `${process.env.NEXT_PUBLIC_APP_URL ?? 'https://getdistill.ai'}/api/webhooks/twilio`
+      `${process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'}/api/webhooks/twilio`
 
     if (!verifyTwilioSignature(request, bodyRecord, webhookUrl)) {
       return NextResponse.json({ error: 'Invalid Twilio signature' }, { status: 403 })
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     const intent = parseInboundSMS(messageBody)
 
     // Route to the appropriate handler
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://getdistill.ai'
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
 
     if (intent === 'feedback_yes' || intent === 'feedback_no') {
       // Forward to feedback handler

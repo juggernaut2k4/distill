@@ -43,7 +43,7 @@ export async function createCheckoutSession(
     return `${process.env.NEXT_PUBLIC_APP_URL}/dashboard?welcome=1&mock=1`
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://getdistill.ai'
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
 
   const session = await stripeClient.checkout.sessions.create({
     mode: 'subscription',
@@ -72,7 +72,7 @@ export async function createPortalSession(customerId: string): Promise<string> {
     return `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/billing?mock=1`
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://getdistill.ai'
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
   const session = await stripeClient.billingPortal.sessions.create({
     customer: customerId,
     return_url: `${appUrl}/dashboard/billing`,

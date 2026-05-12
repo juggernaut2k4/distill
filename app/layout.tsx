@@ -11,7 +11,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: 'Distill — AI, distilled.',
     description: '15 seconds a day. Zero jargon. Total confidence.',
-    url: 'https://getdistill.ai',
+    url: 'https://hello-clio.com',
     siteName: 'Distill',
     locale: 'en_US',
     type: 'website',
