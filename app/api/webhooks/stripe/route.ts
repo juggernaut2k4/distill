@@ -7,6 +7,7 @@ import {
   sendWelcomeEmail,
   type User,
 } from '@/lib/delivery/email'
+import { sendSMS } from '@/lib/delivery/sms'
 import type Stripe from 'stripe'
 
 /**
@@ -146,6 +147,76 @@ export async function POST(request: NextRequest) {
 
         if (user) {
           await sendTrialEndingEmail(user as User)
+        }
+
+        break
+      }
+
+      case 'checkout.session.completed': {
+        const session = event.data.object as Stripe.Checkout.Session
+        if (session.metadata?.type !== 'topup') break
+
+        const userId = session.metadata?.user_id
+        const minutes = parseInt(session.metadata?.minutes ?? '0', 10)
+        if (!userId || !minutes) break
+
+        // Credit minutes using the add_minutes DB function
+        const { data: newBalance, error: rpcError } = await supabase.rpc('add_minutes', {
+          p_user_id: userId,
+          p_minutes: minutes,
+        })
+
+        if (rpcError) {
+          console.error('[stripe-webhook] add_minutes RPC error:', rpcError)
+          break
+        }
+
+        console.log(`[stripe-webhook] Top-up: +${minutes} min for user ${userId}, new balance: ${newBalance}`)
+
+        // Notify user
+        const { data: user } = await supabase
+          .from('users')
+          .select('id, email, role, industry, ai_maturity, phone, twilio_number_assigned')
+          .eq('id', userId)
+          .single()
+
+        if (user?.email) {
+          const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
+          // Fire-and-forget top-up confirmation email (plain transactional, reuse sendWelcomeEmail pattern)
+          const { Resend } = await import('resend')
+          const resendKey = process.env.RESEND_API_KEY
+          if (resendKey && !resendKey.startsWith('PLACEHOLDER_')) {
+            const resend = new Resend(resendKey)
+            const fromName = process.env.RESEND_FROM_NAME ?? 'Clio'
+            const fromEmail = process.env.RESEND_FROM_EMAIL ?? 'hello@hello-clio.com'
+            resend.emails.send({
+              from: `${fromName} <${fromEmail}>`,
+              to: user.email,
+              subject: `${minutes} minutes added to your Clio account`,
+              html: `<!DOCTYPE html><html><body style="background:#080808;color:#fff;font-family:Inter,system-ui,sans-serif;margin:0;padding:0;">
+<table width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;padding:40px 24px;">
+<tr><td>
+<p style="color:#7C3AED;font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin:0 0 32px;">CLIO</p>
+<h1 style="color:#fff;font-size:28px;font-weight:800;margin:0 0 12px;">Minutes added.</h1>
+<p style="color:#94A3B8;font-size:16px;line-height:1.7;margin:0 0 24px;">
+  <strong style="color:#10B981;">${minutes} coaching minutes</strong> have been added to your account.<br>
+  New balance: <strong style="color:#fff;">${newBalance} minutes</strong>.
+</p>
+<a href="${appUrl}/dashboard/schedule" style="background:#7C3AED;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:700;display:inline-block;">Schedule Your Sessions →</a>
+</td></tr>
+</table>
+</body></html>`,
+            }).catch(console.error)
+          }
+        }
+
+        if (user?.phone && user?.twilio_number_assigned) {
+          const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
+          sendSMS(
+            user.phone,
+            user.twilio_number_assigned,
+            `Clio: ${minutes} minutes added! New balance: ${newBalance} min. Ready to schedule: ${appUrl}/dashboard/schedule`
+          ).catch(console.error)
         }
 
         break

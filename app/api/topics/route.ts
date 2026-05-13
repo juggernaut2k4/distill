@@ -32,7 +32,11 @@ export async function POST(request: NextRequest) {
 
   const { error: updateError } = await supabase
     .from('users')
-    .update({ topic_interests: parsed.data.topics })
+    .update({
+      topic_interests: parsed.data.topics,
+      needs_recalibration: false,
+      plan_approved: false,
+    })
     .eq('id', userId!)
 
   if (!updateError) {
