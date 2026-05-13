@@ -107,7 +107,7 @@ export const dailyDelivery = inngest.createFunction(
               user.phone
             ) {
               const fromNumber = user.twilio_number_assigned
-              const smsBody = `${contentPlan.smsContent}\n\nReply Y if useful, N if not — Distill`
+              const smsBody = `${contentPlan.smsContent}\n\nReply Y if useful, N if not — Clio`
 
               const smsResult = await sendSMS(user.phone, fromNumber, smsBody)
 

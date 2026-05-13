@@ -124,7 +124,7 @@ export const feedbackProcessor = inngest.createFunction(
           await sendSMS(
             user.phone,
             user.twilio_number_assigned,
-            'We\'re recalibrating your Distill plan to better match your needs. Your next insight will be different. — Distill'
+            'We\'re recalibrating your Clio plan to better match your needs. Your next insight will be different. — Clio'
           )
         }
       })

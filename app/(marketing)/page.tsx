@@ -58,7 +58,7 @@ function Hero() {
             </p>
 
             <div className="flex flex-col sm:flex-row gap-4 mb-10">
-              <Link href="/onboarding">
+              <Link href="/onboarding?plan=free">
                 <Button size="lg" className="gap-2">
                   Start free — no card needed
                   <ArrowRight size={20} />
@@ -119,7 +119,7 @@ function PhoneMockup() {
       <div className="px-4 py-5 space-y-3">
         <div className="flex items-center gap-2 mb-4">
           <div className="w-8 h-8 rounded-full bg-[#7C3AED] flex items-center justify-center">
-            <span className="text-xs font-bold text-white">D</span>
+            <span className="text-xs font-bold text-white">C</span>
           </div>
           <div>
             <p className="text-xs font-semibold text-white">Clio</p>
@@ -553,7 +553,7 @@ function BottomCTA() {
           <p className="text-xl text-[#94A3B8] mb-10">
             Are you?
           </p>
-          <Link href="/onboarding">
+          <Link href="/onboarding?plan=free">
             <Button size="lg" className="gap-2">
               Start free — 15 seconds to set up
               <ArrowRight size={20} />

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { ProgressBar } from '@/components/onboarding/ProgressBar'
@@ -80,7 +80,7 @@ const DELIVERY_MAP: Record<string, string> = {
   'Both Email + SMS': 'both',
 }
 
-export default function OnboardingPage() {
+function OnboardingContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [step, setStep] = useState(0)
@@ -183,6 +183,14 @@ export default function OnboardingPage() {
         </p>
       </div>
     </div>
+  )
+}
+
+export default function OnboardingPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#080808]" />}>
+      <OnboardingContent />
+    </Suspense>
   )
 }
 

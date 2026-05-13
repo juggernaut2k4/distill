@@ -52,7 +52,7 @@ export async function sendDailyEmail(
     framework: 'Your AI evaluation framework',
   }
 
-  const subject = subjectMap[contentItem.type] ?? 'Your daily AI insight from Distill'
+  const subject = subjectMap[contentItem.type] ?? 'Your daily AI insight from Clio'
 
   try {
     const result = await resend.emails.send({
@@ -93,7 +93,7 @@ export async function sendWeeklyDigest(
     const result = await resend.emails.send({
       from: FROM,
       to: user.email,
-      subject: 'Your weekly AI digest from Distill',
+      subject: 'Your weekly AI digest from Clio',
       html: buildWeeklyDigestHtml(user, items),
       text: items.map((i, idx) => `${idx + 1}. ${i.body_text}`).join('\n\n'),
     })
@@ -124,9 +124,9 @@ export async function sendPaymentFailedEmail(user: User): Promise<EmailResult> {
     const result = await resend.emails.send({
       from: FROM,
       to: user.email,
-      subject: 'Action required: Update your Distill payment method',
-      html: `<p>Hi there,</p><p>We couldn't process your recent Distill payment. Please update your payment method to continue receiving your daily AI insights.</p><p><a href="${process.env.NEXT_PUBLIC_APP_URL}/dashboard/billing">Update payment method</a></p>`,
-      text: `We couldn't process your Distill payment. Please visit ${process.env.NEXT_PUBLIC_APP_URL}/dashboard/billing to update your payment method.`,
+      subject: 'Action required: Update your Clio payment method',
+      html: `<p>Hi there,</p><p>We couldn't process your recent Clio payment. Please update your payment method to continue receiving your daily AI insights.</p><p><a href="${process.env.NEXT_PUBLIC_APP_URL}/dashboard/billing">Update payment method</a></p>`,
+      text: `We couldn't process your Clio payment. Please visit ${process.env.NEXT_PUBLIC_APP_URL}/dashboard/billing to update your payment method.`,
     })
 
     if (result.error) {
@@ -155,9 +155,9 @@ export async function sendTrialEndingEmail(user: User): Promise<EmailResult> {
     const result = await resend.emails.send({
       from: FROM,
       to: user.email,
-      subject: 'Your Distill trial ends in 3 days',
-      html: `<p>Your free trial ends in 3 days. Continue building your AI confidence with a Distill subscription.</p><p><a href="${process.env.NEXT_PUBLIC_APP_URL}/pricing">Choose your plan</a></p>`,
-      text: `Your Distill trial ends in 3 days. Visit ${process.env.NEXT_PUBLIC_APP_URL}/pricing to subscribe.`,
+      subject: 'Your Clio trial ends in 3 days',
+      html: `<p>Your free trial ends in 3 days. Continue building your AI confidence with a Clio subscription.</p><p><a href="${process.env.NEXT_PUBLIC_APP_URL}/pricing">Choose your plan</a></p>`,
+      text: `Your Clio trial ends in 3 days. Visit ${process.env.NEXT_PUBLIC_APP_URL}/pricing to subscribe.`,
     })
 
     if (result.error) {
@@ -186,9 +186,9 @@ export async function sendRecalibrationEmail(user: User): Promise<EmailResult> {
     const result = await resend.emails.send({
       from: FROM,
       to: user.email,
-      subject: 'We\'re adjusting your Distill plan',
+      subject: 'We\'re adjusting your Clio plan',
       html: `<p>We noticed your recent insights weren't hitting the mark. We're recalibrating your AI learning plan to better match your needs.</p><p>Your next insight will reflect the update.</p>`,
-      text: `We're recalibrating your Distill learning plan. Your next insight will better match your needs.`,
+      text: `We're recalibrating your Clio learning plan. Your next insight will better match your needs.`,
     })
 
     if (result.error) {
@@ -211,7 +211,7 @@ function buildDailyEmailHtml(user: User, item: ContentItem): string {
 <body style="background:#080808;color:#ffffff;font-family:Inter,system-ui,sans-serif;margin:0;padding:0;">
   <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;padding:40px 24px;">
     <tr><td>
-      <p style="color:#7C3AED;font-size:12px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin:0 0 32px;">DISTILL</p>
+      <p style="color:#7C3AED;font-size:12px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin:0 0 32px;">CLIO</p>
       <div style="background:#111111;border:1px solid #222222;border-radius:12px;padding:32px;">
         <p style="color:#94A3B8;font-size:12px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;margin:0 0 16px;">${item.type.toUpperCase()}</p>
         <p style="color:#ffffff;font-size:16px;line-height:1.7;margin:0 0 32px;">${item.body_text}</p>
@@ -247,7 +247,7 @@ function buildWeeklyDigestHtml(user: User, items: ContentItem[]): string {
 <body style="background:#080808;color:#ffffff;font-family:Inter,system-ui,sans-serif;margin:0;padding:0;">
   <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;padding:40px 24px;">
     <tr><td>
-      <p style="color:#7C3AED;font-size:12px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin:0 0 8px;">DISTILL</p>
+      <p style="color:#7C3AED;font-size:12px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin:0 0 8px;">CLIO</p>
       <h1 style="color:#ffffff;font-size:28px;font-weight:700;margin:0 0 8px;">Your weekly AI digest</h1>
       <p style="color:#94A3B8;margin:0 0 32px;">Your top insights from the week</p>
       <div style="background:#111111;border:1px solid #222222;border-radius:12px;padding:32px;">
