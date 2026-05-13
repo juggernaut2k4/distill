@@ -61,8 +61,8 @@ const QUESTIONS = [
     question: 'How should we reach you?',
     options: [
       'Email only',
-      'SMS only',
-      'Both Email + SMS',
+      'Both Email + SMS (Pro & Executive)',
+      'SMS only (Pro & Executive)',
     ],
   },
 ]
@@ -76,8 +76,8 @@ const MATURITY_MAP: Record<string, string> = {
 
 const DELIVERY_MAP: Record<string, string> = {
   'Email only': 'email',
-  'SMS only': 'sms',
-  'Both Email + SMS': 'both',
+  'Both Email + SMS (Pro & Executive)': 'both',
+  'SMS only (Pro & Executive)': 'sms',
 }
 
 function OnboardingContent() {
@@ -115,6 +115,8 @@ function OnboardingContent() {
   }
 
   async function submitOnboarding() {
+    // Save answers to localStorage — the API call happens AFTER Clerk auth
+    // so the record is created with the real userId, not an anon one.
     const payload = {
       role: answers.role,
       industry: answers.industry,
@@ -123,18 +125,9 @@ function OnboardingContent() {
       deliveryPreference: DELIVERY_MAP[answers.deliveryPreference] ?? 'email',
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     }
+    localStorage.setItem('clio_onboarding', JSON.stringify(payload))
 
-    try {
-      await fetch('/api/onboarding', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-    } catch {
-      // Non-fatal — we still redirect
-    }
-
-    // After 2 seconds of "building" animation, redirect to sign-up
+    // After 2 seconds of animation, redirect to sign-up
     setTimeout(() => {
       router.push('/sign-up')
     }, 2000)
@@ -213,7 +206,7 @@ function BuildingScreen() {
         </div>
       </div>
 
-      <h2 className="text-3xl font-bold text-white mb-3">Building your plan...</h2>
+      <h2 className="text-3xl font-bold text-white mb-3">Got it.</h2>
 
       <motion.p
         initial={{ opacity: 0 }}
@@ -221,7 +214,7 @@ function BuildingScreen() {
         transition={{ delay: 0.5 }}
         className="text-[#94A3B8] text-center"
       >
-        Calibrating your AI learning path...
+        Creating your account to save your preferences...
       </motion.p>
 
       {/* Particle dots */}

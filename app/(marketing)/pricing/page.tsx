@@ -7,6 +7,7 @@ import { CheckCircle, ArrowRight } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
+import MarketingNav from '@/components/marketing/MarketingNav'
 
 const plans = [
   {
@@ -73,7 +74,8 @@ export default function PricingPage() {
   const [annual, setAnnual] = useState(false)
 
   return (
-    <main className="min-h-screen bg-[#080808] py-24 px-6">
+    <main className="min-h-screen bg-[#080808] pt-32 pb-24 px-6">
+      <MarketingNav />
       <div className="max-w-6xl mx-auto">
         {/* Header */}
         <motion.div

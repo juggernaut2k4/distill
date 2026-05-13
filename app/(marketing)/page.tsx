@@ -10,6 +10,7 @@ import {
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
+import MarketingNav from '@/components/marketing/MarketingNav'
 
 // ─── Hero ────────────────────────────────────────────────────────────────────
 
@@ -580,6 +581,7 @@ function BottomCTA() {
 export default function LandingPage() {
   return (
     <main className="bg-[#080808]">
+      <MarketingNav />
       <Hero />
       <ProblemSection />
       <HowItWorks />

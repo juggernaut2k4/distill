@@ -9,6 +9,21 @@ export default function CheckoutRedirectPage() {
 
   useEffect(() => {
     async function startCheckout() {
+      // Flush any pending onboarding data now that the user is authenticated
+      const onboardingRaw = localStorage.getItem('clio_onboarding')
+      if (onboardingRaw) {
+        try {
+          await fetch('/api/onboarding', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: onboardingRaw,
+          })
+        } catch {
+          // Non-fatal — continue to checkout
+        }
+        localStorage.removeItem('clio_onboarding')
+      }
+
       const plan = localStorage.getItem('clio_selected_plan') ?? 'starter'
 
       // Free plan — skip checkout, go straight to dashboard

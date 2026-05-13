@@ -64,6 +64,7 @@ export const sessionReminder = inngest.createFunction(
           }
 
           const sessionSummary: SessionSummary = {
+            id: session.id as string,
             sessionIndex: session.session_index as number,
             title: session.session_title as string,
             scheduledAt: session.scheduled_at as string,

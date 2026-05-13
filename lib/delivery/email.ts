@@ -632,8 +632,11 @@ function buildSessionReminderEmailHtml(session: SessionSummary, appUrl: string):
           <p style="color:#94A3B8;font-size:13px;margin:0;">Join link will be available when sessions go live.</p>
         </div>
       </div>
-      <div style="text-align:center;">
-        <a href="${appUrl}/dashboard/sessions" style="background:#7C3AED;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:700;display:inline-block;">View My Plan →</a>
+      <div style="text-align:center;margin-bottom:16px;">
+        ${session.id
+          ? `<a href="${appUrl}/api/sessions/${session.id}/calendar" style="display:inline-block;padding:10px 24px;border:1px solid #333333;border-radius:8px;color:#94A3B8;font-size:13px;text-decoration:none;margin-bottom:16px;">+ Add to Calendar</a><br>`
+          : ''}
+        <a href="${appUrl}/dashboard/sessions" style="background:#7C3AED;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:700;display:inline-block;">View My Sessions →</a>
       </div>
     </td></tr>
   </table>
