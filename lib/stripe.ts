@@ -40,7 +40,7 @@ export async function createCheckoutSession(
 ): Promise<string> {
   if (isPlaceholder || !stripeClient) {
     console.log('[MOCK] createCheckoutSession', { userId, priceId })
-    return `${process.env.NEXT_PUBLIC_APP_URL}/dashboard?welcome=1&mock=1`
+    return `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/welcome`
   }
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'

@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
       // Mock mode: return a mock checkout URL
       console.log('[MOCK] createCheckoutSession', { plan, billingPeriod, userId })
       return NextResponse.json({
-        checkoutUrl: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard?welcome=1&plan=${plan}&mock=1`,
+        checkoutUrl: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/welcome`,
       })
     }
 
