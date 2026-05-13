@@ -8,7 +8,7 @@ import { MessageCard } from '@/components/dashboard/MessageCard'
 import { DeliveryToggle } from '@/components/dashboard/DeliveryToggle'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
-import { MessageSquare, ArrowRight, Timer } from 'lucide-react'
+import { MessageSquare, ArrowRight, Timer, RefreshCw } from 'lucide-react'
 import Link from 'next/link'
 
 interface DeliveryEntry {
@@ -34,6 +34,7 @@ interface User {
   minutes_balance?: number | null
   minutes_included?: number | null
   plan_approved?: boolean | null
+  needs_recalibration?: boolean | null
 }
 
 interface DashboardClientProps {
@@ -61,6 +62,7 @@ export default function DashboardClient({
   const minutesPct = minutesIncluded > 0 ? Math.round((minutesBalance / minutesIncluded) * 100) : 0
   const minutesColor = minutesPct > 50 ? '#10B981' : minutesPct > 20 ? '#F59E0B' : '#EF4444'
   const planPending = !user.plan_approved && planTier !== 'free'
+  const needsRecalibration = user.needs_recalibration ?? false
 
   async function handleDeliveryChange(pref: 'email' | 'sms' | 'both') {
     setDeliveryPref(pref)
@@ -82,6 +84,27 @@ export default function DashboardClient({
 
   return (
     <div className="space-y-8">
+      {/* Recalibration banner */}
+      {needsRecalibration && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex items-center justify-between px-4 py-3 rounded-xl border border-cyan-800/30 bg-cyan-950/20"
+        >
+          <div className="flex items-center gap-3">
+            <RefreshCw size={16} className="text-[#06B6D4] flex-shrink-0" />
+            <p className="text-sm text-[#67E8F9] font-medium">
+              We&apos;re adjusting your plan based on your feedback — your next insights will be even better calibrated.
+            </p>
+          </div>
+          <Link href="/topics">
+            <Button variant="secondary" size="sm" className="gap-1.5 whitespace-nowrap ml-4">
+              Update topics <ArrowRight size={13} />
+            </Button>
+          </Link>
+        </motion.div>
+      )}
+
       {/* Plan pending banner */}
       {planPending && (
         <motion.div

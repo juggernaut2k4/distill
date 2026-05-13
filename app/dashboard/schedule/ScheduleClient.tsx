@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
+import { TopUpModal } from '@/components/ui/TopUpModal'
 import { buildCurriculum } from '@/lib/content/curriculum'
 import { scheduleSessions, totalMinutesNeeded, checkMinutesSufficiency } from '@/lib/sessions/planner'
 
@@ -74,8 +75,8 @@ export default function ScheduleClient({ user, existingSessions }: ScheduleClien
   const [maxDuration, setMaxDuration] = useState(30)
   const [preferredHour, setPreferredHour] = useState(9)
   const [saving, setSaving] = useState(false)
-  // confirmed: true once the user successfully posts the schedule
   const [confirmed, setConfirmed] = useState(false)
+  const [topUpOpen, setTopUpOpen] = useState(false)
 
   const plan = useMemo(() => buildCurriculum(
     user.topic_interests ?? [],
@@ -251,7 +252,7 @@ export default function ScheduleClient({ user, existingSessions }: ScheduleClien
                 Your balance ({balance} min) won&apos;t cover all sessions ({totalNeeded} min needed).
                 Recommended: <strong className="text-white">{recommendedPack}</strong>
               </p>
-              <Button variant="secondary" size="sm" className="gap-1.5">
+              <Button variant="secondary" size="sm" className="gap-1.5" onClick={() => setTopUpOpen(true)}>
                 <Zap size={13} />
                 Top up minutes
               </Button>
@@ -409,6 +410,12 @@ export default function ScheduleClient({ user, existingSessions }: ScheduleClien
           </p>
         )}
       </motion.div>
+
+      <TopUpModal
+        open={topUpOpen}
+        onClose={() => setTopUpOpen(false)}
+        currentBalance={balance}
+      />
     </div>
   )
 }

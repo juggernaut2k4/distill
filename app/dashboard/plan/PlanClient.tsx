@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { CheckCircle, Clock, ChevronDown, ChevronUp, ArrowRight, Sparkles, BookOpen, Tag } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
+import { TopUpModal } from '@/components/ui/TopUpModal'
 import { FlowDiagram } from '@/components/diagrams/FlowDiagram'
 import { buildCurriculum, type CurriculumPlan } from '@/lib/content/curriculum'
 import type { FlowNode, FlowEdge, FlowGroup } from '@/components/diagrams/FlowDiagram'
@@ -35,6 +36,7 @@ export default function PlanClient({ user }: { user: User }) {
   const [approving, setApproving] = useState(false)
   const [approved, setApproved] = useState(user.plan_approved ?? false)
   const [showDiagram, setShowDiagram] = useState(false)
+  const [topUpOpen, setTopUpOpen] = useState(false)
 
   useEffect(() => {
     const topics = user.topic_interests ?? []
@@ -167,7 +169,7 @@ export default function PlanClient({ user }: { user: User }) {
             <p className="text-sm text-[#FCD34D]">
               You need {totalMins - balance} more minutes to complete this plan.
             </p>
-            <Button variant="secondary" size="sm" className="gap-1 whitespace-nowrap">
+            <Button variant="secondary" size="sm" className="gap-1 whitespace-nowrap" onClick={() => setTopUpOpen(true)}>
               Top up minutes <ArrowRight size={14} />
             </Button>
           </motion.div>
@@ -301,7 +303,27 @@ export default function PlanClient({ user }: { user: User }) {
         </motion.div>
       )}
 
-      {approved && (
+      {approved && !approving && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.4 }}
+          className="flex items-center gap-4 flex-wrap"
+        >
+          <Button onClick={() => router.push('/dashboard/schedule')} size="lg" className="gap-2">
+            Go to Schedule
+            <ArrowRight size={18} />
+          </Button>
+          <button
+            className="text-sm text-[#475569] hover:text-[#94A3B8] transition-colors"
+            onClick={() => router.push('/topics')}
+          >
+            Change topics →
+          </button>
+        </motion.div>
+      )}
+
+      {approving && (
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -314,6 +336,12 @@ export default function PlanClient({ user }: { user: User }) {
           </div>
         </motion.div>
       )}
+
+      <TopUpModal
+        open={topUpOpen}
+        onClose={() => setTopUpOpen(false)}
+        currentBalance={user.minutes_balance ?? 0}
+      />
     </div>
   )
 }

@@ -117,7 +117,7 @@ export function FlowDiagram({
           if (groupPositions.length === 0) return null
 
           const minX = Math.min(...groupPositions.map((p) => p.x)) - GROUP_PAD
-          const minY = Math.min(...groupPositions.map((p) => p.y)) - GROUP_PAD - 24
+          const minY = Math.max(4, Math.min(...groupPositions.map((p) => p.y)) - GROUP_PAD - 24)
           const maxX = Math.max(...groupPositions.map((p) => p.x + NODE_W)) + GROUP_PAD
           const maxY = Math.max(...groupPositions.map((p) => p.y + NODE_H)) + GROUP_PAD
 

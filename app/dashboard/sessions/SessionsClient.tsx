@@ -2,7 +2,7 @@
 
 import { motion } from 'framer-motion'
 import Link from 'next/link'
-import { Clock, CalendarDays, PlusCircle } from 'lucide-react'
+import { Clock, CalendarDays, PlusCircle, ChevronRight } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 
 interface Session {
@@ -52,41 +52,46 @@ function SessionRow({ session, index }: { session: Session; index: number }) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, delay: index * 0.06 }}
     >
-      <Card className="p-4 flex items-center gap-4">
-        {/* Session number badge */}
-        <div className="w-9 h-9 rounded-full bg-purple-950/50 border border-purple-800/40 flex items-center justify-center flex-shrink-0">
-          <span className="text-xs font-bold text-[#A855F7]">{session.session_index}</span>
-        </div>
-
-        {/* Info */}
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-white truncate">{title}</p>
-          <div className="flex items-center gap-1 mt-0.5">
-            <CalendarDays size={11} className="text-[#475569]" />
-            <p className="text-xs text-[#475569]">{dateStr}</p>
+      <Link href={`/dashboard/sessions/${session.id}`} className="block group">
+        <Card className="p-4 flex items-center gap-4 group-hover:border-[#333] transition-colors cursor-pointer">
+          {/* Session number badge */}
+          <div className="w-9 h-9 rounded-full bg-purple-950/50 border border-purple-800/40 flex items-center justify-center flex-shrink-0">
+            <span className="text-xs font-bold text-[#A855F7]">{session.session_index}</span>
           </div>
-        </div>
 
-        {/* Duration */}
-        <div className="flex items-center gap-1 text-xs text-[#475569] flex-shrink-0">
-          <Clock size={12} />
-          ~{session.duration_mins}m
-        </div>
+          {/* Info */}
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-white truncate">{title}</p>
+            <div className="flex items-center gap-1 mt-0.5">
+              <CalendarDays size={11} className="text-[#475569]" />
+              <p className="text-xs text-[#475569]">{dateStr}</p>
+            </div>
+          </div>
 
-        {/* Status badge */}
-        <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium flex-shrink-0 ${status.className}`}>
-          {status.label}
-        </span>
+          {/* Duration */}
+          <div className="flex items-center gap-1 text-xs text-[#475569] flex-shrink-0">
+            <Clock size={12} />
+            ~{session.duration_mins}m
+          </div>
 
-        {/* Add to Calendar */}
-        <a
-          href={`/api/sessions/${session.id}/calendar`}
-          className="text-xs text-[#475569] hover:text-[#94A3B8] transition-colors whitespace-nowrap flex-shrink-0"
-          title="Add to Calendar"
-        >
-          + Cal
-        </a>
-      </Card>
+          {/* Status badge */}
+          <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium flex-shrink-0 ${status.className}`}>
+            {status.label}
+          </span>
+
+          {/* Add to Calendar — stop propagation so it doesn't navigate */}
+          <a
+            href={`/api/sessions/${session.id}/calendar`}
+            onClick={(e) => e.stopPropagation()}
+            className="text-xs text-[#475569] hover:text-[#94A3B8] transition-colors whitespace-nowrap flex-shrink-0"
+            title="Add to Calendar"
+          >
+            + Cal
+          </a>
+
+          <ChevronRight size={14} className="text-[#333] group-hover:text-[#475569] transition-colors flex-shrink-0" />
+        </Card>
+      </Link>
     </motion.div>
   )
 }
