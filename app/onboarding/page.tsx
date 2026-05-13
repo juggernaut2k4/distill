@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { ProgressBar } from '@/components/onboarding/ProgressBar'
 import { QuestionCard } from '@/components/onboarding/QuestionCard'
 import { Button } from '@/components/ui/Button'
-import { ArrowRight } from 'lucide-react'
+import { ArrowRight, ArrowLeft } from 'lucide-react'
 
 const QUESTIONS = [
   {
@@ -101,6 +101,12 @@ function OnboardingContent() {
     setAnswers((prev) => ({ ...prev, [current.id]: option }))
   }
 
+  function handleBack() {
+    if (step === 0) return
+    setDirection('left')
+    setStep((s) => s - 1)
+  }
+
   function handleNext() {
     if (!selectedOption) return
 
@@ -157,13 +163,22 @@ function OnboardingContent() {
           initial={{ opacity: 0 }}
           animate={{ opacity: selectedOption ? 1 : 0 }}
           transition={{ duration: 0.3 }}
-          className="mt-8 w-full max-w-sm"
+          className="mt-8 w-full max-w-sm flex items-center gap-3"
         >
+          {step > 0 && (
+            <button
+              onClick={handleBack}
+              className="flex items-center justify-center w-12 h-12 rounded-xl border border-[#333333] text-[#94A3B8] hover:text-white hover:border-[#555555] transition-colors flex-shrink-0"
+              aria-label="Go back"
+            >
+              <ArrowLeft size={18} />
+            </button>
+          )}
           <Button
             onClick={handleNext}
             disabled={!selectedOption}
             size="lg"
-            className="w-full gap-2"
+            className="flex-1 gap-2"
           >
             {step === QUESTIONS.length - 1 ? 'Build my plan' : 'Next'}
             <ArrowRight size={18} />

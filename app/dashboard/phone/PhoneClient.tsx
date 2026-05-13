@@ -110,11 +110,17 @@ export default function PhoneClient({ currentPhone }: PhoneClientProps) {
     setErrorMsg('')
     setLoading(true)
     try {
-      await fetch('/api/phone/send-otp', {
+      const res = await fetch('/api/phone/send-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone }),
       })
+      if (!res.ok) {
+        const data = await res.json() as { error?: string }
+        setErrorMsg(data.error ?? 'Failed to resend code.')
+      }
+    } catch {
+      setErrorMsg('Network error. Please check your connection.')
     } finally {
       setLoading(false)
     }

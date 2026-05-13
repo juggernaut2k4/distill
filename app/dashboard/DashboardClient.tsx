@@ -8,7 +8,7 @@ import { MessageCard } from '@/components/dashboard/MessageCard'
 import { DeliveryToggle } from '@/components/dashboard/DeliveryToggle'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
-import { MessageSquare, ArrowRight, Timer, RefreshCw } from 'lucide-react'
+import { Timer, ArrowRight, RefreshCw } from 'lucide-react'
 import Link from 'next/link'
 
 interface DeliveryEntry {
@@ -153,37 +153,16 @@ export default function DashboardClient({
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.2 }}
         >
-          <Card className="p-6 flex flex-col items-center justify-center min-h-[160px]">
-            <div className="flex flex-col items-center gap-3">
-              <div className="flex items-center gap-2">
-                <MessageSquare size={32} className="text-[#06B6D4]" />
-                <span className="text-4xl font-bold text-white">{monthlyCount}</span>
-              </div>
-              <div className="text-center">
-                <p className="text-sm font-semibold text-white">Messages</p>
-                <p className="text-xs text-[#475569] mt-0.5">this month</p>
-              </div>
+          <Card className="p-6 flex flex-col justify-center min-h-[160px]">
+            <div className="flex items-center gap-2 mb-3">
+              <Timer size={16} style={{ color: minutesColor }} />
+              <span className="text-xs font-semibold uppercase tracking-wider text-[#475569]">Minutes Left</span>
             </div>
-          </Card>
-        </motion.div>
-      </div>
-
-      {/* Minutes balance */}
-      {minutesIncluded > 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.25 }}
-        >
-          <Card className="p-5">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <Timer size={16} className="text-[#06B6D4]" />
-                <span className="text-sm font-semibold text-white">Coaching Minutes</span>
-              </div>
-              <span className="text-xs text-[#475569]">{minutesBalance} / {minutesIncluded} remaining</span>
+            <div className="flex items-end gap-2 mb-3">
+              <span className="text-4xl font-bold text-white">{minutesBalance}</span>
+              <span className="text-sm text-[#475569] mb-1">/ {minutesIncluded} min</span>
             </div>
-            <div className="w-full h-2 bg-[#1A1A1A] rounded-full overflow-hidden">
+            <div className="w-full h-1.5 bg-[#1A1A1A] rounded-full overflow-hidden">
               <motion.div
                 initial={{ width: 0 }}
                 animate={{ width: `${minutesPct}%` }}
@@ -193,13 +172,13 @@ export default function DashboardClient({
               />
             </div>
             {minutesPct <= 20 && (
-              <p className="text-xs mt-2" style={{ color: minutesColor }}>
-                Running low — consider topping up
+              <p className="text-xs mt-1.5" style={{ color: minutesColor }}>
+                Running low
               </p>
             )}
           </Card>
         </motion.div>
-      )}
+      </div>
 
       {/* Row 2: Recent messages */}
       <motion.div

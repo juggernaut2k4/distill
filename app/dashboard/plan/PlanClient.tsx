@@ -50,10 +50,13 @@ export default function PlanClient({ user }: { user: User }) {
   async function handleApprove() {
     setApproving(true)
     try {
-      await fetch('/api/plan/approve', { method: 'POST' })
+      const res = await fetch('/api/plan/approve', { method: 'POST' })
+      if (!res.ok) throw new Error('API error')
       setApproved(true)
-      setTimeout(() => router.push('/dashboard/schedule'), 1200)
+      // Short delay so the success state is visible, then navigate
+      setTimeout(() => router.push('/dashboard/schedule'), 800)
     } catch {
+      alert('Something went wrong. Please try again.')
       setApproving(false)
     }
   }

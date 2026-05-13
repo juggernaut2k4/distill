@@ -5,11 +5,16 @@ import { createCheckoutSession } from '@/lib/stripe'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 
 const CheckoutSchema = z.object({
-  plan: z.enum(['starter', 'pro', 'executive']),
-  billingPeriod: z.enum(['monthly', 'annual']),
+  plan: z.enum(['free', 'starter', 'pro', 'executive']),
+  billingPeriod: z.enum(['monthly', 'annual']).default('monthly'),
 })
 
 const PRICE_ID_MAP: Record<string, Record<string, string | undefined>> = {
+  // 'free' maps to Starter monthly — user gets 3-day trial, card required, charged from day 3
+  free: {
+    monthly: process.env.STRIPE_STARTER_MONTHLY_PRICE_ID,
+    annual: process.env.STRIPE_STARTER_MONTHLY_PRICE_ID,
+  },
   starter: {
     monthly: process.env.STRIPE_STARTER_MONTHLY_PRICE_ID,
     annual: process.env.STRIPE_STARTER_ANNUAL_PRICE_ID,

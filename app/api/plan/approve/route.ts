@@ -26,17 +26,18 @@ export async function POST() {
     .eq('id', userId!)
     .single()
 
+  // Fire-and-forget — never block the 200 on email/SMS failures
   if (user?.email) {
-    await sendPlanApprovedEmail(user as User)
+    sendPlanApprovedEmail(user as User).catch(console.error)
   }
 
   if (user?.phone && user.twilio_number_assigned) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
-    await sendSMS(
+    sendSMS(
       user.phone,
       user.twilio_number_assigned,
       `Clio: Your learning plan is approved! Schedule your first session: ${appUrl}/dashboard/schedule`
-    )
+    ).catch(console.error)
   }
 
   return NextResponse.json({ success: true })
@@ -64,16 +65,16 @@ export async function PUT() {
     .single()
 
   if (user?.email) {
-    await sendPlanReadyEmail(user as User)
+    sendPlanReadyEmail(user as User).catch(console.error)
   }
 
   if (user?.phone && user.twilio_number_assigned) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
-    await sendSMS(
+    sendSMS(
       user.phone,
       user.twilio_number_assigned,
       `Your Clio learning plan is ready! Review and approve it here: ${appUrl}/dashboard/plan — Clio`
-    )
+    ).catch(console.error)
   }
 
   return NextResponse.json({ success: true })

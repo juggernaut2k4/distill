@@ -53,6 +53,9 @@ export async function POST(request: NextRequest) {
           executive: 120,
         }
         const minutesIncluded = minutesMap[resolvedPlan] ?? 30
+        // During trial: give a taste (5 min). On activation, topped up to full minutes.
+        const isTrialing = subscription.status === 'trialing'
+        const minutesBalance = isTrialing ? 5 : minutesIncluded
 
         await supabase
           .from('users')
@@ -60,13 +63,12 @@ export async function POST(request: NextRequest) {
             plan_tier: resolvedPlan,
             stripe_customer_id: subscription.customer as string,
             stripe_subscription_id: subscription.id,
-            subscription_status: 'active',
+            subscription_status: subscription.status,
             minutes_included: minutesIncluded,
-            minutes_balance: minutesIncluded,
+            minutes_balance: minutesBalance,
           })
           .eq('id', userId)
 
-        // Send welcome email
         const { data: user } = await supabase
           .from('users')
           .select('id, email, role, industry, ai_maturity')
@@ -74,7 +76,7 @@ export async function POST(request: NextRequest) {
           .single()
 
         if (user?.email) {
-          await sendWelcomeEmail(user as User, resolvedPlan, minutesIncluded)
+          sendWelcomeEmail(user as User, resolvedPlan, minutesBalance).catch(console.error)
         }
 
         break
@@ -87,14 +89,25 @@ export async function POST(request: NextRequest) {
 
         const priceId = subscription.items.data[0]?.price?.id ?? ''
         const plan = getPlanFromPriceId(priceId)
+        const resolvedPlan = plan === 'unknown' ? 'starter' : plan
         const status = subscription.status
+
+        const minutesMap: Record<string, number> = { starter: 30, pro: 60, executive: 120 }
+        const minutesIncluded = minutesMap[resolvedPlan] ?? 30
+
+        // When trial converts to active, credit full plan minutes
+        const updatePayload: Record<string, unknown> = {
+          plan_tier: resolvedPlan,
+          subscription_status: status,
+        }
+        if (status === 'active') {
+          updatePayload.minutes_included = minutesIncluded
+          updatePayload.minutes_balance = minutesIncluded
+        }
 
         await supabase
           .from('users')
-          .update({
-            plan_tier: plan === 'unknown' ? 'starter' : plan,
-            subscription_status: status,
-          })
+          .update(updatePayload)
           .eq('id', userId)
 
         break

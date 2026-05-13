@@ -31,37 +31,41 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const { phone } = parsed.data
+  let { phone } = parsed.data
+
+  // Normalize to E.164: strip spaces/dashes/parens, prepend +1 if 10 digits (US/CA default)
+  phone = phone.replace(/[\s\-().]/g, '')
+  if (!phone.startsWith('+')) {
+    phone = phone.length === 10 ? `+1${phone}` : `+${phone}`
+  }
 
   // Generate 6-digit OTP
   const otp = Math.floor(100000 + Math.random() * 900000).toString()
-  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString() // 10 minutes
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString()
 
   const supabase = createSupabaseAdminClient()
 
-  // Store OTP on user row — columns phone_otp and phone_otp_expires_at
-  // These are best-effort; if columns don't exist yet the update will be a no-op
   const { error: updateError } = await supabase
     .from('users')
-    .update({
-      phone_otp: otp,
-      phone_otp_expires_at: expiresAt,
-    })
+    .update({ phone_otp: otp, phone_otp_expires_at: expiresAt })
     .eq('id', userId!)
 
   if (updateError) {
     console.error('[send-otp] Failed to store OTP:', updateError.message)
-    // Continue anyway — SMS send still attempted
+    return NextResponse.json({ error: 'Failed to generate code. Please try again.' }, { status: 500 })
   }
 
-  // Use first number from TWILIO_PHONE_POOL as the sender
   const fromNumber = process.env.TWILIO_PHONE_POOL?.split(',')[0]?.trim() ?? '+15550000001'
 
-  await sendSMS(
-    phone,
-    fromNumber,
-    `Your Clio verification code is: ${otp}. Valid for 10 minutes.`
-  )
+  try {
+    await sendSMS(phone, fromNumber, `Your Clio verification code is: ${otp}. Valid for 10 minutes.`)
+  } catch (smsErr) {
+    console.error('[send-otp] SMS send failed:', smsErr)
+    return NextResponse.json(
+      { error: 'Could not send SMS to this number. Check the number and try again.' },
+      { status: 502 }
+    )
+  }
 
   return NextResponse.json({ success: true })
 }

@@ -24,14 +24,9 @@ export default function CheckoutRedirectPage() {
         localStorage.removeItem('clio_onboarding')
       }
 
+      // All plans — including free trial — go through Stripe so a card is collected.
+      // Free maps to Starter price with 3-day trial; charged from day 3.
       const plan = localStorage.getItem('clio_selected_plan') ?? 'starter'
-
-      // Free plan — skip checkout, go straight to dashboard
-      if (plan === 'free') {
-        localStorage.removeItem('clio_selected_plan')
-        router.push('/dashboard')
-        return
-      }
 
       try {
         const res = await fetch('/api/checkout', {
