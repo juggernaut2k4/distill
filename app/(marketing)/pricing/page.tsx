@@ -136,9 +136,16 @@ export default function PricingPage() {
                   )}
 
                   <div className="mb-6">
-                    <p className="text-xs font-bold text-[#475569] uppercase tracking-widest mb-2">
-                      {plan.name}
-                    </p>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs font-bold text-[#475569] uppercase tracking-widest">
+                        {plan.name}
+                      </p>
+                      {annual && plan.priceMonthly > 0 && (
+                        <span className="text-[10px] font-bold text-[#10B981] uppercase tracking-wide px-2 py-0.5 rounded-full bg-green-950/40 border border-green-800/30">
+                          Save ${plan.priceMonthly * 12 - plan.priceAnnual}
+                        </span>
+                      )}
+                    </div>
                     <div className="flex items-baseline gap-1">
                       <span className="text-4xl font-extrabold text-white">
                         {price === 0 ? 'Free' : `$${price}`}

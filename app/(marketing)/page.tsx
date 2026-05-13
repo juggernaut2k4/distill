@@ -488,9 +488,14 @@ function Pricing() {
                 )}
 
                 <div className="mb-6">
-                  <p className="text-sm font-semibold text-[#94A3B8] mb-2">
-                    {plan.name}
-                  </p>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm font-semibold text-[#94A3B8]">{plan.name}</p>
+                    {annual && plan.price.monthly > 0 && (
+                      <span className="text-[10px] font-bold text-[#10B981] uppercase tracking-wide px-2 py-0.5 rounded-full bg-green-950/40 border border-green-800/30">
+                        Save ${plan.price.monthly * 12 - plan.price.annual}
+                      </span>
+                    )}
+                  </div>
                   <div className="flex items-baseline gap-1">
                     <span className="text-4xl font-bold text-white">
                       {plan.price[annual ? 'annual' : 'monthly'] === 0
@@ -501,6 +506,11 @@ function Pricing() {
                       <span className="text-[#475569] text-sm">{plan.period}</span>
                     )}
                   </div>
+                  {annual && plan.price.monthly > 0 && (
+                    <p className="text-xs text-[#475569] mt-1">
+                      ≈ ${Math.round(plan.price.annual / 12)}/month
+                    </p>
+                  )}
                 </div>
 
                 <ul className="space-y-2.5 mb-8 flex-1">
