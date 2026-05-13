@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { requireAuth } from '@/lib/clerk'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { sendSessionsConfirmedEmail, type User, type SessionSummary } from '@/lib/delivery/email'
+import { sendSMS } from '@/lib/delivery/sms'
 
 const ScheduledSessionSchema = z.object({
   sessionIndex: z.number().int().positive(),
@@ -54,24 +55,31 @@ export async function POST(request: NextRequest) {
     status: 'scheduled',
   }))
 
-  const { error: insertError } = await supabase
+  const { data: insertedRows, error: insertError } = await supabase
     .from('sessions')
     .insert(rows)
+    .select('id, session_index')
 
   if (insertError) {
     console.error('[schedule] Insert error:', insertError)
     return NextResponse.json({ error: 'Failed to save sessions' }, { status: 500 })
   }
 
-  // Fire-and-forget confirmation email
+  // Build a map from session_index → uuid so email links use the real ID
+  const indexToId = new Map<number, string>(
+    (insertedRows ?? []).map((r: { id: string; session_index: number }) => [r.session_index, r.id])
+  )
+
+  // Fire-and-forget confirmation email + SMS
   const { data: userRow } = await supabase
     .from('users')
-    .select('id, email, role, industry, ai_maturity')
+    .select('id, email, role, industry, ai_maturity, phone, twilio_number_assigned')
     .eq('id', userId!)
     .single()
 
   if (userRow?.email) {
     const sessionSummaries: SessionSummary[] = parsed.data.sessions.map((s) => ({
+      id: indexToId.get(s.sessionIndex),
       sessionIndex: s.sessionIndex,
       title: s.title,
       scheduledAt: s.scheduledAt,
@@ -79,6 +87,19 @@ export async function POST(request: NextRequest) {
     }))
 
     sendSessionsConfirmedEmail(userRow as User, sessionSummaries).catch(console.error)
+
+    if (userRow.phone && userRow.twilio_number_assigned) {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
+      const first = parsed.data.sessions[0]
+      const firstDate = new Date(first.scheduledAt).toLocaleDateString('en-US', {
+        weekday: 'short', month: 'short', day: 'numeric',
+      })
+      sendSMS(
+        userRow.phone,
+        userRow.twilio_number_assigned,
+        `Clio: ${parsed.data.sessions.length} sessions scheduled! First session: ${first.title} on ${firstDate}. View schedule: ${appUrl}/dashboard/sessions`
+      ).catch(console.error)
+    }
   }
 
   return NextResponse.json({ success: true, count: rows.length })

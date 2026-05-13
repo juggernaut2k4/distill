@@ -18,6 +18,7 @@ export interface User {
 }
 
 export interface SessionSummary {
+  id?: string
   sessionIndex: number
   title: string
   scheduledAt: string
@@ -572,7 +573,7 @@ function buildSessionsConfirmedEmailHtml(sessions: SessionSummary[], appUrl: str
           <p style="color:#7C3AED;font-size:11px;font-weight:700;text-transform:uppercase;margin:0 0 4px;">Session ${s.sessionIndex}</p>
           <p style="color:#ffffff;font-size:14px;font-weight:600;margin:0 0 4px;">${s.title}</p>
           <p style="color:#94A3B8;font-size:13px;margin:0;">${dateStr} at ${timeStr} &middot; ${s.estimatedMinutes} min</p>
-          <p style="margin:6px 0 0;"><a href="${appUrl}/api/sessions/${s.sessionIndex}/calendar" style="color:#06B6D4;font-size:12px;text-decoration:none;">+ Add to calendar</a></p>
+          <p style="margin:6px 0 0;"><a href="${appUrl}/api/sessions/${s.id ?? s.sessionIndex}/calendar" style="color:#06B6D4;font-size:12px;text-decoration:none;">+ Add to calendar</a></p>
         </td>
       </tr>`
     })
