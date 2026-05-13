@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { ProgressBar } from '@/components/onboarding/ProgressBar'
 import { QuestionCard } from '@/components/onboarding/QuestionCard'
 import { Button } from '@/components/ui/Button'
@@ -82,10 +82,17 @@ const DELIVERY_MAP: Record<string, string> = {
 
 export default function OnboardingPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [step, setStep] = useState(0)
   const [answers, setAnswers] = useState<Record<string, string>>({})
   const [direction, setDirection] = useState<'right' | 'left'>('right')
   const [building, setBuilding] = useState(false)
+
+  // Store selected plan from URL param so checkout knows which plan to use
+  useEffect(() => {
+    const plan = searchParams.get('plan')
+    if (plan) localStorage.setItem('clio_selected_plan', plan)
+  }, [searchParams])
 
   const current = QUESTIONS[step]
   const selectedOption = answers[current?.id] ?? null
