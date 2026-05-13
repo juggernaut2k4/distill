@@ -53,10 +53,10 @@ const STATUS_OVERRIDES: Record<string, Partial<typeof NODE_COLORS['action']>> = 
 }
 
 // Node dimensions
-const NODE_W = 160
-const NODE_H = 56
-const H_GAP = 220
-const V_GAP = 100
+const NODE_W = 220
+const NODE_H = 64
+const H_GAP = 280
+const V_GAP = 110
 const GROUP_PAD = 20
 
 export function FlowDiagram({
@@ -73,15 +73,20 @@ export function FlowDiagram({
 
   // Build position map
   const positions = computePositions(nodes, edges, layout)
-  const svgWidth = Math.max(...Object.values(positions).map((p) => p.x + NODE_W)) + 60
-  const svgHeight = Math.max(...Object.values(positions).map((p) => p.y + NODE_H)) + 60
+  const positionValues = Object.values(positions)
+  const svgWidth = positionValues.length > 0
+    ? Math.max(...positionValues.map((p) => p.x + NODE_W)) + 60
+    : 400
+  const svgHeight = positionValues.length > 0
+    ? Math.max(...positionValues.map((p) => p.y + NODE_H)) + 60
+    : 300
 
   if (!mounted) return <div className={`w-full h-64 bg-[#080808] rounded-xl ${className}`} />
 
   return (
     <div
       ref={containerRef}
-      className={`relative bg-[#080808] rounded-xl overflow-auto border border-[#1A1A1A] ${className}`}
+      className={`relative bg-[#080808] rounded-xl overflow-x-auto overflow-y-auto border border-[#1A1A1A] ${className}`}
     >
       <svg
         width={svgWidth}
@@ -249,30 +254,44 @@ export function FlowDiagram({
                 strokeWidth={node.status === 'active' ? 2 : 1}
               />
 
-              {/* Label */}
-              <text
-                x={cx}
-                y={node.sublabel ? cy - 6 : cy + 5}
-                textAnchor="middle"
-                fill={colors.text}
-                fontSize={12}
-                fontWeight={600}
-                fontFamily="Inter, system-ui, sans-serif"
-              >
-                {truncate(node.label, 18)}
-              </text>
+              {/* Label — 2-line wrap if > 22 chars */}
+              {(() => {
+                const lines = wrapLabel(node.label, 22)
+                const hasTwo = lines.length === 2
+                const hasSublabel = !!node.sublabel
+                // vertical centering: shift text block up when multiple lines
+                const baseY = hasSublabel
+                  ? cy - (hasTwo ? 14 : 8)
+                  : cy + (hasTwo ? -6 : 5)
+                return (
+                  <text
+                    x={cx}
+                    textAnchor="middle"
+                    fill={colors.text}
+                    fontSize={12}
+                    fontWeight={600}
+                    fontFamily="Inter, system-ui, sans-serif"
+                  >
+                    {lines.map((line, li) => (
+                      <tspan key={li} x={cx} dy={li === 0 ? baseY - cy + 'px' : '1.3em'} y={li === 0 ? baseY : undefined}>
+                        {line}
+                      </tspan>
+                    ))}
+                  </text>
+                )
+              })()}
 
               {/* Sublabel */}
               {node.sublabel && (
                 <text
                   x={cx}
-                  y={cy + 10}
+                  y={cy + (wrapLabel(node.label, 22).length === 2 ? 18 : 10)}
                   textAnchor="middle"
                   fill="#475569"
                   fontSize={10}
                   fontFamily="Inter, system-ui, sans-serif"
                 >
-                  {truncate(node.sublabel, 22)}
+                  {node.sublabel.length > 22 ? node.sublabel.slice(0, 21) + '…' : node.sublabel}
                 </text>
               )}
 
@@ -346,13 +365,18 @@ function computePositions(
   if (remaining.length > 0) levels.push(remaining)
 
   const positions: Record<string, { x: number; y: number }> = {}
-  const MARGIN = 30
+  const MARGIN = 70
 
   if (layout === 'vertical') {
+    // Compute max level width for centering
+    const maxLevelWidth = Math.max(...levels.map(
+      (l) => l.length * NODE_W + (l.length - 1) * (H_GAP - NODE_W)
+    ))
+
     for (let li = 0; li < levels.length; li++) {
       const level = levels[li]
       const totalWidth = level.length * NODE_W + (level.length - 1) * (H_GAP - NODE_W)
-      const startX = MARGIN + Math.max(0, (600 - totalWidth) / 2)
+      const startX = MARGIN + Math.max(0, (maxLevelWidth - totalWidth) / 2)
 
       for (let ni = 0; ni < level.length; ni++) {
         positions[level[ni]] = {
@@ -379,6 +403,21 @@ function computePositions(
   return positions
 }
 
-function truncate(str: string, max: number): string {
-  return str.length > max ? str.slice(0, max - 1) + '…' : str
+/**
+ * Wraps a label into 1 or 2 lines at word boundaries.
+ * If label fits within maxChars, returns single-element array.
+ * Otherwise splits at last word boundary ≤ maxChars.
+ */
+function wrapLabel(str: string, maxChars: number): [string] | [string, string] {
+  if (str.length <= maxChars) return [str]
+
+  // Find last space at or before maxChars
+  const breakAt = str.lastIndexOf(' ', maxChars)
+  if (breakAt <= 0) {
+    // No space found — hard-split
+    return [str.slice(0, maxChars), str.slice(maxChars)]
+  }
+  const line1 = str.slice(0, breakAt)
+  const line2 = str.slice(breakAt + 1).slice(0, maxChars)
+  return [line1, line2]
 }

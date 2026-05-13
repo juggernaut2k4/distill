@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useRouter } from 'next/navigation'
-import { CheckCircle, Clock, ChevronDown, ChevronUp, ArrowRight, Sparkles, BookOpen } from 'lucide-react'
+import { CheckCircle, Clock, ChevronDown, ChevronUp, ArrowRight, Sparkles, BookOpen, Tag } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { FlowDiagram } from '@/components/diagrams/FlowDiagram'
@@ -20,6 +20,12 @@ interface User {
   plan_approved: boolean | null
   minutes_balance: number | null
   minutes_included: number | null
+}
+
+const DIFFICULTY_BADGE: Record<string, { label: string; color: string; bg: string }> = {
+  beginner:     { label: 'Beginner',     color: '#67E8F9', bg: 'rgba(6,182,212,0.15)' },
+  intermediate: { label: 'Intermediate', color: '#FCD34D', bg: 'rgba(245,158,11,0.15)' },
+  advanced:     { label: 'Advanced',     color: '#C4B5FD', bg: 'rgba(124,58,237,0.15)' },
 }
 
 export default function PlanClient({ user }: { user: User }) {
@@ -67,36 +73,27 @@ export default function PlanClient({ user }: { user: User }) {
     )
   }
 
-  // Build diagram data from plan
+  // Build diagram data from plan — 1 node per session (1 topic per session)
   const diagramNodes: FlowNode[] = []
   const diagramEdges: FlowEdge[] = []
   const diagramGroups: FlowGroup[] = []
-  let prevLastNodeId: string | null = null
+  let prevNodeId: string | null = null
 
   for (const session of plan.sessions) {
-    const sessionNodeIds: string[] = []
+    const topic = session.topics[0]
+    const nodeId = `s${session.index}`
+    diagramNodes.push({
+      id: nodeId,
+      label: topic.title,
+      sublabel: `~${topic.estimatedMinutes}m`,
+      type: 'action',
+      status: session.index === 1 ? 'pending' : 'locked',
+    })
 
-    for (let ti = 0; ti < session.topics.length; ti++) {
-      const topic = session.topics[ti]
-      const nodeId = `s${session.index}_t${ti}`
-      diagramNodes.push({
-        id: nodeId,
-        label: topic.title,
-        sublabel: `~${topic.estimatedMinutes}m`,
-        type: ti === 0 ? 'action' : 'data',
-        status: session.index === 1 ? 'pending' : 'locked',
-      })
-      sessionNodeIds.push(nodeId)
-
-      if (ti > 0) {
-        diagramEdges.push({ from: `s${session.index}_t${ti - 1}`, to: nodeId })
-      }
-    }
-
-    if (prevLastNodeId && sessionNodeIds.length > 0) {
+    if (prevNodeId) {
       diagramEdges.push({
-        from: prevLastNodeId,
-        to: sessionNodeIds[0],
+        from: prevNodeId,
+        to: nodeId,
         animated: session.index === 2,
       })
     }
@@ -104,10 +101,10 @@ export default function PlanClient({ user }: { user: User }) {
     diagramGroups.push({
       id: `session_${session.index}`,
       label: `Session ${session.index}`,
-      nodeIds: sessionNodeIds,
+      nodeIds: [nodeId],
     })
 
-    prevLastNodeId = sessionNodeIds[sessionNodeIds.length - 1] ?? null
+    prevNodeId = nodeId
   }
 
   const totalMins = plan.totalMinutes
@@ -215,52 +212,69 @@ export default function PlanClient({ user }: { user: User }) {
               }`}
               onClick={() => setExpandedSession(expandedSession === i ? null : i)}
             >
-              <div className="p-4 flex items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-purple-950/50 border border-purple-800/40 flex items-center justify-center flex-shrink-0">
-                    <span className="text-xs font-bold text-[#A855F7]">{session.index}</span>
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-white">{session.title}</p>
-                    <p className="text-xs text-[#475569] mt-0.5">
-                      {session.topics.length} topics
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-1 text-xs text-[#475569]">
-                    <Clock size={12} />
-                    ~{session.estimatedMinutes}m
-                  </div>
-                  {expandedSession === i ? (
-                    <ChevronUp size={16} className="text-[#475569]" />
-                  ) : (
-                    <ChevronDown size={16} className="text-[#475569]" />
-                  )}
-                </div>
-              </div>
-
-              <AnimatePresence>
-                {expandedSession === i && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.25 }}
-                    className="overflow-hidden"
-                  >
-                    <div className="px-4 pb-4 border-t border-[#1A1A1A] pt-3 space-y-2">
-                      {session.topics.map((topic, ti) => (
-                        <div key={ti} className="flex items-center gap-3">
-                          <div className="w-1.5 h-1.5 rounded-full bg-[#7C3AED] flex-shrink-0" />
-                          <span className="text-sm text-[#94A3B8]">{topic.title}</span>
-                          <span className="ml-auto text-xs text-[#475569]">~{topic.estimatedMinutes}m</span>
+              {(() => {
+                const topic = session.topics[0]
+                const badge = DIFFICULTY_BADGE[topic.difficulty] ?? DIFFICULTY_BADGE.beginner
+                return (
+                  <>
+                    <div className="p-4 flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-purple-950/50 border border-purple-800/40 flex items-center justify-center flex-shrink-0">
+                          <span className="text-xs font-bold text-[#A855F7]">{session.index}</span>
                         </div>
-                      ))}
+                        <div>
+                          <p className="text-sm font-semibold text-white">{session.title}</p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span
+                              className="text-xs px-2 py-0.5 rounded-full font-medium"
+                              style={{ color: badge.color, background: badge.bg }}
+                            >
+                              {badge.label}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-1 text-xs text-[#475569]">
+                          <Clock size={12} />
+                          ~{session.estimatedMinutes}m
+                        </div>
+                        {expandedSession === i ? (
+                          <ChevronUp size={16} className="text-[#475569]" />
+                        ) : (
+                          <ChevronDown size={16} className="text-[#475569]" />
+                        )}
+                      </div>
                     </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+
+                    <AnimatePresence>
+                      {expandedSession === i && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.25 }}
+                          className="overflow-hidden"
+                        >
+                          <div className="px-4 pb-4 border-t border-[#1A1A1A] pt-3">
+                            <div className="flex items-center gap-3">
+                              <Tag size={14} className="text-[#7C3AED] flex-shrink-0" />
+                              <span className="text-sm text-[#94A3B8]">{topic.title}</span>
+                              <span className="ml-auto text-xs text-[#475569]">~{topic.estimatedMinutes}m</span>
+                              <span
+                                className="text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0"
+                                style={{ color: badge.color, background: badge.bg }}
+                              >
+                                {badge.label}
+                              </span>
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </>
+                )
+              })()}
             </Card>
           ))}
         </div>

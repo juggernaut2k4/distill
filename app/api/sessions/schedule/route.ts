@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { requireAuth } from '@/lib/clerk'
 import { createSupabaseAdminClient } from '@/lib/supabase'
+import { sendSessionsConfirmedEmail, type User, type SessionSummary } from '@/lib/delivery/email'
 
 const ScheduledSessionSchema = z.object({
   sessionIndex: z.number().int().positive(),
@@ -60,6 +61,24 @@ export async function POST(request: NextRequest) {
   if (insertError) {
     console.error('[schedule] Insert error:', insertError)
     return NextResponse.json({ error: 'Failed to save sessions' }, { status: 500 })
+  }
+
+  // Fire-and-forget confirmation email
+  const { data: userRow } = await supabase
+    .from('users')
+    .select('id, email, role, industry, ai_maturity')
+    .eq('id', userId!)
+    .single()
+
+  if (userRow?.email) {
+    const sessionSummaries: SessionSummary[] = parsed.data.sessions.map((s) => ({
+      sessionIndex: s.sessionIndex,
+      title: s.title,
+      scheduledAt: s.scheduledAt,
+      estimatedMinutes: s.estimatedMinutes,
+    }))
+
+    sendSessionsConfirmedEmail(userRow as User, sessionSummaries).catch(console.error)
   }
 
   return NextResponse.json({ success: true, count: rows.length })

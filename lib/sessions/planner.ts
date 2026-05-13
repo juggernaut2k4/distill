@@ -4,6 +4,7 @@ export interface SchedulePreferences {
   firstSessionDate: string  // ISO date string
   frequencyDays: number     // 1 = daily, 2 = every 2 days, 7 = weekly
   maxDurationMins: number   // 15 or 30
+  preferredHour?: number    // Hour of day: 9 (Morning), 13 (Afternoon), 18 (Evening). Defaults to 9.
 }
 
 export interface ScheduledSession {
@@ -29,8 +30,9 @@ export function scheduleSessions(
     const sessionDate = new Date(startDate)
     sessionDate.setDate(startDate.getDate() + i * prefs.frequencyDays)
 
-    // Set to 9am in user's local time (stored as UTC here; frontend adjusts)
-    sessionDate.setHours(9, 0, 0, 0)
+    // Set to preferred hour (defaults to 9am)
+    const hour = prefs.preferredHour ?? 9
+    sessionDate.setHours(hour, 0, 0, 0)
 
     const cappedMinutes = Math.min(session.estimatedMinutes, prefs.maxDurationMins)
 

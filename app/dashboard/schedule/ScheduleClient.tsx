@@ -3,7 +3,9 @@
 import { useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useRouter } from 'next/navigation'
-import { CalendarDays, Clock, CheckCircle, AlertTriangle, ArrowRight, Zap } from 'lucide-react'
+import {
+  CalendarDays, Clock, CheckCircle, AlertTriangle, ArrowRight, Zap, Download,
+} from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { buildCurriculum } from '@/lib/content/curriculum'
@@ -43,6 +45,21 @@ const DURATION_OPTIONS = [
   { value: 30, label: '30 min', description: 'Deep dives' },
 ]
 
+const TIME_OPTIONS = [
+  { value: 9,  label: 'Morning',   description: '9:00 am' },
+  { value: 13, label: 'Afternoon', description: '1:00 pm' },
+  { value: 18, label: 'Evening',   description: '6:00 pm' },
+]
+
+function formatDateTime(iso: string): string {
+  const d = new Date(iso)
+  return d.toLocaleDateString('en-US', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  }) + ' · ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase()
+}
+
 export default function ScheduleClient({ user, existingSessions }: ScheduleClientProps) {
   const router = useRouter()
   const hasExisting = existingSessions.length > 0
@@ -55,8 +72,10 @@ export default function ScheduleClient({ user, existingSessions }: ScheduleClien
   const [firstDate, setFirstDate] = useState(tomorrowStr)
   const [frequencyDays, setFrequencyDays] = useState(2)
   const [maxDuration, setMaxDuration] = useState(30)
+  const [preferredHour, setPreferredHour] = useState(9)
   const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(hasExisting)
+  // confirmed: true once the user successfully posts the schedule
+  const [confirmed, setConfirmed] = useState(false)
 
   const plan = useMemo(() => buildCurriculum(
     user.topic_interests ?? [],
@@ -64,8 +83,13 @@ export default function ScheduleClient({ user, existingSessions }: ScheduleClien
   ), [user.topic_interests, user.ai_maturity])
 
   const scheduledSessions = useMemo(() =>
-    scheduleSessions(plan, { firstSessionDate: firstDate, frequencyDays, maxDurationMins: maxDuration }),
-    [plan, firstDate, frequencyDays, maxDuration]
+    scheduleSessions(plan, {
+      firstSessionDate: firstDate,
+      frequencyDays,
+      maxDurationMins: maxDuration,
+      preferredHour,
+    }),
+    [plan, firstDate, frequencyDays, maxDuration, preferredHour]
   )
 
   const totalNeeded = totalMinutesNeeded(scheduledSessions)
@@ -80,14 +104,14 @@ export default function ScheduleClient({ user, existingSessions }: ScheduleClien
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessions: scheduledSessions }),
       })
-      setSaved(true)
-      setTimeout(() => router.push('/dashboard'), 1500)
+      setConfirmed(true)
     } catch {
       setSaving(false)
     }
   }
 
-  if (saved && hasExisting) {
+  // Existing sessions view (already scheduled, not yet confirmed in this session)
+  if (!confirmed && hasExisting) {
     return (
       <div className="max-w-2xl space-y-6">
         <div>
@@ -106,9 +130,7 @@ export default function ScheduleClient({ user, existingSessions }: ScheduleClien
                 </p>
                 {session.scheduled_at && (
                   <p className="text-xs text-[#475569] mt-0.5">
-                    {new Date(session.scheduled_at).toLocaleDateString('en-US', {
-                      weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
-                    })}
+                    {formatDateTime(session.scheduled_at)}
                   </p>
                 )}
               </div>
@@ -130,6 +152,73 @@ export default function ScheduleClient({ user, existingSessions }: ScheduleClien
     )
   }
 
+  // Confirmation view — shown after successful schedule POST
+  if (confirmed) {
+    return (
+      <AnimatePresence>
+        <motion.div
+          key="confirmed"
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+          className="max-w-2xl space-y-8"
+        >
+          {/* Success header */}
+          <div className="flex flex-col items-center text-center py-8">
+            <CheckCircle size={56} className="text-[#10B981] mb-4" />
+            <h1 className="text-3xl font-bold text-white mb-2">Sessions Scheduled!</h1>
+            <p className="text-[#94A3B8] max-w-sm">
+              Your {scheduledSessions.length} session{scheduledSessions.length !== 1 ? 's are' : ' is'} confirmed.
+              Reminders will be sent the day before each session.
+            </p>
+          </div>
+
+          {/* Sessions list */}
+          <div className="space-y-2">
+            {scheduledSessions.map((session, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, x: -8 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: i * 0.05 }}
+                className="flex items-center gap-3 px-4 py-3 rounded-xl bg-[#111111] border border-[#1A1A1A]"
+              >
+                <div className="w-7 h-7 rounded-full bg-purple-950/50 border border-purple-800/40 flex items-center justify-center flex-shrink-0">
+                  <span className="text-[10px] font-bold text-[#A855F7]">{session.sessionIndex}</span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-white truncate">{session.title}</p>
+                  <p className="text-xs text-[#475569] mt-0.5">{formatDateTime(session.scheduledAt)}</p>
+                </div>
+                <div className="flex items-center gap-1 text-xs text-[#475569] flex-shrink-0">
+                  <Clock size={10} />
+                  {session.estimatedMinutes}m
+                </div>
+              </motion.div>
+            ))}
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-3 flex-wrap">
+            {/* TODO: implement /api/sessions/calendar/all endpoint to generate ICS for all sessions */}
+            <a
+              href="/api/sessions/calendar/all"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl border border-[#333333] text-sm font-semibold text-white hover:bg-[#1A1A1A] transition-colors"
+            >
+              <Download size={16} />
+              Download All Calendar Invites
+            </a>
+            <Button onClick={() => router.push('/dashboard')} className="gap-2">
+              Go to Dashboard
+              <ArrowRight size={16} />
+            </Button>
+          </div>
+        </motion.div>
+      </AnimatePresence>
+    )
+  }
+
+  // Scheduling form
   return (
     <div className="max-w-2xl space-y-8">
       {/* Header */}
@@ -213,6 +302,27 @@ export default function ScheduleClient({ user, existingSessions }: ScheduleClien
           </div>
         </div>
 
+        {/* Preferred time */}
+        <div>
+          <label className="text-sm font-semibold text-white mb-3 block">Preferred time</label>
+          <div className="grid grid-cols-3 gap-3">
+            {TIME_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => setPreferredHour(opt.value)}
+                className={`p-3 rounded-xl border text-left transition-all ${
+                  preferredHour === opt.value
+                    ? 'bg-purple-950/40 border-[#7C3AED] text-white'
+                    : 'bg-[#111111] border-[#222222] text-[#94A3B8] hover:border-[#333] hover:text-white'
+                }`}
+              >
+                <p className="text-sm font-semibold">{opt.label}</p>
+                <p className="text-xs text-[#475569] mt-0.5">{opt.description}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Max duration */}
         <div>
           <label className="text-sm font-semibold text-white mb-3 block">Max session duration</label>
@@ -284,12 +394,7 @@ export default function ScheduleClient({ user, existingSessions }: ScheduleClien
           size="lg"
           className="gap-2"
         >
-          {saved ? (
-            <>
-              <CheckCircle size={18} />
-              Scheduled!
-            </>
-          ) : saving ? (
+          {saving ? (
             'Saving...'
           ) : (
             <>

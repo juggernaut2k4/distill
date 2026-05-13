@@ -3,6 +3,7 @@ import { inngest } from '@/inngest/client'
 import { dailyDelivery } from '@/inngest/daily-delivery'
 import { weeklyDigest } from '@/inngest/weekly-digest'
 import { feedbackProcessor } from '@/inngest/feedback-processor'
+import { sessionReminder } from '@/inngest/session-reminder'
 
 /**
  * POST /api/inngest
@@ -11,5 +12,5 @@ import { feedbackProcessor } from '@/inngest/feedback-processor'
  */
 export const { GET, POST, PUT } = serve({
   client: inngest,
-  functions: [dailyDelivery, weeklyDigest, feedbackProcessor],
+  functions: [dailyDelivery, weeklyDigest, feedbackProcessor, sessionReminder],
 })

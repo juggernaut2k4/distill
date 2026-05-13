@@ -335,47 +335,21 @@ function topologicalSort(topics: CurriculumTopic[]): CurriculumTopic[] {
   return result
 }
 
+/**
+ * Creates one session per topic. Each Clio coaching call covers exactly ONE topic (20–30 min max).
+ */
 function groupIntoSessions(topics: CurriculumTopic[]): CurriculumSession[] {
-  const sessions: CurriculumSession[] = []
-  const MAX_MINS_PER_SESSION = 90
-  const MAX_TOPICS_PER_SESSION = 4
-
-  let current: CurriculumTopic[] = []
-  let currentMins = 0
-
-  for (const topic of topics) {
-    if (
-      current.length >= MAX_TOPICS_PER_SESSION ||
-      (currentMins + topic.estimatedMinutes > MAX_MINS_PER_SESSION && current.length > 0)
-    ) {
-      sessions.push(buildSession(sessions.length + 1, current, currentMins))
-      current = []
-      currentMins = 0
-    }
-    current.push(topic)
-    currentMins += topic.estimatedMinutes
-  }
-
-  if (current.length > 0) {
-    sessions.push(buildSession(sessions.length + 1, current, currentMins))
-  }
-
-  return sessions
+  return topics.map((topic, i) => buildSession(i + 1, topic))
 }
 
 function buildSession(
   index: number,
-  topics: CurriculumTopic[],
-  estimatedMinutes: number
+  topic: CurriculumTopic
 ): CurriculumSession {
-  const title = topics.length === 1
-    ? topics[0].title
-    : `Session ${index}: ${topics[0].tags[0] ?? 'AI Learning'}`
-
   return {
     index,
-    title,
-    topics,
-    estimatedMinutes,
+    title: topic.title,
+    topics: [topic],
+    estimatedMinutes: topic.estimatedMinutes,
   }
 }

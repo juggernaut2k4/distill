@@ -19,7 +19,7 @@ interface DashboardShellProps {
 const NAV_ITEMS = [
   { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { href: '/dashboard/plan', icon: BookOpen, label: 'My Plan' },
-  { href: '/dashboard/schedule', icon: CalendarDays, label: 'Sessions' },
+  { href: '/dashboard/sessions', icon: CalendarDays, label: 'Sessions' },
   { href: '/dashboard/messages', icon: MessageSquare, label: 'Messages' },
   { href: '/dashboard/billing', icon: CreditCard, label: 'Billing' },
   { href: '/dashboard/phone', icon: Phone, label: 'Phone Setup' },
