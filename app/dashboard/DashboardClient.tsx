@@ -8,7 +8,7 @@ import { MessageCard } from '@/components/dashboard/MessageCard'
 import { DeliveryToggle } from '@/components/dashboard/DeliveryToggle'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
-import { MessageSquare, ArrowRight } from 'lucide-react'
+import { MessageSquare, ArrowRight, Timer } from 'lucide-react'
 import Link from 'next/link'
 
 interface DeliveryEntry {
@@ -31,6 +31,9 @@ interface User {
   ai_readiness_score: number | null
   streak_days: number | null
   delivery_preference: string | null
+  minutes_balance?: number | null
+  minutes_included?: number | null
+  plan_approved?: boolean | null
 }
 
 interface DashboardClientProps {
@@ -53,6 +56,11 @@ export default function DashboardClient({
   const streak = user.streak_days ?? 0
   const planTier = user.plan_tier ?? 'free'
   const smsEnabled = planTier === 'pro' || planTier === 'executive'
+  const minutesBalance = user.minutes_balance ?? 0
+  const minutesIncluded = user.minutes_included ?? 0
+  const minutesPct = minutesIncluded > 0 ? Math.round((minutesBalance / minutesIncluded) * 100) : 0
+  const minutesColor = minutesPct > 50 ? '#10B981' : minutesPct > 20 ? '#F59E0B' : '#EF4444'
+  const planPending = !user.plan_approved && planTier !== 'free'
 
   async function handleDeliveryChange(pref: 'email' | 'sms' | 'both') {
     setDeliveryPref(pref)
@@ -74,6 +82,27 @@ export default function DashboardClient({
 
   return (
     <div className="space-y-8">
+      {/* Plan pending banner */}
+      {planPending && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex items-center justify-between px-4 py-3 rounded-xl border border-amber-800/30 bg-amber-950/20"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-2 h-2 rounded-full bg-[#F59E0B] animate-pulse flex-shrink-0" />
+            <p className="text-sm text-[#FCD34D] font-medium">
+              Your learning plan is ready to review
+            </p>
+          </div>
+          <Link href="/dashboard/plan">
+            <Button size="sm" className="gap-1.5 whitespace-nowrap">
+              Review plan <ArrowRight size={13} />
+            </Button>
+          </Link>
+        </motion.div>
+      )}
+
       {/* Row 1: Metric cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         <motion.div
@@ -115,6 +144,39 @@ export default function DashboardClient({
           </Card>
         </motion.div>
       </div>
+
+      {/* Minutes balance */}
+      {minutesIncluded > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.25 }}
+        >
+          <Card className="p-5">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Timer size={16} className="text-[#06B6D4]" />
+                <span className="text-sm font-semibold text-white">Coaching Minutes</span>
+              </div>
+              <span className="text-xs text-[#475569]">{minutesBalance} / {minutesIncluded} remaining</span>
+            </div>
+            <div className="w-full h-2 bg-[#1A1A1A] rounded-full overflow-hidden">
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: `${minutesPct}%` }}
+                transition={{ duration: 0.8, ease: 'easeOut' }}
+                className="h-full rounded-full"
+                style={{ backgroundColor: minutesColor }}
+              />
+            </div>
+            {minutesPct <= 20 && (
+              <p className="text-xs mt-2" style={{ color: minutesColor }}>
+                Running low — consider topping up
+              </p>
+            )}
+          </Card>
+        </motion.div>
+      )}
 
       {/* Row 2: Recent messages */}
       <motion.div

@@ -1,69 +1,96 @@
-# BACKLOG.md — Manual Setup Items for Distill
+# Clio — Product Backlog
 
-These are the tasks that require your personal action — account creation, financial details, domain registration. Complete them before going live. Claude Code handles everything else.
-
----
-
-## Day 1 — Do These First (Accounts & Keys)
-
-- [ ] **1. Register domain** — buy `hello-clio.com` or `distill.ai` at Namecheap / GoDaddy / Cloudflare Registrar
-- [ ] **2. Create Vercel account** — vercel.com → sign up with GitHub → import the `distill` repo once it's pushed
-- [ ] **3. Create Supabase project** — supabase.com → New project → name it `distill-prod` → copy URL + anon key + service role key
-- [ ] **4. Create Clerk application** — clerk.com → New application → name it `Distill` → copy publishable key + secret key
-- [ ] **5. Create Stripe account** — stripe.com → complete business verification → copy publishable key + secret key
-- [ ] **6. Create Resend account** — resend.com → add and verify your domain → create API key → set FROM address to hello@hello-clio.com
-- [ ] **7. Create Twilio account** — twilio.com → complete identity verification → buy 2–3 US phone numbers for the shared pool → copy Account SID + Auth Token
-- [ ] **8. Create Anthropic account (API)** — console.anthropic.com → add payment method → create API key
-- [ ] **9. Create NewsAPI account** — newsapi.org → sign up → copy API key
-- [ ] **10. Create Inngest account** — inngest.com → new app → copy event key + signing key
+_Last updated: 2026-05-13_
 
 ---
 
-## Day 2 — Configure & Connect
-
-- [ ] **11. Add environment variables to Vercel** — go to Vercel project settings → Environment Variables → add every variable from `.env.local.example`
-- [ ] **12. Create Stripe products & prices**:
-  - Starter Monthly: $12.00/mo recurring
-  - Starter Annual: $99.00/yr recurring
-  - Pro Monthly: $25.00/mo recurring
-  - Pro Annual: $199.00/yr recurring
-  - Executive Monthly: $49.00/mo recurring
-  - Executive Annual: $399.00/yr recurring
-  - Copy all 6 Price IDs into Vercel env vars
-- [ ] **13. Set up Stripe webhook** — Stripe dashboard → Webhooks → Add endpoint → URL: `https://hello-clio.com/api/webhooks/stripe` → select events: customer.subscription.*, invoice.payment_failed
-- [ ] **14. Set up Twilio webhook** — for each phone number you bought → configure inbound SMS webhook URL: `https://hello-clio.com/api/webhooks/twilio`
-- [ ] **15. Run Supabase migration** — in your terminal: `npx supabase db push` (or paste schema.sql into Supabase SQL editor)
-- [ ] **16. Connect domain to Vercel** — Vercel project → Domains → add hello-clio.com → update DNS at your registrar
+## Legend
+- **Priority:** P0 = blocks active user path | P1 = core feature | P2 = enhancement
+- **Status:** Pending | In Progress | Done | Blocked
+- **Size:** S (<2h) | M (2-4h) | L (4-8h) | XL (>1 day)
 
 ---
 
-## Day 3 — Test Before Launch
+## P0 — Critical
 
-- [ ] **17. Test Stripe checkout** — go to your app → click a pricing plan → use Stripe test card `4242 4242 4242 4242` → verify subscription created in Stripe dashboard
-- [ ] **18. Test onboarding flow** — complete the 5 questions → verify user profile saved in Supabase
-- [ ] **19. Test email delivery** — trigger a test send via Resend dashboard → verify it lands in inbox (check spam)
-- [ ] **20. Test SMS delivery** — send a test SMS via Twilio console → verify it arrives on your phone
-- [ ] **21. Test inbound SMS** — reply to the Twilio number → verify feedback is logged OR Ask Anything responds
-- [ ] **22. Enable Stripe live mode** — flip Stripe from test → live → update Vercel env vars with live keys
-
----
-
-## Banking & Legal (Do Before First Payment)
-
-- [ ] **23. Add bank account to Stripe** — Stripe dashboard → Settings → Payouts → add your bank account for revenue deposits
-- [ ] **24. Set up Stripe Tax** (optional) — if selling to US/EU customers who need tax compliance
-- [ ] **25. Add Privacy Policy page** — use termly.io or iubenda to generate → add to your site footer
-- [ ] **26. Add Terms of Service page** — same tool → add to footer
-- [ ] **27. GDPR consent at onboarding** — ensure EU users see a consent checkbox before data collection (Claude Code handles UI, but you need to decide your DPA approach)
+| # | Story | Status | Size | Notes |
+|---|---|---|---|---|
+| P0-1 | **Fix Stripe payment bypass** — checkout API returns mock URL when price IDs are PLACEHOLDER_; real Stripe checkout fires when real price IDs are set | Done | S | Mock only triggers on PLACEHOLDER_ prefix |
+| P0-2 | **Post-payment confirmation email** — after `customer.subscription.created` fires, send branded "Welcome to Clio" email with plan name, included minutes, and next steps link | In Progress | S | `sendWelcomeEmail()` in email.ts + called in stripe webhook |
+| P0-3 | **Post-payment plan setup screen** — `/dashboard/welcome` animated page shown after Stripe success before user lands on dashboard | In Progress | M | `app/dashboard/welcome/page.tsx` |
+| P0-4 | **User row exists before webhook** — onboarding creates row; checkout API should ensure upsert if user skipped onboarding | Done | S | Onboarding must complete before payment |
 
 ---
 
-## Growth (After Launch)
+## P1 — Core Features
 
-- [ ] **28. Set up Stripe Customer Portal** — Stripe dashboard → Customer Portal → enable plan switching + cancellation
-- [ ] **29. Set up email DNS records** — SPF, DKIM, DMARC for hello-clio.com via Resend → improves deliverability
-- [ ] **30. Connect analytics** — add Vercel Analytics or Posthog to track onboarding drop-off, conversion
+### Topic Interest Selection
+
+| # | Story | Status | Size | Notes |
+|---|---|---|---|---|
+| P1-1 | **Topic selection screen** — after onboarding Q5 (or after sign-up), show optional "What topics matter most?" with clickable topic boxes grouped by category; pick up to 5 | In Progress | M | `app/topics/page.tsx` |
+| P1-2 | **Save topic interests to DB** — `POST /api/topics` saves to `users.topic_interests` (text[]); migration 003 adds column | In Progress | S | `supabase/migrations/003_topics_and_plan.sql` |
+| P1-3 | **Curriculum intelligence** — when user picks advanced topics but has beginner maturity, inject prerequisite topics first; return ordered curriculum sequence | Pending | L | `lib/content/curriculum.ts` |
+| P1-4 | **Topic → session grouping** — group topics into sessions (3-5 topics per session); assign estimated duration per topic based on complexity | In Progress | M | `lib/sessions/planner.ts` |
+
+### Visual Flow Diagrams
+
+| # | Story | Status | Size | Notes |
+|---|---|---|---|---|
+| P1-5 | **FlowDiagram React component** — dark matte (#080808), animated SVG/CSS nodes (circles + rounded rects), color-coded by type, animated connector lines with flow arrows | In Progress | L | `components/diagrams/FlowDiagram.tsx` |
+| P1-6 | **Curriculum flow diagram** — user's learning path as animated flow: topics ordered by session, prerequisite arrows, session boundary boxes | In Progress | M | Used in `app/dashboard/plan/page.tsx` |
+| P1-7 | **Session content diagram** — per-session topic nodes with animated status (pending=gray, active=cyan pulse, complete=green) | Pending | M | Session detail view |
+
+### Session Planning & Scheduling
+
+| # | Story | Status | Size | Notes |
+|---|---|---|---|---|
+| P1-8 | **Plan review/approval page** — `/dashboard/plan` shows: curriculum flow diagram, session list with topics + duration, "Approve Plan" + "Request Changes" buttons | In Progress | L | `app/dashboard/plan/page.tsx` |
+| P1-9 | **Plan notification email + SMS** — after plan generated, send email + SMS with summary and link to `/dashboard/plan` | In Progress | S | `sendPlanReadyEmail()` in email.ts |
+| P1-10 | **Session scheduling preferences UI** — user picks: first session date, frequency (daily/every 2 days/weekly), max duration (15/30 min), preferred time | In Progress | M | `app/dashboard/schedule/page.tsx` |
+| P1-11 | **Minutes balance check before scheduling** — total minutes needed vs balance; if insufficient, show top-up recommendation | In Progress | M | `lib/sessions/minutes-check.ts` |
+| P1-12 | **Schedule sessions to DB** — confirm schedule writes rows to `sessions` table | In Progress | S | `POST /api/sessions/schedule` |
+
+### Phone Number Setup
+
+| # | Story | Status | Size | Notes |
+|---|---|---|---|---|
+| P1-13 | **Phone setup page** — `/dashboard/phone` form: enter number → OTP SMS → verify → save + assign Twilio number | Pending | M | `app/dashboard/phone/page.tsx` |
+| P1-14 | **Phone verification API** — `POST /api/phone/send-otp` and `POST /api/phone/verify` | Pending | M | Simple 6-digit OTP via Twilio |
 
 ---
 
-*Backlog version: 1.0 | Project: Distill | Owner: Arun*
+## P2 — Enhancements
+
+| # | Story | Status | Size | Notes |
+|---|---|---|---|---|
+| P2-1 | **Dashboard nav updates** — add "My Plan", "Sessions", "Phone Setup" to sidebar; badge on "My Plan" when pending approval | In Progress | S | Sidebar in `app/dashboard/page.tsx` |
+| P2-2 | **Minutes balance widget** — remaining minutes on dashboard with colored progress bar | In Progress | S | DashboardClient metrics row |
+| P2-3 | **Session status tracker** — list upcoming/past sessions with status badges | Pending | M | `app/dashboard/sessions/page.tsx` |
+| P2-4 | **Top-up pack selection UI** — modal with 3 packs when minutes low; → Stripe one-time purchase | Pending | M | `components/dashboard/TopUpModal.tsx` |
+| P2-5 | **Plan change request flow** — text input + topic reorder on "Request Changes" | Pending | L | Phase 2 |
+| P2-6 | **Recalibration banner** — when `needs_recalibration=true`, show dashboard banner | Pending | S | DashboardClient |
+| P2-7 | **Stripe URL update** — update to hello-clio.com when DNS ready | Pending | S | Blocked: domain propagation |
+
+---
+
+## Phase 2 — Future Sprint
+
+| # | Story |
+|---|---|
+| F1 | Recall.ai video call bot joins scheduled sessions |
+| F2 | ElevenLabs voice synthesis for Clio |
+| F3 | Post-call AI session notes summary |
+| F4 | Follow-up session auto-scheduling |
+| F5 | Real-time minutes deduction during calls |
+| F6 | Executive analytics / org-level rollup |
+
+---
+
+## Blockers Log
+
+| Date | Blocker | Resolution |
+|---|---|---|
+| 2026-05-11 | NEXT_PUBLIC_APP_URL → getdistill.ai (third-party) | Updated to distill-peach.vercel.app |
+| 2026-05-11 | Stripe business URL needed — hello-clio.com not live yet | Used distill-peach.vercel.app; update when domain ready |
+| 2026-05-11 | Clerk blocking /onboarding and /checkout routes | Added to public routes in middleware.ts |

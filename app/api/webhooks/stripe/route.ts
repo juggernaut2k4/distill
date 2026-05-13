@@ -4,6 +4,7 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
 import {
   sendPaymentFailedEmail,
   sendTrialEndingEmail,
+  sendWelcomeEmail,
   type User,
 } from '@/lib/delivery/email'
 import type Stripe from 'stripe'
@@ -43,16 +44,37 @@ export async function POST(request: NextRequest) {
 
         const priceId = subscription.items.data[0]?.price?.id ?? ''
         const plan = getPlanFromPriceId(priceId)
+        const resolvedPlan = plan === 'unknown' ? 'starter' : plan
+
+        const minutesMap: Record<string, number> = {
+          starter: 30,
+          pro: 60,
+          executive: 120,
+        }
+        const minutesIncluded = minutesMap[resolvedPlan] ?? 30
 
         await supabase
           .from('users')
           .update({
-            plan_tier: plan === 'unknown' ? 'starter' : plan,
+            plan_tier: resolvedPlan,
             stripe_customer_id: subscription.customer as string,
             stripe_subscription_id: subscription.id,
             subscription_status: 'active',
+            minutes_included: minutesIncluded,
+            minutes_balance: minutesIncluded,
           })
           .eq('id', userId)
+
+        // Send welcome email
+        const { data: user } = await supabase
+          .from('users')
+          .select('id, email, role, industry, ai_maturity')
+          .eq('id', userId)
+          .single()
+
+        if (user?.email) {
+          await sendWelcomeEmail(user as User, resolvedPlan, minutesIncluded)
+        }
 
         break
       }
