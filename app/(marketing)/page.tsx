@@ -262,7 +262,7 @@ function HowItWorks() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 relative">
           {/* Connecting line */}
-          <div className="hidden md:block absolute top-12 left-1/3 right-1/3 h-px border-t border-dashed border-[#333333]" />
+          <div className="hidden md:block absolute top-10 left-1/3 right-1/3 h-px border-t border-dashed border-[#333333] -z-10" />
 
           {steps.map((step, i) => (
             <motion.div
@@ -374,7 +374,7 @@ function Pricing() {
         'No credit card required',
       ],
       cta: 'Start free',
-      href: '/onboarding',
+      href: '/sign-up',
       highlight: false,
     },
     {
@@ -389,7 +389,7 @@ function Pricing() {
         '$0.75/min extra',
       ],
       cta: 'Get Starter',
-      href: '/onboarding',
+      href: '/sign-up?plan=starter',
       highlight: false,
       trial: '3-day free trial',
     },
@@ -405,7 +405,7 @@ function Pricing() {
         '$0.55/min extra',
       ],
       cta: 'Get Pro',
-      href: '/onboarding',
+      href: '/sign-up?plan=pro',
       highlight: true,
       trial: '3-day free trial',
     },
@@ -421,7 +421,7 @@ function Pricing() {
         '$0.40/min extra',
       ],
       cta: 'Get Executive',
-      href: '/onboarding',
+      href: '/sign-up?plan=executive',
       highlight: false,
       trial: '3-day free trial',
     },

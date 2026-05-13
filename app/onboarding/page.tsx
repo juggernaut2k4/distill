@@ -127,9 +127,9 @@ export default function OnboardingPage() {
       // Non-fatal — we still redirect
     }
 
-    // After 2 seconds of "building" animation, redirect
+    // After 2 seconds of "building" animation, redirect to sign-up
     setTimeout(() => {
-      router.push('/pricing')
+      router.push('/sign-up')
     }, 2000)
   }
 
@@ -194,7 +194,7 @@ function BuildingScreen() {
           className="absolute inset-0 rounded-full bg-[#7C3AED]"
         />
         <div className="relative w-24 h-24 rounded-full bg-[#7C3AED] flex items-center justify-center">
-          <span className="text-2xl font-extrabold text-white tracking-tight">D</span>
+          <span className="text-2xl font-extrabold text-white tracking-tight">C</span>
         </div>
       </div>
 
