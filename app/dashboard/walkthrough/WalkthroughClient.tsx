@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { createSupabaseBrowserClient } from '@/lib/supabase'
+import { createSupabaseBrowserClient } from '@/lib/supabase-browser'
 import ConceptVisualizer from '@/components/walkthrough/ConceptVisualizer'
 import type { VisualSpec } from '@/lib/session-ai'
 
