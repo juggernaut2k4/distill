@@ -88,12 +88,20 @@ async function handleEvent(event: RecallWebhookEvent) {
   const currentTopicId = (walkthroughRow.topic_id as string | null) ?? 'introduction'
   const currentTopicTitle = (walkthroughRow.topic_title as string | null) ?? currentTopicId
 
-  switch (event.event) {
+  // Normalize event names — Recall.ai dashboard webhooks use "status.*" format
+  // while realtime_endpoints uses "bot.*" and "transcript.*" format
+  const eventName = event.event
+
+  switch (eventName) {
     case 'bot.joining_call':
+    case 'status.joining_call':
       console.log('[recall/webhook] Bot joining call', { botId, userId })
       break
 
-    case 'bot.in_call_not_recording': {
+    case 'bot.in_call_not_recording':
+    case 'status.in_call_not_recording':
+    case 'bot.in_call_recording':
+    case 'status.in_call_recording': {
       // Bot is in the call — set status to idle and queue greeting speech
       await supabase
         .from('walkthrough_state')
@@ -260,7 +268,8 @@ async function handleEvent(event: RecallWebhookEvent) {
       break
     }
 
-    case 'bot.call_ended': {
+    case 'bot.call_ended':
+    case 'status.call_ended': {
       // Wipe state and mark session done
       await supabase
         .from('walkthrough_state')
