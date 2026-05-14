@@ -21,60 +21,6 @@ export interface CreateBotResult {
   botId: string
 }
 
-export interface CreateMeetingResult {
-  botId: string
-  meetingUrl: string
-}
-
-/**
- * Creates a Google Meet session with the Recall.ai bot as host.
- * The bot is already in the meeting before the user joins.
- * Returns the join URL to send to the user.
- */
-export async function createGoogleMeetSession(
-  userId: string,
-  walkthroughUrl: string,
-  sessionTitle: string
-): Promise<CreateMeetingResult> {
-  if (isPlaceholder) {
-    const mockBotId = `mock-bot-${userId}-${Date.now()}`
-    const mockMeetingUrl = `https://meet.google.com/mock-${Date.now()}`
-    console.log('[MOCK RECALL] createGoogleMeetSession', { userId, sessionTitle, mockBotId, mockMeetingUrl })
-    return { botId: mockBotId, meetingUrl: mockMeetingUrl }
-  }
-
-  const res = await fetch(`${RECALL_BASE}/bot`, {
-    method: 'POST',
-    headers: recallHeaders(),
-    body: JSON.stringify({
-      bot_name: 'Clio AI Coach',
-      // Recall.ai creates a Google Meet when meeting_url is omitted
-      // and google_meet.create_as_bot is true
-      google_meet: { create_as_bot: true },
-      output_media: {
-        kind: 'webpage',
-        url: walkthroughUrl,
-      },
-      transcription_options: {
-        provider: 'assembly_ai',
-      },
-      real_time_transcription: {
-        destination_url: `${process.env.NEXT_PUBLIC_APP_URL}/api/recall/webhook`,
-        partial_results: false,
-      },
-      metadata: { userId, sessionTitle },
-    }),
-  })
-
-  if (!res.ok) {
-    const body = await res.text()
-    throw new Error(`Recall.ai createGoogleMeetSession failed: ${res.status} ${body}`)
-  }
-
-  const data = (await res.json()) as { id: string; meeting_url: string }
-  return { botId: data.id, meetingUrl: data.meeting_url }
-}
-
 /**
  * Creates a Recall.ai bot that joins the given meeting URL,
  * shares its screen as the walkthroughUrl, and enables real-time transcription.

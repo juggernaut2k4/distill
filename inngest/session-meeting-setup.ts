@@ -1,26 +1,26 @@
 import { inngest } from './client'
 import { createSupabaseAdminClient } from '@/lib/supabase'
-import { createGoogleMeetSession } from '@/lib/recall'
+import { createBot } from '@/lib/recall'
 import { sendSMS } from '@/lib/delivery/sms'
 import { Resend } from 'resend'
 
 /**
- * Pre-session meeting setup job.
+ * Pre-session bot setup job.
  * Cron: every 30 minutes.
- * Finds sessions starting in 25–35 minutes, creates a Google Meet via Recall.ai,
- * stores the meeting URL on the session, and sends the user a join link.
+ * Finds sessions starting in 25–35 minutes that already have a meeting_url,
+ * sends the Recall.ai bot into the meeting, and notifies the user.
  */
 export const sessionMeetingSetup = inngest.createFunction(
   {
     id: 'session-meeting-setup',
-    name: 'Pre-Session Meeting Creator',
+    name: 'Pre-Session Bot Setup',
     retries: 2,
     triggers: [{ cron: '*/30 * * * *' }],
   },
   async ({ step }) => {
     const now = new Date()
-    const windowStart = new Date(now.getTime() + 25 * 60 * 1000) // now + 25 min
-    const windowEnd = new Date(now.getTime() + 35 * 60 * 1000)   // now + 35 min
+    const windowStart = new Date(now.getTime() + 25 * 60 * 1000)
+    const windowEnd = new Date(now.getTime() + 35 * 60 * 1000)
 
     const upcomingSessions = await step.run('fetch-sessions-in-window', async () => {
       const supabase = createSupabaseAdminClient()
@@ -28,7 +28,7 @@ export const sessionMeetingSetup = inngest.createFunction(
         .from('sessions')
         .select('id, user_id, session_index, session_title, scheduled_at, duration_mins, meeting_url')
         .eq('status', 'scheduled')
-        .is('meeting_url', null) // only sessions that don't have a meeting yet
+        .not('meeting_url', 'is', null) // only sessions that have a meeting URL
         .gte('scheduled_at', windowStart.toISOString())
         .lte('scheduled_at', windowEnd.toISOString())
 
@@ -38,34 +38,25 @@ export const sessionMeetingSetup = inngest.createFunction(
 
     if (upcomingSessions.length === 0) {
       console.log('[session-meeting-setup] No sessions in 25–35 min window')
-      return { created: 0 }
+      return { botsDeployed: 0 }
     }
 
-    let created = 0
+    let botsDeployed = 0
 
     for (const session of upcomingSessions) {
-      await step.run(`setup-meeting-${session.id}`, async () => {
+      await step.run(`setup-bot-${session.id}`, async () => {
         const supabase = createSupabaseAdminClient()
 
         try {
           const userId = session.user_id as string
-          const walkthroughUrl = `${process.env.NEXT_PUBLIC_APP_URL}/walkthrough/${userId}`
+          const meetingUrl = session.meeting_url as string
           const sessionTitle = (session.session_title as string) ?? 'Your Clio Session'
+          const walkthroughUrl = `${process.env.NEXT_PUBLIC_APP_URL}/walkthrough/${userId}`
 
-          // Create Google Meet with bot already inside
-          const { botId, meetingUrl } = await createGoogleMeetSession(
-            userId,
-            walkthroughUrl,
-            sessionTitle
-          )
+          // Send bot into the meeting
+          const { botId } = await createBot(meetingUrl, userId, walkthroughUrl)
 
-          // Store meeting URL + bot ID on the session
-          await supabase
-            .from('sessions')
-            .update({ meeting_url: meetingUrl })
-            .eq('id', session.id)
-
-          // Store bot ID on walkthrough_state so webhook can look it up
+          // Store bot ID on walkthrough_state so the webhook can find it
           await supabase
             .from('walkthrough_state')
             .upsert({
@@ -80,7 +71,7 @@ export const sessionMeetingSetup = inngest.createFunction(
           // Fetch user contact details
           const { data: userRow } = await supabase
             .from('users')
-            .select('email, phone, twilio_number_assigned, role')
+            .select('email, phone, twilio_number_assigned')
             .eq('id', userId)
             .single()
 
@@ -91,7 +82,6 @@ export const sessionMeetingSetup = inngest.createFunction(
             minute: '2-digit',
           })
 
-          // Send email with join link
           if (userRow.email) {
             await sendJoinEmail(
               userRow.email as string,
@@ -102,7 +92,6 @@ export const sessionMeetingSetup = inngest.createFunction(
             )
           }
 
-          // Send SMS with join link
           if (userRow.phone && userRow.twilio_number_assigned) {
             await sendSMS(
               userRow.phone as string,
@@ -111,15 +100,15 @@ export const sessionMeetingSetup = inngest.createFunction(
             )
           }
 
-          created++
-          console.log(`[session-meeting-setup] Created meeting for session ${session.id}`, { meetingUrl, botId })
+          botsDeployed++
+          console.log(`[session-meeting-setup] Bot deployed for session ${session.id}`, { botId, meetingUrl })
         } catch (err) {
           console.error(`[session-meeting-setup] Error for session ${session.id}:`, err)
         }
       })
     }
 
-    return { created }
+    return { botsDeployed }
   }
 )
 
