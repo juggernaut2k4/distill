@@ -37,7 +37,8 @@ export async function POST(request: NextRequest) {
 
   const { meetingUrl, sessionId } = parsed.data
 
-  const walkthroughUrl = `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/walkthrough`
+  // Public URL — no auth required so the Recall.ai headless browser can render it
+  const walkthroughUrl = `${process.env.NEXT_PUBLIC_APP_URL}/walkthrough/${userId}`
 
   try {
     const { botId } = await createBot(meetingUrl, userId, walkthroughUrl)

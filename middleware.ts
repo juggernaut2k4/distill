@@ -11,6 +11,7 @@ const isPublicRoute = createRouteMatcher([
   '/dashboard/welcome(.*)',
   '/api/webhooks/(.*)',
   '/api/recall/webhook(.*)',  // Recall.ai webhook — no user auth
+  '/walkthrough/(.*)',        // Public walkthrough page shared by Recall.ai bot
 ])
 
 export default clerkMiddleware((auth, request) => {
