@@ -1,15 +1,14 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { useRouter } from 'next/navigation'
-import { CheckCircle, Clock, ChevronDown, ChevronUp, ArrowRight, Sparkles, BookOpen, Tag } from 'lucide-react'
+import { CheckCircle, ArrowRight, Sparkles, Clock } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { TopUpModal } from '@/components/ui/TopUpModal'
-import { FlowDiagram } from '@/components/diagrams/FlowDiagram'
+import { LearningPathView } from '@/components/plan/LearningPathView'
 import { buildCurriculum, type CurriculumPlan } from '@/lib/content/curriculum'
-import type { FlowNode, FlowEdge, FlowGroup } from '@/components/diagrams/FlowDiagram'
 
 interface User {
   id: string
@@ -23,19 +22,12 @@ interface User {
   minutes_included: number | null
 }
 
-const DIFFICULTY_BADGE: Record<string, { label: string; color: string; bg: string }> = {
-  beginner:     { label: 'Beginner',     color: '#67E8F9', bg: 'rgba(6,182,212,0.15)' },
-  intermediate: { label: 'Intermediate', color: '#FCD34D', bg: 'rgba(245,158,11,0.15)' },
-  advanced:     { label: 'Advanced',     color: '#C4B5FD', bg: 'rgba(124,58,237,0.15)' },
-}
 
 export default function PlanClient({ user }: { user: User }) {
   const router = useRouter()
   const [plan, setPlan] = useState<CurriculumPlan | null>(null)
-  const [expandedSession, setExpandedSession] = useState<number | null>(0)
   const [approving, setApproving] = useState(false)
   const [approved, setApproved] = useState(user.plan_approved ?? false)
-  const [showDiagram, setShowDiagram] = useState(false)
   const [topUpOpen, setTopUpOpen] = useState(false)
 
   useEffect(() => {
@@ -43,8 +35,6 @@ export default function PlanClient({ user }: { user: User }) {
     const maturity = user.ai_maturity ?? 'observer'
     const curriculum = buildCurriculum(topics, maturity)
     setPlan(curriculum)
-    // Show diagram after slight delay for animation
-    setTimeout(() => setShowDiagram(true), 300)
   }, [user.topic_interests, user.ai_maturity])
 
   async function handleApprove() {
@@ -76,40 +66,6 @@ export default function PlanClient({ user }: { user: User }) {
         </div>
       </div>
     )
-  }
-
-  // Build diagram data from plan — 1 node per session (1 topic per session)
-  const diagramNodes: FlowNode[] = []
-  const diagramEdges: FlowEdge[] = []
-  const diagramGroups: FlowGroup[] = []
-  let prevNodeId: string | null = null
-
-  for (const session of plan.sessions) {
-    const topic = session.topics[0]
-    const nodeId = `s${session.index}`
-    diagramNodes.push({
-      id: nodeId,
-      label: topic.title,
-      sublabel: `~${topic.estimatedMinutes}m`,
-      type: 'action',
-      status: session.index === 1 ? 'pending' : 'locked',
-    })
-
-    if (prevNodeId) {
-      diagramEdges.push({
-        from: prevNodeId,
-        to: nodeId,
-        animated: session.index === 2,
-      })
-    }
-
-    diagramGroups.push({
-      id: `session_${session.index}`,
-      label: `Session ${session.index}`,
-      nodeIds: [nodeId],
-    })
-
-    prevNodeId = nodeId
   }
 
   const totalMins = plan.totalMinutes
@@ -179,110 +135,20 @@ export default function PlanClient({ user }: { user: User }) {
         )}
       </motion.div>
 
-      {/* Flow Diagram */}
+      {/* Learning Path — all sessions + sub-topics, static layout */}
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: showDiagram ? 1 : 0, y: showDiagram ? 0 : 20 }}
-        transition={{ duration: 0.6 }}
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.15 }}
       >
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            <BookOpen size={18} className="text-[#06B6D4]" />
-            Learning Path
+            <Clock size={17} className="text-[#06B6D4]" />
+            Your Learning Path
           </h2>
-          <span className="text-xs text-[#475569]">Scroll to explore →</span>
+          <span className="text-xs text-[#475569]">Select a session to see details</span>
         </div>
-        <FlowDiagram
-          nodes={diagramNodes}
-          edges={diagramEdges}
-          groups={diagramGroups}
-          layout="vertical"
-          className="min-h-[320px]"
-        />
-      </motion.div>
-
-      {/* Session list */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, delay: 0.2 }}
-      >
-        <h2 className="text-lg font-bold text-white mb-4">Sessions</h2>
-        <div className="space-y-3">
-          {plan.sessions.map((session, i) => (
-            <Card
-              key={session.index}
-              className={`overflow-hidden cursor-pointer transition-colors ${
-                expandedSession === i ? 'border-[#333]' : ''
-              }`}
-              onClick={() => setExpandedSession(expandedSession === i ? null : i)}
-            >
-              {(() => {
-                const topic = session.topics[0]
-                const badge = DIFFICULTY_BADGE[topic.difficulty] ?? DIFFICULTY_BADGE.beginner
-                return (
-                  <>
-                    <div className="p-4 flex items-center justify-between gap-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-purple-950/50 border border-purple-800/40 flex items-center justify-center flex-shrink-0">
-                          <span className="text-xs font-bold text-[#A855F7]">{session.index}</span>
-                        </div>
-                        <div>
-                          <p className="text-sm font-semibold text-white">{session.title}</p>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <span
-                              className="text-xs px-2 py-0.5 rounded-full font-medium"
-                              style={{ color: badge.color, background: badge.bg }}
-                            >
-                              {badge.label}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <div className="flex items-center gap-1 text-xs text-[#475569]">
-                          <Clock size={12} />
-                          ~{session.estimatedMinutes}m
-                        </div>
-                        {expandedSession === i ? (
-                          <ChevronUp size={16} className="text-[#475569]" />
-                        ) : (
-                          <ChevronDown size={16} className="text-[#475569]" />
-                        )}
-                      </div>
-                    </div>
-
-                    <AnimatePresence>
-                      {expandedSession === i && (
-                        <motion.div
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: 'auto', opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }}
-                          transition={{ duration: 0.25 }}
-                          className="overflow-hidden"
-                        >
-                          <div className="px-4 pb-4 border-t border-[#1A1A1A] pt-3">
-                            <div className="flex items-center gap-3">
-                              <Tag size={14} className="text-[#7C3AED] flex-shrink-0" />
-                              <span className="text-sm text-[#94A3B8]">{topic.title}</span>
-                              <span className="ml-auto text-xs text-[#475569]">~{topic.estimatedMinutes}m</span>
-                              <span
-                                className="text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0"
-                                style={{ color: badge.color, background: badge.bg }}
-                              >
-                                {badge.label}
-                              </span>
-                            </div>
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </>
-                )
-              })()}
-            </Card>
-          ))}
-        </div>
+        <LearningPathView plan={plan} />
       </motion.div>
 
       {/* Approve CTA at bottom */}

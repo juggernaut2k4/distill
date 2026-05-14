@@ -10,6 +10,7 @@ export interface CurriculumTopic {
   difficulty: 'beginner' | 'intermediate' | 'advanced'
   prerequisites: string[]
   tags: string[]
+  subtopics: string[]
 }
 
 export interface CurriculumSession {
@@ -37,6 +38,13 @@ const TOPIC_CATALOG: CurriculumTopic[] = [
     difficulty: 'beginner',
     prerequisites: [],
     tags: ['AI Strategy & Leadership', 'Technology Foundations'],
+    subtopics: [
+      'What generative AI is and why this moment is strategically different',
+      'The foundation model landscape: GPT, Claude, Gemini — what they share',
+      'What AI can realistically do today vs. what vendors claim',
+      'The three decisions every executive must make in the next 12 months',
+      'How to frame AI as a capability, not a one-time project',
+    ],
   },
   {
     id: 'llm-basics',
@@ -45,6 +53,13 @@ const TOPIC_CATALOG: CurriculumTopic[] = [
     difficulty: 'beginner',
     prerequisites: [],
     tags: ['Technology Foundations'],
+    subtopics: [
+      'How language models process and generate text — no math required',
+      'What "training" means and why it determines what a model knows',
+      'Context windows, tokens, and why they affect your use case',
+      'Open-source vs. proprietary models: the real strategic trade-off',
+      'Why two models with similar names can produce very different outputs',
+    ],
   },
   {
     id: 'ai-strategy-intro',
@@ -53,6 +68,13 @@ const TOPIC_CATALOG: CurriculumTopic[] = [
     difficulty: 'beginner',
     prerequisites: [],
     tags: ['AI Strategy & Leadership'],
+    subtopics: [
+      'The four strategic postures: observe, experiment, scale, lead',
+      'How to define AI ambition without overcommitting resources',
+      'Aligning AI initiatives with core business outcomes',
+      'What separates an AI strategy from an AI wish list',
+      'What a credible 12-month AI roadmap actually looks like',
+    ],
   },
   {
     id: 'ml-basics',
@@ -61,6 +83,13 @@ const TOPIC_CATALOG: CurriculumTopic[] = [
     difficulty: 'beginner',
     prerequisites: ['ai-fundamentals'],
     tags: ['Technology Foundations'],
+    subtopics: [
+      'The difference between machine learning, deep learning, and AI',
+      'How models learn from data and why data quality is the real bottleneck',
+      'Supervised vs. unsupervised learning — which applies to your business',
+      'Why ML models degrade after deployment and need ongoing maintenance',
+      'Reading model performance metrics without being a data scientist',
+    ],
   },
   {
     id: 'ai-culture',
@@ -69,6 +98,13 @@ const TOPIC_CATALOG: CurriculumTopic[] = [
     difficulty: 'beginner',
     prerequisites: ['ai-strategy-intro'],
     tags: ['AI Strategy & Leadership', 'Team & Org'],
+    subtopics: [
+      'Why most AI initiatives fail for cultural, not technical, reasons',
+      'The five mindset shifts required at every level of the organization',
+      'How to create psychological safety around AI experimentation',
+      'Identifying and empowering your internal AI champions',
+      'Building an environment where AI experiments are expected to fail fast',
+    ],
   },
 
   // Intermediate topics
@@ -79,6 +115,13 @@ const TOPIC_CATALOG: CurriculumTopic[] = [
     difficulty: 'intermediate',
     prerequisites: ['ai-strategy-intro'],
     tags: ['AI Strategy & Leadership'],
+    subtopics: [
+      'The three categories of AI value: efficiency, revenue, and strategic advantage',
+      'How to calculate ROI when benefits are indirect or long-term',
+      'Which AI investments pay back in 90 days vs. 2 years',
+      'Setting the right KPIs before you start — not after',
+      'The measurement traps executives consistently fall into with AI',
+    ],
   },
   {
     id: 'ai-vendor-eval',
@@ -87,6 +130,13 @@ const TOPIC_CATALOG: CurriculumTopic[] = [
     difficulty: 'intermediate',
     prerequisites: ['ai-strategy-intro', 'ai-fundamentals'],
     tags: ['AI Strategy & Leadership'],
+    subtopics: [
+      'The seven questions to ask every AI vendor — and the answers that matter',
+      'How to evaluate vendor claims without deep technical knowledge',
+      'Build vs. buy vs. partner: the executive framework for AI decisions',
+      'Red flags in AI vendor proposals and how to spot them',
+      'Due diligence checklist for AI procurement',
+    ],
   },
   {
     id: 'ai-governance',
@@ -95,6 +145,13 @@ const TOPIC_CATALOG: CurriculumTopic[] = [
     difficulty: 'intermediate',
     prerequisites: ['ai-strategy-intro'],
     tags: ['AI Strategy & Leadership'],
+    subtopics: [
+      'Why AI governance is now a board-level conversation',
+      'The three pillars of AI governance: accountability, transparency, control',
+      'How to structure an AI oversight committee that actually works',
+      'Policy frameworks that balance innovation with risk management',
+      'What good AI governance looks like in practice — with real examples',
+    ],
   },
   {
     id: 'data-strategy',
@@ -103,6 +160,13 @@ const TOPIC_CATALOG: CurriculumTopic[] = [
     difficulty: 'intermediate',
     prerequisites: ['ml-basics'],
     tags: ['Technology Foundations'],
+    subtopics: [
+      'Why data is the real AI competitive advantage — not the model',
+      'Honestly assessing your organization\'s data readiness',
+      'Data lakes vs. warehouses vs. what you actually need',
+      'Data governance: who owns what and why ownership matters',
+      'Building a data strategy that enables AI without becoming a data project',
+    ],
   },
   {
     id: 'ai-ops',
@@ -111,6 +175,13 @@ const TOPIC_CATALOG: CurriculumTopic[] = [
     difficulty: 'intermediate',
     prerequisites: ['ai-fundamentals'],
     tags: ['Operational AI'],
+    subtopics: [
+      'The eight operational areas where AI creates the most immediate value',
+      'Supply chain AI: demand forecasting, route optimization, risk detection',
+      'How to identify automation candidates in your existing operations',
+      'Integrating AI into operational workflows without disrupting them',
+      'Measuring operational AI success beyond cost savings alone',
+    ],
   },
   {
     id: 'ai-cx',
@@ -119,6 +190,13 @@ const TOPIC_CATALOG: CurriculumTopic[] = [
     difficulty: 'intermediate',
     prerequisites: ['ai-fundamentals'],
     tags: ['Operational AI'],
+    subtopics: [
+      'Where AI creates genuine customer experience improvements vs. hype',
+      'The personalization paradox: why more data doesn\'t always mean better CX',
+      'AI-powered service: what customers actually respond to',
+      'How to avoid the "AI chatbot that frustrates everyone" outcome',
+      'Measuring CX AI impact in terms your customers actually care about',
+    ],
   },
   {
     id: 'process-automation',
@@ -127,6 +205,13 @@ const TOPIC_CATALOG: CurriculumTopic[] = [
     difficulty: 'intermediate',
     prerequisites: ['ai-fundamentals', 'ml-basics'],
     tags: ['Operational AI'],
+    subtopics: [
+      'Distinguishing RPA from intelligent automation from true AI',
+      'The process automation opportunity matrix — where to start',
+      'How to identify which processes to automate first for maximum impact',
+      'Managing the workforce transition that automation creates',
+      'Automation governance: when AI makes wrong decisions at scale',
+    ],
   },
   {
     id: 'upskilling',
@@ -135,6 +220,13 @@ const TOPIC_CATALOG: CurriculumTopic[] = [
     difficulty: 'intermediate',
     prerequisites: ['ai-culture'],
     tags: ['Team & Org'],
+    subtopics: [
+      'The AI skills gap: what it actually means for your organization',
+      'The four types of AI literacy your team needs at different levels',
+      'Building an AI learning culture vs. just running a training program',
+      'How to evaluate AI upskilling vendors and programs critically',
+      'Creating an AI mentorship and peer learning ecosystem internally',
+    ],
   },
   {
     id: 'change-mgmt',
@@ -143,6 +235,13 @@ const TOPIC_CATALOG: CurriculumTopic[] = [
     difficulty: 'intermediate',
     prerequisites: ['ai-culture'],
     tags: ['Team & Org'],
+    subtopics: [
+      'The three waves of AI-driven organizational change — and your timing',
+      'Why AI change management differs from standard digital transformation',
+      'Managing the fear and resistance that AI inevitably creates',
+      'Communication strategies for AI adoption across all levels',
+      'Building change capacity before you urgently need it',
+    ],
   },
   {
     id: 'ai-security',
@@ -151,6 +250,13 @@ const TOPIC_CATALOG: CurriculumTopic[] = [
     difficulty: 'intermediate',
     prerequisites: ['ai-fundamentals'],
     tags: ['Technology Foundations'],
+    subtopics: [
+      'The new attack vectors that AI opens which didn\'t exist before',
+      'Prompt injection, data poisoning, and model theft — explained simply',
+      'How to evaluate AI security claims from vendors without being an expert',
+      'Building AI security requirements into procurement and deployment',
+      'The regulatory landscape for AI security and data privacy',
+    ],
   },
 
   // Advanced topics
@@ -161,6 +267,13 @@ const TOPIC_CATALOG: CurriculumTopic[] = [
     difficulty: 'advanced',
     prerequisites: ['ai-roi', 'ai-vendor-eval'],
     tags: ['Competitive Edge'],
+    subtopics: [
+      'How to track and interpret competitors\' AI investments and capabilities',
+      'Building a competitive intelligence system powered by AI',
+      'First-mover vs. fast-follower: which AI strategy fits your position',
+      'Identifying AI-driven market disruption before it arrives at your door',
+      'Translating competitive intelligence into board-level strategic decisions',
+    ],
   },
   {
     id: 'ai-product',
@@ -169,6 +282,13 @@ const TOPIC_CATALOG: CurriculumTopic[] = [
     difficulty: 'advanced',
     prerequisites: ['data-strategy', 'process-automation'],
     tags: ['Competitive Edge'],
+    subtopics: [
+      'How AI fundamentally changes the product development lifecycle',
+      'From feature roadmaps to intelligence roadmaps — the shift in thinking',
+      'AI product ethics: what to build, what to avoid, and why it matters',
+      'The new product management skills required in an AI-first environment',
+      'Measuring AI product success beyond engagement and retention metrics',
+    ],
   },
   {
     id: 'ai-teams',
@@ -177,6 +297,13 @@ const TOPIC_CATALOG: CurriculumTopic[] = [
     difficulty: 'advanced',
     prerequisites: ['upskilling', 'change-mgmt'],
     tags: ['Team & Org'],
+    subtopics: [
+      'The new roles AI creates and the existing roles it fundamentally changes',
+      'How to recruit AI talent in a market where demand exceeds supply',
+      'Centralized AI center of excellence vs. distributed team model',
+      'Building interdisciplinary teams where AI engineers and business leaders align',
+      'Creating a culture where AI and business speak the same language',
+    ],
   },
   {
     id: 'ai-finance',
@@ -185,6 +312,13 @@ const TOPIC_CATALOG: CurriculumTopic[] = [
     difficulty: 'advanced',
     prerequisites: ['data-strategy', 'ai-ops'],
     tags: ['Operational AI'],
+    subtopics: [
+      'AI applications in financial forecasting and strategic planning',
+      'Fraud detection, risk modeling, and anomaly detection at enterprise scale',
+      'How AI is changing the CFO role and the finance function',
+      'The financial data infrastructure that AI requires to perform reliably',
+      'Evaluating AI vendors specifically for finance and forecasting use cases',
+    ],
   },
   {
     id: 'ai-ethics',
@@ -193,6 +327,13 @@ const TOPIC_CATALOG: CurriculumTopic[] = [
     difficulty: 'advanced',
     prerequisites: ['ai-governance'],
     tags: ['Team & Org'],
+    subtopics: [
+      'Why AI ethics is a strategic business issue, not just a PR concern',
+      'Identifying and mitigating bias in AI systems before it causes harm',
+      'Fairness, accountability, and transparency — practical frameworks for leaders',
+      'How to build an AI ethics review process that isn\'t just a checkbox',
+      'When to say no: the decisions AI should never make on its own',
+    ],
   },
   {
     id: 'ai-regulation',
@@ -201,6 +342,13 @@ const TOPIC_CATALOG: CurriculumTopic[] = [
     difficulty: 'advanced',
     prerequisites: ['ai-governance', 'ai-security'],
     tags: ['Competitive Edge'],
+    subtopics: [
+      'The global AI regulatory landscape and where it\'s heading',
+      'EU AI Act, US Executive Orders, and what they mean for your business now',
+      'Building compliance into AI development before regulators require it',
+      'How to engage productively with regulators on AI policy',
+      'Preparing for AI regulation that doesn\'t fully exist yet',
+    ],
   },
   {
     id: 'ai-trends',
@@ -209,6 +357,13 @@ const TOPIC_CATALOG: CurriculumTopic[] = [
     difficulty: 'advanced',
     prerequisites: ['ai-vendor-eval'],
     tags: ['Competitive Edge'],
+    subtopics: [
+      'The AI capabilities arriving in the next 12–18 months that will matter most',
+      'Multi-modal AI: what becomes possible when AI sees, hears, and reads together',
+      'Agentic AI: when AI systems act autonomously on your organization\'s behalf',
+      'The organizations that will define AI leadership in the next five years',
+      'Separating genuine AI breakthroughs from noise — a leader\'s filter',
+    ],
   },
 ]
 
