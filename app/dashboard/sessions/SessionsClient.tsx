@@ -98,21 +98,22 @@ function SessionRow({ session, index }: { session: Session; index: number }) {
 }
 
 function TestSessionButton() {
+  const [expanded, setExpanded] = useState(false)
+  const [meetingInput, setMeetingInput] = useState('')
   const [state, setState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
-  const [meetingUrl, setMeetingUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   async function handleCreate() {
+    if (!meetingInput.trim()) return
     setState('loading')
     try {
       const res = await fetch('/api/admin/test-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: 'How Claude Works', durationMins: 30 }),
+        body: JSON.stringify({ title: 'How Claude Works', meetingUrl: meetingInput.trim(), durationMins: 30 }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Unknown error')
-      setMeetingUrl(data.meetingUrl)
       setState('done')
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -120,35 +121,56 @@ function TestSessionButton() {
     }
   }
 
-  if (state === 'done' && meetingUrl) {
+  if (state === 'done') {
     return (
-      <div className="flex items-center gap-3 flex-wrap">
-        <span className="text-xs text-green-400 font-medium">Meeting ready!</span>
-        <a
-          href={meetingUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-xs px-3 py-1.5 rounded-lg bg-green-950/50 border border-green-800/40 text-green-400 hover:bg-green-900/40 transition-colors font-semibold"
-        >
-          Join Google Meet →
-        </a>
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-green-400 font-medium">Bot is joining your meeting now!</span>
       </div>
     )
   }
 
-  return (
-    <div className="flex flex-col items-end gap-1">
+  if (!expanded) {
+    return (
       <button
-        onClick={handleCreate}
-        disabled={state === 'loading'}
-        className="flex items-center gap-2 text-xs px-3 py-1.5 rounded-lg border border-[#333] text-[#94A3B8] hover:border-[#7C3AED] hover:text-[#A855F7] transition-colors disabled:opacity-50"
+        onClick={() => setExpanded(true)}
+        className="flex items-center gap-2 text-xs px-3 py-1.5 rounded-lg border border-[#333] text-[#94A3B8] hover:border-[#7C3AED] hover:text-[#A855F7] transition-colors"
       >
-        {state === 'loading' ? <Loader2 size={12} className="animate-spin" /> : <FlaskConical size={12} />}
-        {state === 'loading' ? 'Creating meeting…' : 'Test: How Claude Works'}
+        <FlaskConical size={12} />
+        Test: How Claude Works
       </button>
-      {state === 'error' && (
-        <span className="text-xs text-red-400">{error}</span>
-      )}
+    )
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-2">
+      <p className="text-xs text-[#475569]">
+        Go to{' '}
+        <a href="https://meet.google.com" target="_blank" rel="noopener noreferrer" className="text-[#7C3AED] hover:underline">
+          meet.google.com
+        </a>
+        {' '}→ New meeting → paste the URL below
+      </p>
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          value={meetingInput}
+          onChange={(e) => setMeetingInput(e.target.value)}
+          placeholder="https://meet.google.com/xxx-xxxx-xxx"
+          className="text-xs px-3 py-1.5 rounded-lg bg-[#111] border border-[#333] text-white placeholder:text-[#475569] focus:outline-none focus:border-[#7C3AED] w-64"
+        />
+        <button
+          onClick={handleCreate}
+          disabled={state === 'loading' || !meetingInput.trim()}
+          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-[#7C3AED] text-white hover:bg-[#A855F7] transition-colors disabled:opacity-50"
+        >
+          {state === 'loading' ? <Loader2 size={12} className="animate-spin" /> : <FlaskConical size={12} />}
+          {state === 'loading' ? 'Sending bot…' : 'Send bot'}
+        </button>
+        <button onClick={() => setExpanded(false)} className="text-xs text-[#475569] hover:text-white transition-colors">
+          ✕
+        </button>
+      </div>
+      {state === 'error' && <span className="text-xs text-red-400">{error}</span>}
     </div>
   )
 }

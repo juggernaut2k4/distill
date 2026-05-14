@@ -1,12 +1,13 @@
 import { auth } from '@clerk/nextjs/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseAdminClient } from '@/lib/supabase'
-import { createGoogleMeetSession } from '@/lib/recall'
+import { createBot } from '@/lib/recall'
 
 /**
  * POST /api/admin/test-session
- * Creates a test session and immediately spins up a Google Meet with the Recall.ai bot.
+ * Creates a test session and sends the Recall.ai bot into an existing meeting URL.
  * For testing only — bypasses the 25-35 min cron window.
+ * Body: { title?, meetingUrl, durationMins? }
  */
 export async function POST(request: NextRequest) {
   const { userId } = auth()
@@ -14,7 +15,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  let body: { title?: string; durationMins?: number } = {}
+  let body: { title?: string; meetingUrl?: string; durationMins?: number } = {}
   try {
     body = await request.json()
   } catch {
@@ -23,11 +24,15 @@ export async function POST(request: NextRequest) {
 
   const sessionTitle = body.title ?? 'How Claude Works'
   const durationMins = body.durationMins ?? 30
-  const scheduledAt = new Date(Date.now() + 3 * 60 * 1000) // 3 min from now
+  const meetingUrl = body.meetingUrl?.trim()
 
+  if (!meetingUrl) {
+    return NextResponse.json({ error: 'meetingUrl is required' }, { status: 400 })
+  }
+
+  const scheduledAt = new Date(Date.now() + 3 * 60 * 1000)
   const supabase = createSupabaseAdminClient()
 
-  // Find the next session_index for this user
   const { data: existingSessions } = await supabase
     .from('sessions')
     .select('session_index')
@@ -39,7 +44,6 @@ export async function POST(request: NextRequest) {
     ? (existingSessions[0].session_index as number) + 1
     : 1
 
-  // Create the session row
   const { data: session, error: sessionError } = await supabase
     .from('sessions')
     .insert({
@@ -49,7 +53,7 @@ export async function POST(request: NextRequest) {
       scheduled_at: scheduledAt.toISOString(),
       duration_mins: durationMins,
       status: 'scheduled',
-      meeting_url: null,
+      meeting_url: meetingUrl,
     })
     .select()
     .single()
@@ -58,23 +62,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: `Failed to create session: ${sessionError?.message}` }, { status: 500 })
   }
 
-  // Immediately create the Google Meet (bypassing the cron window)
   const walkthroughUrl = `${process.env.NEXT_PUBLIC_APP_URL}/walkthrough/${userId}`
 
   try {
-    const { botId, meetingUrl } = await createGoogleMeetSession(
-      userId,
-      walkthroughUrl,
-      sessionTitle
-    )
+    const { botId } = await createBot(meetingUrl, userId, walkthroughUrl)
 
-    // Store meeting_url on the session
-    await supabase
-      .from('sessions')
-      .update({ meeting_url: meetingUrl })
-      .eq('id', session.id)
-
-    // Upsert walkthrough_state with bot info
     await supabase
       .from('walkthrough_state')
       .upsert({
@@ -89,13 +81,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       sessionId: session.id,
       sessionTitle,
-      scheduledAt: scheduledAt.toISOString(),
       meetingUrl,
       botId,
       walkthroughUrl,
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    return NextResponse.json({ error: `Failed to create meeting: ${message}` }, { status: 500 })
+    return NextResponse.json({ error: `Failed to send bot: ${message}` }, { status: 500 })
   }
 }
