@@ -138,10 +138,12 @@ async function handleEvent(event: RecallWebhookEvent) {
       break
     }
 
-    // transcript.done = final transcript, transcript.processing = real-time interim
+    // transcript.data = real-time utterance (recording_config / realtime_endpoints)
+    // transcript.done = final transcript (legacy bot status webhook)
+    // transcript.processing = interim (skip)
+    case 'transcript.data':
     case 'transcript.done':
     case 'transcript.processing': {
-      // Only act on final/done transcripts to avoid processing partial speech
       if (event.event === 'transcript.processing') break
 
       const transcript = event.data.transcript ?? event.data.data

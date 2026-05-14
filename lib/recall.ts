@@ -46,12 +46,22 @@ export async function createBot(
         kind: 'webpage',
         url: walkthroughUrl,
       },
-      transcription_options: {
-        provider: 'assembly_ai',
-      },
-      real_time_transcription: {
-        destination_url: `${process.env.NEXT_PUBLIC_APP_URL}/api/recall/webhook`,
-        partial_results: false,
+      recording_config: {
+        transcript: {
+          provider: {
+            recallai_streaming: {
+              mode: 'prioritize_low_latency',
+              language_code: 'en',
+            },
+          },
+        },
+        realtime_endpoints: [
+          {
+            type: 'webhook',
+            url: `${process.env.NEXT_PUBLIC_APP_URL}/api/recall/webhook`,
+            events: ['transcript.data'],
+          },
+        ],
       },
     }),
   })
