@@ -1,10 +1,11 @@
 'use client'
 
+import { useState } from 'react'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
 import {
   ArrowLeft, CalendarDays, Clock, Download, Tag, CheckCircle,
-  Circle, XCircle, Loader,
+  Circle, XCircle, Loader, Video, StopCircle, ExternalLink,
 } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -18,6 +19,8 @@ interface Session {
   topics: string[] | null
   duration_mins: number
 }
+
+type BotStatus = 'idle' | 'joining' | 'active' | 'ending'
 
 interface Props {
   session: Session
@@ -68,6 +71,57 @@ export default function SessionDetailClient({ session }: Props) {
   const title = session.session_title ?? `Session ${session.session_index}`
   const status = STATUS_CONFIG[session.status] ?? STATUS_CONFIG.scheduled
   const topics = session.topics ?? []
+
+  // Live session state
+  const [meetingUrl, setMeetingUrl] = useState('')
+  const [botStatus, setBotStatus] = useState<BotStatus>('idle')
+  const [botId, setBotId] = useState<string | null>(null)
+  const [botError, setBotError] = useState<string | null>(null)
+
+  const walkthroughUrl =
+    typeof window !== 'undefined'
+      ? `${window.location.origin}/dashboard/walkthrough`
+      : '/dashboard/walkthrough'
+
+  async function handleLaunchBot() {
+    if (!meetingUrl.trim()) return
+    setBotStatus('joining')
+    setBotError(null)
+    try {
+      const res = await fetch('/api/recall/bot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ meetingUrl: meetingUrl.trim(), sessionId: session.id }),
+      })
+      const data = (await res.json()) as { botId?: string; error?: string }
+      if (!res.ok || !data.botId) {
+        setBotError(data.error ?? 'Failed to launch bot')
+        setBotStatus('idle')
+        return
+      }
+      setBotId(data.botId)
+      setBotStatus('active')
+    } catch {
+      setBotError('Network error — please try again')
+      setBotStatus('idle')
+    }
+  }
+
+  async function handleEndSession() {
+    if (!botId) return
+    setBotStatus('ending')
+    try {
+      await fetch('/api/recall/bot', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ botId }),
+      })
+    } catch {
+      // Non-fatal
+    }
+    setBotId(null)
+    setBotStatus('idle')
+  }
 
   return (
     <div className="max-w-2xl space-y-6">
@@ -172,6 +226,111 @@ export default function SessionDetailClient({ session }: Props) {
           </Button>
         </Link>
       </motion.div>
+
+      {/* ── LIVE SESSION LAUNCHER ── */}
+      {session.status !== 'cancelled' && (
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+        >
+          <Card>
+            <div className="p-5 space-y-4">
+              {/* Header */}
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center flex-shrink-0">
+                  <Video size={16} className="text-[#06B6D4]" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-semibold text-white">Start Live Session</h2>
+                  <p className="text-xs text-[#475569]">
+                    Clio AI joins your Zoom or Teams call and shares a visual walkthrough
+                  </p>
+                </div>
+              </div>
+
+              {botStatus === 'idle' && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs text-[#475569] mb-1.5">
+                      Meeting URL
+                    </label>
+                    <input
+                      type="url"
+                      placeholder="https://zoom.us/j/... or https://teams.microsoft.com/..."
+                      value={meetingUrl}
+                      onChange={(e) => setMeetingUrl(e.target.value)}
+                      className="w-full bg-[#0D0D0D] border border-[#222222] rounded-lg px-3 py-2.5 text-sm text-white placeholder-[#475569] focus:outline-none focus:border-[#7C3AED] transition-colors"
+                    />
+                  </div>
+                  {botError && (
+                    <p className="text-xs text-red-400">{botError}</p>
+                  )}
+                  <Button
+                    variant="primary"
+                    className="w-full gap-2"
+                    onClick={handleLaunchBot}
+                  >
+                    <Video size={15} />
+                    Launch AI Coach
+                  </Button>
+                </div>
+              )}
+
+              {botStatus === 'joining' && (
+                <div className="flex items-center gap-3 py-2">
+                  <Loader size={16} className="text-[#06B6D4] animate-spin flex-shrink-0" />
+                  <p className="text-sm text-[#94A3B8]">Joining meeting...</p>
+                </div>
+              )}
+
+              {botStatus === 'active' && (
+                <div className="space-y-3">
+                  {/* Status indicator */}
+                  <div className="flex items-center gap-2.5 py-1">
+                    <span className="w-2 h-2 rounded-full bg-[#10B981] animate-pulse flex-shrink-0" />
+                    <p className="text-sm text-[#10B981] font-medium">Bot is in the call</p>
+                  </div>
+
+                  {/* Walkthrough URL */}
+                  <div className="bg-[#0D0D0D] border border-[#1E1E1E] rounded-lg p-3">
+                    <p className="text-xs text-[#475569] mb-1">Shared screen URL (auto-managed by bot)</p>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-[#94A3B8] truncate flex-1 font-mono">
+                        {walkthroughUrl}
+                      </span>
+                      <a
+                        href={walkthroughUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[#7C3AED] hover:text-[#A855F7] flex-shrink-0"
+                      >
+                        <ExternalLink size={13} />
+                      </a>
+                    </div>
+                  </div>
+
+                  <Button
+                    variant="danger"
+                    className="w-full gap-2"
+                    onClick={handleEndSession}
+                  >
+                    <StopCircle size={15} />
+                    End Session
+                  </Button>
+                </div>
+              )}
+
+              {botStatus === 'ending' && (
+                <div className="flex items-center gap-3 py-2">
+                  <Loader size={16} className="text-[#475569] animate-spin flex-shrink-0" />
+                  <p className="text-sm text-[#475569]">Ending session...</p>
+                </div>
+              )}
+            </div>
+          </Card>
+        </motion.div>
+      )}
     </div>
   )
 }

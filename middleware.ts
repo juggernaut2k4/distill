@@ -10,6 +10,7 @@ const isPublicRoute = createRouteMatcher([
   '/topics(.*)',
   '/dashboard/welcome(.*)',
   '/api/webhooks/(.*)',
+  '/api/recall/webhook(.*)',  // Recall.ai webhook — no user auth
 ])
 
 export default clerkMiddleware((auth, request) => {
