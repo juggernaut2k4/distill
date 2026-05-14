@@ -1,7 +1,7 @@
 import { ElevenLabsClient } from 'elevenlabs'
 
-// Sarah — warm, expressive, natural pacing. Great for coaching/teaching contexts.
-const DEFAULT_VOICE_ID = 'EXAVITQu4vr4xnSDxMaL'
+// Aria — warm, natural, conversational. Trusted advisor tone for executive coaching.
+const DEFAULT_VOICE_ID = 'QeKcckTBICc3UuWL7ETc'
 
 const isPlaceholder =
   !process.env.ELEVENLABS_API_KEY ||
