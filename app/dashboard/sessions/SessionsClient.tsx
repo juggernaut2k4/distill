@@ -2,8 +2,9 @@
 
 import { motion } from 'framer-motion'
 import Link from 'next/link'
-import { Clock, CalendarDays, PlusCircle, ChevronRight } from 'lucide-react'
+import { Clock, CalendarDays, PlusCircle, ChevronRight, FlaskConical, Loader2 } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
+import { useState } from 'react'
 
 interface Session {
   id: string
@@ -96,6 +97,62 @@ function SessionRow({ session, index }: { session: Session; index: number }) {
   )
 }
 
+function TestSessionButton() {
+  const [state, setState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
+  const [meetingUrl, setMeetingUrl] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleCreate() {
+    setState('loading')
+    try {
+      const res = await fetch('/api/admin/test-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: 'How Claude Works', durationMins: 30 }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Unknown error')
+      setMeetingUrl(data.meetingUrl)
+      setState('done')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+      setState('error')
+    }
+  }
+
+  if (state === 'done' && meetingUrl) {
+    return (
+      <div className="flex items-center gap-3 flex-wrap">
+        <span className="text-xs text-green-400 font-medium">Meeting ready!</span>
+        <a
+          href={meetingUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs px-3 py-1.5 rounded-lg bg-green-950/50 border border-green-800/40 text-green-400 hover:bg-green-900/40 transition-colors font-semibold"
+        >
+          Join Google Meet →
+        </a>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <button
+        onClick={handleCreate}
+        disabled={state === 'loading'}
+        className="flex items-center gap-2 text-xs px-3 py-1.5 rounded-lg border border-[#333] text-[#94A3B8] hover:border-[#7C3AED] hover:text-[#A855F7] transition-colors disabled:opacity-50"
+      >
+        {state === 'loading' ? <Loader2 size={12} className="animate-spin" /> : <FlaskConical size={12} />}
+        {state === 'loading' ? 'Creating meeting…' : 'Test: How Claude Works'}
+      </button>
+      {state === 'error' && (
+        <span className="text-xs text-red-400">{error}</span>
+      )}
+    </div>
+  )
+}
+
 export default function SessionsClient({ sessions }: SessionsClientProps) {
   const now = new Date()
   const upcoming = sessions.filter(
@@ -109,11 +166,14 @@ export default function SessionsClient({ sessions }: SessionsClientProps) {
     <div className="space-y-10 max-w-3xl">
       {/* Page header */}
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
-        <div className="flex items-center gap-3 mb-1">
-          <h1 className="text-3xl font-bold text-white">Sessions</h1>
-          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-950/50 border border-purple-800/40 text-[#A855F7]">
-            {sessions.length}
-          </span>
+        <div className="flex items-start justify-between gap-4 mb-1">
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold text-white">Sessions</h1>
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-950/50 border border-purple-800/40 text-[#A855F7]">
+              {sessions.length}
+            </span>
+          </div>
+          <TestSessionButton />
         </div>
         <p className="text-[#94A3B8]">Your scheduled coaching sessions.</p>
       </motion.div>
