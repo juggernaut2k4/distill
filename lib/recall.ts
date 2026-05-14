@@ -68,14 +68,11 @@ export async function createBot(
             },
           },
         },
-        include_bot_in_recording: {
-          audio: true,
-        },
         realtime_endpoints: [
           {
             type: 'webhook',
             url: `${process.env.NEXT_PUBLIC_APP_URL}/api/recall/webhook`,
-            events: ['transcript.data', 'bot.status_change'],
+            events: ['transcript.data'],
           },
         ],
       },
