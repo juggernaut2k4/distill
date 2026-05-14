@@ -51,15 +51,23 @@ interface RecallWebhookEvent {
   event: string
   data: {
     bot_id?: string
+    // transcript.done / transcript.processing
     transcript?: {
       speaker?: string
       words?: Array<{ text: string; start_time: number; end_time: number }>
       is_final?: boolean
     }
+    // participant_events.done / participant_events.failed etc.
     participant?: {
       id: string
       name?: string
       is_host?: boolean
+    }
+    // Recall.ai sometimes nests the payload under data.data
+    data?: {
+      speaker?: string
+      words?: Array<{ text: string; start_time: number; end_time: number }>
+      participant?: { id: string; name?: string; is_host?: boolean }
     }
   }
 }
@@ -108,9 +116,10 @@ async function handleEvent(event: RecallWebhookEvent) {
       break
     }
 
-    case 'participant.join': {
+    case 'participant_events.done': {
       // When a real participant joins, start the first topic
-      const participantName = event.data.participant?.name ?? 'participant'
+      const participant = event.data.participant ?? event.data.data?.participant
+      const participantName = participant?.name ?? 'participant'
       const isBot = participantName.toLowerCase().includes('clio')
       if (isBot) break
 
@@ -129,16 +138,21 @@ async function handleEvent(event: RecallWebhookEvent) {
       break
     }
 
-    case 'transcript.data': {
-      const transcript = event.data.transcript
-      if (!transcript?.is_final) break // Only process final transcripts
+    // transcript.done = final transcript, transcript.processing = real-time interim
+    case 'transcript.done':
+    case 'transcript.processing': {
+      // Only act on final/done transcripts to avoid processing partial speech
+      if (event.event === 'transcript.processing') break
 
-      const words = transcript.words ?? []
+      const transcript = event.data.transcript ?? event.data.data
+      if (!transcript) break
+
+      const words = (transcript as { words?: Array<{ text: string }> }).words ?? []
       const text = words.map((w) => w.text).join(' ').trim()
-      if (!text) break
+      if (!text || text.length < 8) break
 
       // Skip if speaker is the bot
-      const speaker = transcript.speaker ?? ''
+      const speaker = (transcript as { speaker?: string }).speaker ?? ''
       if (speaker.toLowerCase().includes('clio')) break
 
       const userCtx = await getOrCreateContext(userId)
