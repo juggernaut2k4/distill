@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useUser } from '@clerk/nextjs'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
 import {
@@ -71,6 +72,7 @@ export default function SessionDetailClient({ session }: Props) {
   const title = session.session_title ?? `Session ${session.session_index}`
   const status = STATUS_CONFIG[session.status] ?? STATUS_CONFIG.scheduled
   const topics = session.topics ?? []
+  const { user } = useUser()
 
   // Live session state
   const [meetingUrl, setMeetingUrl] = useState('')
@@ -78,10 +80,10 @@ export default function SessionDetailClient({ session }: Props) {
   const [botId, setBotId] = useState<string | null>(null)
   const [botError, setBotError] = useState<string | null>(null)
 
-  const walkthroughUrl =
-    typeof window !== 'undefined'
-      ? `${window.location.origin}/dashboard/walkthrough`
-      : '/dashboard/walkthrough'
+  // Public URL — no auth, accessible by Recall.ai headless browser
+  const walkthroughUrl = user?.id
+    ? `${typeof window !== 'undefined' ? window.location.origin : ''}/walkthrough/${user.id}`
+    : ''
 
   async function handleLaunchBot() {
     if (!meetingUrl.trim()) return
