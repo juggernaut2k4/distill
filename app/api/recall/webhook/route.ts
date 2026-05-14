@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseAdminClient } from '@/lib/supabase'
-import { speakText } from '@/lib/recall'
 import {
   generateVisualSpec,
   reviewVisualSpec,
@@ -95,16 +94,14 @@ async function handleEvent(event: RecallWebhookEvent) {
       break
 
     case 'bot.in_call_not_recording': {
-      // Bot is in the call — set status to idle, greet user
+      // Bot is in the call — set status to idle and queue greeting speech
       await supabase
         .from('walkthrough_state')
-        .update({ status: 'idle' })
+        .update({
+          status: 'idle',
+          pending_speech: "Hello, I'm Clio, your AI coach. I'll be sharing visuals as we talk. Just speak naturally — ask questions whenever you like.",
+        })
         .eq('bot_id', botId)
-
-      await speakText(
-        botId,
-        "Hello, I'm Clio, your AI coach. I'll be sharing visuals as we talk. Just speak naturally — ask questions whenever you like."
-      )
       break
     }
 
@@ -123,10 +120,10 @@ async function handleEvent(event: RecallWebhookEvent) {
         console.error
       )
 
-      await speakText(
-        botId,
-        `Welcome. Let's dive in. I'll start with the foundations — and you can redirect me at any point.`
-      )
+      await supabase
+        .from('walkthrough_state')
+        .update({ pending_speech: `Welcome. Let's dive in. I'll start with the foundations — and you can redirect me at any point.` })
+        .eq('bot_id', botId)
       break
     }
 
@@ -170,13 +167,10 @@ async function handleEvent(event: RecallWebhookEvent) {
                 console.error
               )
             }
-            await speakText(
-              botId,
-              "That's a deep one — let's dedicate a full session to it. I've noted it and will schedule time to cover it properly."
-            )
+            await supabase.from('walkthrough_state').update({ pending_speech: "That's a deep one — let's dedicate a full session to it. I've noted it and will schedule time to cover it properly." }).eq('bot_id', botId)
           } else {
             // Generate a new visual for this question
-            await speakText(botId, 'Great question. Let me build that out for you — one moment.')
+            await supabase.from('walkthrough_state').update({ pending_speech: 'Great question. Let me build that out for you — one moment.' }).eq('bot_id', botId)
 
             const topicTitle =
               analysis.extractedQuestion ?? analysis.newTopicNeeded ?? text.slice(0, 60)
@@ -220,14 +214,14 @@ async function handleEvent(event: RecallWebhookEvent) {
               { communicationStyle: userCtx.communicationStyle },
               120
             )
-            await speakText(botId, spokenResponse)
+            await supabase.from('walkthrough_state').update({ pending_speech: spokenResponse }).eq('bot_id', botId)
           }
           break
         }
 
         case 'confused': {
           // Regenerate simpler visual for same topic
-          await speakText(botId, 'Let me break this down differently.')
+          await supabase.from('walkthrough_state').update({ pending_speech: 'Let me break this down differently.' }).eq('bot_id', botId)
           generateAndPushVisual(
             botId,
             userId,
@@ -240,16 +234,13 @@ async function handleEvent(event: RecallWebhookEvent) {
         }
 
         case 'skip': {
-          await speakText(botId, 'Moving on.')
+          await supabase.from('walkthrough_state').update({ pending_speech: 'Moving on.' }).eq('bot_id', botId)
           // Could advance to next topic in curriculum here
           break
         }
 
         case 'no_time': {
-          await speakText(
-            botId,
-            "Understood — I'll capture this and add it to your next session."
-          )
+          await supabase.from('walkthrough_state').update({ pending_speech: "Understood — I'll capture this and add it to your next session." }).eq('bot_id', botId)
           if (analysis.extractedQuestion && sessionId) {
             await addUnresolvedQuestion(
               userId,

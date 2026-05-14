@@ -14,6 +14,7 @@ interface WalkthroughState {
   visual_spec: VisualSpec | null
   topic_title?: string | null
   bot_id?: string | null
+  pending_speech?: string | null
 }
 
 interface Props {
@@ -65,6 +66,7 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
   const [state, setState] = useState<WalkthroughState>(initialState)
   const containerRef = useRef<HTMLDivElement>(null)
   const [dimensions, setDimensions] = useState({ width: 1280, height: 720 })
+  const lastPlayedSpeechRef = useRef<string | null>(null)
 
   // Track container dimensions with ResizeObserver
   useEffect(() => {
@@ -84,6 +86,40 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
 
     return () => observer.disconnect()
   }, [])
+
+  // Play TTS audio whenever pending_speech is set by the webhook
+  useEffect(() => {
+    const text = state.pending_speech
+    if (!text || text === lastPlayedSpeechRef.current) return
+    lastPlayedSpeechRef.current = text
+
+    // Clear pending_speech immediately so a reconnect doesn't replay it
+    const supabase = createSupabaseBrowserClient()
+    supabase
+      .from('walkthrough_state')
+      .update({ pending_speech: null })
+      .eq('user_id', userId)
+      .then(() => {})
+
+    // Fetch MP3 from our TTS endpoint and play it
+    // The Recall.ai headless browser captures the audio output and pipes it into the meeting
+    fetch('/api/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(`TTS fetch failed: ${res.status}`)
+        return res.blob()
+      })
+      .then((blob) => {
+        const url = URL.createObjectURL(blob)
+        const audio = new Audio(url)
+        audio.play().catch(console.error)
+        audio.onended = () => URL.revokeObjectURL(url)
+      })
+      .catch((err) => console.error('[WalkthroughClient] TTS playback error:', err))
+  }, [state.pending_speech, userId])
 
   // Subscribe to Supabase Realtime for walkthrough_state changes
   const setupRealtime = useCallback(() => {
