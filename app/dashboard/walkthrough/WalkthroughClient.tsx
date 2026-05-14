@@ -1,8 +1,7 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { createSupabaseBrowserClient } from '@/lib/supabase-browser'
 import ConceptVisualizer from '@/components/walkthrough/ConceptVisualizer'
 import type { VisualSpec } from '@/lib/session-ai'
 
@@ -97,9 +96,8 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
     if (!text || text === lastPlayedSpeechRef.current) return
     lastPlayedSpeechRef.current = text
 
-    // Clear pending_speech immediately to prevent replaying on reconnect
-    const supabase = createSupabaseBrowserClient()
-    supabase.from('walkthrough_state').update({ pending_speech: null }).eq('user_id', userId).then(() => {})
+    // Clear pending_speech via API so it doesn't replay on next poll
+    fetch(`/api/walkthrough-state/${userId}`, { method: 'DELETE' }).catch(() => {})
 
     setAudioStatus('fetching')
     setAudioError(null)
@@ -148,28 +146,29 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
     })
   }, [state.pending_speech, userId])
 
-  // Subscribe to Supabase Realtime
-  const setupRealtime = useCallback(() => {
-    const supabase = createSupabaseBrowserClient()
-    const channel = supabase
-      .channel(`walkthrough:${userId}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'walkthrough_state', filter: `user_id=eq.${userId}` },
-        (payload) => {
-          if (payload.new && typeof payload.new === 'object') {
-            setState(payload.new as WalkthroughState)
-          }
-        }
-      )
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
-  }, [userId])
-
+  // Poll walkthrough state every second — more reliable than Supabase Realtime
+  // in Recall.ai's headless browser (WebSocket connections can be unreliable there)
   useEffect(() => {
-    const cleanup = setupRealtime()
-    return cleanup
-  }, [setupRealtime])
+    let active = true
+
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/walkthrough-state/${userId}`)
+        if (!res.ok || !active) return
+        const data = await res.json() as WalkthroughState
+        setState(data)
+      } catch {
+        // ignore network errors — will retry next tick
+      }
+    }
+
+    poll()
+    const interval = setInterval(poll, 1000)
+    return () => {
+      active = false
+      clearInterval(interval)
+    }
+  }, [userId])
 
   const status = state.status ?? 'idle'
   const spec = state.visual_spec
