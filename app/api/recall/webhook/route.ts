@@ -19,16 +19,6 @@ import {
  * Always returns 200 — never 5xx (Recall.ai retries on server errors).
  */
 export async function POST(request: NextRequest) {
-  // Optional webhook secret validation
-  const webhookSecret = process.env.RECALL_WEBHOOK_SECRET
-  if (webhookSecret && !webhookSecret.startsWith('PLACEHOLDER')) {
-    const receivedSecret = request.headers.get('x-recall-webhook-secret')
-    if (receivedSecret !== webhookSecret) {
-      console.warn('[recall/webhook] Invalid webhook secret')
-      return NextResponse.json({ error: 'Invalid secret' }, { status: 200 }) // still 200
-    }
-  }
-
   let event: RecallWebhookEvent
   try {
     event = (await request.json()) as RecallWebhookEvent
@@ -36,6 +26,8 @@ export async function POST(request: NextRequest) {
     console.error('[recall/webhook] Invalid JSON body')
     return NextResponse.json({ ok: true }, { status: 200 })
   }
+
+  console.log('[recall/webhook] Received event:', event.event, '| bot_id:', event.data?.bot_id)
 
   // Fire-and-forget: process async without blocking response
   handleEvent(event).catch((err) =>

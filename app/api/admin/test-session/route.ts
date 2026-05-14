@@ -63,6 +63,7 @@ export async function POST(request: NextRequest) {
   }
 
   const walkthroughUrl = `${process.env.NEXT_PUBLIC_APP_URL}/walkthrough/${userId}`
+  console.log('[test-session] walkthroughUrl sent to bot:', walkthroughUrl)
 
   try {
     const { botId } = await createBot(meetingUrl, userId, walkthroughUrl)
