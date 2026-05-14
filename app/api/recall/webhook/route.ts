@@ -103,13 +103,18 @@ async function handleEvent(event: RecallWebhookEvent) {
     case 'bot.in_call_recording':
     case 'status.in_call_recording': {
       // Bot is in the call — set status to idle and queue greeting speech
-      await supabase
+      const { error: greetErr } = await supabase
         .from('walkthrough_state')
         .update({
           status: 'idle',
           pending_speech: "Hello, I'm Clio, your AI coach. I'll be sharing visuals as we talk. Just speak naturally — ask questions whenever you like.",
         })
         .eq('bot_id', botId)
+      if (greetErr) {
+        console.error('[recall/webhook] Failed to set pending_speech for greeting:', greetErr.message)
+      } else {
+        console.log('[recall/webhook] Greeting queued via pending_speech for bot', botId)
+      }
       break
     }
 

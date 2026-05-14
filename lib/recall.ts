@@ -44,6 +44,13 @@ export async function createBot(
     body: JSON.stringify({
       meeting_url: meetingUrl,
       bot_name: 'Clio AI Coach',
+      // web_4_core required for Output Media to properly capture audio from the webpage
+      // and relay it to meeting participants. Default "web" variant drops audio.
+      variant: {
+        google_meet: 'web_4_core',
+        zoom: 'web_4_core',
+        microsoft_teams: 'web_4_core',
+      },
       output_media: {
         camera: {
           kind: 'webpage',
