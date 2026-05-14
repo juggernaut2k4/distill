@@ -26,17 +26,23 @@ export async function GET(request: NextRequest) {
   })
   const recallData = recallRes.ok ? await recallRes.json() : { error: await recallRes.text() }
 
-  // Fetch walkthrough_state from Supabase
+  // Fetch walkthrough_state from Supabase — by bot_id AND by user_id
   const supabase = createSupabaseAdminClient()
-  const { data: walkthroughState } = await supabase
+  const { data: byBotId } = await supabase
     .from('walkthrough_state')
     .select('*')
     .eq('bot_id', botId)
     .single()
 
+  const { data: byUserId } = await supabase
+    .from('walkthrough_state')
+    .select('*')
+    .eq('user_id', userId)
+    .single()
+
   return NextResponse.json({
     recall: recallData,
-    walkthroughState,
+    walkthroughState: { byBotId, byUserId },
     env: {
       region,
       appUrl: process.env.NEXT_PUBLIC_APP_URL,

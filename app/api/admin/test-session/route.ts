@@ -67,17 +67,27 @@ export async function POST(request: NextRequest) {
 
   try {
     const { botId } = await createBot(meetingUrl, userId, walkthroughUrl)
+    console.log('[test-session] bot created:', botId)
 
-    await supabase
+    const { error: upsertError } = await supabase
       .from('walkthrough_state')
-      .upsert({
-        user_id: userId,
-        bot_id: botId,
-        meeting_url: meetingUrl,
-        session_id: session.id,
-        status: 'idle',
-        visual_spec: null,
-      })
+      .upsert(
+        {
+          user_id: userId,
+          bot_id: botId,
+          meeting_url: meetingUrl,
+          session_id: session.id,
+          status: 'idle',
+          visual_spec: null,
+        },
+        { onConflict: 'user_id' }
+      )
+
+    if (upsertError) {
+      console.error('[test-session] walkthrough_state upsert failed:', upsertError)
+    } else {
+      console.log('[test-session] walkthrough_state upserted for user:', userId, 'bot:', botId)
+    }
 
     return NextResponse.json({
       sessionId: session.id,

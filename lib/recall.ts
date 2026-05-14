@@ -44,9 +44,11 @@ export async function createBot(
     body: JSON.stringify({
       meeting_url: meetingUrl,
       bot_name: 'Clio AI Coach',
-      output_media: {
-        kind: 'webpage',
-        url: walkthroughUrl,
+      automatic_video_output: {
+        in_call_recording: {
+          kind: 'webpage',
+          url: walkthroughUrl,
+        },
       },
       recording_config: {
         transcript: {
