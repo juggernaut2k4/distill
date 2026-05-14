@@ -45,17 +45,21 @@ export async function POST(request: NextRequest) {
 
     const supabase = createSupabaseAdminClient()
 
-    // Upsert walkthrough_state
-    await supabase.from('walkthrough_state').upsert({
-      user_id: userId,
-      bot_id: botId,
-      meeting_url: meetingUrl,
-      session_id: sessionId,
-      status: 'idle',
-      visual_spec: null,
-      topic_title: null,
-      topic_id: null,
-    })
+    // Upsert walkthrough_state — onConflict ensures existing row is updated, not duplicated
+    const { error: upsertErr } = await supabase.from('walkthrough_state').upsert(
+      {
+        user_id: userId,
+        bot_id: botId,
+        meeting_url: meetingUrl,
+        session_id: sessionId,
+        status: 'idle',
+        visual_spec: null,
+        topic_title: null,
+        topic_id: null,
+      },
+      { onConflict: 'user_id' }
+    )
+    if (upsertErr) console.error('[recall/bot] walkthrough_state upsert error:', upsertErr)
 
     return NextResponse.json({ botId, walkthroughUrl }, { status: 200 })
   } catch (err) {

@@ -52,6 +52,9 @@ export async function createBot(
           },
         },
       },
+      automatic_audio_output: {
+        in_call_recording: {},
+      },
       recording_config: {
         transcript: {
           provider: {
