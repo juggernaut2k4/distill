@@ -67,9 +67,13 @@ interface RecallWebhookEvent {
 
 async function handleEvent(event: RecallWebhookEvent) {
   const supabase = createSupabaseAdminClient()
-  const botId = event.data?.bot_id
+  // bot_id is at data.bot_id in transcript events, and data.bot.id in status/endpoint events
+  const botId = event.data?.bot_id ?? (event.data as { bot?: { id?: string } })?.bot?.id
 
-  if (!botId) return
+  if (!botId) {
+    console.warn('[recall/webhook] No bot_id in event', event.event, JSON.stringify(event.data).slice(0, 200))
+    return
+  }
 
   // Look up which user this bot belongs to
   const { data: walkthroughRow } = await supabase
@@ -101,8 +105,26 @@ async function handleEvent(event: RecallWebhookEvent) {
     case 'bot.in_call_not_recording':
     case 'status.in_call_not_recording':
     case 'bot.in_call_recording':
-    case 'status.in_call_recording': {
-      // Bot is in the call — set status to idle and queue greeting speech
+    case 'status.in_call_recording':
+    case 'bot.status_change':
+    case 'realtime_endpoint.running': {
+      // realtime_endpoint.running is the most reliable event we receive via realtime_endpoints.
+      // status.* events come from the dashboard-level webhook only.
+      // All of these mean the bot is live in the call — queue the greeting.
+
+      // Only greet on first join (check current status to avoid double-greeting)
+      const { data: current } = await supabase
+        .from('walkthrough_state')
+        .select('status, pending_speech')
+        .eq('bot_id', botId)
+        .single()
+
+      // Skip if already greeted (pending_speech set) or session is underway
+      if (current?.pending_speech || current?.status === 'generating' || current?.status === 'ready') {
+        console.log('[recall/webhook] Skipping greeting — already active', { botId })
+        break
+      }
+
       const { error: greetErr } = await supabase
         .from('walkthrough_state')
         .update({
