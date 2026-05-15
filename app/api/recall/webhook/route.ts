@@ -4,7 +4,6 @@ import {
   generateVisualSpec,
   reviewVisualSpec,
   analyzeTranscription,
-  generateSpokenResponse,
 } from '@/lib/session-ai'
 import {
   getOrCreateContext,
@@ -16,6 +15,9 @@ import {
  * POST /api/recall/webhook
  * Receives all Recall.ai webhook events.
  * Always returns 200 — never 5xx (Recall.ai retries on server errors).
+ *
+ * Voice is handled entirely by the ElevenLabs Conversational AI agent running
+ * in the walkthrough browser. This webhook only drives VISUALS.
  */
 export async function POST(request: NextRequest) {
   let event: RecallWebhookEvent
@@ -42,19 +44,16 @@ interface RecallWebhookEvent {
   event: string
   data: {
     bot_id?: string
-    // transcript.done / transcript.processing
     transcript?: {
       speaker?: string
       words?: Array<{ text: string; start_time: number; end_time: number }>
       is_final?: boolean
     }
-    // participant_events.done / participant_events.failed etc.
     participant?: {
       id: string
       name?: string
       is_host?: boolean
     }
-    // Recall.ai sometimes nests the payload under data.data
     data?: {
       speaker?: string
       words?: Array<{ text: string; start_time: number; end_time: number }>
@@ -67,7 +66,6 @@ interface RecallWebhookEvent {
 
 async function handleEvent(event: RecallWebhookEvent) {
   const supabase = createSupabaseAdminClient()
-  // bot_id is at data.bot_id in transcript events, and data.bot.id in status/endpoint events
   const botId = event.data?.bot_id ?? (event.data as { bot?: { id?: string } })?.bot?.id
 
   if (!botId) {
@@ -75,7 +73,6 @@ async function handleEvent(event: RecallWebhookEvent) {
     return
   }
 
-  // Look up which user this bot belongs to
   const { data: walkthroughRow } = await supabase
     .from('walkthrough_state')
     .select('*')
@@ -92,8 +89,6 @@ async function handleEvent(event: RecallWebhookEvent) {
   const currentTopicId = (walkthroughRow.topic_id as string | null) ?? 'introduction'
   const currentTopicTitle = (walkthroughRow.topic_title as string | null) ?? currentTopicId
 
-  // Normalize event names — Recall.ai dashboard webhooks use "status.*" format
-  // while realtime_endpoints uses "bot.*" and "transcript.*" format
   const eventName = event.event
 
   switch (eventName) {
@@ -108,68 +103,37 @@ async function handleEvent(event: RecallWebhookEvent) {
     case 'status.in_call_recording':
     case 'bot.status_change':
     case 'realtime_endpoint.running': {
-      // realtime_endpoint.running is the most reliable event we receive via realtime_endpoints.
-      // status.* events come from the dashboard-level webhook only.
-      // All of these mean the bot is live in the call — queue the greeting.
-
-      // Only greet on first join (check current status to avoid double-greeting)
+      // Bot is live — ElevenLabs agent will greet the participants on its own.
+      // Just ensure status is idle so the idle screen shows.
       const { data: current } = await supabase
         .from('walkthrough_state')
-        .select('status, pending_speech')
+        .select('status')
         .eq('bot_id', botId)
         .single()
 
-      // Skip if already greeted (pending_speech set) or session is underway
-      if (current?.pending_speech || current?.status === 'generating' || current?.status === 'ready') {
-        console.log('[recall/webhook] Skipping greeting — already active', { botId })
-        break
-      }
-
-      const { error: greetErr } = await supabase
-        .from('walkthrough_state')
-        .update({
-          status: 'idle',
-          pending_speech: "Hello, I'm Clio, your AI coach. I'll be sharing visuals as we talk. Just speak naturally — ask questions whenever you like.",
-        })
-        .eq('bot_id', botId)
-      if (greetErr) {
-        console.error('[recall/webhook] Failed to set pending_speech for greeting:', greetErr.message)
-      } else {
-        console.log('[recall/webhook] Greeting queued via pending_speech for bot', botId)
+      if (!current || current.status === 'idle') {
+        console.log('[recall/webhook] Bot live — ElevenLabs agent will handle greeting', { botId })
       }
       break
     }
 
     case 'participant_events.done': {
-      // When a real participant joins, start the first topic
       const participant = event.data.participant ?? event.data.data?.participant
-      const participantName = participant?.name ?? 'participant'
-      const isBot = participantName.toLowerCase().includes('clio')
-      if (isBot) break
+      const participantName = participant?.name ?? ''
+      if (participantName.toLowerCase().includes('clio')) break
 
       const userContext = await getOrCreateContext(userId)
-      console.log('[recall/webhook] Participant joined — loading first topic', { userId })
+      console.log('[recall/webhook] Participant joined — generating first visual', { userId })
 
-      // Generate first visual asynchronously
+      // Visual only — ElevenLabs agent speaks the welcome on its own
       generateAndPushVisual(botId, userId, 'introduction', 'AI Fundamentals for Leaders', userContext, supabase).catch(
         console.error
       )
-
-      await supabase
-        .from('walkthrough_state')
-        .update({ pending_speech: `Welcome. Let's dive in. I'll start with the foundations — and you can redirect me at any point.` })
-        .eq('bot_id', botId)
       break
     }
 
-    // transcript.data = real-time utterance (recording_config / realtime_endpoints)
-    // transcript.done = final transcript (legacy bot status webhook)
-    // transcript.processing = interim (skip)
     case 'transcript.data':
-    case 'transcript.done':
-    case 'transcript.processing': {
-      if (event.event === 'transcript.processing') break
-
+    case 'transcript.done': {
       const transcript = event.data.transcript ?? event.data.data
       if (!transcript) break
 
@@ -177,7 +141,7 @@ async function handleEvent(event: RecallWebhookEvent) {
       const text = words.map((w) => w.text).join(' ').trim()
       if (!text || text.length < 8) break
 
-      // Skip if speaker is the bot
+      // Skip if speaker is the bot (ElevenLabs agent or Recall.ai bot)
       const speaker = (transcript as { speaker?: string }).speaker ?? ''
       if (speaker.toLowerCase().includes('clio')) break
 
@@ -188,30 +152,22 @@ async function handleEvent(event: RecallWebhookEvent) {
         engagementLevel: userCtx.engagementLevel,
       })
 
-      // Update sentiment
       if (sessionId) {
         await updateSentiment(userId, analysis.sentiment, sessionId).catch(console.error)
       }
 
+      // ElevenLabs agent handles spoken responses — we only update visuals
       switch (analysis.intent) {
         case 'question': {
           if (analysis.isComplex) {
-            // Too complex for now — note it and move on
             if (analysis.extractedQuestion && sessionId) {
-              await addUnresolvedQuestion(userId, analysis.extractedQuestion, sessionId).catch(
-                console.error
-              )
+              await addUnresolvedQuestion(userId, analysis.extractedQuestion, sessionId).catch(console.error)
             }
-            await supabase.from('walkthrough_state').update({ pending_speech: "That's a deep one — let's dedicate a full session to it. I've noted it and will schedule time to cover it properly." }).eq('bot_id', botId)
+            // No spoken response needed — agent handles it
           } else {
-            // Generate a new visual for this question
-            await supabase.from('walkthrough_state').update({ pending_speech: 'Great question. Let me build that out for you — one moment.' }).eq('bot_id', botId)
-
-            const topicTitle =
-              analysis.extractedQuestion ?? analysis.newTopicNeeded ?? text.slice(0, 60)
+            const topicTitle = analysis.extractedQuestion ?? analysis.newTopicNeeded ?? text.slice(0, 60)
             const topicId = topicTitle.toLowerCase().replace(/\s+/g, '-').slice(0, 40)
 
-            // Wipe then generate
             await supabase
               .from('walkthrough_state')
               .update({ status: 'wiping' })
@@ -242,21 +198,11 @@ async function handleEvent(event: RecallWebhookEvent) {
                 topic_title: finalSpec.title,
               })
               .eq('bot_id', botId)
-
-            const spokenResponse = await generateSpokenResponse(
-              analysis.extractedQuestion ?? text,
-              topicTitle,
-              { communicationStyle: userCtx.communicationStyle },
-              120
-            )
-            await supabase.from('walkthrough_state').update({ pending_speech: spokenResponse }).eq('bot_id', botId)
           }
           break
         }
 
         case 'confused': {
-          // Regenerate simpler visual for same topic
-          await supabase.from('walkthrough_state').update({ pending_speech: 'Let me break this down differently.' }).eq('bot_id', botId)
           generateAndPushVisual(
             botId,
             userId,
@@ -268,14 +214,7 @@ async function handleEvent(event: RecallWebhookEvent) {
           break
         }
 
-        case 'skip': {
-          await supabase.from('walkthrough_state').update({ pending_speech: 'Moving on.' }).eq('bot_id', botId)
-          // Could advance to next topic in curriculum here
-          break
-        }
-
         case 'no_time': {
-          await supabase.from('walkthrough_state').update({ pending_speech: "Understood — I'll capture this and add it to your next session." }).eq('bot_id', botId)
           if (analysis.extractedQuestion && sessionId) {
             await addUnresolvedQuestion(
               userId,
@@ -286,18 +225,20 @@ async function handleEvent(event: RecallWebhookEvent) {
           break
         }
 
+        case 'skip':
         case 'acknowledgment':
         case 'other':
         default:
-          // Continue — no action needed
           break
       }
       break
     }
 
+    case 'transcript.processing':
+      break
+
     case 'bot.call_ended':
     case 'status.call_ended': {
-      // Wipe state and mark session done
       await supabase
         .from('walkthrough_state')
         .update({
@@ -360,6 +301,6 @@ async function generateAndPushVisual(
     })
     .eq('bot_id', botId)
 
-  // userCtx available for future per-user customization (e.g. tone)
+  void userId
   void userCtx
 }

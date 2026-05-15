@@ -4,9 +4,12 @@ import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import ConceptVisualizer from '@/components/walkthrough/ConceptVisualizer'
 import type { VisualSpec } from '@/lib/session-ai'
+import { Conversation } from '@11labs/client'
+
+const AGENT_ID = process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID ?? 'agent_0701krp1ta48fswrff17ctb0520m'
 
 type WalkthroughStatus = 'idle' | 'generating' | 'ready' | 'wiping'
-type AudioStatus = 'idle' | 'fetching' | 'playing' | 'error'
+type AgentStatus = 'disconnected' | 'connecting' | 'listening' | 'speaking' | 'error'
 
 interface WalkthroughState {
   user_id: string
@@ -14,7 +17,6 @@ interface WalkthroughState {
   visual_spec: VisualSpec | null
   topic_title?: string | null
   bot_id?: string | null
-  pending_speech?: string | null
 }
 
 interface Props {
@@ -59,23 +61,11 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
   const [state, setState] = useState<WalkthroughState>(initialState)
   const containerRef = useRef<HTMLDivElement>(null)
   const [dimensions, setDimensions] = useState({ width: 1280, height: 720 })
-  const lastPlayedSpeechRef = useRef<string | null>(null)
-  const audioCtxRef = useRef<AudioContext | null>(null)
-  const [audioStatus, setAudioStatus] = useState<AudioStatus>('idle')
-  const [audioError, setAudioError] = useState<string | null>(null)
+  const [agentStatus, setAgentStatus] = useState<AgentStatus>('disconnected')
+  const [agentError, setAgentError] = useState<string | null>(null)
   const [pollCount, setPollCount] = useState(0)
   const [pollError, setPollError] = useState<string | null>(null)
-
-  // Initialize AudioContext on mount — must happen early so it's unlocked
-  useEffect(() => {
-    const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
-    if (!Ctx) return
-    const ctx = new Ctx()
-    audioCtxRef.current = ctx
-    // Resume immediately — Recall.ai headless browser allows this without user gesture
-    ctx.resume().catch(() => {})
-    return () => { ctx.close().catch(() => {}) }
-  }, [])
+  const conversationRef = useRef<Conversation | null>(null)
 
   // Track container dimensions
   useEffect(() => {
@@ -92,64 +82,68 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
     return () => observer.disconnect()
   }, [])
 
-  // Play TTS audio whenever pending_speech is set by the webhook
+  // Connect to ElevenLabs Conversational AI agent on mount
   useEffect(() => {
-    const text = state.pending_speech
-    if (!text || text === lastPlayedSpeechRef.current) return
-    lastPlayedSpeechRef.current = text
+    let cancelled = false
 
-    // Clear pending_speech via API so it doesn't replay on next poll
-    fetch(`/api/walkthrough-state/${userId}`, { method: 'DELETE' }).catch(() => {})
+    const connect = async () => {
+      setAgentStatus('connecting')
+      setAgentError(null)
 
-    setAudioStatus('fetching')
-    setAudioError(null)
+      try {
+        // Request microphone access — Recall.ai headless browser provides meeting audio as mic input
+        await navigator.mediaDevices.getUserMedia({ audio: true })
 
-    const playAudio = async () => {
-      const res = await fetch('/api/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
-      })
-      if (!res.ok) throw new Error(`TTS HTTP ${res.status}`)
+        if (cancelled) return
 
-      const arrayBuffer = await res.arrayBuffer()
-      const ctx = audioCtxRef.current
+        const conv = await Conversation.startSession({
+          agentId: AGENT_ID,
+          connectionType: 'webrtc',
+          onConnect: ({ conversationId }: { conversationId: string }) => {
+            console.log('[Walkthrough] ElevenLabs agent connected, conversationId:', conversationId)
+            setAgentStatus('listening')
+          },
+          onDisconnect: () => {
+            console.log('[Walkthrough] ElevenLabs agent disconnected')
+            setAgentStatus('disconnected')
+          },
+          onError: (message: string) => {
+            console.error('[Walkthrough] ElevenLabs agent error:', message)
+            setAgentStatus('error')
+            setAgentError(message.slice(0, 60))
+          },
+          onModeChange: ({ mode }: { mode: 'listening' | 'speaking' }) => {
+            console.log('[Walkthrough] Agent mode:', mode)
+            setAgentStatus(mode)
+          },
+        })
 
-      if (ctx) {
-        // Ensure AudioContext is running (may be suspended in some headless environments)
-        if (ctx.state === 'suspended') await ctx.resume()
-        // decodeAudioData needs a copy — slice to avoid detached buffer issues
-        const decoded = await ctx.decodeAudioData(arrayBuffer.slice(0))
-        const source = ctx.createBufferSource()
-        source.buffer = decoded
-        source.connect(ctx.destination)
-        source.start(0)
-        setAudioStatus('playing')
-        console.log(`[Walkthrough] TTS playing via AudioContext — ${decoded.duration.toFixed(1)}s`)
-        source.onended = () => setAudioStatus('idle')
-      } else {
-        // Fallback: Audio element
-        const blob = new Blob([arrayBuffer], { type: 'audio/mpeg' })
-        const url = URL.createObjectURL(blob)
-        const audio = new Audio(url)
-        setAudioStatus('playing')
-        await audio.play()
-        audio.onended = () => {
-          URL.revokeObjectURL(url)
-          setAudioStatus('idle')
+        if (cancelled) {
+          conv.endSession().catch(() => {})
+          return
         }
+
+        conversationRef.current = conv
+        console.log('[Walkthrough] Agent session started, agent ID:', AGENT_ID)
+      } catch (err) {
+        if (cancelled) return
+        const msg = err instanceof Error ? err.message : String(err)
+        console.error('[Walkthrough] Failed to start agent session:', msg)
+        setAgentStatus('error')
+        setAgentError(msg.slice(0, 60))
       }
     }
 
-    playAudio().catch((err) => {
-      console.error('[WalkthroughClient] TTS error:', err)
-      setAudioStatus('error')
-      setAudioError(String(err))
-    })
-  }, [state.pending_speech, userId])
+    connect()
 
-  // Poll walkthrough state every second — more reliable than Supabase Realtime
-  // in Recall.ai's headless browser (WebSocket connections can be unreliable there)
+    return () => {
+      cancelled = true
+      conversationRef.current?.endSession().catch(() => {})
+      conversationRef.current = null
+    }
+  }, [])
+
+  // Poll walkthrough state every second for visual_spec and status updates
   useEffect(() => {
     let active = true
 
@@ -180,6 +174,13 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
 
   const status = state.status ?? 'idle'
   const spec = state.visual_spec
+
+  const agentStatusColor =
+    agentStatus === 'listening' ? 'bg-blue-900/80 text-blue-300' :
+    agentStatus === 'speaking' ? 'bg-green-900/80 text-green-300' :
+    agentStatus === 'connecting' ? 'bg-yellow-900/80 text-yellow-300' :
+    agentStatus === 'error' ? 'bg-red-900/80 text-red-300' :
+    'bg-gray-900/80 text-gray-500'
 
   return (
     <div
@@ -272,18 +273,13 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
         )}
       </AnimatePresence>
 
-      {/* Debug overlay — visible in screen share, shows audio pipeline status */}
+      {/* Debug overlay */}
       <div className="fixed bottom-3 right-3 z-50 text-xs font-mono space-y-1">
-        <div className={`px-2 py-1 rounded ${
-          audioStatus === 'idle' ? 'bg-gray-900/80 text-gray-500' :
-          audioStatus === 'fetching' ? 'bg-yellow-900/80 text-yellow-300' :
-          audioStatus === 'playing' ? 'bg-green-900/80 text-green-300' :
-          'bg-red-900/80 text-red-300'
-        }`}>
-          🔊 {audioStatus}{audioStatus === 'error' && audioError ? `: ${audioError.slice(0, 40)}` : ''}
+        <div className={`px-2 py-1 rounded ${agentStatusColor}`}>
+          🎙 {agentStatus}{agentStatus === 'error' && agentError ? `: ${agentError}` : ''}
         </div>
         <div className="bg-gray-900/60 text-gray-600 px-2 py-1 rounded">
-          ctx: {audioCtxRef.current?.state ?? 'none'} | polls: {pollCount}
+          polls: {pollCount}
         </div>
         {pollError && (
           <div className="bg-red-900/80 text-red-300 px-2 py-1 rounded">
