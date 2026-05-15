@@ -1,17 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { ElevenLabsClient } from 'elevenlabs'
+import { textToMp3Base64 } from '@/lib/tts'
 
-const VOICE_ID = 'QeKcckTBICc3UuWL7ETc' // Aria — warm, natural, hyper-realistic
-
-const isPlaceholder =
-  !process.env.ELEVENLABS_API_KEY ||
-  process.env.ELEVENLABS_API_KEY.startsWith('PLACEHOLDER')
+// Minimal valid silent MP3 — used as fallback if ElevenLabs fails
+const SILENT_MP3_B64 =
+  'SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAADhgCenp6enp6enp6enp6enp6enp6enp6enp6enp6enp6enp6enp6e//////////////////////////////////////////////////////////////////8AAAA5TGFNRTOAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
 
 /**
  * POST /api/tts
- * Converts text to MP3 audio via ElevenLabs and returns it as audio/mpeg.
- * Called by WalkthroughClient inside the Recall.ai headless browser to produce
- * bot voice output — the bot captures playback and outputs it to the meeting.
+ * Converts text to MP3 audio via ElevenLabs (Aria voice) and returns audio/mpeg.
+ * Called by WalkthroughClient inside the Recall.ai headless browser — the bot
+ * captures the audio playback and outputs it to the meeting participants.
+ * Never returns 5xx — falls back to silent MP3 on ElevenLabs error.
  * Body: { text: string }
  */
 export async function POST(request: NextRequest) {
@@ -27,43 +26,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'text is required' }, { status: 400 })
   }
 
-  if (isPlaceholder) {
-    // 1-second silent MP3 for mock/dev mode
-    const silent = Buffer.from(
-      'SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAADhgCenp6enp6enp6enp6enp6enp6enp6enp6enp6enp6enp6enp6e//////////////////////////////////////////////////////////////////8AAAA5TGFNRTOAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
-      'base64'
-    )
-    return new NextResponse(silent, {
-      headers: { 'Content-Type': 'audio/mpeg' },
-    })
-  }
-
   try {
-    const client = new ElevenLabsClient({ apiKey: process.env.ELEVENLABS_API_KEY! })
-
-    const stream = await client.textToSpeech.convert(VOICE_ID, {
-      text: text.trim(),
-      model_id: 'eleven_multilingual_v2',
-      output_format: 'mp3_44100_128',
-      voice_settings: {
-        stability: 0.4,
-        similarity_boost: 0.8,
-        style: 0.35,
-        use_speaker_boost: true,
-      },
-    })
-
-    const chunks: Buffer[] = []
-    for await (const chunk of stream) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
-    }
-    const audio = Buffer.concat(chunks)
-
+    const b64 = await textToMp3Base64(text.trim())
+    const audio = Buffer.from(b64, 'base64')
     return new NextResponse(audio, {
       headers: { 'Content-Type': 'audio/mpeg' },
     })
   } catch (err) {
-    console.error('[/api/tts] ElevenLabs error:', err)
-    return NextResponse.json({ error: 'TTS generation failed' }, { status: 500 })
+    console.error('[/api/tts] ElevenLabs error — returning silent fallback:', err)
+    const silent = Buffer.from(SILENT_MP3_B64, 'base64')
+    return new NextResponse(silent, {
+      headers: { 'Content-Type': 'audio/mpeg' },
+    })
   }
 }
