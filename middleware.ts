@@ -11,6 +11,8 @@ const isPublicRoute = createRouteMatcher([
   '/dashboard/welcome(.*)',
   '/api/webhooks/(.*)',
   '/api/recall/webhook(.*)',  // Recall.ai webhook — no user auth
+  '/api/tts(.*)',             // TTS audio — called by Recall.ai headless browser (no auth)
+  '/api/walkthrough-state/(.*)', // Walkthrough state polling — called by headless browser
   '/walkthrough/(.*)',        // Public walkthrough page shared by Recall.ai bot
 ])
 
