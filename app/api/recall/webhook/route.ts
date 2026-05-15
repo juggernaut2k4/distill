@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseAdminClient } from '@/lib/supabase'
-import {
-  generateVisualSpec,
-  reviewVisualSpec,
-  analyzeTranscription,
-} from '@/lib/session-ai'
+import { analyzeTranscription } from '@/lib/session-ai'
 import {
   getOrCreateContext,
   updateSentiment,
@@ -16,8 +12,9 @@ import {
  * Receives all Recall.ai webhook events.
  * Always returns 200 — never 5xx (Recall.ai retries on server errors).
  *
- * Voice is handled entirely by the ElevenLabs Conversational AI agent running
- * in the walkthrough browser. This webhook only drives VISUALS.
+ * Voice AND visuals are now driven by the ElevenLabs Conversational AI agent
+ * (Clio) running in the walkthrough browser via the show_visual client tool.
+ * This webhook handles: session lifecycle, sentiment tracking, deferred questions.
  */
 export async function POST(request: NextRequest) {
   let event: RecallWebhookEvent
@@ -30,7 +27,6 @@ export async function POST(request: NextRequest) {
 
   console.log('[recall/webhook] Received event:', event.event, '| bot_id:', event.data?.bot_id)
 
-  // Fire-and-forget: process async without blocking response
   handleEvent(event).catch((err) =>
     console.error('[recall/webhook] Unhandled error in handleEvent:', err)
   )
@@ -49,11 +45,7 @@ interface RecallWebhookEvent {
       words?: Array<{ text: string; start_time: number; end_time: number }>
       is_final?: boolean
     }
-    participant?: {
-      id: string
-      name?: string
-      is_host?: boolean
-    }
+    participant?: { id: string; name?: string; is_host?: boolean }
     data?: {
       speaker?: string
       words?: Array<{ text: string; start_time: number; end_time: number }>
@@ -87,51 +79,21 @@ async function handleEvent(event: RecallWebhookEvent) {
   const userId = walkthroughRow.user_id as string
   const sessionId = walkthroughRow.session_id as string | null
   const currentTopicId = (walkthroughRow.topic_id as string | null) ?? 'introduction'
-  const currentTopicTitle = (walkthroughRow.topic_title as string | null) ?? currentTopicId
 
-  const eventName = event.event
-
-  switch (eventName) {
+  switch (event.event) {
     case 'bot.joining_call':
     case 'status.joining_call':
-      console.log('[recall/webhook] Bot joining call', { botId, userId })
-      break
-
     case 'bot.in_call_not_recording':
     case 'status.in_call_not_recording':
     case 'bot.in_call_recording':
     case 'status.in_call_recording':
-    case 'bot.status_change':
-    case 'realtime_endpoint.running': {
-      // Bot is live — ElevenLabs agent will greet the participants on its own.
-      // Just ensure status is idle so the idle screen shows.
-      const { data: current } = await supabase
-        .from('walkthrough_state')
-        .select('status')
-        .eq('bot_id', botId)
-        .single()
-
-      if (!current || current.status === 'idle') {
-        console.log('[recall/webhook] Bot live — ElevenLabs agent will handle greeting', { botId })
-      }
+    case 'realtime_endpoint.running':
+      // ElevenLabs agent connects and greets automatically — nothing to do here
+      console.log('[recall/webhook] Bot is live', { botId, userId, event: event.event })
       break
-    }
 
-    case 'participant_events.done': {
-      const participant = event.data.participant ?? event.data.data?.participant
-      const participantName = participant?.name ?? ''
-      if (participantName.toLowerCase().includes('clio')) break
-
-      const userContext = await getOrCreateContext(userId)
-      console.log('[recall/webhook] Participant joined — generating first visual', { userId })
-
-      // Visual only — ElevenLabs agent speaks the welcome on its own
-      generateAndPushVisual(botId, userId, 'introduction', 'AI Fundamentals for Leaders', userContext, supabase).catch(
-        console.error
-      )
-      break
-    }
-
+    // transcript.data: Analyze participant speech for sentiment + deferred question tracking.
+    // Visual generation is handled by the ElevenLabs show_visual client tool.
     case 'transcript.data':
     case 'transcript.done': {
       const transcript = event.data.transcript ?? event.data.data
@@ -141,95 +103,33 @@ async function handleEvent(event: RecallWebhookEvent) {
       const text = words.map((w) => w.text).join(' ').trim()
       if (!text || text.length < 8) break
 
-      // Skip if speaker is the bot (ElevenLabs agent or Recall.ai bot)
       const speaker = (transcript as { speaker?: string }).speaker ?? ''
       if (speaker.toLowerCase().includes('clio')) break
 
-      const userCtx = await getOrCreateContext(userId)
-      const analysis = await analyzeTranscription(text, currentTopicId, {
-        role: 'executive',
-        communicationStyle: userCtx.communicationStyle,
-        engagementLevel: userCtx.engagementLevel,
-      })
+      try {
+        const userCtx = await getOrCreateContext(userId)
+        const analysis = await analyzeTranscription(text, currentTopicId, {
+          role: 'executive',
+          communicationStyle: userCtx.communicationStyle,
+          engagementLevel: userCtx.engagementLevel,
+        })
 
-      if (sessionId) {
-        await updateSentiment(userId, analysis.sentiment, sessionId).catch(console.error)
-      }
-
-      // ElevenLabs agent handles spoken responses — we only update visuals
-      switch (analysis.intent) {
-        case 'question': {
-          if (analysis.isComplex) {
-            if (analysis.extractedQuestion && sessionId) {
-              await addUnresolvedQuestion(userId, analysis.extractedQuestion, sessionId).catch(console.error)
-            }
-            // No spoken response needed — agent handles it
-          } else {
-            const topicTitle = analysis.extractedQuestion ?? analysis.newTopicNeeded ?? text.slice(0, 60)
-            const topicId = topicTitle.toLowerCase().replace(/\s+/g, '-').slice(0, 40)
-
-            await supabase
-              .from('walkthrough_state')
-              .update({ status: 'wiping' })
-              .eq('bot_id', botId)
-
-            await new Promise((resolve) => setTimeout(resolve, 700))
-
-            await supabase
-              .from('walkthrough_state')
-              .update({ status: 'generating' })
-              .eq('bot_id', botId)
-
-            const spec = await generateVisualSpec(topicId, topicTitle, {
-              role: 'executive',
-              industry: 'business',
-              maturity: 'beginner',
-            }, { width: 1280, height: 720 })
-
-            const review = await reviewVisualSpec(spec)
-            const finalSpec = review.revisedSpec ?? spec
-
-            await supabase
-              .from('walkthrough_state')
-              .update({
-                status: 'ready',
-                visual_spec: finalSpec,
-                topic_id: finalSpec.topicId,
-                topic_title: finalSpec.title,
-              })
-              .eq('bot_id', botId)
-          }
-          break
+        if (sessionId) {
+          await updateSentiment(userId, analysis.sentiment, sessionId).catch(console.error)
         }
 
-        case 'confused': {
-          generateAndPushVisual(
-            botId,
-            userId,
-            `${currentTopicId}-simplified`,
-            `${currentTopicTitle} — Simplified`,
-            userCtx,
-            supabase
-          ).catch(console.error)
-          break
+        // Track complex questions for follow-up sessions
+        if (analysis.intent === 'question' && analysis.isComplex && analysis.extractedQuestion && sessionId) {
+          await addUnresolvedQuestion(userId, analysis.extractedQuestion, sessionId).catch(console.error)
+          console.log('[recall/webhook] Complex question deferred:', analysis.extractedQuestion)
         }
 
-        case 'no_time': {
-          if (analysis.extractedQuestion && sessionId) {
-            await addUnresolvedQuestion(
-              userId,
-              `[Deferred] ${analysis.extractedQuestion}`,
-              sessionId
-            ).catch(console.error)
-          }
-          break
+        // Track no_time signals for deferred content
+        if (analysis.intent === 'no_time' && analysis.extractedQuestion && sessionId) {
+          await addUnresolvedQuestion(userId, `[Deferred] ${analysis.extractedQuestion}`, sessionId).catch(console.error)
         }
-
-        case 'skip':
-        case 'acknowledgment':
-        case 'other':
-        default:
-          break
+      } catch (err) {
+        console.error('[recall/webhook] Transcript analysis error:', err)
       }
       break
     }
@@ -264,43 +164,4 @@ async function handleEvent(event: RecallWebhookEvent) {
     default:
       console.log('[recall/webhook] Unhandled event type', event.event)
   }
-}
-
-// ─── HELPER: GENERATE & PUSH VISUAL ──────────────────────────────────────────
-
-async function generateAndPushVisual(
-  botId: string,
-  userId: string,
-  topicId: string,
-  topicTitle: string,
-  userCtx: { communicationStyle: string },
-  supabase: ReturnType<typeof createSupabaseAdminClient>
-) {
-  await supabase
-    .from('walkthrough_state')
-    .update({ status: 'generating' })
-    .eq('bot_id', botId)
-
-  const spec = await generateVisualSpec(
-    topicId,
-    topicTitle,
-    { role: 'executive', industry: 'business', maturity: 'beginner' },
-    { width: 1280, height: 720 }
-  )
-
-  const review = await reviewVisualSpec(spec)
-  const finalSpec = review.revisedSpec ?? spec
-
-  await supabase
-    .from('walkthrough_state')
-    .update({
-      status: 'ready',
-      visual_spec: finalSpec,
-      topic_id: finalSpec.topicId,
-      topic_title: finalSpec.title,
-    })
-    .eq('bot_id', botId)
-
-  void userId
-  void userCtx
 }

@@ -99,6 +99,25 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
         const conv = await Conversation.startSession({
           agentId: AGENT_ID,
           connectionType: 'webrtc',
+          clientTools: {
+            // Called by the agent's LLM (Claude Sonnet 4.5) when it decides to show a concept diagram.
+            // Triggers visual generation on the server and updates walkthrough_state.
+            // The agent waits for this to resolve before continuing — it will say "as you can see on screen..."
+            show_visual: async ({ topic_id, topic_title }: { topic_id: string; topic_title: string }) => {
+              console.log('[Walkthrough] show_visual called —', topic_title)
+              try {
+                const res = await fetch('/api/generate-visual', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ userId, topicId: topic_id, topicTitle: topic_title }),
+                })
+                const data = await res.json() as { ok: boolean }
+                return data.ok ? 'Visual is now showing on screen.' : 'Visual could not be loaded.'
+              } catch {
+                return 'Visual failed to load.'
+              }
+            },
+          },
           onConnect: ({ conversationId }: { conversationId: string }) => {
             console.log('[Walkthrough] ElevenLabs agent connected, conversationId:', conversationId)
             setAgentStatus('listening')
