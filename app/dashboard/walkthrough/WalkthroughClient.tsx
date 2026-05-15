@@ -63,6 +63,8 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
   const audioCtxRef = useRef<AudioContext | null>(null)
   const [audioStatus, setAudioStatus] = useState<AudioStatus>('idle')
   const [audioError, setAudioError] = useState<string | null>(null)
+  const [pollCount, setPollCount] = useState(0)
+  const [pollError, setPollError] = useState<string | null>(null)
 
   // Initialize AudioContext on mount — must happen early so it's unlocked
   useEffect(() => {
@@ -154,11 +156,17 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
     const poll = async () => {
       try {
         const res = await fetch(`/api/walkthrough-state/${userId}`)
-        if (!res.ok || !active) return
+        if (!active) return
+        if (!res.ok) {
+          setPollError(`HTTP ${res.status}`)
+          return
+        }
+        setPollError(null)
+        setPollCount(n => n + 1)
         const data = await res.json() as WalkthroughState
         setState(data)
-      } catch {
-        // ignore network errors — will retry next tick
+      } catch (err) {
+        setPollError(String(err).slice(0, 30))
       }
     }
 
@@ -275,8 +283,13 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
           🔊 {audioStatus}{audioStatus === 'error' && audioError ? `: ${audioError.slice(0, 40)}` : ''}
         </div>
         <div className="bg-gray-900/60 text-gray-600 px-2 py-1 rounded">
-          ctx: {audioCtxRef.current?.state ?? 'none'}
+          ctx: {audioCtxRef.current?.state ?? 'none'} | polls: {pollCount}
         </div>
+        {pollError && (
+          <div className="bg-red-900/80 text-red-300 px-2 py-1 rounded">
+            poll err: {pollError}
+          </div>
+        )}
       </div>
     </div>
   )
