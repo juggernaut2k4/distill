@@ -17,6 +17,7 @@ interface WalkthroughState {
   visual_spec: VisualSpec | null
   topic_title?: string | null
   bot_id?: string | null
+  pending_transcript?: string | null
 }
 
 interface Props {
@@ -66,6 +67,7 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
   const [pollCount, setPollCount] = useState(0)
   const [pollError, setPollError] = useState<string | null>(null)
   const conversationRef = useRef<Conversation | null>(null)
+  const lastSentTranscriptRef = useRef<string | null>(null)
 
   // Track container dimensions
   useEffect(() => {
@@ -82,7 +84,7 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
     return () => observer.disconnect()
   }, [])
 
-  // Connect to ElevenLabs Conversational AI agent on mount
+  // Connect to ElevenLabs agent on mount
   useEffect(() => {
     let cancelled = false
 
@@ -91,18 +93,16 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
       setAgentError(null)
 
       try {
-        // Request microphone access — Recall.ai headless browser provides meeting audio as mic input
+        // Request mic access (required by WebRTC) but immediately mute it.
+        // Recall.ai headless browser mic returns silence — we feed participant
+        // speech via sendUserMessage() from the transcript webhook instead.
         await navigator.mediaDevices.getUserMedia({ audio: true })
-
         if (cancelled) return
 
         const conv = await Conversation.startSession({
           agentId: AGENT_ID,
           connectionType: 'webrtc',
           clientTools: {
-            // Called by the agent's LLM (Claude Sonnet 4.5) when it decides to show a concept diagram.
-            // Triggers visual generation on the server and updates walkthrough_state.
-            // The agent waits for this to resolve before continuing — it will say "as you can see on screen..."
             show_visual: async ({ topic_id, topic_title }: { topic_id: string; topic_title: string }) => {
               console.log('[Walkthrough] show_visual called —', topic_title)
               try {
@@ -119,15 +119,15 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
             },
           },
           onConnect: ({ conversationId }: { conversationId: string }) => {
-            console.log('[Walkthrough] ElevenLabs agent connected, conversationId:', conversationId)
+            console.log('[Walkthrough] Agent connected, id:', conversationId)
             setAgentStatus('listening')
           },
           onDisconnect: () => {
-            console.log('[Walkthrough] ElevenLabs agent disconnected')
+            console.log('[Walkthrough] Agent disconnected')
             setAgentStatus('disconnected')
           },
           onError: (message: string) => {
-            console.error('[Walkthrough] ElevenLabs agent error:', message)
+            console.error('[Walkthrough] Agent error:', message)
             setAgentStatus('error')
             setAgentError(message.slice(0, 60))
           },
@@ -137,13 +137,20 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
           },
         })
 
-        if (cancelled) {
-          conv.endSession().catch(() => {})
-          return
-        }
+        if (cancelled) { conv.endSession().catch(() => {}); return }
 
         conversationRef.current = conv
-        console.log('[Walkthrough] Agent session started, agent ID:', AGENT_ID)
+
+        // Mute the mic — participant audio comes via sendUserMessage from transcript webhook
+        conv.setMicMuted(true)
+        console.log('[Walkthrough] Mic muted — using transcript feed')
+
+        // Trigger Clio's opening greeting after WebRTC stabilises
+        await new Promise(r => setTimeout(r, 1500))
+        if (!cancelled && conversationRef.current) {
+          conversationRef.current.sendUserMessage('Hello, the coaching session is starting.')
+          console.log('[Walkthrough] Opening greeting triggered')
+        }
       } catch (err) {
         if (cancelled) return
         const msg = err instanceof Error ? err.message : String(err)
@@ -154,15 +161,16 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
     }
 
     connect()
-
     return () => {
       cancelled = true
       conversationRef.current?.endSession().catch(() => {})
       conversationRef.current = null
     }
-  }, [])
+  }, [userId])
 
-  // Poll walkthrough state every second for visual_spec and status updates
+  // Poll walkthrough_state every second:
+  // - Update visual_spec / status for the screen
+  // - Forward pending_transcript to ElevenLabs agent via sendUserMessage
   useEffect(() => {
     let active = true
 
@@ -170,35 +178,40 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
       try {
         const res = await fetch(`/api/walkthrough-state/${userId}`)
         if (!active) return
-        if (!res.ok) {
-          setPollError(`HTTP ${res.status}`)
-          return
-        }
+        if (!res.ok) { setPollError(`HTTP ${res.status}`); return }
+
         setPollError(null)
         setPollCount(n => n + 1)
         const data = await res.json() as WalkthroughState
         setState(data)
+
+        // Feed participant transcript to agent if new
+        const transcript = data.pending_transcript
+        if (transcript && transcript !== lastSentTranscriptRef.current && conversationRef.current) {
+          lastSentTranscriptRef.current = transcript
+          conversationRef.current.sendUserMessage(transcript)
+          console.log('[Walkthrough] Sent to agent:', transcript.slice(0, 80))
+          // Clear from DB so it doesn't replay
+          fetch(`/api/walkthrough-state/${userId}`, { method: 'PATCH' }).catch(() => {})
+        }
       } catch (err) {
-        setPollError(String(err).slice(0, 30))
+        if (active) setPollError(String(err).slice(0, 30))
       }
     }
 
     poll()
     const interval = setInterval(poll, 1000)
-    return () => {
-      active = false
-      clearInterval(interval)
-    }
+    return () => { active = false; clearInterval(interval) }
   }, [userId])
 
   const status = state.status ?? 'idle'
   const spec = state.visual_spec
 
   const agentStatusColor =
-    agentStatus === 'listening' ? 'bg-blue-900/80 text-blue-300' :
-    agentStatus === 'speaking' ? 'bg-green-900/80 text-green-300' :
-    agentStatus === 'connecting' ? 'bg-yellow-900/80 text-yellow-300' :
-    agentStatus === 'error' ? 'bg-red-900/80 text-red-300' :
+    agentStatus === 'listening'    ? 'bg-blue-900/80 text-blue-300' :
+    agentStatus === 'speaking'     ? 'bg-green-900/80 text-green-300' :
+    agentStatus === 'connecting'   ? 'bg-yellow-900/80 text-yellow-300' :
+    agentStatus === 'error'        ? 'bg-red-900/80 text-red-300' :
     'bg-gray-900/80 text-gray-500'
 
   return (

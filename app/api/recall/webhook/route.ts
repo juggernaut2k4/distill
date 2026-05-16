@@ -103,9 +103,21 @@ async function handleEvent(event: RecallWebhookEvent) {
       const text = words.map((w) => w.text).join(' ').trim()
       if (!text || text.length < 8) break
 
+      // Skip the bot's own speech
       const speaker = (transcript as { speaker?: string }).speaker ?? ''
       if (speaker.toLowerCase().includes('clio')) break
 
+      // Write transcript to DB — WalkthroughClient polls this and feeds it
+      // to the ElevenLabs agent via sendUserMessage(), bypassing the headless
+      // browser mic which returns silence in Recall.ai's environment.
+      await supabase
+        .from('walkthrough_state')
+        .update({ pending_transcript: text })
+        .eq('bot_id', botId)
+
+      console.log('[recall/webhook] Transcript queued for agent:', text.slice(0, 80))
+
+      // Background: sentiment + deferred question tracking
       try {
         const userCtx = await getOrCreateContext(userId)
         const analysis = await analyzeTranscription(text, currentTopicId, {
@@ -118,13 +130,10 @@ async function handleEvent(event: RecallWebhookEvent) {
           await updateSentiment(userId, analysis.sentiment, sessionId).catch(console.error)
         }
 
-        // Track complex questions for follow-up sessions
         if (analysis.intent === 'question' && analysis.isComplex && analysis.extractedQuestion && sessionId) {
           await addUnresolvedQuestion(userId, analysis.extractedQuestion, sessionId).catch(console.error)
-          console.log('[recall/webhook] Complex question deferred:', analysis.extractedQuestion)
         }
 
-        // Track no_time signals for deferred content
         if (analysis.intent === 'no_time' && analysis.extractedQuestion && sessionId) {
           await addUnresolvedQuestion(userId, `[Deferred] ${analysis.extractedQuestion}`, sessionId).catch(console.error)
         }

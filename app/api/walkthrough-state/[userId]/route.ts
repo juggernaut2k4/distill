@@ -24,17 +24,17 @@ export async function GET(
 }
 
 /**
- * DELETE /api/walkthrough-state/[userId]
- * Clears pending_speech after it has been played — prevents replaying on next poll.
+ * PATCH /api/walkthrough-state/[userId]
+ * Clears pending_transcript after it has been sent to the ElevenLabs agent.
  */
-export async function DELETE(
+export async function PATCH(
   _request: NextRequest,
   { params }: { params: { userId: string } }
 ) {
   const supabase = createSupabaseAdminClient()
   await supabase
     .from('walkthrough_state')
-    .update({ pending_speech: null })
+    .update({ pending_transcript: null })
     .eq('user_id', params.userId)
   return NextResponse.json({ ok: true })
 }
