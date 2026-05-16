@@ -8,6 +8,10 @@ import { Conversation } from '@11labs/client'
 
 const AGENT_ID = process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID ?? 'agent_0701krp1ta48fswrff17ctb0520m'
 
+// Siren voice ID — locked via overrides.tts.voiceId to ensure consistent voice
+// across the firstMessage and all subsequent LLM-generated responses.
+const VOICE_ID = process.env.NEXT_PUBLIC_ELEVENLABS_VOICE_ID ?? 'eXpIbVcVbLo8ZJQDlDnl'
+
 // How long (ms) of polling silence before sending a keep-alive context update
 const KEEPALIVE_INTERVAL = 25_000
 
@@ -123,6 +127,9 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
               // Suppress re-greeting on reconnect — ElevenLabs replays firstMessage
               // every time a new WebSocket session starts without this override.
               firstMessage: isReconnect ? '' : greeting,
+            },
+            tts: {
+              voiceId: VOICE_ID,
             },
           },
           clientTools: {
