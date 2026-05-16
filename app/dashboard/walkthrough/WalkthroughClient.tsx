@@ -127,6 +127,13 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
             console.log('[Walkthrough] Agent connected, id:', conversationId)
             reconnectAttemptsRef.current = 0
             setAgentStatus('listening')
+            // Trigger greeting immediately on connect — don't wait for VAD
+            setTimeout(() => {
+              if (conversationRef.current) {
+                conversationRef.current.sendUserMessage('Hello, the coaching session is starting. Please introduce yourself.')
+                console.log('[Walkthrough] Greeting sent on connect')
+              }
+            }, 800)
           },
           onDisconnect: () => {
             console.log('[Walkthrough] Agent disconnected')
@@ -157,13 +164,6 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
 
         if (cancelled) { conv.endSession().catch(() => {}); return }
         conversationRef.current = conv
-
-        // Trigger Clio's opening greeting after WebRTC stabilises
-        await new Promise(r => setTimeout(r, 1500))
-        if (!cancelled && conversationRef.current) {
-          conversationRef.current.sendUserMessage('Hello, the coaching session is starting.')
-          console.log('[Walkthrough] Opening greeting triggered')
-        }
       } catch (err) {
         if (cancelled) return
         const msg = err instanceof Error ? err.message : String(err)
