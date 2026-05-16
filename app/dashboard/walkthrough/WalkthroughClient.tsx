@@ -77,6 +77,7 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
   const lastSentTranscriptRef = useRef<string | null>(null)
   const lastActivityRef = useRef<number>(Date.now())
   const hasConnectedRef = useRef(false)
+  const sessionEndedRef = useRef(false)
   const topicRef = useRef<string | null | undefined>(initialState.topic_title)
   const reconnectAttemptsRef = useRef(0)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -133,6 +134,11 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
             },
           },
           clientTools: {
+            end_session: async () => {
+              console.log('[Walkthrough] Agent called end_session — session closing')
+              sessionEndedRef.current = true
+              return 'Session ended.'
+            },
             show_visual: async ({ topic_id, topic_title }: { topic_id: string; topic_title: string }) => {
               console.log('[Walkthrough] show_visual called —', topic_title)
               try {
@@ -157,6 +163,11 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
             console.log('[Walkthrough] Agent disconnected')
             conversationRef.current = null
             setAgentStatus('disconnected')
+
+            if (sessionEndedRef.current) {
+              console.log('[Walkthrough] Session ended by agent — not reconnecting')
+              return
+            }
 
             if (!cancelled && reconnectAttemptsRef.current < MAX_RECONNECT) {
               reconnectAttemptsRef.current++
