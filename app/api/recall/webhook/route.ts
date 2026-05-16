@@ -129,7 +129,7 @@ async function handleEvent(event: RecallWebhookEvent, userIdFromQuery?: string) 
       await supabase
         .from('walkthrough_state')
         .update({ pending_transcript: text })
-        .eq('bot_id', botId)
+        .eq('user_id', userId)
 
       console.log('[recall/webhook] Transcript queued for agent:', text.slice(0, 80))
 
