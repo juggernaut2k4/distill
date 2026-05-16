@@ -16,14 +16,13 @@ export default async function WalkthroughPage() {
 
   const supabase = createSupabaseAdminClient()
 
-  // Fetch or seed an empty walkthrough state for this user
-  const { data: existingState } = await supabase
-    .from('walkthrough_state')
-    .select('*')
-    .eq('user_id', userId)
-    .single()
+  // Fetch walkthrough state and user profile in parallel
+  const [stateResult, profileResult] = await Promise.all([
+    supabase.from('walkthrough_state').select('*').eq('user_id', userId).single(),
+    supabase.from('users').select('role, industry, ai_maturity, delivery_preference').eq('id', userId).single(),
+  ])
 
-  let walkthroughState = existingState
+  let walkthroughState = stateResult.data
 
   if (!walkthroughState) {
     const { data: created } = await supabase
@@ -41,6 +40,7 @@ export default async function WalkthroughPage() {
       <WalkthroughClient
         userId={userId}
         initialState={walkthroughState ?? { user_id: userId, status: 'idle', visual_spec: null }}
+        userProfile={profileResult.data ?? null}
       />
     </>
   )

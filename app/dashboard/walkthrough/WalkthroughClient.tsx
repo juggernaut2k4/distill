@@ -8,7 +8,13 @@ import { Conversation } from '@11labs/client'
 
 const AGENT_ID = process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID ?? 'agent_0701krp1ta48fswrff17ctb0520m'
 
-// How long (ms) of polling silence before sending a keep-alive context update
+// Aria voice ID — ensures consistent voice across first_message and all LLM responses.
+// Verify in ElevenLabs dashboard: Voices → Aria → copy ID.
+const ARIA_VOICE_ID = process.env.NEXT_PUBLIC_ELEVENLABS_ARIA_VOICE_ID ?? '9BWtsMINqrJLrRacOk9x'
+
+// How long (ms) of polling silence before sending a keep-alive context update.
+// VAD end-of-speech sensitivity must be tuned in ElevenLabs dashboard:
+//   Agent → Advanced → Turn detection → Silence duration (lower = faster response, e.g. 300ms)
 const KEEPALIVE_INTERVAL = 25_000
 
 type WalkthroughStatus = 'idle' | 'generating' | 'ready' | 'wiping'
@@ -23,9 +29,21 @@ interface WalkthroughState {
   pending_transcript?: string | null
 }
 
+interface UserProfile {
+  role: string | null
+  industry: string | null
+  ai_maturity: string | null
+  delivery_preference: string | null
+}
+
+interface DisconnectDetails {
+  reason: 'agent' | 'error' | 'user'
+}
+
 interface Props {
   userId: string
   initialState: WalkthroughState
+  userProfile: UserProfile | null
 }
 
 function DotsLoader() {
@@ -61,7 +79,7 @@ function PulsingRing() {
   )
 }
 
-export default function WalkthroughClient({ userId, initialState }: Props) {
+export default function WalkthroughClient({ userId, initialState, userProfile }: Props) {
   const [state, setState] = useState<WalkthroughState>(initialState)
   const containerRef = useRef<HTMLDivElement>(null)
   const [dimensions, setDimensions] = useState({ width: 1280, height: 720 })
@@ -73,6 +91,7 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
   const lastSentTranscriptRef = useRef<string | null>(null)
   const lastActivityRef = useRef<number>(Date.now())
   const hasConnectedRef = useRef(false)
+  const sessionEndedRef = useRef(false)
   const topicRef = useRef<string | null | undefined>(initialState.topic_title)
   const reconnectAttemptsRef = useRef(0)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -92,7 +111,7 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
     return () => observer.disconnect()
   }, [])
 
-  // Connect to ElevenLabs agent on mount, with auto-reconnect on drop
+  // Connect to ElevenLabs agent on mount, with auto-reconnect on unintentional drops
   useEffect(() => {
     let cancelled = false
     const MAX_RECONNECT = 8
@@ -120,9 +139,12 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
           connectionType: 'websocket',
           overrides: {
             agent: {
-              // Suppress re-greeting on reconnect — ElevenLabs replays firstMessage
-              // every time a new WebSocket session starts without this override.
+              // On reconnect, suppress the first_message so Clio doesn't re-greet.
               firstMessage: isReconnect ? '' : greeting,
+            },
+            tts: {
+              // Lock to Aria voice to prevent drift between first_message and LLM responses.
+              voiceId: ARIA_VOICE_ID,
             },
           },
           clientTools: {
@@ -140,16 +162,28 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
                 return 'Visual failed to load.'
               }
             },
+            end_session: async () => {
+              // Agent calls this when saying goodbye — prevents auto-reconnect loop.
+              console.log('[Walkthrough] Agent ended session')
+              sessionEndedRef.current = true
+              return 'Session closed.'
+            },
           },
           onConnect: ({ conversationId }: { conversationId: string }) => {
             console.log('[Walkthrough] Agent connected, id:', conversationId)
             reconnectAttemptsRef.current = 0
             setAgentStatus('listening')
           },
-          onDisconnect: () => {
-            console.log('[Walkthrough] Agent disconnected')
+          onDisconnect: (details: DisconnectDetails) => {
+            console.log('[Walkthrough] Agent disconnected, reason:', details.reason)
             conversationRef.current = null
             setAgentStatus('disconnected')
+
+            // Agent intentionally ended (goodbye) or session was explicitly closed — don't reconnect.
+            if (details.reason === 'agent' || sessionEndedRef.current) {
+              console.log('[Walkthrough] Session ended by agent — not reconnecting')
+              return
+            }
 
             if (!cancelled && reconnectAttemptsRef.current < MAX_RECONNECT) {
               reconnectAttemptsRef.current++
@@ -183,19 +217,38 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
         conversationRef.current = conv
         lastActivityRef.current = Date.now()
 
-        // Give the LLM its session instructions via context update (no voice response).
-        // firstMessage (set via overrides above) handles the spoken greeting.
+        // Build user profile context so Clio never asks about role/industry/level again.
+        const profileLines: string[] = []
+        if (userProfile?.role) profileLines.push(`Role: ${userProfile.role}`)
+        if (userProfile?.industry) profileLines.push(`Industry: ${userProfile.industry}`)
+        if (userProfile?.ai_maturity) profileLines.push(`AI maturity level: ${userProfile.ai_maturity}`)
+        const profileContext = profileLines.length > 0
+          ? ` Participant profile (already collected at sign-up — do NOT ask about these): ${profileLines.join(', ')}. Tailor explanations to their role and maturity level.`
+          : ''
+
         const sessionTopic = topicRef.current
         const sessionContext = sessionTopic
-          ? `Session instructions: Today's coaching topic is "${sessionTopic}". Your flow: (1) greet and ask if the participant is ready, (2) give a 2-3 sentence overview of ${sessionTopic}, (3) coach them through the topic with clear explanations and use the show_visual tool for diagrams, (4) at the end invite their questions. Do NOT ask what they want to discuss — the topic is pre-set.`
-          : `Session instructions: A coaching session is in progress. Check if the participant is ready, then begin coaching on whatever topic emerges. Do not ask what they want to discuss.`
+          ? `Session instructions: Today's coaching topic is "${sessionTopic}". Your flow: (1) ask if the participant is ready, (2) begin coaching on ${sessionTopic} using the show_visual tool to display diagrams as you explain, (3) invite questions at the end. Do NOT ask what they want to discuss — the topic is pre-set.${profileContext}`
+          : `Session instructions: A coaching session is in progress. Check if the participant is ready, then begin coaching. Do not ask what they want to discuss.${profileContext}`
 
         const reconnectContext = isReconnect
-          ? ' The WebSocket connection briefly dropped and reconnected — do not re-introduce yourself, just continue the session naturally.'
+          ? ' Connection briefly dropped and reconnected — continue the session without re-introducing yourself.'
           : ''
 
         conv.sendContextualUpdate(sessionContext + reconnectContext)
         console.log('[Walkthrough]', isReconnect ? 'Context restored after reconnect' : 'Session context sent')
+
+        // Pre-generate the visual for the current topic immediately on connect
+        // so the diagram is already rendered when Clio starts explaining.
+        if (sessionTopic && !isReconnect) {
+          const topicId = sessionTopic.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+          fetch('/api/generate-visual', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId, topicId, topicTitle: sessionTopic }),
+          }).catch(console.error)
+          console.log('[Walkthrough] Pre-generating visual for:', sessionTopic)
+        }
       } catch (err) {
         if (cancelled) return
         const msg = err instanceof Error ? err.message : String(err)
@@ -218,7 +271,7 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
       conversationRef.current?.endSession().catch(() => {})
       conversationRef.current = null
     }
-  }, [userId])
+  }, [userId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Poll walkthrough_state every second:
   // - Update visual_spec / status for the screen
@@ -251,10 +304,10 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
           fetch(`/api/walkthrough-state/${userId}`, { method: 'PATCH' }).catch(() => {})
         }
 
-        // Keep-alive: prevent ElevenLabs inactivity disconnect when user is silent
+        // Keep-alive: prevent ElevenLabs inactivity disconnect when participant is silent
         if (conv && Date.now() - lastActivityRef.current > KEEPALIVE_INTERVAL) {
           lastActivityRef.current = Date.now()
-          conv.sendContextualUpdate('Session is ongoing. Participant may be listening.')
+          conv.sendContextualUpdate('Session is ongoing. Participant may be listening or thinking.')
           console.log('[Walkthrough] Keep-alive sent')
         }
       } catch (err) {
