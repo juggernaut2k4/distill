@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
 
   console.log('[recall/webhook] Received event:', event.event, '| bot_id:', event.data?.bot_id, '| userId from query:', userIdFromQuery)
 
-  handleEvent(event, userIdFromQuery).catch((err) =>
+  await handleEvent(event, userIdFromQuery).catch((err) =>
     console.error('[recall/webhook] Unhandled error in handleEvent:', err)
   )
 
@@ -116,15 +116,16 @@ async function handleEvent(event: RecallWebhookEvent, userIdFromQuery?: string) 
       // inside event.data.data, or inside event.data.transcript depending on the
       // provider and endpoint type. Try all three paths.
       const raw = event.data as Record<string, unknown>
-      const transcriptObj = (raw.transcript ?? raw.data ?? raw) as {
-        words?: Array<{ text: string }>
-        speaker?: string
-      }
+      // Recall.ai realtime_endpoints puts the transcript content in event.data.data.
+      // event.data.transcript exists but is metadata (no words field).
+      const pick = (o: unknown): o is { words: Array<{ text: string }>; speaker?: string } =>
+        Array.isArray((o as Record<string, unknown>)?.words)
+      const transcriptObj = pick(raw.data) ? raw.data : pick(raw.transcript) ? raw.transcript : raw as never
 
-      const words = transcriptObj.words ?? []
+      const words: Array<{ text: string }> = (transcriptObj as { words?: Array<{ text: string }> }).words ?? []
       const text = words.map((w) => w.text).join(' ').trim()
 
-      console.log('[recall/webhook] transcript.data — keys:', Object.keys(raw).join(','), '| words:', words.length, '| text:', text.slice(0, 60))
+      console.log('[recall/webhook] transcript.data — words:', words.length, '| text:', text.slice(0, 80))
 
       if (!text || text.length < 8) break
 
@@ -142,29 +143,31 @@ async function handleEvent(event: RecallWebhookEvent, userIdFromQuery?: string) 
 
       console.log('[recall/webhook] Transcript queued for agent:', text.slice(0, 80))
 
-      // Background: sentiment + deferred question tracking
-      try {
-        const userCtx = await getOrCreateContext(userId)
-        const analysis = await analyzeTranscription(text, currentTopicId, {
-          role: 'executive',
-          communicationStyle: userCtx.communicationStyle,
-          engagementLevel: userCtx.engagementLevel,
-        })
+      // Sentiment + deferred question tracking — non-critical, run after response
+      ;(async () => {
+        try {
+          const userCtx = await getOrCreateContext(userId)
+          const analysis = await analyzeTranscription(text, currentTopicId, {
+            role: 'executive',
+            communicationStyle: userCtx.communicationStyle,
+            engagementLevel: userCtx.engagementLevel,
+          })
 
-        if (sessionId) {
-          await updateSentiment(userId, analysis.sentiment, sessionId).catch(console.error)
-        }
+          if (sessionId) {
+            await updateSentiment(userId, analysis.sentiment, sessionId).catch(console.error)
+          }
 
-        if (analysis.intent === 'question' && analysis.isComplex && analysis.extractedQuestion && sessionId) {
-          await addUnresolvedQuestion(userId, analysis.extractedQuestion, sessionId).catch(console.error)
-        }
+          if (analysis.intent === 'question' && analysis.isComplex && analysis.extractedQuestion && sessionId) {
+            await addUnresolvedQuestion(userId, analysis.extractedQuestion, sessionId).catch(console.error)
+          }
 
-        if (analysis.intent === 'no_time' && analysis.extractedQuestion && sessionId) {
-          await addUnresolvedQuestion(userId, `[Deferred] ${analysis.extractedQuestion}`, sessionId).catch(console.error)
+          if (analysis.intent === 'no_time' && analysis.extractedQuestion && sessionId) {
+            await addUnresolvedQuestion(userId, `[Deferred] ${analysis.extractedQuestion}`, sessionId).catch(console.error)
+          }
+        } catch (err) {
+          console.error('[recall/webhook] Transcript analysis error:', err)
         }
-      } catch (err) {
-        console.error('[recall/webhook] Transcript analysis error:', err)
-      }
+      })()
       break
     }
 
