@@ -72,7 +72,8 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
   const conversationRef = useRef<Conversation | null>(null)
   const lastSentTranscriptRef = useRef<string | null>(null)
   const lastActivityRef = useRef<number>(Date.now())
-  const hasGreetedRef = useRef(false)
+  const hasConnectedRef = useRef(false)
+  const topicRef = useRef<string | null | undefined>(initialState.topic_title)
   const reconnectAttemptsRef = useRef(0)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -98,6 +99,7 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
 
     const connect = async () => {
       if (cancelled) return
+      const isReconnect = hasConnectedRef.current
       setAgentStatus('connecting')
       setAgentError(null)
 
@@ -108,9 +110,21 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
         await navigator.mediaDevices.getUserMedia({ audio: true })
         if (cancelled) return
 
+        const topic = topicRef.current
+        const greeting = topic
+          ? `Hi, I'm Clio, your AI learning companion. Great to meet you. I see today's topic is "${topic}", so we can jump right in. Are you ready to get started?`
+          : `Hi, I'm Clio, your AI learning companion. Great to meet you. I see today's session is already set up, so we can jump right in. Are you ready to get started?`
+
         const conv = await Conversation.startSession({
           agentId: AGENT_ID,
           connectionType: 'websocket',
+          overrides: {
+            agent: {
+              // Suppress re-greeting on reconnect — ElevenLabs replays firstMessage
+              // every time a new WebSocket session starts without this override.
+              firstMessage: isReconnect ? '' : greeting,
+            },
+          },
           clientTools: {
             show_visual: async ({ topic_id, topic_title }: { topic_id: string; topic_title: string }) => {
               console.log('[Walkthrough] show_visual called —', topic_title)
@@ -165,23 +179,23 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
         })
 
         if (cancelled) { conv.endSession().catch(() => {}); return }
+        hasConnectedRef.current = true
         conversationRef.current = conv
         lastActivityRef.current = Date.now()
 
-        // Send greeting only on the very first connect, not on reconnects.
-        // IMPORTANT: Remove the "First message" from your ElevenLabs agent settings
-        // so the agent doesn't auto-greet — this sendUserMessage is the only greeting.
-        if (!hasGreetedRef.current) {
-          hasGreetedRef.current = true
-          setTimeout(() => {
-            conversationRef.current?.sendUserMessage('Hello, the coaching session is starting. Please greet the participant and introduce yourself briefly.')
-            console.log('[Walkthrough] Greeting sent (first connect)')
-          }, 500)
-        } else {
-          // Reconnected — restore context without triggering a new greeting
-          conv.sendContextualUpdate('The session is still in progress. The connection briefly dropped and reconnected. Continue where you left off without re-introducing yourself.')
-          console.log('[Walkthrough] Context restored after reconnect')
-        }
+        // Give the LLM its session instructions via context update (no voice response).
+        // firstMessage (set via overrides above) handles the spoken greeting.
+        const sessionTopic = topicRef.current
+        const sessionContext = sessionTopic
+          ? `Session instructions: Today's coaching topic is "${sessionTopic}". Your flow: (1) greet and ask if the participant is ready, (2) give a 2-3 sentence overview of ${sessionTopic}, (3) coach them through the topic with clear explanations and use the show_visual tool for diagrams, (4) at the end invite their questions. Do NOT ask what they want to discuss — the topic is pre-set.`
+          : `Session instructions: A coaching session is in progress. Check if the participant is ready, then begin coaching on whatever topic emerges. Do not ask what they want to discuss.`
+
+        const reconnectContext = isReconnect
+          ? ' The WebSocket connection briefly dropped and reconnected — do not re-introduce yourself, just continue the session naturally.'
+          : ''
+
+        conv.sendContextualUpdate(sessionContext + reconnectContext)
+        console.log('[Walkthrough]', isReconnect ? 'Context restored after reconnect' : 'Session context sent')
       } catch (err) {
         if (cancelled) return
         const msg = err instanceof Error ? err.message : String(err)
@@ -223,6 +237,7 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
         setPollCount(n => n + 1)
         const data = await res.json() as WalkthroughState
         setState(data)
+        if (data.topic_title) topicRef.current = data.topic_title
 
         const conv = conversationRef.current
 
