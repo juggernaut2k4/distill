@@ -8,10 +8,6 @@ import { Conversation } from '@11labs/client'
 
 const AGENT_ID = process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID ?? 'agent_0701krp1ta48fswrff17ctb0520m'
 
-// Aria voice ID — ensures consistent voice across first_message and all LLM responses.
-// Verify in ElevenLabs dashboard: Voices → Aria → copy ID.
-const ARIA_VOICE_ID = process.env.NEXT_PUBLIC_ELEVENLABS_ARIA_VOICE_ID ?? '9BWtsMINqrJLrRacOk9x'
-
 // How long (ms) of polling silence before sending a keep-alive context update.
 // VAD end-of-speech sensitivity must be tuned in ElevenLabs dashboard:
 //   Agent → Advanced → Turn detection → Silence duration (lower = faster response, e.g. 300ms)
@@ -142,10 +138,6 @@ export default function WalkthroughClient({ userId, initialState, userProfile }:
               // On reconnect, suppress the first_message so Clio doesn't re-greet.
               firstMessage: isReconnect ? '' : greeting,
             },
-            tts: {
-              // Lock to Aria voice to prevent drift between first_message and LLM responses.
-              voiceId: ARIA_VOICE_ID,
-            },
           },
           clientTools: {
             show_visual: async ({ topic_id, topic_title }: { topic_id: string; topic_title: string }) => {
@@ -162,25 +154,19 @@ export default function WalkthroughClient({ userId, initialState, userProfile }:
                 return 'Visual failed to load.'
               }
             },
-            end_session: async () => {
-              // Agent calls this when saying goodbye — prevents auto-reconnect loop.
-              console.log('[Walkthrough] Agent ended session')
-              sessionEndedRef.current = true
-              return 'Session closed.'
-            },
           },
           onConnect: ({ conversationId }: { conversationId: string }) => {
             console.log('[Walkthrough] Agent connected, id:', conversationId)
             reconnectAttemptsRef.current = 0
             setAgentStatus('listening')
           },
-          onDisconnect: (details: DisconnectDetails) => {
-            console.log('[Walkthrough] Agent disconnected, reason:', details.reason)
+          onDisconnect: (details?: DisconnectDetails) => {
+            console.log('[Walkthrough] Agent disconnected, reason:', details?.reason ?? 'unknown')
             conversationRef.current = null
             setAgentStatus('disconnected')
 
-            // Agent intentionally ended (goodbye) or session was explicitly closed — don't reconnect.
-            if (details.reason === 'agent' || sessionEndedRef.current) {
+            // Agent intentionally ended (goodbye) — don't reconnect.
+            if (details?.reason === 'agent' || sessionEndedRef.current) {
               console.log('[Walkthrough] Session ended by agent — not reconnecting')
               return
             }
