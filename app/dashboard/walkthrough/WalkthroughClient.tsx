@@ -8,6 +8,9 @@ import { Conversation } from '@11labs/client'
 
 const AGENT_ID = process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID ?? 'agent_0701krp1ta48fswrff17ctb0520m'
 
+// How long (ms) of polling silence before sending a keep-alive context update
+const KEEPALIVE_INTERVAL = 25_000
+
 type WalkthroughStatus = 'idle' | 'generating' | 'ready' | 'wiping'
 type AgentStatus = 'disconnected' | 'connecting' | 'listening' | 'speaking' | 'error'
 
@@ -68,6 +71,8 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
   const [pollError, setPollError] = useState<string | null>(null)
   const conversationRef = useRef<Conversation | null>(null)
   const lastSentTranscriptRef = useRef<string | null>(null)
+  const lastActivityRef = useRef<number>(Date.now())
+  const hasGreetedRef = useRef(false)
   const reconnectAttemptsRef = useRef(0)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -97,10 +102,9 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
       setAgentError(null)
 
       try {
-        // WebRTC requires mic permission — we leave it unmuted so ElevenLabs
-        // doesn't see an inactive session and time out. The headless browser mic
-        // returns silence, so VAD never fires from it. Participant speech reaches
-        // the agent via sendUserMessage() fed by the transcript webhook instead.
+        // Mic permission required for WebSocket audio session.
+        // Headless browser mic returns silence — participant speech reaches the
+        // agent via sendUserMessage() fed by the transcript webhook instead.
         await navigator.mediaDevices.getUserMedia({ audio: true })
         if (cancelled) return
 
@@ -133,7 +137,6 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
             conversationRef.current = null
             setAgentStatus('disconnected')
 
-            // Auto-reconnect with exponential backoff
             if (!cancelled && reconnectAttemptsRef.current < MAX_RECONNECT) {
               reconnectAttemptsRef.current++
               const delay = Math.min(3000 * reconnectAttemptsRef.current, 20000)
@@ -163,11 +166,22 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
 
         if (cancelled) { conv.endSession().catch(() => {}); return }
         conversationRef.current = conv
-        // Greeting sent here — ref is confirmed set, safe to call immediately
-        setTimeout(() => {
-          conversationRef.current?.sendUserMessage('Hello, the coaching session is starting. Please introduce yourself.')
-          console.log('[Walkthrough] Greeting sent')
-        }, 500)
+        lastActivityRef.current = Date.now()
+
+        // Send greeting only on the very first connect, not on reconnects.
+        // IMPORTANT: Remove the "First message" from your ElevenLabs agent settings
+        // so the agent doesn't auto-greet — this sendUserMessage is the only greeting.
+        if (!hasGreetedRef.current) {
+          hasGreetedRef.current = true
+          setTimeout(() => {
+            conversationRef.current?.sendUserMessage('Hello, the coaching session is starting. Please greet the participant and introduce yourself briefly.')
+            console.log('[Walkthrough] Greeting sent (first connect)')
+          }, 500)
+        } else {
+          // Reconnected — restore context without triggering a new greeting
+          conv.sendContextualUpdate('The session is still in progress. The connection briefly dropped and reconnected. Continue where you left off without re-introducing yourself.')
+          console.log('[Walkthrough] Context restored after reconnect')
+        }
       } catch (err) {
         if (cancelled) return
         const msg = err instanceof Error ? err.message : String(err)
@@ -175,7 +189,6 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
         setAgentStatus('error')
         setAgentError(msg.slice(0, 60))
 
-        // Retry on connection failure too
         if (reconnectAttemptsRef.current < MAX_RECONNECT) {
           reconnectAttemptsRef.current++
           const delay = Math.min(3000 * reconnectAttemptsRef.current, 20000)
@@ -196,6 +209,7 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
   // Poll walkthrough_state every second:
   // - Update visual_spec / status for the screen
   // - Forward pending_transcript to ElevenLabs agent via sendUserMessage
+  // - Send keep-alive context update every 25s to prevent inactivity disconnect
   useEffect(() => {
     let active = true
 
@@ -210,14 +224,23 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
         const data = await res.json() as WalkthroughState
         setState(data)
 
+        const conv = conversationRef.current
+
         // Feed participant transcript to agent if new
         const transcript = data.pending_transcript
-        if (transcript && transcript !== lastSentTranscriptRef.current && conversationRef.current) {
+        if (transcript && transcript !== lastSentTranscriptRef.current && conv) {
           lastSentTranscriptRef.current = transcript
-          conversationRef.current.sendUserMessage(transcript)
+          lastActivityRef.current = Date.now()
+          conv.sendUserMessage(transcript)
           console.log('[Walkthrough] Sent to agent:', transcript.slice(0, 80))
-          // Clear from DB so it doesn't replay
           fetch(`/api/walkthrough-state/${userId}`, { method: 'PATCH' }).catch(() => {})
+        }
+
+        // Keep-alive: prevent ElevenLabs inactivity disconnect when user is silent
+        if (conv && Date.now() - lastActivityRef.current > KEEPALIVE_INTERVAL) {
+          lastActivityRef.current = Date.now()
+          conv.sendContextualUpdate('Session is ongoing. Participant may be listening.')
+          console.log('[Walkthrough] Keep-alive sent')
         }
       } catch (err) {
         if (active) setPollError(String(err).slice(0, 30))
