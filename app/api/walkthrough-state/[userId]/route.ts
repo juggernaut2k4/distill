@@ -18,8 +18,12 @@ export async function GET(
     .eq('user_id', params.userId)
     .single()
 
+  if (data?.pending_transcript) {
+    console.log('[walkthrough-state] GET returning pending_transcript:', (data.pending_transcript as string).slice(0, 80))
+  }
+
   return NextResponse.json(
-    data ?? { user_id: params.userId, status: 'idle', visual_spec: null, pending_speech: null }
+    data ?? { user_id: params.userId, status: 'idle', visual_spec: null, pending_transcript: null }
   )
 }
 
@@ -36,5 +40,6 @@ export async function PATCH(
     .from('walkthrough_state')
     .update({ pending_transcript: null })
     .eq('user_id', params.userId)
+  console.log('[walkthrough-state] PATCH cleared pending_transcript for', params.userId)
   return NextResponse.json({ ok: true })
 }

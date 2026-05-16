@@ -106,7 +106,7 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
 
         const conv = await Conversation.startSession({
           agentId: AGENT_ID,
-          connectionType: 'webrtc',
+          connectionType: 'websocket',
           clientTools: {
             show_visual: async ({ topic_id, topic_title }: { topic_id: string; topic_title: string }) => {
               console.log('[Walkthrough] show_visual called —', topic_title)
@@ -127,13 +127,6 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
             console.log('[Walkthrough] Agent connected, id:', conversationId)
             reconnectAttemptsRef.current = 0
             setAgentStatus('listening')
-            // Trigger greeting immediately on connect — don't wait for VAD
-            setTimeout(() => {
-              if (conversationRef.current) {
-                conversationRef.current.sendUserMessage('Hello, the coaching session is starting. Please introduce yourself.')
-                console.log('[Walkthrough] Greeting sent on connect')
-              }
-            }, 800)
           },
           onDisconnect: () => {
             console.log('[Walkthrough] Agent disconnected')
@@ -170,6 +163,11 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
 
         if (cancelled) { conv.endSession().catch(() => {}); return }
         conversationRef.current = conv
+        // Greeting sent here — ref is confirmed set, safe to call immediately
+        setTimeout(() => {
+          conversationRef.current?.sendUserMessage('Hello, the coaching session is starting. Please introduce yourself.')
+          console.log('[Walkthrough] Greeting sent')
+        }, 500)
       } catch (err) {
         if (cancelled) return
         const msg = err instanceof Error ? err.message : String(err)
