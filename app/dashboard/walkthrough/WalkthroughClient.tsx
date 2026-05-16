@@ -160,6 +160,12 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
             console.log('[Walkthrough] Agent mode:', mode)
             setAgentStatus(mode)
           },
+          onMessage: ({ message, source }: { message: string; source: string }) => {
+            console.log(`[Walkthrough] Agent message [${source}]:`, message.slice(0, 120))
+          },
+          onStatusChange: ({ status }: { status: string }) => {
+            console.log('[Walkthrough] Agent status:', status)
+          },
         })
 
         if (cancelled) { conv.endSession().catch(() => {}); return }
