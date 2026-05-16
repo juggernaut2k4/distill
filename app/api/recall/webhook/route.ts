@@ -112,15 +112,24 @@ async function handleEvent(event: RecallWebhookEvent, userIdFromQuery?: string) 
     // Visual generation is handled by the ElevenLabs show_visual client tool.
     case 'transcript.data':
     case 'transcript.done': {
-      const transcript = event.data.transcript ?? event.data.data
-      if (!transcript) break
+      // Recall.ai realtime_endpoints may place words/speaker directly on event.data,
+      // inside event.data.data, or inside event.data.transcript depending on the
+      // provider and endpoint type. Try all three paths.
+      const raw = event.data as Record<string, unknown>
+      const transcriptObj = (raw.transcript ?? raw.data ?? raw) as {
+        words?: Array<{ text: string }>
+        speaker?: string
+      }
 
-      const words = (transcript as { words?: Array<{ text: string }> }).words ?? []
+      const words = transcriptObj.words ?? []
       const text = words.map((w) => w.text).join(' ').trim()
+
+      console.log('[recall/webhook] transcript.data — keys:', Object.keys(raw).join(','), '| words:', words.length, '| text:', text.slice(0, 60))
+
       if (!text || text.length < 8) break
 
       // Skip the bot's own speech
-      const speaker = (transcript as { speaker?: string }).speaker ?? ''
+      const speaker = transcriptObj.speaker ?? ''
       if (speaker.toLowerCase().includes('clio')) break
 
       // Write transcript to DB — WalkthroughClient polls this and feeds it
