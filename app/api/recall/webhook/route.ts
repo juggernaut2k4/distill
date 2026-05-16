@@ -25,9 +25,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true }, { status: 200 })
   }
 
-  console.log('[recall/webhook] Received event:', event.event, '| bot_id:', event.data?.bot_id)
+  // userId is embedded in the URL for realtime_endpoint calls (transcript.data)
+  // because Recall.ai realtime_endpoints payloads don't include bot_id
+  const userIdFromQuery = request.nextUrl.searchParams.get('userId') ?? undefined
 
-  handleEvent(event).catch((err) =>
+  console.log('[recall/webhook] Received event:', event.event, '| bot_id:', event.data?.bot_id, '| userId from query:', userIdFromQuery)
+
+  handleEvent(event, userIdFromQuery).catch((err) =>
     console.error('[recall/webhook] Unhandled error in handleEvent:', err)
   )
 
@@ -56,20 +60,32 @@ interface RecallWebhookEvent {
 
 // ─── EVENT HANDLER ────────────────────────────────────────────────────────────
 
-async function handleEvent(event: RecallWebhookEvent) {
+async function handleEvent(event: RecallWebhookEvent, userIdFromQuery?: string) {
   const supabase = createSupabaseAdminClient()
   const botId = event.data?.bot_id ?? (event.data as { bot?: { id?: string } })?.bot?.id
 
-  if (!botId) {
-    console.warn('[recall/webhook] No bot_id in event', event.event, JSON.stringify(event.data).slice(0, 200))
+  // Look up walkthrough_state — prefer userId from query (transcript.data events
+  // don't include bot_id in their payload), fall back to bot_id for status events
+  let walkthroughRow: Record<string, unknown> | null = null
+
+  if (userIdFromQuery) {
+    const { data } = await supabase
+      .from('walkthrough_state')
+      .select('*')
+      .eq('user_id', userIdFromQuery)
+      .single()
+    walkthroughRow = data
+  } else if (botId) {
+    const { data } = await supabase
+      .from('walkthrough_state')
+      .select('*')
+      .eq('bot_id', botId)
+      .single()
+    walkthroughRow = data
+  } else {
+    console.warn('[recall/webhook] No bot_id or userId in event', event.event, JSON.stringify(event.data).slice(0, 200))
     return
   }
-
-  const { data: walkthroughRow } = await supabase
-    .from('walkthrough_state')
-    .select('*')
-    .eq('bot_id', botId)
-    .single()
 
   if (!walkthroughRow) {
     console.warn('[recall/webhook] No walkthrough_state found for botId', botId)

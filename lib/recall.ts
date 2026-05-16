@@ -71,7 +71,9 @@ export async function createBot(
         realtime_endpoints: [
           {
             type: 'webhook',
-            url: `${process.env.NEXT_PUBLIC_APP_URL}/api/recall/webhook`,
+            // userId embedded so transcript.data events can be matched —
+            // Recall.ai realtime_endpoints payloads don't include bot_id
+            url: `${process.env.NEXT_PUBLIC_APP_URL}/api/recall/webhook?userId=${userId}`,
             events: ['transcript.data'],
           },
         ],
