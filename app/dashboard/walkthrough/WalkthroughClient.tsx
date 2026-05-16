@@ -68,6 +68,8 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
   const [pollError, setPollError] = useState<string | null>(null)
   const conversationRef = useRef<Conversation | null>(null)
   const lastSentTranscriptRef = useRef<string | null>(null)
+  const reconnectAttemptsRef = useRef(0)
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Track container dimensions
   useEffect(() => {
@@ -84,18 +86,21 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
     return () => observer.disconnect()
   }, [])
 
-  // Connect to ElevenLabs agent on mount
+  // Connect to ElevenLabs agent on mount, with auto-reconnect on drop
   useEffect(() => {
     let cancelled = false
+    const MAX_RECONNECT = 8
 
     const connect = async () => {
+      if (cancelled) return
       setAgentStatus('connecting')
       setAgentError(null)
 
       try {
-        // Request mic access (required by WebRTC) but immediately mute it.
-        // Recall.ai headless browser mic returns silence — we feed participant
-        // speech via sendUserMessage() from the transcript webhook instead.
+        // WebRTC requires mic permission — we leave it unmuted so ElevenLabs
+        // doesn't see an inactive session and time out. The headless browser mic
+        // returns silence, so VAD never fires from it. Participant speech reaches
+        // the agent via sendUserMessage() fed by the transcript webhook instead.
         await navigator.mediaDevices.getUserMedia({ audio: true })
         if (cancelled) return
 
@@ -120,11 +125,24 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
           },
           onConnect: ({ conversationId }: { conversationId: string }) => {
             console.log('[Walkthrough] Agent connected, id:', conversationId)
+            reconnectAttemptsRef.current = 0
             setAgentStatus('listening')
           },
           onDisconnect: () => {
             console.log('[Walkthrough] Agent disconnected')
+            conversationRef.current = null
             setAgentStatus('disconnected')
+
+            // Auto-reconnect with exponential backoff
+            if (!cancelled && reconnectAttemptsRef.current < MAX_RECONNECT) {
+              reconnectAttemptsRef.current++
+              const delay = Math.min(3000 * reconnectAttemptsRef.current, 20000)
+              console.log(`[Walkthrough] Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current}/${MAX_RECONNECT})`)
+              reconnectTimerRef.current = setTimeout(connect, delay)
+            } else if (!cancelled) {
+              setAgentStatus('error')
+              setAgentError('Connection lost — please refresh')
+            }
           },
           onError: (message: string) => {
             console.error('[Walkthrough] Agent error:', message)
@@ -138,12 +156,7 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
         })
 
         if (cancelled) { conv.endSession().catch(() => {}); return }
-
         conversationRef.current = conv
-
-        // Mute the mic — participant audio comes via sendUserMessage from transcript webhook
-        conv.setMicMuted(true)
-        console.log('[Walkthrough] Mic muted — using transcript feed')
 
         // Trigger Clio's opening greeting after WebRTC stabilises
         await new Promise(r => setTimeout(r, 1500))
@@ -157,12 +170,20 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
         console.error('[Walkthrough] Failed to start agent session:', msg)
         setAgentStatus('error')
         setAgentError(msg.slice(0, 60))
+
+        // Retry on connection failure too
+        if (reconnectAttemptsRef.current < MAX_RECONNECT) {
+          reconnectAttemptsRef.current++
+          const delay = Math.min(3000 * reconnectAttemptsRef.current, 20000)
+          reconnectTimerRef.current = setTimeout(connect, delay)
+        }
       }
     }
 
     connect()
     return () => {
       cancelled = true
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current)
       conversationRef.current?.endSession().catch(() => {})
       conversationRef.current = null
     }
@@ -308,7 +329,7 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
       {/* Debug overlay */}
       <div className="fixed bottom-3 right-3 z-50 text-xs font-mono space-y-1">
         <div className={`px-2 py-1 rounded ${agentStatusColor}`}>
-          🎙 {agentStatus}{agentStatus === 'error' && agentError ? `: ${agentError}` : ''}
+          🎙 {agentStatus}{agentStatus === 'disconnected' && reconnectAttemptsRef.current > 0 ? ` (retry ${reconnectAttemptsRef.current})` : ''}{agentStatus === 'error' && agentError ? `: ${agentError}` : ''}
         </div>
         <div className="bg-gray-900/60 text-gray-600 px-2 py-1 rounded">
           polls: {pollCount}
