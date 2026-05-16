@@ -194,8 +194,8 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
         // firstMessage (set via overrides above) handles the spoken greeting.
         const sessionTopic = topicRef.current
         const sessionContext = sessionTopic
-          ? `Session instructions: Today's coaching topic is "${sessionTopic}". Your flow: (1) greet and ask if the participant is ready, (2) give a 2-3 sentence overview of ${sessionTopic}, (3) coach them through the topic with clear explanations and use the show_visual tool for diagrams, (4) at the end invite their questions. Do NOT ask what they want to discuss — the topic is pre-set.`
-          : `Session instructions: A coaching session is in progress. Check if the participant is ready, then begin coaching on whatever topic emerges. Do not ask what they want to discuss.`
+          ? `Pre-planned session context: Topic is "${sessionTopic}" — already confirmed, do NOT ask what they want to cover. Begin coaching immediately after the greeting. Use show_visual before each concept explanation. Ask questions sparingly — at most once per major section, only at natural pauses. Do NOT ask about the caller's role, background, or experience level — that is already known. Your job is to teach and coach, not to interview.`
+          : `Pre-planned session context: A coaching session is in progress with a pre-set agenda. Begin coaching immediately. Do NOT ask what the caller wants to discuss. Ask questions sparingly — at most once per major section.`
 
         const reconnectContext = isReconnect
           ? ' The WebSocket connection briefly dropped and reconnected — do not re-introduce yourself, just continue the session naturally.'
