@@ -97,8 +97,9 @@ export async function deleteBot(botId: string): Promise<void> {
     return
   }
 
-  const res = await fetch(`${RECALL_BASE}/bot/${botId}`, {
-    method: 'DELETE',
+  // Recall.ai us-east-1 returns 405 on DELETE — use the leave endpoint instead
+  const res = await fetch(`${RECALL_BASE}/bot/${botId}/leave`, {
+    method: 'POST',
     headers: recallHeaders(),
   })
 
