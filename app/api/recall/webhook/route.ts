@@ -127,7 +127,7 @@ async function handleEvent(event: RecallWebhookEvent, userIdFromQuery?: string) 
 
       console.log('[recall/webhook] transcript.data — words:', words.length, '| text:', text.slice(0, 80))
 
-      if (!text || text.length < 8) break
+      if (!text || text.length < 2) break
 
       // Skip the bot's own speech
       const speaker = transcriptObj.speaker ?? ''
