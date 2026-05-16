@@ -249,6 +249,7 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
           conv.sendUserMessage(transcript)
           console.log('[Walkthrough] Sent to agent:', transcript.slice(0, 80))
           fetch(`/api/walkthrough-state/${userId}`, { method: 'PATCH' }).catch(() => {})
+          setTimeout(poll, 0)
         }
 
         // Keep-alive: prevent ElevenLabs inactivity disconnect when user is silent
@@ -263,7 +264,7 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
     }
 
     poll()
-    const interval = setInterval(poll, 1000)
+    const interval = setInterval(poll, 300)
     return () => { active = false; clearInterval(interval) }
   }, [userId])
 
