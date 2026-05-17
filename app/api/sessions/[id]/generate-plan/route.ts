@@ -314,6 +314,49 @@ export async function POST(_request: NextRequest, { params }: Params) {
 }
 
 /**
+ * PATCH /api/sessions/[id]/generate-plan
+ * Toggles skipped state for a single subtopic.
+ * Body: { subtopicId: string; skipped: boolean }
+ */
+export async function PATCH(request: NextRequest, { params }: Params) {
+  const { userId, error } = requireAuth()
+  if (error) return error
+
+  const body = await request.json() as { subtopicId?: string; skipped?: boolean }
+  if (typeof body.subtopicId !== 'string' || typeof body.skipped !== 'boolean') {
+    return NextResponse.json({ error: 'Invalid body' }, { status: 400 })
+  }
+
+  const supabase = createSupabaseAdminClient()
+
+  const { data: session } = await supabase
+    .from('sessions')
+    .select('session_plan')
+    .eq('id', params.id)
+    .eq('user_id', userId!)
+    .single()
+
+  if (!session?.session_plan) {
+    return NextResponse.json({ error: 'Session not found' }, { status: 404 })
+  }
+
+  const plan = session.session_plan as SessionPlan
+  const updatedPlan: SessionPlan = {
+    ...plan,
+    subtopics: plan.subtopics.map((s) =>
+      s.id === body.subtopicId ? { ...s, skipped: body.skipped } : s
+    ),
+  }
+
+  await supabase
+    .from('sessions')
+    .update({ session_plan: updatedPlan })
+    .eq('id', params.id)
+
+  return NextResponse.json({ ok: true })
+}
+
+/**
  * GET /api/sessions/[id]/generate-plan
  * Returns the current session_plan for polling.
  */

@@ -6,7 +6,7 @@ import { motion } from 'framer-motion'
 import Link from 'next/link'
 import {
   ArrowLeft, CalendarDays, Clock, Download, Tag, CheckCircle,
-  Circle, XCircle, Loader, Video, StopCircle, ExternalLink, Sparkles,
+  Circle, XCircle, Loader, Video, StopCircle, ExternalLink, Sparkles, EyeOff, Eye,
 } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -116,11 +116,12 @@ export default function SessionDetailClient({ session }: Props) {
     if (!meetingUrl.trim()) return
     setBotStatus('joining')
     setBotError(null)
+    const skippedTopics = sessionPlan?.subtopics.filter((s) => s.skipped).map((s) => s.title) ?? []
     try {
       const res = await fetch('/api/recall/bot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ meetingUrl: meetingUrl.trim(), sessionId: session.id }),
+        body: JSON.stringify({ meetingUrl: meetingUrl.trim(), sessionId: session.id, skippedTopics }),
       })
       const data = (await res.json()) as { botId?: string; error?: string }
       if (!res.ok || !data.botId) {
@@ -285,20 +286,50 @@ export default function SessionDetailClient({ session }: Props) {
             {sessionPlan.subtopics.map((sub, i) => (
               <div
                 key={sub.id}
-                className="flex items-start gap-3 px-4 py-3 rounded-xl bg-[#111111] border border-[#1A1A1A]"
+                className={`flex items-start gap-3 px-4 py-3 rounded-xl border transition-colors ${
+                  sub.skipped
+                    ? 'bg-[#0D0D0D] border-[#1A1A1A] opacity-50'
+                    : 'bg-[#111111] border-[#1A1A1A]'
+                }`}
               >
                 <div className="w-5 h-5 rounded-full bg-purple-950/50 border border-purple-800/40 flex items-center justify-center flex-shrink-0 mt-0.5">
                   <span className="text-[9px] font-bold text-[#A855F7]">{i + 1}</span>
                 </div>
-                <p className="text-sm text-[#94A3B8] flex-1 leading-snug">{sub.title}</p>
-                <div className="flex-shrink-0 mt-0.5">
-                  {sub.visual_status === 'ready' ? (
-                    <CheckCircle size={14} className="text-[#10B981]" />
-                  ) : sub.visual_status === 'failed' ? (
-                    <XCircle size={14} className="text-[#EF4444]" />
-                  ) : (
-                    <Loader size={14} className="text-[#475569] animate-spin" />
+                <p className={`text-sm flex-1 leading-snug ${sub.skipped ? 'line-through text-[#475569]' : 'text-[#94A3B8]'}`}>
+                  {sub.title}
+                </p>
+                <div className="flex items-center gap-2 flex-shrink-0 mt-0.5">
+                  {/* Visual status indicator */}
+                  {!sub.skipped && (
+                    sub.visual_status === 'ready' ? (
+                      <CheckCircle size={14} className="text-[#10B981]" />
+                    ) : sub.visual_status === 'failed' ? (
+                      <XCircle size={14} className="text-[#EF4444]" />
+                    ) : (
+                      <Loader size={14} className="text-[#475569] animate-spin" />
+                    )
                   )}
+                  {/* Skip toggle */}
+                  <button
+                    onClick={async () => {
+                      const newSkipped = !sub.skipped
+                      setSessionPlan((prev) => prev ? {
+                        ...prev,
+                        subtopics: prev.subtopics.map((s) =>
+                          s.id === sub.id ? { ...s, skipped: newSkipped } : s
+                        ),
+                      } : prev)
+                      await fetch(`/api/sessions/${session.id}/generate-plan`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ subtopicId: sub.id, skipped: newSkipped }),
+                      })
+                    }}
+                    title={sub.skipped ? 'Include this topic' : 'Skip this topic'}
+                    className="text-[#475569] hover:text-[#94A3B8] transition-colors"
+                  >
+                    {sub.skipped ? <Eye size={14} /> : <EyeOff size={14} />}
+                  </button>
                 </div>
               </div>
             ))}

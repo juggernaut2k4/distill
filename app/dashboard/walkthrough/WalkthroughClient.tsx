@@ -25,6 +25,7 @@ interface WalkthroughState {
   topic_title?: string | null
   bot_id?: string | null
   pending_transcript?: string | null
+  skipped_topics?: string[] | null
 }
 
 interface Props {
@@ -79,6 +80,7 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
   const hasConnectedRef = useRef(false)
   const sessionEndedRef = useRef(false)
   const topicRef = useRef<string | null | undefined>(initialState.topic_title)
+  const skippedTopicsRef = useRef<string[]>(initialState.skipped_topics ?? [])
   const reconnectAttemptsRef = useRef(0)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -204,9 +206,13 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
         // Give the LLM its session instructions via context update (no voice response).
         // firstMessage (set via overrides above) handles the spoken greeting.
         const sessionTopic = topicRef.current
+        const skippedTopics = skippedTopicsRef.current
+        const skippedContext = skippedTopics.length > 0
+          ? ` The following subtopics have been marked as skipped by the participant: ${skippedTopics.map((t) => `"${t}"`).join(', ')}. When you reach each skipped topic, briefly say "We're skipping [topic] today" and move immediately to the next one — do not explain or justify the skip.`
+          : ''
         const sessionContext = sessionTopic
-          ? `Pre-planned session context: Topic is "${sessionTopic}" — already confirmed, do NOT ask what they want to cover. Begin coaching immediately after the greeting. Use show_visual before each concept explanation. Ask questions sparingly — at most once per major section, only at natural pauses. Do NOT ask about the caller's role, background, or experience level — that is already known. Your job is to teach and coach, not to interview.`
-          : `Pre-planned session context: A coaching session is in progress with a pre-set agenda. Begin coaching immediately. Do NOT ask what the caller wants to discuss. Ask questions sparingly — at most once per major section.`
+          ? `Pre-planned session context: Topic is "${sessionTopic}" — already confirmed, do NOT ask what they want to cover. Begin coaching immediately after the greeting. Use show_visual before each concept explanation. Ask questions sparingly — at most once per major section, only at natural pauses. Do NOT ask about the caller's role, background, or experience level — that is already known. Your job is to teach and coach, not to interview.${skippedContext}`
+          : `Pre-planned session context: A coaching session is in progress with a pre-set agenda. Begin coaching immediately. Do NOT ask what the caller wants to discuss. Ask questions sparingly — at most once per major section.${skippedContext}`
 
         const reconnectContext = isReconnect
           ? ' The WebSocket connection briefly dropped and reconnected — do not re-introduce yourself, just continue the session naturally.'
@@ -256,6 +262,7 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
         const data = await res.json() as WalkthroughState
         setState(data)
         if (data.topic_title) topicRef.current = data.topic_title
+        if (data.skipped_topics) skippedTopicsRef.current = data.skipped_topics
 
         const conv = conversationRef.current
 

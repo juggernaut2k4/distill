@@ -7,6 +7,7 @@ import { createBot, deleteBot } from '@/lib/recall'
 const CreateBotSchema = z.object({
   meetingUrl: z.string().url(),
   sessionId: z.string().uuid(),
+  skippedTopics: z.array(z.string()).optional().default([]),
 })
 
 const DeleteBotSchema = z.object({
@@ -35,7 +36,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: parsed.error.format() }, { status: 400 })
   }
 
-  const { meetingUrl, sessionId } = parsed.data
+  const { meetingUrl, sessionId, skippedTopics } = parsed.data
 
   // Public URL — no auth required so the Recall.ai headless browser can render it
   const walkthroughUrl = `${process.env.NEXT_PUBLIC_APP_URL}/walkthrough/${userId}`
@@ -56,6 +57,7 @@ export async function POST(request: NextRequest) {
         visual_spec: null,
         topic_title: null,
         topic_id: null,
+        skipped_topics: skippedTopics,
       },
       { onConflict: 'user_id' }
     )

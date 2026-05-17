@@ -10,6 +10,7 @@ export interface SessionPlanSubtopic {
   title: string
   visual_spec: VisualSpec | null
   visual_status: 'pending' | 'ready' | 'failed'
+  skipped?: boolean
 }
 
 export interface SessionPlan {
