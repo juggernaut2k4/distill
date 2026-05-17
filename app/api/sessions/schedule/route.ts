@@ -4,11 +4,14 @@ import { requireAuth } from '@/lib/clerk'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { sendSessionsConfirmedEmail, type User, type SessionSummary } from '@/lib/delivery/email'
 import { sendSMS } from '@/lib/delivery/sms'
+import { inngest } from '@/inngest/client'
 
 const ScheduledSessionSchema = z.object({
   sessionIndex: z.number().int().positive(),
   title: z.string().min(1),
+  topicId: z.string().default(''),
   topics: z.array(z.string()),
+  subtopics: z.array(z.string()).default([]),
   scheduledAt: z.string().datetime(),
   estimatedMinutes: z.number().int().positive().max(120),
 })
@@ -49,6 +52,7 @@ export async function POST(request: NextRequest) {
     user_id: userId!,
     session_index: s.sessionIndex,
     session_title: s.title,
+    topic_id: s.topicId || null,
     topics: s.topics,
     scheduled_at: s.scheduledAt,
     duration_mins: s.estimatedMinutes,
@@ -69,6 +73,27 @@ export async function POST(request: NextRequest) {
   const indexToId = new Map<number, string>(
     (insertedRows ?? []).map((r: { id: string; session_index: number }) => [r.session_index, r.id])
   )
+
+  // Fire Inngest event for each session to pre-generate visual specs in background
+  const planEvents = parsed.data.sessions
+    .filter((s) => s.topicId && s.subtopics.length > 0)
+    .map((s) => ({
+      name: 'distill/session.scheduled' as const,
+      data: {
+        sessionId: indexToId.get(s.sessionIndex) ?? '',
+        topicId: s.topicId,
+        topicTitle: s.title,
+        subtopics: s.subtopics,
+        userId: userId!,
+      },
+    }))
+    .filter((e) => e.data.sessionId)
+
+  if (planEvents.length > 0) {
+    inngest.send(planEvents).catch((err) =>
+      console.error('[schedule] Failed to emit session.scheduled events:', err)
+    )
+  }
 
   // Fire-and-forget confirmation email + SMS
   const { data: userRow } = await supabase

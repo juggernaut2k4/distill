@@ -1,15 +1,16 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useUser } from '@clerk/nextjs'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
 import {
   ArrowLeft, CalendarDays, Clock, Download, Tag, CheckCircle,
-  Circle, XCircle, Loader, Video, StopCircle, ExternalLink,
+  Circle, XCircle, Loader, Video, StopCircle, ExternalLink, Sparkles,
 } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
+import type { SessionPlan } from '@/lib/session-plan'
 
 interface Session {
   id: string
@@ -18,7 +19,9 @@ interface Session {
   scheduled_at: string | null
   status: string
   topics: string[] | null
+  topic_id: string | null
   duration_mins: number
+  session_plan: SessionPlan | null
 }
 
 type BotStatus = 'idle' | 'joining' | 'active' | 'ending'
@@ -73,6 +76,26 @@ export default function SessionDetailClient({ session }: Props) {
   const status = STATUS_CONFIG[session.status] ?? STATUS_CONFIG.scheduled
   const topics = session.topics ?? []
   const { user } = useUser()
+
+  // Session plan state — polls until all visuals are ready
+  const [sessionPlan, setSessionPlan] = useState<SessionPlan | null>(session.session_plan)
+
+  const fetchPlan = useCallback(async () => {
+    const res = await fetch(`/api/sessions/${session.id}/generate-plan`)
+    if (!res.ok) return
+    const data = await res.json() as { session_plan: SessionPlan | null }
+    if (data.session_plan) setSessionPlan(data.session_plan)
+  }, [session.id])
+
+  // Trigger generation if no plan exists; poll until complete
+  useEffect(() => {
+    if (!sessionPlan) {
+      fetch(`/api/sessions/${session.id}/generate-plan`, { method: 'POST' }).catch(() => {})
+    }
+    if (sessionPlan?.plan_status === 'ready') return
+    const interval = setInterval(fetchPlan, 4000)
+    return () => clearInterval(interval)
+  }, [session.id, sessionPlan, fetchPlan])
 
   // Live session state
   const [meetingUrl, setMeetingUrl] = useState('')
@@ -205,6 +228,54 @@ export default function SessionDetailClient({ session }: Props) {
             </div>
           )}
         </Card>
+      </motion.div>
+
+      {/* Session Agenda */}
+      <motion.div
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.15 }}
+      >
+        <div className="flex items-center gap-2 mb-3">
+          <Sparkles size={14} className="text-[#A855F7]" />
+          <h2 className="text-sm font-semibold text-[#94A3B8] uppercase tracking-wider">Session Agenda</h2>
+          {sessionPlan && sessionPlan.plan_status !== 'ready' && (
+            <span className="text-xs text-[#475569] flex items-center gap-1">
+              <Loader size={11} className="animate-spin" />
+              Preparing visuals...
+            </span>
+          )}
+        </div>
+
+        {!sessionPlan ? (
+          <Card className="p-4 flex items-center gap-3">
+            <Loader size={15} className="text-[#7C3AED] animate-spin flex-shrink-0" />
+            <p className="text-sm text-[#475569]">Generating your session agenda and pre-building visuals...</p>
+          </Card>
+        ) : (
+          <div className="space-y-2">
+            {sessionPlan.subtopics.map((sub, i) => (
+              <div
+                key={sub.id}
+                className="flex items-start gap-3 px-4 py-3 rounded-xl bg-[#111111] border border-[#1A1A1A]"
+              >
+                <div className="w-5 h-5 rounded-full bg-purple-950/50 border border-purple-800/40 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <span className="text-[9px] font-bold text-[#A855F7]">{i + 1}</span>
+                </div>
+                <p className="text-sm text-[#94A3B8] flex-1 leading-snug">{sub.title}</p>
+                <div className="flex-shrink-0 mt-0.5">
+                  {sub.visual_status === 'ready' ? (
+                    <CheckCircle size={14} className="text-[#10B981]" />
+                  ) : sub.visual_status === 'failed' ? (
+                    <XCircle size={14} className="text-[#EF4444]" />
+                  ) : (
+                    <Loader size={14} className="text-[#475569] animate-spin" />
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </motion.div>
 
       {/* Actions */}

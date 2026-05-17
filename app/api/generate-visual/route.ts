@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { generateVisualSpec, reviewVisualSpec } from '@/lib/session-ai'
+import { findPreGeneratedVisual, type SessionPlan } from '@/lib/session-plan'
 
 const Body = z.object({
   userId: z.string().min(1),
@@ -27,6 +28,40 @@ export async function POST(request: NextRequest) {
 
   const { userId, topicId, topicTitle } = body
   const supabase = createSupabaseAdminClient()
+
+  // Check if there's a pre-generated visual spec in the session plan — instant render
+  const { data: walkthroughState } = await supabase
+    .from('walkthrough_state')
+    .select('session_id')
+    .eq('user_id', userId)
+    .single()
+
+  if (walkthroughState?.session_id) {
+    const { data: sessionRow } = await supabase
+      .from('sessions')
+      .select('session_plan')
+      .eq('id', walkthroughState.session_id)
+      .single()
+
+    const preGenerated = findPreGeneratedVisual(
+      sessionRow?.session_plan as SessionPlan | null,
+      topicTitle
+    )
+
+    if (preGenerated) {
+      console.log('[generate-visual] Using pre-generated visual for:', topicTitle)
+      await supabase
+        .from('walkthrough_state')
+        .update({
+          status: 'ready',
+          visual_spec: preGenerated,
+          topic_id: preGenerated.topicId,
+          topic_title: preGenerated.title,
+        })
+        .eq('user_id', userId)
+      return NextResponse.json({ ok: true, source: 'pre-generated' })
+    }
+  }
 
   // Mark as generating immediately so the UI shows the loading state
   await supabase

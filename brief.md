@@ -340,4 +340,4 @@ User replies any question → classify as "question" intent
 
 ---
 
-*Brief version: 1.1 | Created: May 2026 | Owner: Arun | App name: Distill | Domain: getdistill.ai*
+*Brief version: 1.1 | Created: May 2026 | Owner: Arun | App name: Distill | Domain: hello-clio.com*

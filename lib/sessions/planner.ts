@@ -10,7 +10,9 @@ export interface SchedulePreferences {
 export interface ScheduledSession {
   sessionIndex: number
   title: string
+  topicId: string           // catalog topic ID e.g. "ai-fundamentals"
   topics: string[]
+  subtopics: string[]       // pre-defined subtopic titles from catalog
   scheduledAt: string       // ISO timestamp
   estimatedMinutes: number
 }
@@ -36,10 +38,13 @@ export function scheduleSessions(
 
     const cappedMinutes = Math.min(session.estimatedMinutes, prefs.maxDurationMins)
 
+    const primaryTopic = session.topics[0]
     scheduled.push({
       sessionIndex: i + 1,
       title: session.title,
+      topicId: primaryTopic?.id ?? '',
       topics: session.topics.map((t) => t.title),
+      subtopics: primaryTopic?.subtopics ?? [],
       scheduledAt: sessionDate.toISOString(),
       estimatedMinutes: cappedMinutes,
     })
