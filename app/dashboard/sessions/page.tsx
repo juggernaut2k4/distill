@@ -17,7 +17,6 @@ export default async function SessionsPage() {
     .single()
 
   if (!user) redirect('/onboarding')
-  if (!user.plan_approved) redirect('/dashboard/plan')
 
   const { data: sessions } = await supabase
     .from('sessions')
