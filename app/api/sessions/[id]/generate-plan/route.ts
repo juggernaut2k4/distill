@@ -177,13 +177,41 @@ function findSubtopicsFromCatalog(topicId: string, sessionTitle: string): string
   // Direct lookup by topicId first
   if (topicId && catalogSubtopics[topicId]) return catalogSubtopics[topicId]
 
-  // Fuzzy match by session title
+  // Keyword-based title matching — maps significant words to catalog keys
+  const titleKeywordMap: Array<{ keywords: string[]; key: string }> = [
+    { keywords: ['large language model', 'llm', 'language model'], key: 'llm-basics' },
+    { keywords: ['machine learning', 'ml basics', 'supervised', 'unsupervised'], key: 'ml-basics' },
+    { keywords: ['generative ai', 'gen ai', 'foundation model', 'gpt', 'claude', 'gemini'], key: 'ai-fundamentals' },
+    { keywords: ['ai strategy', 'ai roadmap', 'ai ambition', 'ai posture'], key: 'ai-strategy-intro' },
+    { keywords: ['ai culture', 'ai mindset', 'psychological safety', 'ai champion'], key: 'ai-culture' },
+    { keywords: ['ai roi', 'return on investment', 'ai value', 'ai kpi'], key: 'ai-roi' },
+    { keywords: ['vendor eval', 'vendor assessment', 'ai vendor', 'build vs buy', 'procurement'], key: 'ai-vendor-eval' },
+    { keywords: ['ai governance', 'ai oversight', 'accountability', 'ai committee'], key: 'ai-governance' },
+    { keywords: ['data strategy', 'data readiness', 'data lake', 'data warehouse', 'data governance'], key: 'data-strategy' },
+    { keywords: ['ai operations', 'ai ops', 'operational ai', 'supply chain ai', 'process ai'], key: 'ai-ops' },
+    { keywords: ['customer experience', 'ai cx', 'personalization', 'ai chatbot', 'customer service ai'], key: 'ai-cx' },
+    { keywords: ['process automation', 'rpa', 'intelligent automation', 'workflow automation'], key: 'process-automation' },
+    { keywords: ['upskilling', 'ai training', 'ai literacy', 'ai learning', 'workforce ai'], key: 'upskilling' },
+    { keywords: ['change management', 'change mgmt', 'ai adoption', 'digital transformation', 'ai resistance'], key: 'change-mgmt' },
+    { keywords: ['ai security', 'prompt injection', 'data poisoning', 'model theft', 'ai risk'], key: 'ai-security' },
+    { keywords: ['competitive', 'competitive intelligence', 'market disruption', 'first mover', 'fast follower'], key: 'ai-competitive' },
+    { keywords: ['ai product', 'product management', 'intelligence roadmap', 'ai product ethics'], key: 'ai-product' },
+    { keywords: ['ai teams', 'ai talent', 'center of excellence', 'ai recruit', 'interdisciplinary'], key: 'ai-teams' },
+    { keywords: ['ai finance', 'financial forecasting', 'fraud detection', 'cfo', 'finance ai'], key: 'ai-finance' },
+    { keywords: ['ai ethics', 'bias', 'fairness', 'transparency', 'responsible ai'], key: 'ai-ethics' },
+    { keywords: ['ai regulation', 'eu ai act', 'regulatory', 'compliance ai', 'ai policy'], key: 'ai-regulation' },
+    { keywords: ['ai trends', 'future of ai', 'agentic ai', 'multi-modal', 'multimodal', 'ai 2025', 'ai 2026'], key: 'ai-trends' },
+  ]
+
   const titleLower = sessionTitle.toLowerCase()
-  const fallbackKey = Object.keys(catalogSubtopics).find((key) =>
-    titleLower.includes(key.replace(/-/g, ' ')) ||
-    key.replace(/-/g, ' ').includes(titleLower.split(' ').slice(0, 3).join(' '))
-  )
-  return fallbackKey ? catalogSubtopics[fallbackKey] : []
+  for (const { keywords, key } of titleKeywordMap) {
+    if (keywords.some((kw) => titleLower.includes(kw)) && catalogSubtopics[key]) {
+      return catalogSubtopics[key]
+    }
+  }
+
+  // Last-resort: return ai-fundamentals as a sensible default rather than failing
+  return catalogSubtopics['ai-fundamentals']
 }
 
 /**
@@ -222,55 +250,67 @@ export async function POST(_request: NextRequest, { params }: Params) {
   const topicId = session.topic_id ?? ''
   const topicTitle = session.session_title ?? ''
   const subtopics = findSubtopicsFromCatalog(topicId, topicTitle)
-
-  if (subtopics.length === 0) {
-    return NextResponse.json({ error: 'No subtopics found for this session' }, { status: 422 })
-  }
-
   const userProfile = userRow ?? {}
 
-  // Write generating state immediately
+  // Write generating state immediately so UI shows progress
   const initialPlan = buildInitialPlan(topicId, topicTitle, subtopics)
   await supabase
     .from('sessions')
     .update({ session_plan: initialPlan })
     .eq('id', params.id)
 
-  // Generate first subtopic visual (enables launch button as soon as this completes)
-  const subtopicsAfterFirst = await generateFirstSubtopicVisual(subtopics, userProfile)
+  try {
+    // Generate first subtopic visual (enables launch button as soon as this completes)
+    const subtopicsAfterFirst = await generateFirstSubtopicVisual(subtopics, userProfile)
 
-  const partialPlan: SessionPlan = {
-    topic_id: topicId,
-    topic_title: topicTitle,
-    subtopics: subtopicsAfterFirst,
-    plan_status: 'partial',
-    generated_at: new Date().toISOString(),
+    const partialPlan: SessionPlan = {
+      topic_id: topicId,
+      topic_title: topicTitle,
+      subtopics: subtopicsAfterFirst,
+      plan_status: 'partial',
+      generated_at: new Date().toISOString(),
+    }
+
+    // Persist partial plan — launch button becomes enabled from here
+    await supabase
+      .from('sessions')
+      .update({ session_plan: partialPlan })
+      .eq('id', params.id)
+
+    // Generate remaining subtopics in parallel (within maxDuration window)
+    const allSubtopics = await generateRemainingSubtopicVisuals(subtopicsAfterFirst, userProfile)
+    const allReady = allSubtopics.every((s) => s.visual_status === 'ready')
+
+    const completePlan: SessionPlan = {
+      topic_id: topicId,
+      topic_title: topicTitle,
+      subtopics: allSubtopics,
+      plan_status: allReady ? 'ready' : 'partial',
+      generated_at: new Date().toISOString(),
+    }
+
+    await supabase
+      .from('sessions')
+      .update({ session_plan: completePlan })
+      .eq('id', params.id)
+
+    return NextResponse.json({ ok: true, status: completePlan.plan_status })
+  } catch (err) {
+    console.error('[generate-plan] Visual generation failed:', err)
+    // Write failed status so UI stops spinning and shows retry option
+    const failedPlan: SessionPlan = {
+      topic_id: topicId,
+      topic_title: topicTitle,
+      subtopics: initialPlan.subtopics.map((s) => ({ ...s, visual_status: 'failed' as const })),
+      plan_status: 'failed',
+      generated_at: new Date().toISOString(),
+    }
+    await supabase
+      .from('sessions')
+      .update({ session_plan: failedPlan })
+      .eq('id', params.id)
+    return NextResponse.json({ error: 'Visual generation failed' }, { status: 500 })
   }
-
-  // Persist partial plan — launch button becomes enabled from here
-  await supabase
-    .from('sessions')
-    .update({ session_plan: partialPlan })
-    .eq('id', params.id)
-
-  // Generate remaining subtopics in parallel (within maxDuration window)
-  const allSubtopics = await generateRemainingSubtopicVisuals(subtopicsAfterFirst, userProfile)
-  const allReady = allSubtopics.every((s) => s.visual_status === 'ready')
-
-  const completePlan: SessionPlan = {
-    topic_id: topicId,
-    topic_title: topicTitle,
-    subtopics: allSubtopics,
-    plan_status: allReady ? 'ready' : 'partial',
-    generated_at: new Date().toISOString(),
-  }
-
-  await supabase
-    .from('sessions')
-    .update({ session_plan: completePlan })
-    .eq('id', params.id)
-
-  return NextResponse.json({ ok: true, status: completePlan.plan_status })
 }
 
 /**

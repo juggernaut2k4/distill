@@ -87,15 +87,19 @@ export default function SessionDetailClient({ session }: Props) {
     if (data.session_plan) setSessionPlan(data.session_plan)
   }, [session.id])
 
-  // Trigger generation if no plan exists; poll until complete
+  const triggerGeneration = useCallback(() => {
+    fetch(`/api/sessions/${session.id}/generate-plan`, { method: 'POST' }).catch(() => {})
+  }, [session.id])
+
+  // Trigger generation if no plan exists; poll until complete or failed
   useEffect(() => {
     if (!sessionPlan) {
-      fetch(`/api/sessions/${session.id}/generate-plan`, { method: 'POST' }).catch(() => {})
+      triggerGeneration()
     }
-    if (sessionPlan?.plan_status === 'ready') return
+    if (sessionPlan?.plan_status === 'ready' || sessionPlan?.plan_status === 'failed') return
     const interval = setInterval(fetchPlan, 4000)
     return () => clearInterval(interval)
-  }, [session.id, sessionPlan, fetchPlan])
+  }, [session.id, sessionPlan, fetchPlan, triggerGeneration])
 
   // Live session state
   const [meetingUrl, setMeetingUrl] = useState('')
@@ -239,18 +243,42 @@ export default function SessionDetailClient({ session }: Props) {
         <div className="flex items-center gap-2 mb-3">
           <Sparkles size={14} className="text-[#A855F7]" />
           <h2 className="text-sm font-semibold text-[#94A3B8] uppercase tracking-wider">Session Agenda</h2>
-          {sessionPlan && sessionPlan.plan_status !== 'ready' && (
+          {sessionPlan && sessionPlan.plan_status === 'generating' && (
             <span className="text-xs text-[#475569] flex items-center gap-1">
               <Loader size={11} className="animate-spin" />
               Preparing visuals...
             </span>
           )}
+          {sessionPlan && sessionPlan.plan_status === 'partial' && (
+            <span className="text-xs text-[#06B6D4] flex items-center gap-1">
+              <Loader size={11} className="animate-spin" />
+              Building remaining visuals...
+            </span>
+          )}
         </div>
 
-        {!sessionPlan ? (
+        {!sessionPlan || sessionPlan.plan_status === 'generating' ? (
           <Card className="p-4 flex items-center gap-3">
             <Loader size={15} className="text-[#7C3AED] animate-spin flex-shrink-0" />
             <p className="text-sm text-[#475569]">Generating your session agenda and pre-building visuals...</p>
+          </Card>
+        ) : sessionPlan.plan_status === 'failed' ? (
+          <Card className="p-4 space-y-3">
+            <div className="flex items-center gap-3">
+              <XCircle size={16} className="text-[#EF4444] flex-shrink-0" />
+              <p className="text-sm text-[#94A3B8]">Visual generation failed. Click retry to try again.</p>
+            </div>
+            <Button
+              variant="secondary"
+              className="gap-2"
+              onClick={() => {
+                setSessionPlan(null)
+                triggerGeneration()
+              }}
+            >
+              <Loader size={14} />
+              Retry
+            </Button>
           </Card>
         ) : (
           <div className="space-y-2">
@@ -303,6 +331,7 @@ export default function SessionDetailClient({ session }: Props) {
       {/* ── LIVE SESSION LAUNCHER ── */}
       {session.status !== 'cancelled' && (() => {
         const planReady = sessionPlan?.plan_status === 'partial' || sessionPlan?.plan_status === 'ready'
+        const planFailed = sessionPlan?.plan_status === 'failed'
         return (
         <motion.div
           initial={{ opacity: 0, y: 16 }}
@@ -326,7 +355,14 @@ export default function SessionDetailClient({ session }: Props) {
 
               {botStatus === 'idle' && (
                 <div className="space-y-3">
-                  {!planReady ? (
+                  {planFailed ? (
+                    <div className="flex items-center gap-2.5 py-2 px-3 rounded-lg bg-red-950/20 border border-red-800/20">
+                      <XCircle size={13} className="text-[#EF4444] flex-shrink-0" />
+                      <p className="text-xs text-[#EF4444]">
+                        Visual preparation failed — retry from the agenda above before launching
+                      </p>
+                    </div>
+                  ) : !planReady ? (
                     <div className="flex items-center gap-2.5 py-2 px-3 rounded-lg bg-amber-950/20 border border-amber-800/20">
                       <Loader size={13} className="text-[#F59E0B] animate-spin flex-shrink-0" />
                       <p className="text-xs text-[#F59E0B]">

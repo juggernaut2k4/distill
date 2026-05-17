@@ -16,7 +16,7 @@ export interface SessionPlan {
   topic_id: string
   topic_title: string
   subtopics: SessionPlanSubtopic[]
-  plan_status: 'generating' | 'partial' | 'ready'
+  plan_status: 'generating' | 'partial' | 'ready' | 'failed'
   generated_at: string
 }
 
