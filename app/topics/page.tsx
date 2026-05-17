@@ -64,8 +64,6 @@ const TOPIC_GROUPS = [
   },
 ]
 
-const MAX_TOPICS = 5
-
 export default function TopicsPage() {
   const router = useRouter()
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -76,7 +74,7 @@ export default function TopicsPage() {
       const next = new Set(prev)
       if (next.has(topic)) {
         next.delete(topic)
-      } else if (next.size < MAX_TOPICS) {
+      } else {
         next.add(topic)
       }
       return next
@@ -132,7 +130,7 @@ export default function TopicsPage() {
             What topics matter most to you?
           </h1>
           <p className="text-[#94A3B8] text-lg">
-            Pick up to {MAX_TOPICS} topics. Clio will build your curriculum around them.
+            Select any topics that interest you. Clio will build your curriculum around them.
           </p>
         </motion.div>
 
@@ -146,7 +144,7 @@ export default function TopicsPage() {
               className="mb-6 flex items-center justify-between px-4 py-3 rounded-xl bg-[#111111] border border-[#222222]"
             >
               <span className="text-sm text-[#94A3B8]">
-                <span className="text-white font-bold">{selected.size}</span> of {MAX_TOPICS} selected
+                <span className="text-white font-bold">{selected.size}</span> topic{selected.size !== 1 ? 's' : ''} selected
               </span>
               <div className="flex gap-1">
                 {Array.from(selected).slice(0, 3).map((t) => (
@@ -188,21 +186,17 @@ export default function TopicsPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {group.topics.map((topic) => {
                   const isSelected = selected.has(topic)
-                  const isDisabled = !isSelected && selected.size >= MAX_TOPICS
 
                   return (
                     <motion.button
                       key={topic}
                       onClick={() => toggleTopic(topic)}
-                      disabled={isDisabled}
-                      whileTap={{ scale: isDisabled ? 1 : 0.97 }}
+                      whileTap={{ scale: 0.97 }}
                       className={`
                         relative flex items-center gap-3 px-4 py-3 rounded-xl border text-left text-sm font-medium transition-all duration-200
                         ${isSelected
                           ? 'bg-purple-950/40 border-[#7C3AED] text-white shadow-sm shadow-purple-900/30'
-                          : isDisabled
-                            ? 'bg-[#0D0D0D] border-[#1A1A1A] text-[#333] cursor-not-allowed'
-                            : 'bg-[#111111] border-[#222222] text-[#94A3B8] hover:border-[#333] hover:text-white hover:bg-[#1A1A1A]'
+                          : 'bg-[#111111] border-[#222222] text-[#94A3B8] hover:border-[#333] hover:text-white hover:bg-[#1A1A1A]'
                         }
                       `}
                     >

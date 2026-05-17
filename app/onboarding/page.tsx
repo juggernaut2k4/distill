@@ -85,6 +85,8 @@ function OnboardingContent() {
   const searchParams = useSearchParams()
   const [step, setStep] = useState(0)
   const [answers, setAnswers] = useState<Record<string, string>>({})
+  const [selectedLabels, setSelectedLabels] = useState<Record<string, string>>({})
+  const [otherTexts, setOtherTexts] = useState<Record<string, string>>({})
   const [direction, setDirection] = useState<'right' | 'left'>('right')
   const [building, setBuilding] = useState(false)
 
@@ -95,10 +97,31 @@ function OnboardingContent() {
   }, [searchParams])
 
   const current = QUESTIONS[step]
-  const selectedOption = answers[current?.id] ?? null
+  const selectedLabel = selectedLabels[current?.id] ?? null
+  const currentOtherText = otherTexts[current?.id] ?? ''
+  const isOtherSelected = selectedLabel === 'Other'
+  const hasOtherInOptions = current?.options.includes('Other') ?? false
+
+  // The actual answer value: typed text if "Other" selected, otherwise the label
+  const currentAnswer = answers[current?.id] ?? null
+  const canProceed = isOtherSelected
+    ? currentOtherText.trim().length > 0
+    : currentAnswer !== null && currentAnswer !== ''
 
   function handleSelect(option: string) {
-    setAnswers((prev) => ({ ...prev, [current.id]: option }))
+    setSelectedLabels((prev) => ({ ...prev, [current.id]: option }))
+    if (option !== 'Other') {
+      setAnswers((prev) => ({ ...prev, [current.id]: option }))
+    } else {
+      // Keep previous "Other" typed text if re-selecting "Other"
+      const existingText = otherTexts[current.id] ?? ''
+      setAnswers((prev) => ({ ...prev, [current.id]: existingText || '' }))
+    }
+  }
+
+  function handleOtherTextChange(text: string) {
+    setOtherTexts((prev) => ({ ...prev, [current.id]: text }))
+    setAnswers((prev) => ({ ...prev, [current.id]: text }))
   }
 
   function handleBack() {
@@ -108,7 +131,7 @@ function OnboardingContent() {
   }
 
   function handleNext() {
-    if (!selectedOption) return
+    if (!canProceed) return
 
     if (step < QUESTIONS.length - 1) {
       setDirection('right')
@@ -153,15 +176,38 @@ function OnboardingContent() {
             key={step}
             question={current.question}
             options={current.options}
-            selectedOption={selectedOption}
+            selectedOption={selectedLabel}
             onSelect={handleSelect}
             direction={direction}
           />
         </AnimatePresence>
 
+        {/* "Other" text input — appears below options when "Other" is selected */}
+        <AnimatePresence>
+          {isOtherSelected && hasOtherInOptions && (
+            <motion.div
+              key={`other-input-${step}`}
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.2 }}
+              className="w-full max-w-sm mt-3"
+            >
+              <input
+                type="text"
+                autoFocus
+                placeholder="Type your answer..."
+                value={currentOtherText}
+                onChange={(e) => handleOtherTextChange(e.target.value)}
+                className="w-full bg-[#111111] border border-[#7C3AED] text-white rounded-xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#A855F7] placeholder-[#475569] transition-colors"
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <motion.div
           initial={{ opacity: 0 }}
-          animate={{ opacity: selectedOption ? 1 : 0 }}
+          animate={{ opacity: canProceed ? 1 : 0 }}
           transition={{ duration: 0.3 }}
           className="mt-8 w-full max-w-sm flex items-center gap-3"
         >
@@ -176,7 +222,7 @@ function OnboardingContent() {
           )}
           <Button
             onClick={handleNext}
-            disabled={!selectedOption}
+            disabled={!canProceed}
             size="lg"
             className="flex-1 gap-2"
           >

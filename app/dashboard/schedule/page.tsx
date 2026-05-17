@@ -4,7 +4,11 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
 import ScheduleClient from './ScheduleClient'
 import DashboardShell from '@/components/dashboard/DashboardShell'
 
-export default async function SchedulePage() {
+export default async function SchedulePage({
+  searchParams,
+}: {
+  searchParams?: { topup?: string; added?: string }
+}) {
   const { userId } = auth()
   if (!userId) redirect('/sign-in')
 
@@ -26,11 +30,14 @@ export default async function SchedulePage() {
     .eq('user_id', userId)
     .order('scheduled_at', { ascending: true })
 
+  const topupAdded = searchParams?.topup === 'success' ? (searchParams?.added ?? null) : null
+
   return (
     <DashboardShell user={user} activeNav="/dashboard/schedule">
       <ScheduleClient
         user={user}
         existingSessions={sessions ?? []}
+        topupAdded={topupAdded}
       />
     </DashboardShell>
   )

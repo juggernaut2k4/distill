@@ -41,7 +41,19 @@ export async function POST(request: NextRequest) {
 
   if (!stripe) {
     console.log('[MOCK] topup checkout', { userId, minutes, unitAmount })
-    return NextResponse.json({ checkoutUrl: `${appUrl}/dashboard/schedule?topup=mock` })
+    // In mock mode, credit the minutes directly so the flow works end-to-end
+    const supabaseMock = createSupabaseAdminClient()
+    const { data: currentUser } = await supabaseMock
+      .from('users')
+      .select('minutes_balance')
+      .eq('id', userId!)
+      .single()
+    const newBalance = (currentUser?.minutes_balance ?? 0) + minutes
+    await supabaseMock
+      .from('users')
+      .update({ minutes_balance: newBalance })
+      .eq('id', userId!)
+    return NextResponse.json({ checkoutUrl: `${appUrl}/dashboard/schedule?topup=success&added=${minutes}` })
   }
 
   const supabase = createSupabaseAdminClient()

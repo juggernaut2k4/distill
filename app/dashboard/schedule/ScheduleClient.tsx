@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useRouter } from 'next/navigation'
 import {
-  CalendarDays, Clock, CheckCircle, AlertTriangle, ArrowRight, Zap, Download,
+  CalendarDays, Clock, CheckCircle, AlertTriangle, ArrowRight, Zap, Download, FlaskConical,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
@@ -33,6 +33,7 @@ interface ExistingSession {
 interface ScheduleClientProps {
   user: User
   existingSessions: ExistingSession[]
+  topupAdded?: string | null
 }
 
 const FREQUENCY_OPTIONS = [
@@ -61,9 +62,19 @@ function formatDateTime(iso: string): string {
   }) + ' · ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase()
 }
 
-export default function ScheduleClient({ user, existingSessions }: ScheduleClientProps) {
+export default function ScheduleClient({ user, existingSessions, topupAdded }: ScheduleClientProps) {
   const router = useRouter()
   const hasExisting = existingSessions.length > 0
+
+  const [topupBanner, setTopupBanner] = useState<string | null>(
+    topupAdded ? `${topupAdded} minutes added to your account. You can now confirm your schedule.` : null
+  )
+
+  useEffect(() => {
+    if (topupAdded) {
+      setTopupBanner(`${topupAdded} minutes added to your account. You can now confirm your schedule.`)
+    }
+  }, [topupAdded])
 
   // Get tomorrow as default start date
   const tomorrow = new Date()
@@ -98,12 +109,34 @@ export default function ScheduleClient({ user, existingSessions }: ScheduleClien
   const { sufficient, deficit, recommendedPack } = checkMinutesSufficiency(totalNeeded, balance)
 
   async function handleConfirm() {
+    if (!sufficient) {
+      setTopUpOpen(true)
+      return
+    }
     setSaving(true)
     try {
       await fetch('/api/sessions/schedule', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessions: scheduledSessions }),
+      })
+      setConfirmed(true)
+    } catch {
+      setSaving(false)
+    }
+  }
+
+  async function handleQuickTest() {
+    setSaving(true)
+    try {
+      const nowPlus2 = new Date(Date.now() + 2 * 60 * 1000).toISOString()
+      const firstSession = scheduledSessions[0]
+      if (!firstSession) { setSaving(false); return }
+      const testSession = { ...firstSession, scheduledAt: nowPlus2, sessionIndex: 1 }
+      await fetch('/api/sessions/schedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessions: [testSession] }),
       })
       setConfirmed(true)
     } catch {
@@ -222,6 +255,22 @@ export default function ScheduleClient({ user, existingSessions }: ScheduleClien
   // Scheduling form
   return (
     <div className="max-w-2xl space-y-8">
+      {/* Top-up success banner */}
+      <AnimatePresence>
+        {topupBanner && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="flex items-center gap-3 p-4 rounded-xl bg-green-950/20 border border-green-800/30"
+          >
+            <CheckCircle size={16} className="text-[#10B981] flex-shrink-0" />
+            <p className="text-sm text-[#10B981]">{topupBanner}</p>
+            <button onClick={() => setTopupBanner(null)} className="ml-auto text-[#475569] hover:text-white text-xs">✕</button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Header */}
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
         <div className="flex items-center gap-2 mb-2">
@@ -387,28 +436,45 @@ export default function ScheduleClient({ user, existingSessions }: ScheduleClien
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.3 }}
-        className="flex items-center gap-4"
+        className="space-y-3"
       >
-        <Button
-          onClick={handleConfirm}
-          disabled={saving}
-          size="lg"
-          className="gap-2"
-        >
-          {saving ? (
-            'Saving...'
-          ) : (
-            <>
-              Confirm Schedule
-              <ArrowRight size={18} />
-            </>
+        <div className="flex items-center gap-4 flex-wrap">
+          <Button
+            onClick={handleConfirm}
+            disabled={saving}
+            size="lg"
+            className="gap-2"
+          >
+            {saving ? (
+              'Saving...'
+            ) : !sufficient ? (
+              <>
+                Top up to schedule
+                <Zap size={18} />
+              </>
+            ) : (
+              <>
+                Confirm Schedule
+                <ArrowRight size={18} />
+              </>
+            )}
+          </Button>
+          {sufficient && (
+            <p className="text-xs text-[#475569]">
+              Uses {totalNeeded} of your {balance} available minutes
+            </p>
           )}
-        </Button>
-        {sufficient && (
-          <p className="text-xs text-[#475569]">
-            Uses {totalNeeded} of your {balance} available minutes
-          </p>
-        )}
+        </div>
+
+        {/* Quick test option */}
+        <button
+          onClick={handleQuickTest}
+          disabled={saving}
+          className="flex items-center gap-1.5 text-xs text-[#475569] hover:text-[#94A3B8] transition-colors"
+        >
+          <FlaskConical size={12} />
+          Quick test: schedule first session in 2 minutes
+        </button>
       </motion.div>
 
       <TopUpModal

@@ -25,7 +25,7 @@ export function scheduleSessions(
   prefs: SchedulePreferences
 ): ScheduledSession[] {
   const scheduled: ScheduledSession[] = []
-  const startDate = new Date(prefs.firstSessionDate)
+  const startDate = new Date(`${prefs.firstSessionDate}T00:00:00`)
 
   for (let i = 0; i < plan.sessions.length; i++) {
     const session: CurriculumSession = plan.sessions[i]
