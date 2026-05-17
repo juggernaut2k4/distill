@@ -144,7 +144,7 @@ export default function SettingsClient({ email, planTier, subscriptionStatus, ha
           <Card className="p-4">
             <p className="text-sm text-[#475569]">
               {planTier === 'free'
-                ? 'You're on the free plan — no subscription to cancel.'
+                ? "You're on the free plan — no subscription to cancel."
                 : 'No active subscription found.'}
             </p>
           </Card>
