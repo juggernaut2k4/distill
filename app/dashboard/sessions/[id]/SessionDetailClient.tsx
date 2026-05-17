@@ -301,7 +301,9 @@ export default function SessionDetailClient({ session }: Props) {
       </motion.div>
 
       {/* ── LIVE SESSION LAUNCHER ── */}
-      {session.status !== 'cancelled' && (
+      {session.status !== 'cancelled' && (() => {
+        const planReady = sessionPlan?.plan_status === 'partial' || sessionPlan?.plan_status === 'ready'
+        return (
         <motion.div
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
@@ -324,29 +326,40 @@ export default function SessionDetailClient({ session }: Props) {
 
               {botStatus === 'idle' && (
                 <div className="space-y-3">
-                  <div>
-                    <label className="block text-xs text-[#475569] mb-1.5">
-                      Meeting URL
-                    </label>
-                    <input
-                      type="url"
-                      placeholder="https://zoom.us/j/... or https://teams.microsoft.com/..."
-                      value={meetingUrl}
-                      onChange={(e) => setMeetingUrl(e.target.value)}
-                      className="w-full bg-[#0D0D0D] border border-[#222222] rounded-lg px-3 py-2.5 text-sm text-white placeholder-[#475569] focus:outline-none focus:border-[#7C3AED] transition-colors"
-                    />
-                  </div>
-                  {botError && (
-                    <p className="text-xs text-red-400">{botError}</p>
+                  {!planReady ? (
+                    <div className="flex items-center gap-2.5 py-2 px-3 rounded-lg bg-amber-950/20 border border-amber-800/20">
+                      <Loader size={13} className="text-[#F59E0B] animate-spin flex-shrink-0" />
+                      <p className="text-xs text-[#F59E0B]">
+                        Preparing visuals — you can join as soon as the first diagram is ready
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <div>
+                        <label className="block text-xs text-[#475569] mb-1.5">
+                          Meeting URL
+                        </label>
+                        <input
+                          type="url"
+                          placeholder="https://zoom.us/j/... or https://teams.microsoft.com/..."
+                          value={meetingUrl}
+                          onChange={(e) => setMeetingUrl(e.target.value)}
+                          className="w-full bg-[#0D0D0D] border border-[#222222] rounded-lg px-3 py-2.5 text-sm text-white placeholder-[#475569] focus:outline-none focus:border-[#7C3AED] transition-colors"
+                        />
+                      </div>
+                      {botError && (
+                        <p className="text-xs text-red-400">{botError}</p>
+                      )}
+                      <Button
+                        variant="primary"
+                        className="w-full gap-2"
+                        onClick={handleLaunchBot}
+                      >
+                        <Video size={15} />
+                        Launch AI Coach
+                      </Button>
+                    </>
                   )}
-                  <Button
-                    variant="primary"
-                    className="w-full gap-2"
-                    onClick={handleLaunchBot}
-                  >
-                    <Video size={15} />
-                    Launch AI Coach
-                  </Button>
                 </div>
               )}
 
@@ -403,7 +416,8 @@ export default function SessionDetailClient({ session }: Props) {
             </div>
           </Card>
         </motion.div>
-      )}
+        )
+      })()}
     </div>
   )
 }
