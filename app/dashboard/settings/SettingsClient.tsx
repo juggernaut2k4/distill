@@ -102,7 +102,7 @@ export default function SettingsClient({ email, planTier, subscriptionStatus, ha
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-semibold text-white">Sign out</p>
-              <p className="text-xs text-[#475569] mt-0.5">You'll be returned to the home page</p>
+              <p className="text-xs text-[#475569] mt-0.5">You&apos;ll be returned to the home page</p>
             </div>
             <Button variant="secondary" className="gap-2" onClick={handleSignOut}>
               <LogOut size={14} />
@@ -123,7 +123,7 @@ export default function SettingsClient({ email, planTier, subscriptionStatus, ha
               <div>
                 <p className="text-sm font-semibold text-white">Subscription cancelled</p>
                 <p className="text-xs text-[#475569] mt-1">
-                  You'll keep full access until your current billing period ends. No further charges will be made.
+                  You&apos;ll keep full access until your current billing period ends. No further charges will be made.
                 </p>
               </div>
             </div>
@@ -154,7 +154,7 @@ export default function SettingsClient({ email, planTier, subscriptionStatus, ha
               <div>
                 <p className="text-sm font-semibold text-white">Cancel subscription</p>
                 <p className="text-xs text-[#475569] mt-0.5">
-                  You'll keep access until the end of your billing period
+                  You&apos;ll keep access until the end of your billing period
                 </p>
               </div>
               <Button variant="danger" className="gap-2" onClick={() => setCancelState('confirm')}>
@@ -171,7 +171,7 @@ export default function SettingsClient({ email, planTier, subscriptionStatus, ha
                 <p className="text-sm font-semibold text-white">Are you sure?</p>
                 <p className="text-xs text-[#475569] mt-1">
                   Your subscription will be cancelled and Stripe will stop all future charges.
-                  You'll keep full access until your current billing period ends.
+                  You&apos;ll keep full access until your current billing period ends.
                 </p>
                 {cancelError && (
                   <p className="text-xs text-red-400 mt-2">{cancelError}</p>
