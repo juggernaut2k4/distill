@@ -7,7 +7,7 @@ import Link from 'next/link'
 import {
   ArrowLeft, CalendarDays, Clock, Download, Tag, CheckCircle,
   Circle, XCircle, Loader, Video, StopCircle, ExternalLink, Sparkles, EyeOff, Eye,
-  MessageSquare, BookmarkPlus,
+  MessageSquare, BookmarkPlus, Copy,
 } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -29,6 +29,7 @@ interface Session {
   duration_mins: number
   session_plan: SessionPlan | null
   deferred_questions: DeferredQuestion[] | null
+  meeting_url: string | null
 }
 
 type BotStatus = 'idle' | 'joining' | 'active' | 'ending'
@@ -108,8 +109,8 @@ export default function SessionDetailClient({ session }: Props) {
     return () => clearInterval(interval)
   }, [session.id, sessionPlan, fetchPlan, triggerGeneration])
 
-  // Live session state
-  const [meetingUrl, setMeetingUrl] = useState('')
+  // Live session state — pre-fill from auto-generated Meet link if available
+  const [meetingUrl, setMeetingUrl] = useState(session.meeting_url ?? '')
   const [botStatus, setBotStatus] = useState<BotStatus>('idle')
   const [botId, setBotId] = useState<string | null>(null)
   const [botError, setBotError] = useState<string | null>(null)
@@ -219,6 +220,45 @@ export default function SessionDetailClient({ session }: Props) {
               <p className="text-sm font-semibold text-white">~{session.duration_mins} minutes</p>
             </div>
           </div>
+
+          {/* Google Meet link */}
+          {session.meeting_url ? (
+            <div className="flex items-center gap-3 p-4">
+              <Video size={16} className="text-[#10B981] flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-[#475569] mb-0.5">Google Meet</p>
+                <p className="text-sm font-mono text-[#10B981] truncate">{session.meeting_url}</p>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  onClick={() => navigator.clipboard.writeText(session.meeting_url!)}
+                  title="Copy link"
+                  className="text-[#475569] hover:text-[#94A3B8] transition-colors"
+                >
+                  <Copy size={14} />
+                </button>
+                <a
+                  href={session.meeting_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[#475569] hover:text-[#94A3B8] transition-colors"
+                  title="Open Meet"
+                >
+                  <ExternalLink size={14} />
+                </a>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-3 p-4">
+              <Video size={16} className="text-[#475569] flex-shrink-0" />
+              <div>
+                <p className="text-xs text-[#475569] mb-0.5">Google Meet</p>
+                <p className="text-sm text-[#475569] flex items-center gap-1.5">
+                  <Loader size={11} className="animate-spin" /> Creating meeting link...
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Topics */}
           {topics.length > 0 && (

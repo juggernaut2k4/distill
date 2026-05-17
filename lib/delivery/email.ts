@@ -643,3 +643,123 @@ function buildSessionReminderEmailHtml(session: SessionSummary, appUrl: string):
 </body>
 </html>`
 }
+
+// ─── Session Agenda Email ─────────────────────────────────────────────────────
+
+export interface AgendaEmailSubtopic {
+  title: string
+  skipped?: boolean
+}
+
+export async function sendSessionAgendaEmail(
+  user: User,
+  session: SessionSummary,
+  subtopics: AgendaEmailSubtopic[],
+  meetUrl: string
+): Promise<EmailResult> {
+  if (isPlaceholder || !resend) {
+    console.log('[MOCK] sendSessionAgendaEmail', { userId: user.id, sessionIndex: session.sessionIndex, meetUrl })
+    return { success: true, messageId: 'mock-agenda-email-id' }
+  }
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
+  const sessionDate = new Date(session.scheduledAt)
+  const timeString = sessionDate.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  })
+  const dateString = sessionDate.toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  })
+
+  try {
+    const result = await resend.emails.send({
+      from: FROM,
+      to: user.email,
+      subject: `Starting in 30 min: ${session.title} · ${timeString}`,
+      html: buildAgendaEmailHtml(session, subtopics, meetUrl, dateString, timeString, appUrl),
+      text: [
+        `Your session starts in 30 minutes.`,
+        ``,
+        `Topic: ${session.title}`,
+        `Date: ${dateString} at ${timeString}`,
+        `Duration: ~${session.estimatedMinutes} minutes`,
+        ``,
+        `Join Google Meet: ${meetUrl}`,
+        ``,
+        `Agenda:`,
+        ...subtopics.filter((s) => !s.skipped).map((s, i) => `  ${i + 1}. ${s.title}`),
+        ``,
+        `View session: ${appUrl}/dashboard/sessions/${session.id}`,
+      ].join('\n'),
+    })
+
+    if (result.error) {
+      return { success: false, error: result.error.message }
+    }
+    return { success: true, messageId: result.data?.id }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    return { success: false, error: message }
+  }
+}
+
+function buildAgendaEmailHtml(
+  session: SessionSummary,
+  subtopics: AgendaEmailSubtopic[],
+  meetUrl: string,
+  dateString: string,
+  timeString: string,
+  appUrl: string
+): string {
+  const activeSubtopics = subtopics.filter((s) => !s.skipped)
+  const agendaRows = activeSubtopics.map((s, i) => `
+    <tr>
+      <td style="padding:10px 0;border-bottom:1px solid #1A1A1A;vertical-align:top;">
+        <span style="display:inline-block;width:22px;height:22px;border-radius:50%;background:#1A1A1A;border:1px solid #7C3AED;color:#A855F7;font-size:10px;font-weight:700;text-align:center;line-height:22px;margin-right:12px;flex-shrink:0;">${i + 1}</span>
+        <span style="color:#94A3B8;font-size:14px;line-height:1.6;">${s.title}</span>
+      </td>
+    </tr>`).join('')
+
+  return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="background:#080808;color:#ffffff;font-family:Inter,system-ui,sans-serif;margin:0;padding:0;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;padding:40px 24px;">
+    <tr><td>
+      <p style="color:#7C3AED;font-size:12px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin:0 0 32px;">CLIO</p>
+
+      <!-- Header -->
+      <div style="background:#111111;border:1px solid #222222;border-radius:12px;padding:32px;margin-bottom:16px;">
+        <p style="color:#06B6D4;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin:0 0 12px;">Starting in 30 minutes</p>
+        <h1 style="color:#ffffff;font-size:22px;font-weight:700;margin:0 0 8px;line-height:1.3;">${session.title}</h1>
+        <p style="color:#475569;font-size:14px;margin:0 0 24px;">${dateString} · ${timeString} · ~${session.estimatedMinutes} min</p>
+
+        <!-- Join button -->
+        <a href="${meetUrl}" style="display:inline-block;background:#7C3AED;color:#ffffff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:700;letter-spacing:0.01em;">
+          Join Google Meet →
+        </a>
+      </div>
+
+      <!-- Agenda -->
+      ${activeSubtopics.length > 0 ? `
+      <div style="background:#111111;border:1px solid #222222;border-radius:12px;padding:24px 32px;margin-bottom:16px;">
+        <p style="color:#94A3B8;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin:0 0 16px;">Today's Agenda</p>
+        <table width="100%" cellpadding="0" cellspacing="0">
+          ${agendaRows}
+        </table>
+      </div>` : ''}
+
+      <!-- Footer -->
+      <p style="color:#475569;font-size:12px;text-align:center;margin:24px 0 0;">
+        <a href="${appUrl}/dashboard/sessions/${session.id}" style="color:#7C3AED;text-decoration:none;">View full session details</a>
+        &nbsp;·&nbsp; Clio AI
+      </p>
+    </td></tr>
+  </table>
+</body>
+</html>`
+}
