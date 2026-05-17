@@ -7,10 +7,16 @@ import Link from 'next/link'
 import {
   ArrowLeft, CalendarDays, Clock, Download, Tag, CheckCircle,
   Circle, XCircle, Loader, Video, StopCircle, ExternalLink, Sparkles, EyeOff, Eye,
+  MessageSquare, BookmarkPlus,
 } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import type { SessionPlan } from '@/lib/session-plan'
+
+interface DeferredQuestion {
+  question: string
+  deferred_at: string
+}
 
 interface Session {
   id: string
@@ -22,6 +28,7 @@ interface Session {
   topic_id: string | null
   duration_mins: number
   session_plan: SessionPlan | null
+  deferred_questions: DeferredQuestion[] | null
 }
 
 type BotStatus = 'idle' | 'joining' | 'active' | 'ending'
@@ -358,6 +365,41 @@ export default function SessionDetailClient({ session }: Props) {
           </Button>
         </Link>
       </motion.div>
+
+      {/* ── DEFERRED QUESTIONS ── */}
+      {session.deferred_questions && session.deferred_questions.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.25 }}
+        >
+          <div className="flex items-center gap-2 mb-3">
+            <BookmarkPlus size={14} className="text-[#F59E0B]" />
+            <h2 className="text-sm font-semibold text-[#94A3B8] uppercase tracking-wider">Saved for Follow-up</h2>
+            <span className="text-xs text-[#475569] px-2 py-0.5 rounded-full bg-[#1A1A1A] border border-[#2A2A2A]">
+              {session.deferred_questions.length}
+            </span>
+          </div>
+          <Card className="divide-y divide-[#1A1A1A]">
+            {session.deferred_questions.map((dq, i) => (
+              <div key={i} className="flex items-start gap-3 p-4">
+                <MessageSquare size={14} className="text-[#F59E0B] flex-shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-[#94A3B8] leading-snug">{dq.question}</p>
+                  <p className="text-xs text-[#475569] mt-1">
+                    Deferred {new Date(dq.deferred_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+                  </p>
+                </div>
+              </div>
+            ))}
+            <div className="p-4 bg-amber-950/10">
+              <p className="text-xs text-[#F59E0B]">
+                These questions were saved during your session. Schedule a follow-up session to cover them in depth.
+              </p>
+            </div>
+          </Card>
+        </motion.div>
+      )}
 
       {/* ── LIVE SESSION LAUNCHER ── */}
       {session.status !== 'cancelled' && (() => {

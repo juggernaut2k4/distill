@@ -155,6 +155,19 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
                 return 'Visual failed to load.'
               }
             },
+            defer_question: async ({ question }: { question: string }) => {
+              console.log('[Walkthrough] defer_question called —', question.slice(0, 80))
+              try {
+                await fetch('/api/defer-question', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ userId, question }),
+                })
+              } catch {
+                // Non-fatal — Clio still continues the session
+              }
+              return 'Question saved for follow-up session.'
+            },
           },
           onConnect: ({ conversationId }: { conversationId: string }) => {
             console.log('[Walkthrough] Agent connected, id:', conversationId)
@@ -210,9 +223,10 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
         const skippedContext = skippedTopics.length > 0
           ? ` The following subtopics have been marked as skipped by the participant: ${skippedTopics.map((t) => `"${t}"`).join(', ')}. When you reach each skipped topic, briefly say "We're skipping [topic] today" and move immediately to the next one — do not explain or justify the skip.`
           : ''
+        const routingContext = ` When the participant asks a question, use your judgment to route it: (1) INSTANT — answer it directly in a sentence or two without calling any tool; (2) VISUAL — call show_visual to explain something that benefits from a diagram; (3) DEFER — call defer_question when the question is complex, deep, or off-topic and would take more time than the current session allows. When you defer, say something like: "That's a great question — it deserves more depth than we have time for today. I've saved it, and we can schedule a follow-up session to cover it properly."`
         const sessionContext = sessionTopic
-          ? `Pre-planned session context: Topic is "${sessionTopic}" — already confirmed, do NOT ask what they want to cover. Begin coaching immediately after the greeting. Use show_visual before each concept explanation. Ask questions sparingly — at most once per major section, only at natural pauses. Do NOT ask about the caller's role, background, or experience level — that is already known. Your job is to teach and coach, not to interview.${skippedContext}`
-          : `Pre-planned session context: A coaching session is in progress with a pre-set agenda. Begin coaching immediately. Do NOT ask what the caller wants to discuss. Ask questions sparingly — at most once per major section.${skippedContext}`
+          ? `Pre-planned session context: Topic is "${sessionTopic}" — already confirmed, do NOT ask what they want to cover. Begin coaching immediately after the greeting. Use show_visual before each concept explanation. Ask questions sparingly — at most once per major section, only at natural pauses. Do NOT ask about the caller's role, background, or experience level — that is already known. Your job is to teach and coach, not to interview.${skippedContext}${routingContext}`
+          : `Pre-planned session context: A coaching session is in progress with a pre-set agenda. Begin coaching immediately. Do NOT ask what the caller wants to discuss. Ask questions sparingly — at most once per major section.${skippedContext}${routingContext}`
 
         const reconnectContext = isReconnect
           ? ' The WebSocket connection briefly dropped and reconnected — do not re-introduce yourself, just continue the session naturally.'
