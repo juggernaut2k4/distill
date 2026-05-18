@@ -18,10 +18,9 @@ CREATE TABLE IF NOT EXISTS topic_content_cache (
   UNIQUE (topic_id, subtopic_slug)
 );
 
--- Partial index covering only unexpired rows — the only rows we ever query
+-- Composite index on the lookup key + expiry so the filter on expires_at is covered
 CREATE INDEX IF NOT EXISTS idx_topic_content_cache_lookup
-  ON topic_content_cache (topic_id, subtopic_slug)
-  WHERE expires_at > now();
+  ON topic_content_cache (topic_id, subtopic_slug, expires_at);
 
 -- Service-role access only — no user-facing reads needed
 ALTER TABLE topic_content_cache ENABLE ROW LEVEL SECURITY;
