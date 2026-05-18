@@ -8,8 +8,8 @@ import {
   type SessionPlan,
 } from '@/lib/session-plan'
 
-// Allow up to 60s — visual generation takes ~8-12s per subtopic
-export const maxDuration = 60
+// Allow up to 120s — first subtopic sequential (~8s) + 4 remaining in parallel (~8s)
+export const maxDuration = 120
 
 interface Params {
   params: { id: string }

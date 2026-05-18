@@ -3,7 +3,7 @@
  * before the session starts so diagrams render instantly during coaching.
  */
 
-import { generateVisualSpec, reviewVisualSpec, type VisualSpec } from './session-ai'
+import { generateVisualSpec, type VisualSpec } from './session-ai'
 
 export interface SessionPlanSubtopic {
   id: string
@@ -31,8 +31,7 @@ async function generateSubtopicVisual(
 ): Promise<SessionPlanSubtopic> {
   try {
     const spec = await generateVisualSpec(sub.id, sub.title, userContext, { width: 1280, height: 720 })
-    const review = await reviewVisualSpec(spec)
-    return { ...sub, visual_spec: review.revisedSpec ?? spec, visual_status: 'ready' }
+    return { ...sub, visual_spec: spec, visual_status: 'ready' }
   } catch (err) {
     console.error('[session-plan] Visual failed for subtopic:', sub.title, err)
     return { ...sub, visual_status: 'failed' }

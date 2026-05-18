@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createSupabaseAdminClient } from '@/lib/supabase'
-import { generateVisualSpec, reviewVisualSpec } from '@/lib/session-ai'
+import { generateVisualSpec } from '@/lib/session-ai'
 import { findPreGeneratedVisual, type SessionPlan } from '@/lib/session-plan'
 
 const Body = z.object({
@@ -77,16 +77,13 @@ export async function POST(request: NextRequest) {
       { width: 1280, height: 720 }
     )
 
-    const review = await reviewVisualSpec(spec)
-    const finalSpec = review.revisedSpec ?? spec
-
     await supabase
       .from('walkthrough_state')
       .update({
         status: 'ready',
-        visual_spec: finalSpec,
-        topic_id: finalSpec.topicId,
-        topic_title: finalSpec.title,
+        visual_spec: spec,
+        topic_id: spec.topicId,
+        topic_title: spec.title,
       })
       .eq('user_id', userId)
 

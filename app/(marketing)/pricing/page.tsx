@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
 import { CheckCircle, ArrowRight } from 'lucide-react'
@@ -9,11 +9,22 @@ import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import MarketingNav from '@/components/marketing/MarketingNav'
 
-const plans = [
+interface PlanPrices {
+  starter: { monthly: number; annual: number }
+  pro: { monthly: number; annual: number }
+  executive: { monthly: number; annual: number }
+}
+
+const DEFAULT_PRICES: PlanPrices = {
+  starter: { monthly: 12, annual: 99 },
+  pro: { monthly: 25, annual: 199 },
+  executive: { monthly: 49, annual: 399 },
+}
+
+const PLAN_META = [
   {
     name: 'Free Trial',
-    priceMonthly: 0,
-    priceAnnual: 0,
+    key: null as null,
     features: [
       '1 email insight per day',
       'Personalized onboarding',
@@ -26,8 +37,7 @@ const plans = [
   },
   {
     name: 'Starter',
-    priceMonthly: 12,
-    priceAnnual: 99,
+    key: 'starter' as const,
     features: [
       '1 email insight per day',
       'Personalized learning plan',
@@ -40,8 +50,7 @@ const plans = [
   },
   {
     name: 'Pro',
-    priceMonthly: 25,
-    priceAnnual: 199,
+    key: 'pro' as const,
     features: [
       'Email + SMS daily insights',
       'AI Readiness Score (0–100)',
@@ -55,8 +64,7 @@ const plans = [
   },
   {
     name: 'Executive',
-    priceMonthly: 49,
-    priceAnnual: 399,
+    key: 'executive' as const,
     features: [
       'Everything in Pro',
       'Dedicated phone number',
@@ -72,6 +80,14 @@ const plans = [
 
 export default function PricingPage() {
   const [annual, setAnnual] = useState(false)
+  const [prices, setPrices] = useState<PlanPrices>(DEFAULT_PRICES)
+
+  useEffect(() => {
+    fetch('/api/prices')
+      .then((r) => r.json())
+      .then((data: PlanPrices) => setPrices(data))
+      .catch(() => { /* keep defaults */ })
+  }, [])
 
   return (
     <main className="min-h-screen bg-[#080808] pt-32 pb-24 px-6">
@@ -115,8 +131,11 @@ export default function PricingPage() {
 
         {/* Plan cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-          {plans.map((plan, i) => {
-            const price = annual ? plan.priceAnnual : plan.priceMonthly
+          {PLAN_META.map((plan, i) => {
+            const planPrices = plan.key ? prices[plan.key] : null
+            const priceMonthly = planPrices?.monthly ?? 0
+            const priceAnnual = planPrices?.annual ?? 0
+            const price = annual ? priceAnnual : priceMonthly
 
             return (
               <motion.div
@@ -142,9 +161,9 @@ export default function PricingPage() {
                       <p className="text-xs font-bold text-[#475569] uppercase tracking-widest">
                         {plan.name}
                       </p>
-                      {annual && plan.priceMonthly > 0 && (
+                      {annual && priceMonthly > 0 && (
                         <span className="text-[10px] font-bold text-[#10B981] uppercase tracking-wide px-2 py-0.5 rounded-full bg-green-950/40 border border-green-800/30">
-                          Save ${plan.priceMonthly * 12 - plan.priceAnnual}
+                          Save ${priceMonthly * 12 - priceAnnual}
                         </span>
                       )}
                     </div>
