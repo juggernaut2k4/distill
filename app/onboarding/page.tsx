@@ -43,6 +43,7 @@ const QUESTIONS = [
       'Evaluating AI vendors / solutions',
       'Running AI pilots in my team',
       'Scaling AI across my organization',
+      'Other',
     ],
   },
   {
@@ -54,6 +55,7 @@ const QUESTIONS = [
       'How to evaluate AI vendors and technology',
       'Upskilling my team for AI',
       'Falling behind competitors',
+      'Other',
     ],
   },
   {
