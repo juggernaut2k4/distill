@@ -6,7 +6,7 @@ import { sendPlanReadyEmail, type User as EmailUser } from '@/lib/delivery/email
 import { sendSMS } from '@/lib/delivery/sms'
 
 const TopicsSchema = z.object({
-  topics: z.array(z.string().min(1).max(100)).min(0).max(5),
+  topics: z.array(z.string().min(1).max(200)).min(0).max(50),
 })
 
 /**
