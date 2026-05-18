@@ -307,6 +307,43 @@ _Last updated: 2026-05-13 | Source of truth for all sprints_
 
 ---
 
+### Sprint 4 — Plan Value Features (P1) — PDF Export, Prep Brief, Meeting Readiness
+
+> Positioning: Starter = Learn. Pro = Learn + Prepare. Executive = Learn + Prepare + Apply.
+> All plans: flat rate regardless of topic/technology (same price for AI in healthcare, finance, retail, etc.)
+
+#### PDF Export (Foundation — needed by all three tiers)
+
+| ID | Story | Plan | AC | Size |
+|---|---|---|---|---|
+| F-01 | **PDF export: session notes (Starter+)** | Starter, Pro, Executive | After each completed session, a "Download PDF" button appears on the session detail page. PDF contains: session title, date, topics covered, key visual aids (as images), session summary. Generated server-side via `/api/sessions/[id]/export`. Branded Clio header/footer. | M |
+| F-02 | **PDF export: full learning curriculum (Pro+)** | Pro, Executive | On the plan page and sessions page, a "Download Curriculum PDF" button. PDF contains: user name, all planned sessions in order, topic per session, difficulty badge, estimated duration, progress status (scheduled / completed). Formatted to share with EA or chief of staff. | M |
+| F-03 | **Executive Briefing Pack PDF (Executive only)** | Executive | On the dashboard, "Generate Briefing Pack" button. Calls Anthropic API with user's completed sessions + AI Readiness Score. Output: board-ready PDF with: executive summary of AI learning progress, key insights from sessions, strategic AI recommendations for the user's industry/role, progress chart. Formatted professionally (not session notes — a shareable leadership document). | L |
+
+#### Session Prep Brief (Pro+)
+
+| ID | Story | Plan | AC | Size |
+|---|---|---|---|---|
+| F-04 | **Session Prep Brief email — night before (Pro+)** | Pro, Executive | Inngest job checks sessions scheduled for tomorrow. For each Pro/Executive user: generate a 1-page Prep Brief via Anthropic: (1) "What we'll cover today" — topic summary in 3 bullets, (2) "3 key concepts to know going in", (3) "2 questions worth thinking about before we start". Send as email at 8pm the night before. Also available as PDF download from session detail page. | L |
+| F-05 | **Session Prep Brief — dashboard preview** | Pro, Executive | On the session detail page for an upcoming session, show the Prep Brief inline (not just via email). If not yet generated, show "Generating your prep brief..." with a spinner. Brief can be downloaded as PDF (reuses F-01 PDF infrastructure). | M |
+
+#### Meeting Readiness (Executive only)
+
+| ID | Story | Plan | AC | Size |
+|---|---|---|---|---|
+| F-06 | **Meeting Readiness — input form** | Executive | New page: `/dashboard/meeting-readiness`. Form fields: Meeting title, Meeting date/time, Who you're meeting (name + company + role), What the meeting is about (freetext), Any context or documents (freetext). Submit calls `/api/meeting-readiness/generate`. | M |
+| F-07 | **Meeting Readiness — AI briefing generation** | Executive | POST `/api/meeting-readiness/generate`: calls Anthropic with meeting context + user's AI knowledge level (from AI Readiness Score + completed session topics). Output structured briefing: (1) About who you're meeting — company background, AI positioning, (2) What they're likely to pitch/discuss, (3) 5 questions to ask them, (4) Red flags to watch for, (5) How to evaluate what they tell you. Saved to DB + returned to client. | L |
+| F-08 | **Meeting Readiness — briefing view + PDF** | Executive | Briefing displayed on the page in a clean readable layout (sections with headers). "Download as PDF" exports a professionally formatted briefing document. Briefing can be regenerated if context changes. List of past briefings accessible from sidebar. | M |
+
+#### UI — Plan Benefits on Pricing & Plan Selection (immediate — do first)
+
+| ID | Story | Plan | AC | Size |
+|---|---|---|---|---|
+| F-09 | **Update pricing page with full plan benefits** | All | Pricing page shows benefit-led copy per plan (not just feature list). Each plan includes: minutes/mo, flat-rate messaging, all key features with icons. Add "What's included" section below the plan cards with a full comparison table. | S |
+| F-10 | **Update schedule plan selection with full benefits** | All | Plan cards on the schedule page show: minutes/mo prominently, feature list matching the plan, and a "Most popular" / recommended badge for Pro. | S |
+
+---
+
 ### Sprint 3 — Phase 2 Foundations (P2)
 
 | ID | Story | Notes |

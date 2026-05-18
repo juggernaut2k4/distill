@@ -25,11 +25,14 @@ const PLAN_META = [
   {
     name: 'Free Trial',
     key: null as null,
+    badge: null,
+    tagline: 'Try Clio free for 3 days',
     features: [
-      '1 email insight per day',
-      'Personalized onboarding',
+      '1 AI coaching session included',
+      'Personalised onboarding (5 questions)',
+      'Daily email insight',
+      'AI Readiness Score',
       'No credit card required',
-      '7-day free access',
     ],
     cta: 'Start free',
     href: '/onboarding',
@@ -38,12 +41,17 @@ const PLAN_META = [
   {
     name: 'Starter',
     key: 'starter' as const,
+    badge: null,
+    tagline: 'Learn AI at your pace',
     features: [
-      '150 min/mo · ~5 coaching sessions',
-      'Email delivery',
-      'Personalized learning plan',
-      'AI Readiness Score',
-      'Weekly digest (Sundays)',
+      '150 min/mo · ~5 live coaching sessions',
+      'Flat rate — same price whatever the topic (healthcare AI, finance AI, retail AI)',
+      'Clio joins your Google Meet to coach you',
+      'Pre-built visual aids for every session',
+      'Session notes PDF export after each call',
+      'Daily email insights',
+      'AI Readiness Score (0–100)',
+      'Weekly digest every Sunday',
     ],
     cta: 'Get Starter',
     href: '/onboarding',
@@ -52,12 +60,17 @@ const PLAN_META = [
   {
     name: 'Pro',
     key: 'pro' as const,
+    badge: 'Most popular',
+    tagline: 'Learn and walk in prepared',
     features: [
-      '400 min/mo · ~13 coaching sessions',
-      'Email + SMS delivery',
-      'Ask Anything via SMS',
-      'Adaptive content engine',
-      'Priority support',
+      '400 min/mo · ~13 live coaching sessions',
+      'Flat rate — same price whatever the topic',
+      'Everything in Starter',
+      'Session Prep Brief — night before each session, Clio emails you what to expect, 3 key concepts, and 2 questions to think about',
+      'Full curriculum PDF — share your learning plan with your EA or chief of staff',
+      'Email + SMS daily insights',
+      'Ask Clio anything via SMS',
+      'Shareable session summaries',
     ],
     cta: 'Get Pro',
     href: '/onboarding',
@@ -66,12 +79,16 @@ const PLAN_META = [
   {
     name: 'Executive',
     key: 'executive' as const,
+    badge: 'C-Suite',
+    tagline: 'Learn, prepare, and apply',
     features: [
-      '900 min/mo · ~30 coaching sessions',
+      '900 min/mo · ~30 live coaching sessions',
+      'Flat rate — same price whatever the topic',
       'Everything in Pro',
-      'Dedicated phone number',
-      'Weekly digest report',
-      'White-glove onboarding',
+      'Meeting Readiness — before any AI vendor pitch or board session, get a full briefing: who you\'re meeting, what to expect, 5 questions to ask, red flags to watch for',
+      'Executive Briefing Pack — a board-ready PDF of your AI progress and strategic recommendations for your organisation',
+      'Dedicated Clio phone number',
+      'White-glove onboarding session',
     ],
     cta: 'Get Executive',
     href: '/onboarding',
@@ -151,14 +168,18 @@ export default function PricingPage() {
                     plan.highlight ? 'border-2 border-[#7C3AED]' : ''
                   }`}
                 >
-                  {plan.highlight && (
+                  {/* Top badge — Most popular or C-Suite */}
+                  {(plan.highlight || plan.badge) && (
                     <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
-                      <Badge variant="purple">Most popular</Badge>
+                      <Badge variant={plan.highlight ? 'purple' : 'amber'}>
+                        {plan.badge ?? 'Most popular'}
+                      </Badge>
                     </div>
                   )}
 
-                  <div className="mb-6">
-                    <div className="flex items-center justify-between mb-2">
+                  {/* Plan name + tagline */}
+                  <div className="mb-5">
+                    <div className="flex items-center justify-between mb-1">
                       <p className="text-xs font-bold text-[#475569] uppercase tracking-widest">
                         {plan.name}
                       </p>
@@ -168,6 +189,9 @@ export default function PricingPage() {
                         </span>
                       )}
                     </div>
+                    {'tagline' in plan && (
+                      <p className="text-xs text-[#475569] mb-3">{plan.tagline as string}</p>
+                    )}
                     <div className="flex items-baseline gap-1">
                       <span className="text-4xl font-extrabold text-white">
                         {price === 0 ? 'Free' : `$${price}`}
@@ -185,16 +209,31 @@ export default function PricingPage() {
                     )}
                   </div>
 
+                  {/* Features */}
                   <ul className="space-y-2.5 mb-8 flex-1">
-                    {plan.features.map((f) => (
-                      <li key={f} className="flex items-start gap-2 text-sm">
-                        <CheckCircle
-                          size={15}
-                          className="text-[#7C3AED] mt-0.5 flex-shrink-0"
-                        />
-                        <span className="text-[#94A3B8]">{f}</span>
-                      </li>
-                    ))}
+                    {plan.features.map((f, fi) => {
+                      const isMinutes = fi === 0 && f.includes('min/mo')
+                      const isFlatRate = f.startsWith('Flat rate')
+                      return (
+                        <li key={f} className="flex items-start gap-2 text-sm">
+                          <CheckCircle
+                            size={15}
+                            className={`mt-0.5 flex-shrink-0 ${
+                              isMinutes ? 'text-[#06B6D4]' :
+                              isFlatRate ? 'text-[#10B981]' :
+                              'text-[#7C3AED]'
+                            }`}
+                          />
+                          <span className={
+                            isMinutes ? 'text-white font-semibold' :
+                            isFlatRate ? 'text-[#10B981] text-xs' :
+                            'text-[#94A3B8]'
+                          }>
+                            {f}
+                          </span>
+                        </li>
+                      )
+                    })}
                   </ul>
 
                   <Link href={plan.href}>

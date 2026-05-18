@@ -64,8 +64,15 @@ const PLANS = [
     monthly: 12,
     annual: 99,
     minutes: 150,
-    description: 'For executives just getting started with AI',
-    features: ['150 min/mo · ~5 sessions', 'Email delivery', 'AI Readiness Score', 'Y/N feedback adaptation'],
+    tagline: 'Learn AI at your pace',
+    description: 'Same price whatever the topic — healthcare AI, finance AI, retail AI.',
+    features: [
+      '150 min/mo · ~5 coaching sessions',
+      'Clio joins your Google Meet to coach you',
+      'Session notes PDF after every call',
+      'Daily email insights',
+      'AI Readiness Score',
+    ],
     popular: false,
   },
   {
@@ -76,8 +83,15 @@ const PLANS = [
     monthly: 25,
     annual: 199,
     minutes: 400,
-    description: 'For leaders who want to go deeper',
-    features: ['400 min/mo · ~13 sessions', 'Email + SMS delivery', 'Ask Anything via SMS', 'Priority support'],
+    tagline: 'Learn and walk in prepared',
+    description: 'Same price whatever the topic — flat rate across all technologies.',
+    features: [
+      '400 min/mo · ~13 coaching sessions',
+      'Session Prep Brief the night before — what to expect, 3 key concepts, 2 questions to think about',
+      'Full curriculum PDF to share with your EA',
+      'Email + SMS insights',
+      'Ask Clio anything via SMS',
+    ],
     popular: true,
   },
   {
@@ -88,8 +102,15 @@ const PLANS = [
     monthly: 49,
     annual: 399,
     minutes: 900,
-    description: 'For C-suite with a dedicated experience',
-    features: ['900 min/mo · ~30 sessions', 'Dedicated phone number', 'Weekly digest report', 'White-glove onboarding'],
+    tagline: 'Learn, prepare, and apply',
+    description: 'Same price whatever the topic — flat rate across all technologies.',
+    features: [
+      '900 min/mo · ~30 coaching sessions',
+      'Meeting Readiness — full briefing before any AI vendor pitch or board session',
+      'Executive Briefing Pack — board-ready PDF of your AI progress',
+      'Dedicated Clio phone number',
+      'White-glove onboarding',
+    ],
     popular: false,
   },
 ]
@@ -352,7 +373,7 @@ export default function ScheduleClient({ user, existingSessions, subscribedSucce
                   </span>
                 )}
 
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center justify-between mb-1">
                   <div className="flex items-center gap-2">
                     <Icon size={15} style={{ color: p.color }} />
                     <span className="text-sm font-semibold text-white">{p.name}</span>
@@ -360,19 +381,21 @@ export default function ScheduleClient({ user, existingSessions, subscribedSucce
                   {isSelected && <CheckCircle size={15} className="text-[#7C3AED]" />}
                 </div>
 
+                <p className="text-[10px] text-[#475569] mb-2">{p.tagline}</p>
+
                 <div className="mb-0.5">
                   <span className="text-2xl font-bold text-white">${perMonth}</span>
                   <span className="text-xs text-[#475569]">/mo</span>
                 </div>
                 {billedAs && (
-                  <p className="text-xs text-[#94A3B8] mb-2">{billedAs} billed annually</p>
+                  <p className="text-xs text-[#94A3B8] mb-1">{billedAs} billed annually</p>
                 )}
-                <p className="text-xs text-[#475569] mb-3">{p.description}</p>
+                <p className="text-[10px] text-[#10B981] mb-3">{p.description}</p>
 
                 <ul className="space-y-1.5">
-                  {p.features.map((f) => (
-                    <li key={f} className="flex items-start gap-1.5 text-xs text-[#94A3B8]">
-                      <CheckCircle size={11} className="text-[#10B981] mt-0.5 flex-shrink-0" />
+                  {p.features.map((f, fi) => (
+                    <li key={f} className={`flex items-start gap-1.5 text-xs ${fi === 0 ? 'text-white font-medium' : 'text-[#94A3B8]'}`}>
+                      <CheckCircle size={11} className={`mt-0.5 flex-shrink-0 ${fi === 0 ? 'text-[#06B6D4]' : 'text-[#10B981]'}`} />
                       {f}
                     </li>
                   ))}
