@@ -43,8 +43,8 @@ export async function createCheckoutSession(
   const resolvedSuccess = successUrl ?? `${appUrl}/dashboard/welcome`
 
   if (isPlaceholder || !stripeClient) {
-    console.log('[MOCK] createCheckoutSession', { userId, priceId })
-    return resolvedSuccess
+    console.error('[stripe] STRIPE_SECRET_KEY not configured — cannot create checkout session')
+    throw new Error('Stripe is not configured. Set STRIPE_SECRET_KEY in environment variables.')
   }
 
   const session = await stripeClient.checkout.sessions.create({

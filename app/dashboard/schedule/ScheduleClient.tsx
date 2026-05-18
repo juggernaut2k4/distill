@@ -63,8 +63,9 @@ const PLANS = [
     color: '#06B6D4',
     monthly: 12,
     annual: 99,
+    minutes: 150,
     description: 'For executives just getting started with AI',
-    features: ['5 AI coaching sessions/mo', 'Email delivery', 'AI Readiness Score'],
+    features: ['150 min/mo · ~5 sessions', 'Email delivery', 'AI Readiness Score', 'Y/N feedback adaptation'],
     popular: false,
   },
   {
@@ -74,8 +75,9 @@ const PLANS = [
     color: '#7C3AED',
     monthly: 25,
     annual: 199,
+    minutes: 400,
     description: 'For leaders who want to go deeper',
-    features: ['Unlimited sessions', 'Email + SMS delivery', 'Ask Anything via SMS', 'Priority support'],
+    features: ['400 min/mo · ~13 sessions', 'Email + SMS delivery', 'Ask Anything via SMS', 'Priority support'],
     popular: true,
   },
   {
@@ -85,8 +87,9 @@ const PLANS = [
     color: '#F59E0B',
     monthly: 49,
     annual: 399,
+    minutes: 900,
     description: 'For C-suite with a dedicated experience',
-    features: ['Everything in Pro', 'Dedicated phone number', 'Weekly digest report', 'White-glove onboarding'],
+    features: ['900 min/mo · ~30 sessions', 'Dedicated phone number', 'Weekly digest report', 'White-glove onboarding'],
     popular: false,
   },
 ]
@@ -117,6 +120,7 @@ export default function ScheduleClient({ user, existingSessions, subscribedSucce
   const [maxDuration, setMaxDuration] = useState(30)
   const [preferredHour, setPreferredHour] = useState(9)
   const [saving, setSaving] = useState(false)
+  const [checkoutError, setCheckoutError] = useState<string | null>(null)
   const [showPlans, setShowPlans] = useState(false)
   const [selectedPlan, setSelectedPlan] = useState<PlanKey>('pro')
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'annual'>('monthly')
@@ -184,6 +188,7 @@ export default function ScheduleClient({ user, existingSessions, subscribedSucce
 
   async function handleSubscribeAndSchedule() {
     setSaving(true)
+    setCheckoutError(null)
     try {
       sessionStorage.setItem(PENDING_KEY, JSON.stringify(scheduledSessions))
       const returnUrl = `${window.location.origin}/dashboard/schedule?subscribed=1`
@@ -194,14 +199,18 @@ export default function ScheduleClient({ user, existingSessions, subscribedSucce
       })
       const data = await res.json() as { checkoutUrl?: string; error?: string }
 
-      if (data.checkoutUrl) {
-        window.location.href = data.checkoutUrl
-      } else {
+      if (!res.ok || !data.checkoutUrl) {
         sessionStorage.removeItem(PENDING_KEY)
+        setCheckoutError(data.error ?? 'Could not start checkout. Please try again.')
         setSaving(false)
+        return
       }
+
+      // Redirect to Stripe — page will unload, no further state updates needed
+      window.location.href = data.checkoutUrl
     } catch {
       sessionStorage.removeItem(PENDING_KEY)
+      setCheckoutError('Network error. Please check your connection and try again.')
       setSaving(false)
     }
   }
@@ -378,6 +387,12 @@ export default function ScheduleClient({ user, existingSessions, subscribedSucce
           <span>3-day free trial included. No charges until trial ends. Cancel anytime.</span>
         </div>
 
+        {checkoutError && (
+          <div className="p-3 rounded-xl bg-red-950/30 border border-red-800/40 text-sm text-red-400">
+            {checkoutError}
+          </div>
+        )}
+
         <Button
           onClick={handleSubscribeAndSchedule}
           disabled={saving}
@@ -387,7 +402,7 @@ export default function ScheduleClient({ user, existingSessions, subscribedSucce
           {saving ? (
             <>
               <Loader size={16} className="animate-spin" />
-              Redirecting to payment...
+              Redirecting to Stripe...
             </>
           ) : (
             <>

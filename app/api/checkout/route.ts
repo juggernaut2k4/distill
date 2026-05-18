@@ -10,7 +10,6 @@ const CheckoutSchema = z.object({
 })
 
 const PRICE_ID_MAP: Record<string, Record<string, string | undefined>> = {
-  // 'free' maps to Starter monthly — user gets 3-day trial, card required, charged from day 3
   free: {
     monthly: process.env.STRIPE_STARTER_MONTHLY_PRICE_ID,
     annual: process.env.STRIPE_STARTER_MONTHLY_PRICE_ID,
@@ -32,7 +31,7 @@ const PRICE_ID_MAP: Record<string, Record<string, string | undefined>> = {
 /**
  * POST /api/checkout
  * Creates a Stripe Checkout Session for the selected plan.
- * Requires authentication via Clerk.
+ * Returns 503 if Stripe price IDs are not configured — never silently bypasses payment.
  */
 export async function POST(request: NextRequest) {
   const { userId, error } = requireAuth()
@@ -53,17 +52,20 @@ export async function POST(request: NextRequest) {
     const priceId = PRICE_ID_MAP[plan]?.[billingPeriod]
 
     if (!priceId || priceId.startsWith('PLACEHOLDER_')) {
-      console.log('[MOCK] createCheckoutSession', { plan, billingPeriod, userId })
-      return NextResponse.json({
-        checkoutUrl: returnUrl ?? `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/welcome`,
-      })
+      console.error('[checkout] Stripe price ID not configured', { plan, billingPeriod })
+      return NextResponse.json(
+        { error: 'Payment is not configured yet. Please contact support.' },
+        { status: 503 }
+      )
     }
 
     const checkoutUrl = await createCheckoutSession(userId!, priceId, returnUrl)
-
     return NextResponse.json({ checkoutUrl })
   } catch (err) {
-    console.error('[checkout] Error:', err)
-    return NextResponse.json({ error: 'Failed to create checkout session' }, { status: 500 })
+    console.error('[checkout] Error creating Stripe session:', err)
+    return NextResponse.json(
+      { error: 'Failed to create checkout session. Please try again.' },
+      { status: 500 }
+    )
   }
 }
