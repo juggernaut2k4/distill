@@ -16,15 +16,9 @@ export default function SignUpPage() {
             colorInputText: '#ffffff',
           },
           elements: {
-            socialButtonsBlockButton: {
-              backgroundColor: '#ffffff',
-              color: '#111111',
-              border: '1px solid #333333',
-            },
-            socialButtonsBlockButtonText: {
-              color: '#111111',
-              fontWeight: '500',
-            },
+            socialButtonsBlockButton: '!bg-white !text-gray-900 !border !border-gray-300 hover:!bg-gray-100 hover:!text-gray-900',
+            socialButtonsBlockButtonText: '!text-gray-900 !font-medium',
+            socialButtonsBlockButtonArrow: '!text-gray-900',
           },
         }}
       />
