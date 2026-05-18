@@ -82,7 +82,7 @@ export default function TopicsPage() {
       return
     }
     setManualTopics((prev) => [...prev, trimmed])
-    setSelected((prev) => new Set([...prev, trimmed]))
+    setSelected((prev) => new Set(Array.from(prev).concat(trimmed)))
     setCustomInput('')
     customInputRef.current?.focus()
   }
