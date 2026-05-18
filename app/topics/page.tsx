@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -8,11 +8,11 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 
-type View = 'input' | 'generating' | 'selection' | 'manual'
+type View = 'loading' | 'selection' | 'input' | 'generating' | 'manual'
 
 export default function TopicsPage() {
   const router = useRouter()
-  const [view, setView] = useState<View>('input')
+  const [view, setView] = useState<View>('loading')
   const [objectives, setObjectives] = useState('')
   const [generateError, setGenerateError] = useState<string | null>(null)
   const [generatedTopics, setGeneratedTopics] = useState<string[]>([])
@@ -24,6 +24,22 @@ export default function TopicsPage() {
 
   const allTopics = [...generatedTopics, ...manualTopics]
   const allSelected = allTopics.length > 0 && selected.size === allTopics.length
+
+  // Auto-generate topics from profile on mount
+  useEffect(() => {
+    fetch('/api/topics/generate')
+      .then((r) => r.json())
+      .then((data: { topics?: string[]; error?: string }) => {
+        if (data.topics && data.topics.length > 0) {
+          setGeneratedTopics(data.topics)
+          setSelected(new Set(data.topics))
+          setView('selection')
+        } else {
+          setView('input')
+        }
+      })
+      .catch(() => setView('input'))
+  }, [])
 
   // ── Actions ────────────────────────────────────────────────────────────────
 
@@ -97,17 +113,9 @@ export default function TopicsPage() {
   }
 
   function handleEnterManual() {
-    setGeneratedTopics([])
     setManualTopics([])
     setSelected(new Set())
     setView('manual')
-  }
-
-  function handleRegenerate() {
-    setGeneratedTopics([])
-    setManualTopics([])
-    setSelected(new Set())
-    setView('input')
   }
 
   async function handleContinue() {
@@ -148,78 +156,10 @@ export default function TopicsPage() {
       <div className="max-w-2xl mx-auto px-6 py-12">
         <AnimatePresence mode="wait">
 
-          {/* ── INPUT ───────────────────────────────────────────────────── */}
-          {view === 'input' && (
+          {/* ── LOADING ─────────────────────────────────────────────────── */}
+          {view === 'loading' && (
             <motion.div
-              key="input"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -16 }}
-              transition={{ duration: 0.35 }}
-              className="space-y-8"
-            >
-              <div className="text-center">
-                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-purple-950/40 border border-purple-800/30 text-[#A855F7] text-sm font-medium mb-5">
-                  <Sparkles size={14} />
-                  AI-personalised curriculum
-                </div>
-                <h1 className="text-4xl font-extrabold text-white mb-3 leading-tight">
-                  What do you want to learn?
-                </h1>
-                <p className="text-[#94A3B8] text-lg">
-                  Describe your goals and Clio will build a topic list tailored to you.
-                </p>
-              </div>
-
-              <div className="space-y-3">
-                <textarea
-                  value={objectives}
-                  onChange={(e) => setObjectives(e.target.value)}
-                  rows={5}
-                  placeholder={
-                    'e.g. I want to understand how AI can help my sales and marketing team, evaluate AI vendors without being misled, and know enough to lead an AI transformation at my company without relying on my tech team to explain everything.'
-                  }
-                  className="w-full bg-[#111111] border border-[#222222] focus:border-[#7C3AED] text-white rounded-2xl px-5 py-4 text-sm leading-relaxed placeholder-[#333] resize-none focus:outline-none transition-colors"
-                />
-
-                {generateError && (
-                  <motion.p
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="text-sm text-red-400 px-1"
-                  >
-                    {generateError}
-                  </motion.p>
-                )}
-
-                <Button
-                  onClick={handleGenerate}
-                  disabled={objectives.trim().length < 5}
-                  size="lg"
-                  className="w-full gap-2 justify-center"
-                >
-                  <Sparkles size={16} />
-                  Generate my topic list
-                  <ArrowRight size={16} />
-                </Button>
-              </div>
-
-              <div className="text-center">
-                <button
-                  onClick={handleEnterManual}
-                  className="inline-flex items-center gap-1.5 text-sm text-[#475569] hover:text-[#94A3B8] transition-colors"
-                >
-                  <PenLine size={13} />
-                  I know what I want — enter topics directly
-                </button>
-              </div>
-            </motion.div>
-          )}
-
-          {/* ── GENERATING ──────────────────────────────────────────────── */}
-          {view === 'generating' && (
-            <motion.div
-              key="generating"
+              key="loading"
               initial={{ opacity: 0, scale: 0.97 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0 }}
@@ -237,7 +177,7 @@ export default function TopicsPage() {
                 </div>
               </div>
               <h2 className="text-2xl font-bold text-white mb-2">Building your topic list...</h2>
-              <p className="text-[#475569] text-sm">Clio is analysing your objectives</p>
+              <p className="text-[#475569] text-sm">Personalising based on your profile</p>
               <div className="mt-6 flex gap-2">
                 {[0, 1, 2].map((i) => (
                   <motion.div
@@ -263,21 +203,14 @@ export default function TopicsPage() {
             >
               {/* Header */}
               <div>
-                <div className="flex items-start justify-between gap-4 mb-1">
-                  <div>
-                    <h1 className="text-3xl font-extrabold text-white">Your topic list</h1>
-                    <p className="text-[#94A3B8] mt-1 text-sm">
-                      {selected.size} of {allTopics.length} selected — edit as needed
-                    </p>
-                  </div>
-                  <button
-                    onClick={handleRegenerate}
-                    className="flex items-center gap-1.5 text-xs text-[#475569] hover:text-[#94A3B8] transition-colors mt-1 whitespace-nowrap"
-                  >
-                    <RefreshCw size={12} />
-                    Regenerate
-                  </button>
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-purple-950/40 border border-purple-800/30 text-[#A855F7] text-sm font-medium mb-4">
+                  <Sparkles size={14} />
+                  Personalised for your profile
                 </div>
+                <h1 className="text-3xl font-extrabold text-white">Your topic list</h1>
+                <p className="text-[#94A3B8] mt-1 text-sm">
+                  {selected.size} of {allTopics.length} selected — deselect any you&apos;d like to skip
+                </p>
               </div>
 
               {/* Select all toggle */}
@@ -352,8 +285,8 @@ export default function TopicsPage() {
                 })}
               </div>
 
-              {/* Add custom topic */}
-              <div className="pt-2">
+              {/* Add custom topic inline */}
+              <div className="pt-1">
                 <p className="text-xs text-[#475569] mb-2 uppercase tracking-wider font-semibold">Add a topic</p>
                 <div className="flex gap-2">
                   <input
@@ -375,22 +308,152 @@ export default function TopicsPage() {
                 </div>
               </div>
 
-              {/* Continue */}
-              <div className="pt-2 flex items-center gap-4 flex-wrap">
+              {/* Continue + escape hatch */}
+              <div className="pt-2 space-y-4">
+                <div className="flex items-center gap-4 flex-wrap">
+                  <Button
+                    onClick={handleContinue}
+                    disabled={saving || selected.size === 0}
+                    size="lg"
+                    className="gap-2"
+                  >
+                    {saving
+                      ? 'Building your plan...'
+                      : `Continue with ${selected.size} topic${selected.size !== 1 ? 's' : ''}`}
+                    <ArrowRight size={16} />
+                  </Button>
+                  {selected.size === 0 && (
+                    <p className="text-xs text-[#475569]">Select at least one topic to continue</p>
+                  )}
+                </div>
+
+                {/* Escape hatch */}
+                <div className="flex items-center gap-5 pt-1">
+                  <button
+                    onClick={() => setView('input')}
+                    className="inline-flex items-center gap-1.5 text-sm text-[#475569] hover:text-[#94A3B8] transition-colors"
+                  >
+                    <RefreshCw size={13} />
+                    These don&apos;t match — describe what I want
+                  </button>
+                  <span className="text-[#333] text-xs">·</span>
+                  <button
+                    onClick={handleEnterManual}
+                    className="inline-flex items-center gap-1.5 text-sm text-[#475569] hover:text-[#94A3B8] transition-colors"
+                  >
+                    <PenLine size={13} />
+                    Enter topics manually
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {/* ── INPUT (describe objectives) ──────────────────────────────── */}
+          {view === 'input' && (
+            <motion.div
+              key="input"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -16 }}
+              transition={{ duration: 0.35 }}
+              className="space-y-8"
+            >
+              <div>
+                {generatedTopics.length > 0 && (
+                  <button
+                    onClick={() => setView('selection')}
+                    className="text-xs text-[#475569] hover:text-[#94A3B8] transition-colors mb-4 block"
+                  >
+                    ← Back to your topic list
+                  </button>
+                )}
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-purple-950/40 border border-purple-800/30 text-[#A855F7] text-sm font-medium mb-5">
+                  <Sparkles size={14} />
+                  AI-personalised curriculum
+                </div>
+                <h1 className="text-4xl font-extrabold text-white mb-3 leading-tight">
+                  What do you want to learn?
+                </h1>
+                <p className="text-[#94A3B8] text-lg">
+                  Describe your goals and Clio will build a new topic list tailored to you.
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                <textarea
+                  value={objectives}
+                  onChange={(e) => setObjectives(e.target.value)}
+                  rows={5}
+                  placeholder="e.g. I want to understand how AI can help my sales and marketing team, evaluate AI vendors without being misled, and know enough to lead an AI transformation at my company without relying on my tech team to explain everything."
+                  className="w-full bg-[#111111] border border-[#222222] focus:border-[#7C3AED] text-white rounded-2xl px-5 py-4 text-sm leading-relaxed placeholder-[#333] resize-none focus:outline-none transition-colors"
+                />
+
+                {generateError && (
+                  <motion.p
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="text-sm text-red-400 px-1"
+                  >
+                    {generateError}
+                  </motion.p>
+                )}
+
                 <Button
-                  onClick={handleContinue}
-                  disabled={saving || selected.size === 0}
+                  onClick={handleGenerate}
+                  disabled={objectives.trim().length < 5}
                   size="lg"
-                  className="gap-2"
+                  className="w-full gap-2 justify-center"
                 >
-                  {saving
-                    ? 'Building your plan...'
-                    : `Continue with ${selected.size} topic${selected.size !== 1 ? 's' : ''}`}
+                  <Sparkles size={16} />
+                  Generate my topic list
                   <ArrowRight size={16} />
                 </Button>
-                {selected.size === 0 && (
-                  <p className="text-xs text-[#475569]">Select at least one topic to continue</p>
-                )}
+              </div>
+
+              <div className="text-center">
+                <button
+                  onClick={handleEnterManual}
+                  className="inline-flex items-center gap-1.5 text-sm text-[#475569] hover:text-[#94A3B8] transition-colors"
+                >
+                  <PenLine size={13} />
+                  I know what I want — enter topics directly
+                </button>
+              </div>
+            </motion.div>
+          )}
+
+          {/* ── GENERATING ──────────────────────────────────────────────── */}
+          {view === 'generating' && (
+            <motion.div
+              key="generating"
+              initial={{ opacity: 0, scale: 0.97 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.3 }}
+              className="flex flex-col items-center justify-center py-24 text-center"
+            >
+              <div className="relative w-20 h-20 mb-8">
+                <motion.div
+                  animate={{ scale: [1, 1.35, 1], opacity: [0.5, 0, 0.5] }}
+                  transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
+                  className="absolute inset-0 rounded-full bg-[#7C3AED]"
+                />
+                <div className="relative w-20 h-20 rounded-full bg-[#7C3AED] flex items-center justify-center">
+                  <Sparkles size={28} className="text-white" />
+                </div>
+              </div>
+              <h2 className="text-2xl font-bold text-white mb-2">Building your topic list...</h2>
+              <p className="text-[#475569] text-sm">Clio is analysing your objectives</p>
+              <div className="mt-6 flex gap-2">
+                {[0, 1, 2].map((i) => (
+                  <motion.div
+                    key={i}
+                    animate={{ opacity: [0.2, 1, 0.2] }}
+                    transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.2 }}
+                    className="w-2 h-2 rounded-full bg-[#7C3AED]"
+                  />
+                ))}
               </div>
             </motion.div>
           )}
@@ -406,21 +469,18 @@ export default function TopicsPage() {
               className="space-y-6"
             >
               <div>
-                <div className="flex items-center gap-3 mb-1">
-                  <button
-                    onClick={() => setView('input')}
-                    className="text-xs text-[#475569] hover:text-[#94A3B8] transition-colors"
-                  >
-                    ← Back
-                  </button>
-                </div>
+                <button
+                  onClick={() => generatedTopics.length > 0 ? setView('selection') : setView('input')}
+                  className="text-xs text-[#475569] hover:text-[#94A3B8] transition-colors mb-4 block"
+                >
+                  ← Back
+                </button>
                 <h1 className="text-3xl font-extrabold text-white mt-3">Enter your topics</h1>
                 <p className="text-[#94A3B8] mt-1 text-sm">
                   Add each topic you want to learn. Press Enter or the + button after each one.
                 </p>
               </div>
 
-              {/* Add input */}
               <div className="flex gap-2">
                 <input
                   ref={customInputRef}
@@ -441,14 +501,9 @@ export default function TopicsPage() {
                 </button>
               </div>
 
-              {/* Topic list */}
               <AnimatePresence>
                 {manualTopics.length > 0 && (
-                  <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="space-y-2"
-                  >
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-2">
                     {manualTopics.map((topic, i) => (
                       <motion.div
                         key={topic}
@@ -465,7 +520,6 @@ export default function TopicsPage() {
                         <button
                           onClick={() => removeManualTopic(topic)}
                           className="text-[#475569] hover:text-red-400 transition-colors"
-                          aria-label="Remove"
                         >
                           <X size={14} />
                         </button>
@@ -481,7 +535,6 @@ export default function TopicsPage() {
                 </p>
               )}
 
-              {/* Continue */}
               <div className="flex items-center gap-4 flex-wrap">
                 <Button
                   onClick={handleContinue}
