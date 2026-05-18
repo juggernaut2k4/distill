@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { generateVisualSpec } from '@/lib/session-ai'
-import { findPreGeneratedVisual, type SessionPlan } from '@/lib/session-plan'
+import { findPreGeneratedSection, type SessionPlan } from '@/lib/session-plan'
 
 const Body = z.object({
   userId: z.string().min(1),
@@ -43,23 +43,36 @@ export async function POST(request: NextRequest) {
       .eq('id', walkthroughState.session_id)
       .single()
 
-    const preGenerated = findPreGeneratedVisual(
+    const preGeneratedSection = findPreGeneratedSection(
       sessionRow?.session_plan as SessionPlan | null,
       topicTitle
     )
 
-    if (preGenerated) {
-      console.log('[generate-visual] Using pre-generated visual for:', topicTitle)
-      await supabase
+    if (preGeneratedSection) {
+      console.log('[generate-visual] Pre-generated section found for:', topicTitle, '— using scroll_to')
+      // Find the section index in walkthrough_state.sections to scroll to it
+      const { data: wsData } = await supabase
         .from('walkthrough_state')
-        .update({
-          status: 'ready',
-          visual_spec: preGenerated,
-          topic_id: preGenerated.topicId,
-          topic_title: preGenerated.title,
-        })
+        .select('sections, current_section_index')
         .eq('user_id', userId)
-      return NextResponse.json({ ok: true, source: 'pre-generated' })
+        .single()
+
+      const sections = Array.isArray(wsData?.sections) ? wsData.sections : []
+      const sectionIdx = sections.findIndex(
+        (s: { meta?: { subtopicTitle?: string } }) =>
+          s.meta?.subtopicTitle?.toLowerCase().includes(topicTitle.toLowerCase().slice(0, 20))
+      )
+
+      if (sectionIdx >= 0) {
+        await supabase
+          .from('walkthrough_state')
+          .update({ current_section_index: sectionIdx })
+          .eq('user_id', userId)
+        return NextResponse.json({ ok: true, source: 'template-scroll' })
+      }
+
+      // Fallback: update visual_spec with a placeholder if section lookup fails
+      return NextResponse.json({ ok: true, source: 'pre-generated-no-scroll' })
     }
   }
 

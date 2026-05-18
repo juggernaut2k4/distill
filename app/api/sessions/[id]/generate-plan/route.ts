@@ -7,6 +7,7 @@ import {
   generateRemainingSubtopicVisuals,
   type SessionPlan,
 } from '@/lib/session-plan'
+// TemplateSection is used via session-plan functions — no direct import needed
 
 // Allow up to 120s — first subtopic sequential (~8s) + 4 remaining in parallel (~8s)
 export const maxDuration = 120
@@ -261,7 +262,7 @@ export async function POST(_request: NextRequest, { params }: Params) {
 
   try {
     // Generate first subtopic visual (enables launch button as soon as this completes)
-    const subtopicsAfterFirst = await generateFirstSubtopicVisual(subtopics, userProfile)
+    const subtopicsAfterFirst = await generateFirstSubtopicVisual(subtopics, userProfile, topicTitle)
 
     const partialPlan: SessionPlan = {
       topic_id: topicId,
@@ -278,7 +279,7 @@ export async function POST(_request: NextRequest, { params }: Params) {
       .eq('id', params.id)
 
     // Generate remaining subtopics in parallel (within maxDuration window)
-    const allSubtopics = await generateRemainingSubtopicVisuals(subtopicsAfterFirst, userProfile)
+    const allSubtopics = await generateRemainingSubtopicVisuals(subtopicsAfterFirst, userProfile, topicTitle)
     const allReady = allSubtopics.every((s) => s.visual_status === 'ready')
 
     const completePlan: SessionPlan = {

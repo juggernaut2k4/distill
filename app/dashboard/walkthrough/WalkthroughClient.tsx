@@ -3,7 +3,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import ConceptVisualizer from '@/components/walkthrough/ConceptVisualizer'
+import SessionStack from '@/components/templates/SessionStack'
 import type { VisualSpec } from '@/lib/session-ai'
+import type { TemplateSection } from '@/lib/templates/types'
 import { Conversation } from '@11labs/client'
 
 const AGENT_ID = process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID ?? 'agent_0701krp1ta48fswrff17ctb0520m'
@@ -22,6 +24,8 @@ interface WalkthroughState {
   user_id: string
   status: WalkthroughStatus
   visual_spec: VisualSpec | null
+  sections: TemplateSection[] | null
+  current_section_index: number
   topic_title?: string | null
   bot_id?: string | null
   pending_transcript?: string | null
@@ -81,6 +85,7 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
   const sessionEndedRef = useRef(false)
   const topicRef = useRef<string | null | undefined>(initialState.topic_title)
   const skippedTopicsRef = useRef<string[]>(initialState.skipped_topics ?? [])
+  const sectionsRef = useRef<TemplateSection[]>(initialState.sections ?? [])
   const reconnectAttemptsRef = useRef(0)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -144,6 +149,25 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
             show_visual: async ({ topic_id, topic_title }: { topic_id: string; topic_title: string }) => {
               console.log('[Walkthrough] show_visual called —', topic_title)
               try {
+                // New flow: find matching section and scroll to it
+                const sections = sectionsRef.current
+                if (sections.length > 0) {
+                  const needle = topic_title.toLowerCase()
+                  const idx = sections.findIndex((s) => {
+                    const haystack = s.meta.subtopicTitle.toLowerCase()
+                    const words = needle.split(' ').slice(0, 4).join(' ')
+                    return haystack.includes(words) || needle.includes(haystack.split(' ').slice(0, 4).join(' '))
+                  })
+                  if (idx >= 0) {
+                    await fetch(`/api/walkthrough-state/${userId}`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ command: 'scroll_to', section_index: idx }),
+                    })
+                    return `Now showing: ${sections[idx].meta.subtopicTitle}`
+                  }
+                }
+                // Legacy fallback: generate a VisualSpec and display it
                 const res = await fetch('/api/generate-visual', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
@@ -277,6 +301,7 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
         setState(data)
         if (data.topic_title) topicRef.current = data.topic_title
         if (data.skipped_topics) skippedTopicsRef.current = data.skipped_topics
+        if (data.sections) sectionsRef.current = data.sections
 
         const conv = conversationRef.current
 
@@ -309,6 +334,7 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
 
   const status = state.status ?? 'idle'
   const spec = state.visual_spec
+  const hasSections = (state.sections?.length ?? 0) > 0
 
   const agentStatusColor =
     agentStatus === 'listening'    ? 'bg-blue-900/80 text-blue-300' :
@@ -323,7 +349,17 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
       className="min-h-screen w-full bg-[#080808] overflow-hidden relative"
       style={{ position: 'fixed', inset: 0 }}
     >
-      <AnimatePresence mode="wait">
+      {/* Template-based session stack — shown when sections are pre-generated */}
+      {hasSections && state.sections && (
+        <SessionStack
+          sections={state.sections}
+          currentSectionIndex={state.current_section_index ?? 0}
+          userId={userId}
+        />
+      )}
+
+      {/* Legacy single-visual renderer — shown when no sections are available */}
+      {!hasSections && <AnimatePresence mode="wait">
         {status === 'idle' && (
           <motion.div
             key="idle"
@@ -406,7 +442,7 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
             />
           </motion.div>
         )}
-      </AnimatePresence>
+      </AnimatePresence>}
 
       {/* Debug overlay */}
       <div className="fixed bottom-3 right-3 z-50 text-xs font-mono space-y-1">

@@ -1,14 +1,16 @@
 /**
- * Session plan generation — pre-generates visual specs for all subtopics
- * before the session starts so diagrams render instantly during coaching.
+ * Session plan generation — pre-generates template sections for all subtopics
+ * before the session starts so visuals render instantly during coaching.
  */
 
-import { generateVisualSpec, type VisualSpec } from './session-ai'
+import { selectTemplate } from './templates/selector'
+import { generateTemplateData } from './templates/generator'
+import type { TemplateSection, TemplateMeta } from './templates/types'
 
 export interface SessionPlanSubtopic {
   id: string
   title: string
-  visual_spec: VisualSpec | null
+  template_section: TemplateSection | null
   visual_status: 'pending' | 'ready' | 'failed'
   skipped?: boolean
 }
@@ -25,28 +27,45 @@ export function subtopicToId(title: string): string {
   return title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/, '').slice(0, 60)
 }
 
-async function generateSubtopicVisual(
+async function generateSubtopicSection(
   sub: SessionPlanSubtopic,
-  userContext: { role: string; industry: string; maturity: string }
+  position: 'first' | 'middle' | 'last',
+  sessionTitle: string,
+  userContext: { role: string; industry: string; maturity: string },
+  adjacentTopics?: { previous?: string; next?: string }
 ): Promise<SessionPlanSubtopic> {
   try {
-    const spec = await generateVisualSpec(sub.id, sub.title, userContext, { width: 1280, height: 720 })
-    return { ...sub, visual_spec: spec, visual_status: 'ready' }
+    const templateType = selectTemplate(sub.title, position)
+    const meta: TemplateMeta = {
+      subtopicTitle: sub.title,
+      sessionTitle,
+      userRole: userContext.role,
+      userIndustry: userContext.industry,
+    }
+    const data = await generateTemplateData(
+      templateType,
+      sub.title,
+      sessionTitle,
+      userContext,
+      adjacentTopics
+    )
+    const section = { id: sub.id, type: templateType, data, meta, status: 'pending' as const } as TemplateSection
+    return { ...sub, template_section: section, visual_status: 'ready' }
   } catch (err) {
-    console.error('[session-plan] Visual failed for subtopic:', sub.title, err)
+    console.error('[session-plan] Template generation failed for subtopic:', sub.title, err)
     return { ...sub, visual_status: 'failed' }
   }
 }
 
 /**
- * Generates visual specs for all subtopics.
- * Generates the first subtopic first so the session can start immediately,
- * then generates the rest in parallel.
- * Returns updated subtopics after first visual is ready.
+ * Generates the template section for the first subtopic only.
+ * Returns updated subtopics with the first section ready, rest still pending.
+ * Enables the session launch button as soon as the first section is ready.
  */
 export async function generateFirstSubtopicVisual(
   subtopicTitles: string[],
-  userProfile: { role?: string | null; industry?: string | null; ai_maturity?: string | null }
+  userProfile: { role?: string | null; industry?: string | null; ai_maturity?: string | null },
+  sessionTitle = ''
 ): Promise<SessionPlanSubtopic[]> {
   const userContext = {
     role: userProfile.role ?? 'executive',
@@ -57,23 +76,26 @@ export async function generateFirstSubtopicVisual(
   const subtopics: SessionPlanSubtopic[] = subtopicTitles.map((title) => ({
     id: subtopicToId(title),
     title,
-    visual_spec: null,
+    template_section: null,
     visual_status: 'pending' as const,
   }))
 
   if (subtopics.length === 0) return subtopics
 
-  const first = await generateSubtopicVisual(subtopics[0], userContext)
+  const position = subtopics.length === 1 ? 'first' : 'first'
+  const adjacentTopics = subtopics.length > 1 ? { next: subtopics[1].title } : undefined
+  const first = await generateSubtopicSection(subtopics[0], position, sessionTitle, userContext, adjacentTopics)
   return [first, ...subtopics.slice(1)]
 }
 
 /**
- * Generates visual specs for all remaining subtopics (index 1+) in parallel.
+ * Generates template sections for all remaining subtopics (index 1+) in parallel.
  * Call after generateFirstSubtopicVisual so the rest complete in background.
  */
 export async function generateRemainingSubtopicVisuals(
   subtopics: SessionPlanSubtopic[],
-  userProfile: { role?: string | null; industry?: string | null; ai_maturity?: string | null }
+  userProfile: { role?: string | null; industry?: string | null; ai_maturity?: string | null },
+  sessionTitle = ''
 ): Promise<SessionPlanSubtopic[]> {
   if (subtopics.length <= 1) return subtopics
 
@@ -84,35 +106,49 @@ export async function generateRemainingSubtopicVisuals(
   }
 
   const remaining = await Promise.all(
-    subtopics.slice(1).map((sub) =>
-      sub.visual_status === 'ready' ? Promise.resolve(sub) : generateSubtopicVisual(sub, userContext)
-    )
+    subtopics.slice(1).map((sub, idx) => {
+      if (sub.visual_status === 'ready') return Promise.resolve(sub)
+      const absoluteIdx = idx + 1
+      const position = absoluteIdx === subtopics.length - 1 ? 'last' : 'middle'
+      const adjacentTopics = {
+        previous: subtopics[absoluteIdx - 1]?.title,
+        next: subtopics[absoluteIdx + 1]?.title,
+      }
+      return generateSubtopicSection(sub, position, sessionTitle, userContext, adjacentTopics)
+    })
   )
 
   return [subtopics[0], ...remaining]
 }
 
 /**
- * Finds a pre-generated visual spec that matches the given topic title.
- * Used in generate-visual to skip Claude generation when a spec is already ready.
+ * Returns all ready TemplateSections from a session plan, in order.
+ * Used to populate walkthrough_state.sections at session launch.
  */
-export function findPreGeneratedVisual(
+export function getAllReadySections(plan: SessionPlan | null): TemplateSection[] {
+  if (!plan?.subtopics) return []
+  return plan.subtopics
+    .filter((s) => s.visual_status === 'ready' && s.template_section)
+    .map((s) => s.template_section!)
+}
+
+/**
+ * Finds a pre-generated TemplateSection matching the given topic title.
+ * Used to find a specific section by title during a live session.
+ */
+export function findPreGeneratedSection(
   plan: SessionPlan | null,
   topicTitle: string
-): VisualSpec | null {
+): TemplateSection | null {
   if (!plan?.subtopics) return null
-
   const needle = topicTitle.toLowerCase()
-
   const match = plan.subtopics.find((sub) => {
-    if (sub.visual_status !== 'ready' || !sub.visual_spec) return false
+    if (sub.visual_status !== 'ready' || !sub.template_section) return false
     const haystack = sub.title.toLowerCase()
-    // Match if titles share 3+ consecutive words or one contains the other
     const needleWords = needle.split(' ').slice(0, 4).join(' ')
     return haystack.includes(needleWords) || needle.includes(haystack.split(' ').slice(0, 4).join(' '))
   })
-
-  return match?.visual_spec ?? null
+  return match?.template_section ?? null
 }
 
 export function buildInitialPlan(
@@ -126,7 +162,7 @@ export function buildInitialPlan(
     subtopics: subtopicTitles.map((title) => ({
       id: subtopicToId(title),
       title,
-      visual_spec: null,
+      template_section: null,
       visual_status: 'pending',
     })),
     plan_status: 'generating',

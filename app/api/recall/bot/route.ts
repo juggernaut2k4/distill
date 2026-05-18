@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { createBot, deleteBot } from '@/lib/recall'
+import { getAllReadySections, type SessionPlan } from '@/lib/session-plan'
 
 const CreateBotSchema = z.object({
   meetingUrl: z.string().url(),
@@ -46,6 +47,16 @@ export async function POST(request: NextRequest) {
 
     const supabase = createSupabaseAdminClient()
 
+    // Load pre-generated template sections from the session plan
+    const { data: sessionData } = await supabase
+      .from('sessions')
+      .select('session_plan')
+      .eq('id', sessionId)
+      .single()
+
+    const readySections = getAllReadySections(sessionData?.session_plan as SessionPlan | null)
+    console.log(`[recall/bot] Loading ${readySections.length} pre-generated sections into walkthrough_state`)
+
     // Upsert walkthrough_state — onConflict ensures existing row is updated, not duplicated
     const { error: upsertErr } = await supabase.from('walkthrough_state').upsert(
       {
@@ -58,6 +69,8 @@ export async function POST(request: NextRequest) {
         topic_title: null,
         topic_id: null,
         skipped_topics: skippedTopics,
+        sections: readySections.length > 0 ? readySections : null,
+        current_section_index: 0,
       },
       { onConflict: 'user_id' }
     )
