@@ -10,19 +10,94 @@ import { Button } from '@/components/ui/Button'
 
 type View = 'loading' | 'selection' | 'input' | 'generating' | 'manual'
 
+interface TopicCategory {
+  category: string
+  color: string
+  topics: string[]
+}
+
+const CATEGORIES: Array<{ name: string; color: string; keywords: string[] }> = [
+  {
+    name: 'AI Strategy & Leadership',
+    color: '#7C3AED',
+    keywords: ['strategy', 'leadership', 'governance', 'roi', 'vendor', 'culture', 'risk', 'executive', 'board', 'roadmap', 'ambition', 'posture', 'framework', 'maturity', 'invest', 'decision', 'oversight', 'committee'],
+  },
+  {
+    name: 'Technology Foundations',
+    color: '#06B6D4',
+    keywords: ['language model', 'llm', 'generative', 'machine learning', 'foundation model', 'neural', 'gpt', 'claude', 'gemini', 'data strateg', 'data infrastructure', 'data readiness', 'security', 'privacy', 'technical', 'how ai', 'what ai', 'token', 'training', 'model'],
+  },
+  {
+    name: 'Operational AI',
+    color: '#10B981',
+    keywords: ['operation', 'supply chain', 'customer experience', 'cx', 'process automation', 'finance', 'forecast', 'hr ', 'talent', 'marketing', 'sales', 'revenue', 'automation', 'workflow', 'procurement', 'logistics', 'demand'],
+  },
+  {
+    name: 'Team & Organisation',
+    color: '#F59E0B',
+    keywords: ['team', 'upskill', 'change management', 'people', 'hiring', 'recruit', 'organisation', 'organization', 'culture', 'mindset', 'adoption', 'champion', 'ethics', 'responsible', 'bias', 'fairness', 'interdisciplinary', 'center of excellence'],
+  },
+  {
+    name: 'Competitive Edge',
+    color: '#A855F7',
+    keywords: ['competitive', 'intelligence', 'industry', 'product development', 'emerging', 'trend', 'regulation', 'compliance', 'future', 'disruption', 'market', 'first mover', 'agentic', 'multi-modal', 'frontier'],
+  },
+]
+
+function categorizeTopics(topics: string[]): TopicCategory[] {
+  const buckets: Record<string, string[]> = {}
+  const uncategorized: string[] = []
+
+  for (const cat of CATEGORIES) buckets[cat.name] = []
+
+  for (const topic of topics) {
+    const lower = topic.toLowerCase()
+    let bestCategory: string | null = null
+    let bestScore = 0
+
+    for (const cat of CATEGORIES) {
+      const score = cat.keywords.filter((kw) => lower.includes(kw)).length
+      if (score > bestScore) {
+        bestScore = score
+        bestCategory = cat.name
+      }
+    }
+
+    if (bestCategory) {
+      buckets[bestCategory].push(topic)
+    } else {
+      uncategorized.push(topic)
+    }
+  }
+
+  // Distribute uncategorized round-robin across non-empty categories first,
+  // then fill any empty category, then fallback to first category
+  const order = CATEGORIES.map((c) => c.name)
+  let idx = 0
+  for (const topic of uncategorized) {
+    buckets[order[idx % order.length]].push(topic)
+    idx++
+  }
+
+  return CATEGORIES
+    .map((cat) => ({ category: cat.name, color: cat.color, topics: buckets[cat.name] }))
+    .filter((g) => g.topics.length > 0)
+}
+
 export default function TopicsPage() {
   const router = useRouter()
   const [view, setView] = useState<View>('loading')
   const [objectives, setObjectives] = useState('')
   const [generateError, setGenerateError] = useState<string | null>(null)
-  const [generatedTopics, setGeneratedTopics] = useState<string[]>([])
+  const [topicGroups, setTopicGroups] = useState<TopicCategory[]>([])
   const [manualTopics, setManualTopics] = useState<string[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [customInput, setCustomInput] = useState('')
   const [saving, setSaving] = useState(false)
   const customInputRef = useRef<HTMLInputElement>(null)
 
-  const allTopics = [...generatedTopics, ...manualTopics]
+  const allGeneratedTopics = topicGroups.flatMap((g) => g.topics)
+  const allTopics = [...allGeneratedTopics, ...manualTopics]
   const allSelected = allTopics.length > 0 && selected.size === allTopics.length
 
   // Auto-generate topics from profile on mount
@@ -31,7 +106,7 @@ export default function TopicsPage() {
       .then((r) => r.json())
       .then((data: { topics?: string[]; error?: string }) => {
         if (data.topics && data.topics.length > 0) {
-          setGeneratedTopics(data.topics)
+          setTopicGroups(categorizeTopics(data.topics))
           setSelected(new Set(data.topics))
           setView('selection')
         } else {
@@ -63,7 +138,7 @@ export default function TopicsPage() {
         return
       }
 
-      setGeneratedTopics(data.topics)
+      setTopicGroups(categorizeTopics(data.topics))
       setManualTopics([])
       setSelected(new Set(data.topics))
       setView('selection')
@@ -78,6 +153,19 @@ export default function TopicsPage() {
       const next = new Set(prev)
       if (next.has(topic)) next.delete(topic)
       else next.add(topic)
+      return next
+    })
+  }
+
+  function toggleCategory(topics: string[]) {
+    const allIn = topics.every((t) => selected.has(t))
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (allIn) {
+        topics.forEach((t) => next.delete(t))
+      } else {
+        topics.forEach((t) => next.add(t))
+      }
       return next
     })
   }
@@ -127,7 +215,7 @@ export default function TopicsPage() {
         body: JSON.stringify({ topics: Array.from(selected) }),
       })
     } catch {
-      // non-fatal — proceed anyway
+      // non-fatal
     }
     router.push('/dashboard/plan')
   }
@@ -145,15 +233,12 @@ export default function TopicsPage() {
         <span className="text-lg font-extrabold text-white tracking-tight">
           Clio <span className="text-[#7C3AED] text-xs font-semibold uppercase tracking-widest ml-1">AI</span>
         </span>
-        <button
-          onClick={handleSkip}
-          className="text-sm text-[#475569] hover:text-[#94A3B8] transition-colors"
-        >
+        <button onClick={handleSkip} className="text-sm text-[#475569] hover:text-[#94A3B8] transition-colors">
           Skip for now →
         </button>
       </div>
 
-      <div className="max-w-2xl mx-auto px-6 py-12">
+      <div className="max-w-3xl mx-auto px-6 py-12">
         <AnimatePresence mode="wait">
 
           {/* ── LOADING ─────────────────────────────────────────────────── */}
@@ -191,7 +276,7 @@ export default function TopicsPage() {
             </motion.div>
           )}
 
-          {/* ── SELECTION ───────────────────────────────────────────────── */}
+          {/* ── SELECTION (categorized) ──────────────────────────────────── */}
           {view === 'selection' && (
             <motion.div
               key="selection"
@@ -199,7 +284,7 @@ export default function TopicsPage() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -16 }}
               transition={{ duration: 0.35 }}
-              className="space-y-6"
+              className="space-y-8"
             >
               {/* Header */}
               <div>
@@ -207,86 +292,131 @@ export default function TopicsPage() {
                   <Sparkles size={14} />
                   Personalised for your profile
                 </div>
-                <h1 className="text-3xl font-extrabold text-white">Your topic list</h1>
-                <p className="text-[#94A3B8] mt-1 text-sm">
-                  {selected.size} of {allTopics.length} selected — deselect any you&apos;d like to skip
-                </p>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h1 className="text-3xl font-extrabold text-white">Your AI curriculum</h1>
+                    <p className="text-[#94A3B8] mt-1 text-sm">
+                      {selected.size} of {allTopics.length} topics selected — deselect any you&apos;d like to skip
+                    </p>
+                  </div>
+                  <button
+                    onClick={toggleAll}
+                    className="flex items-center gap-2 text-sm font-medium text-[#475569] hover:text-[#94A3B8] transition-colors mt-1 whitespace-nowrap"
+                  >
+                    {allSelected
+                      ? <CheckSquare size={15} className="text-[#7C3AED]" />
+                      : <Square size={15} />}
+                    {allSelected ? 'Deselect all' : 'Select all'}
+                  </button>
+                </div>
               </div>
 
-              {/* Select all toggle */}
-              <button
-                onClick={toggleAll}
-                className="flex items-center gap-2 text-sm font-medium text-[#94A3B8] hover:text-white transition-colors"
-              >
-                {allSelected
-                  ? <CheckSquare size={16} className="text-[#7C3AED]" />
-                  : <Square size={16} />
-                }
-                {allSelected ? 'Deselect all' : 'Select all'}
-              </button>
-
-              {/* Generated topic cards */}
-              <div className="space-y-2">
-                {generatedTopics.map((topic, i) => {
-                  const isSelected = selected.has(topic)
+              {/* Category groups */}
+              <div className="space-y-6">
+                {topicGroups.map((group, gi) => {
+                  const groupSelected = group.topics.filter((t) => selected.has(t)).length
+                  const allGroupSelected = groupSelected === group.topics.length
                   return (
-                    <motion.button
-                      key={topic}
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: i * 0.04 }}
-                      onClick={() => toggleTopic(topic)}
-                      className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl border text-left text-sm font-medium transition-all duration-150 ${
-                        isSelected
-                          ? 'bg-purple-950/30 border-[#7C3AED] text-white'
-                          : 'bg-[#111111] border-[#222222] text-[#94A3B8] hover:border-[#333] hover:text-white hover:bg-[#1A1A1A]'
-                      }`}
+                    <motion.div
+                      key={group.category}
+                      initial={{ opacity: 0, y: 12 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: gi * 0.07 }}
+                      className="bg-[#111111] border border-[#222222] rounded-2xl overflow-hidden"
                     >
-                      <div className={`w-5 h-5 rounded flex items-center justify-center flex-shrink-0 border transition-all ${
-                        isSelected ? 'bg-[#7C3AED] border-[#7C3AED]' : 'border-[#333] bg-transparent'
-                      }`}>
-                        {isSelected && <Check size={11} className="text-white" strokeWidth={3} />}
+                      {/* Category header */}
+                      <div
+                        className="flex items-center justify-between px-5 py-3.5 border-b border-[#222222]"
+                        style={{ borderLeftWidth: 3, borderLeftColor: group.color }}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: group.color }} />
+                          <span className="text-sm font-bold text-white tracking-tight">{group.category}</span>
+                          <span className="text-xs text-[#475569]">{groupSelected}/{group.topics.length}</span>
+                        </div>
+                        <button
+                          onClick={() => toggleCategory(group.topics)}
+                          className="text-xs text-[#475569] hover:text-[#94A3B8] transition-colors flex items-center gap-1"
+                        >
+                          {allGroupSelected
+                            ? <><CheckSquare size={12} style={{ color: group.color }} /> Deselect all</>
+                            : <><Square size={12} /> Select all</>}
+                        </button>
                       </div>
-                      {topic}
-                    </motion.button>
+
+                      {/* Topics in this category */}
+                      <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {group.topics.map((topic) => {
+                          const isSelected = selected.has(topic)
+                          return (
+                            <button
+                              key={topic}
+                              onClick={() => toggleTopic(topic)}
+                              className={`flex items-center gap-3 px-4 py-3 rounded-xl border text-left text-sm font-medium transition-all duration-150 ${
+                                isSelected
+                                  ? 'border-[#7C3AED] text-white'
+                                  : 'bg-[#1A1A1A] border-[#2A2A2A] text-[#94A3B8] hover:border-[#333] hover:text-white'
+                              }`}
+                              style={isSelected ? { backgroundColor: `${group.color}18`, borderColor: group.color } : {}}
+                            >
+                              <div
+                                className="w-4 h-4 rounded flex items-center justify-center flex-shrink-0 border transition-all"
+                                style={isSelected
+                                  ? { backgroundColor: group.color, borderColor: group.color }
+                                  : { borderColor: '#444', backgroundColor: 'transparent' }}
+                              >
+                                {isSelected && <Check size={9} className="text-white" strokeWidth={3} />}
+                              </div>
+                              <span className="leading-snug">{topic}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </motion.div>
                   )
                 })}
 
-                {/* Manually added topics */}
-                {manualTopics.map((topic) => {
-                  const isSelected = selected.has(topic)
-                  return (
-                    <div key={topic} className="flex items-center gap-2">
-                      <button
-                        onClick={() => toggleTopic(topic)}
-                        className={`flex-1 flex items-center gap-3 px-4 py-3.5 rounded-xl border text-left text-sm font-medium transition-all duration-150 ${
-                          isSelected
-                            ? 'bg-purple-950/30 border-[#7C3AED] text-white'
-                            : 'bg-[#111111] border-[#222222] text-[#94A3B8] hover:border-[#333] hover:text-white hover:bg-[#1A1A1A]'
-                        }`}
-                      >
-                        <div className={`w-5 h-5 rounded flex items-center justify-center flex-shrink-0 border transition-all ${
-                          isSelected ? 'bg-[#7C3AED] border-[#7C3AED]' : 'border-[#333] bg-transparent'
-                        }`}>
-                          {isSelected && <Check size={11} className="text-white" strokeWidth={3} />}
-                        </div>
-                        {topic}
-                        <span className="ml-auto text-[10px] text-[#475569] uppercase tracking-wider">custom</span>
-                      </button>
-                      <button
-                        onClick={() => removeManualTopic(topic)}
-                        className="w-9 h-9 flex items-center justify-center rounded-xl border border-[#222] text-[#475569] hover:text-red-400 hover:border-red-900/50 transition-colors flex-shrink-0"
-                        aria-label="Remove topic"
-                      >
-                        <X size={13} />
-                      </button>
+                {/* Custom / manually added topics */}
+                {manualTopics.length > 0 && (
+                  <div className="bg-[#111111] border border-[#222222] rounded-2xl overflow-hidden">
+                    <div className="flex items-center gap-2.5 px-5 py-3.5 border-b border-[#222222]" style={{ borderLeftWidth: 3, borderLeftColor: '#475569' }}>
+                      <div className="w-2 h-2 rounded-full bg-[#475569]" />
+                      <span className="text-sm font-bold text-white tracking-tight">Your Custom Topics</span>
                     </div>
-                  )
-                })}
+                    <div className="p-3 space-y-2">
+                      {manualTopics.map((topic) => {
+                        const isSelected = selected.has(topic)
+                        return (
+                          <div key={topic} className="flex items-center gap-2">
+                            <button
+                              onClick={() => toggleTopic(topic)}
+                              className={`flex-1 flex items-center gap-3 px-4 py-3 rounded-xl border text-left text-sm font-medium transition-all duration-150 ${
+                                isSelected
+                                  ? 'bg-purple-950/30 border-[#7C3AED] text-white'
+                                  : 'bg-[#1A1A1A] border-[#2A2A2A] text-[#94A3B8] hover:border-[#333] hover:text-white'
+                              }`}
+                            >
+                              <div className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 border transition-all ${isSelected ? 'bg-[#7C3AED] border-[#7C3AED]' : 'border-[#444] bg-transparent'}`}>
+                                {isSelected && <Check size={9} className="text-white" strokeWidth={3} />}
+                              </div>
+                              {topic}
+                            </button>
+                            <button
+                              onClick={() => removeManualTopic(topic)}
+                              className="w-9 h-9 flex items-center justify-center rounded-xl border border-[#222] text-[#475569] hover:text-red-400 hover:border-red-900/50 transition-colors flex-shrink-0"
+                            >
+                              <X size={13} />
+                            </button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
 
-              {/* Add custom topic inline */}
-              <div className="pt-1">
+              {/* Add custom topic */}
+              <div>
                 <p className="text-xs text-[#475569] mb-2 uppercase tracking-wider font-semibold">Add a topic</p>
                 <div className="flex gap-2">
                   <input
@@ -309,7 +439,7 @@ export default function TopicsPage() {
               </div>
 
               {/* Continue + escape hatch */}
-              <div className="pt-2 space-y-4">
+              <div className="space-y-4">
                 <div className="flex items-center gap-4 flex-wrap">
                   <Button
                     onClick={handleContinue}
@@ -326,9 +456,7 @@ export default function TopicsPage() {
                     <p className="text-xs text-[#475569]">Select at least one topic to continue</p>
                   )}
                 </div>
-
-                {/* Escape hatch */}
-                <div className="flex items-center gap-5 pt-1">
+                <div className="flex items-center gap-5">
                   <button
                     onClick={() => setView('input')}
                     className="inline-flex items-center gap-1.5 text-sm text-[#475569] hover:text-[#94A3B8] transition-colors"
@@ -349,7 +477,7 @@ export default function TopicsPage() {
             </motion.div>
           )}
 
-          {/* ── INPUT (describe objectives) ──────────────────────────────── */}
+          {/* ── INPUT ───────────────────────────────────────────────────── */}
           {view === 'input' && (
             <motion.div
               key="input"
@@ -360,7 +488,7 @@ export default function TopicsPage() {
               className="space-y-8"
             >
               <div>
-                {generatedTopics.length > 0 && (
+                {topicGroups.length > 0 && (
                   <button
                     onClick={() => setView('selection')}
                     className="text-xs text-[#475569] hover:text-[#94A3B8] transition-colors mb-4 block"
@@ -388,17 +516,11 @@ export default function TopicsPage() {
                   placeholder="e.g. I want to understand how AI can help my sales and marketing team, evaluate AI vendors without being misled, and know enough to lead an AI transformation at my company without relying on my tech team to explain everything."
                   className="w-full bg-[#111111] border border-[#222222] focus:border-[#7C3AED] text-white rounded-2xl px-5 py-4 text-sm leading-relaxed placeholder-[#333] resize-none focus:outline-none transition-colors"
                 />
-
                 {generateError && (
-                  <motion.p
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="text-sm text-red-400 px-1"
-                  >
+                  <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-sm text-red-400 px-1">
                     {generateError}
                   </motion.p>
                 )}
-
                 <Button
                   onClick={handleGenerate}
                   disabled={objectives.trim().length < 5}
@@ -470,7 +592,7 @@ export default function TopicsPage() {
             >
               <div>
                 <button
-                  onClick={() => generatedTopics.length > 0 ? setView('selection') : setView('input')}
+                  onClick={() => topicGroups.length > 0 ? setView('selection') : setView('input')}
                   className="text-xs text-[#475569] hover:text-[#94A3B8] transition-colors mb-4 block"
                 >
                   ← Back
@@ -517,10 +639,7 @@ export default function TopicsPage() {
                           <Check size={11} className="text-white" strokeWidth={3} />
                         </div>
                         <span className="flex-1 text-sm text-white">{topic}</span>
-                        <button
-                          onClick={() => removeManualTopic(topic)}
-                          className="text-[#475569] hover:text-red-400 transition-colors"
-                        >
+                        <button onClick={() => removeManualTopic(topic)} className="text-[#475569] hover:text-red-400 transition-colors">
                           <X size={14} />
                         </button>
                       </motion.div>
