@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { requireAuth } from '@/lib/clerk'
 import { createCheckoutSession } from '@/lib/stripe'
+import { createSupabaseAdminClient } from '@/lib/supabase'
 
 const CheckoutSchema = z.object({
   plan: z.enum(['free', 'starter', 'pro', 'executive']),
@@ -28,10 +29,17 @@ const PRICE_ID_MAP: Record<string, Record<string, string | undefined>> = {
   },
 }
 
+const isStripeConfigured =
+  process.env.STRIPE_SECRET_KEY &&
+  !process.env.STRIPE_SECRET_KEY.startsWith('PLACEHOLDER_')
+
 /**
  * POST /api/checkout
  * Creates a Stripe Checkout Session for the selected plan.
- * Returns 503 if Stripe price IDs are not configured — never silently bypasses payment.
+ *
+ * Dev mode (Stripe not configured): activates the plan directly in the DB
+ * and returns the returnUrl so the schedule flow completes end-to-end.
+ * Production: always goes through real Stripe checkout.
  */
 export async function POST(request: NextRequest) {
   const { userId, error } = requireAuth()
@@ -49,6 +57,27 @@ export async function POST(request: NextRequest) {
     }
 
     const { plan, billingPeriod, returnUrl } = parsed.data
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
+
+    // ── Dev / mock mode ─────────────────────────────────────────────────────
+    // When Stripe is not configured, activate the plan directly in the DB so
+    // the rest of the scheduling flow works end-to-end without real payment.
+    if (!isStripeConfigured) {
+      console.log('[checkout] MOCK mode — activating plan without Stripe:', plan)
+      const supabase = createSupabaseAdminClient()
+      await supabase
+        .from('users')
+        .update({
+          plan_tier: plan === 'free' ? 'starter' : plan,
+          subscription_status: 'trialing',
+        })
+        .eq('id', userId!)
+
+      const successUrl = returnUrl ?? `${appUrl}/dashboard/welcome`
+      return NextResponse.json({ checkoutUrl: successUrl, mock: true })
+    }
+
+    // ── Production: real Stripe checkout ────────────────────────────────────
     const priceId = PRICE_ID_MAP[plan]?.[billingPeriod]
 
     if (!priceId || priceId.startsWith('PLACEHOLDER_')) {
