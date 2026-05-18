@@ -6,6 +6,7 @@ import { stripe } from '@/lib/stripe'
 
 const TopUpSchema = z.object({
   minutes: z.number().int().positive().max(1000),
+  returnUrl: z.string().url().optional(), // client passes current origin so mock mode uses the right domain
 })
 
 const PACK_PRICES: Record<number, number> = {
@@ -31,13 +32,17 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const { minutes } = parsed.data
+  const { minutes, returnUrl } = parsed.data
   const unitAmount = PACK_PRICES[minutes]
   if (!unitAmount) {
     return NextResponse.json({ error: 'Invalid pack selection' }, { status: 400 })
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
+  // Use client-provided returnUrl base (so the right domain is used regardless of NEXT_PUBLIC_APP_URL)
+  const appUrl = returnUrl ?? process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
+  const scheduleBase = returnUrl
+    ? returnUrl.replace(/\?.*$/, '') // strip any query string from returnUrl, treat as base
+    : `${appUrl}/dashboard/schedule`
 
   if (!stripe) {
     console.log('[MOCK] topup checkout', { userId, minutes, unitAmount })
@@ -53,7 +58,7 @@ export async function POST(request: NextRequest) {
       .from('users')
       .update({ minutes_balance: newBalance })
       .eq('id', userId!)
-    return NextResponse.json({ checkoutUrl: `${appUrl}/dashboard/schedule?topup=success&added=${minutes}` })
+    return NextResponse.json({ checkoutUrl: `${scheduleBase}?topup=success&added=${minutes}` })
   }
 
   const supabase = createSupabaseAdminClient()
@@ -84,8 +89,8 @@ export async function POST(request: NextRequest) {
       user_id: userId!,
       minutes: String(minutes),
     },
-    success_url: `${appUrl}/dashboard/schedule?topup=success`,
-    cancel_url: `${appUrl}/dashboard/schedule`,
+    success_url: `${scheduleBase}?topup=success&added=${minutes}`,
+    cancel_url: scheduleBase,
   })
 
   return NextResponse.json({ checkoutUrl: session.url })

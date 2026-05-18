@@ -1,16 +1,18 @@
 'use client'
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useRouter } from 'next/navigation'
 import {
-  CalendarDays, Clock, CheckCircle, AlertTriangle, ArrowRight, Zap, Download, FlaskConical,
+  CalendarDays, Clock, CheckCircle, AlertTriangle, ArrowRight, Zap, Download, FlaskConical, Loader,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
-import { TopUpModal } from '@/components/ui/TopUpModal'
 import { buildCurriculum } from '@/lib/content/curriculum'
 import { scheduleSessions, totalMinutesNeeded, checkMinutesSufficiency } from '@/lib/sessions/planner'
+import type { ScheduledSession } from '@/lib/sessions/planner'
+
+const PENDING_KEY = 'clio_pending_schedule'
 
 interface User {
   id: string
@@ -37,9 +39,9 @@ interface ScheduleClientProps {
 }
 
 const FREQUENCY_OPTIONS = [
-  { value: 1, label: 'Daily', description: 'One session every day' },
+  { value: 1, label: 'Daily',        description: 'One session every day' },
   { value: 2, label: 'Every 2 days', description: 'Moderate pace' },
-  { value: 7, label: 'Weekly', description: 'One session per week' },
+  { value: 7, label: 'Weekly',       description: 'One session per week' },
 ]
 
 const DURATION_OPTIONS = [
@@ -55,28 +57,26 @@ const TIME_OPTIONS = [
 
 function formatDateTime(iso: string): string {
   const d = new Date(iso)
-  return d.toLocaleDateString('en-US', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-  }) + ' · ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase()
+  return (
+    d.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' }) +
+    ' · ' +
+    d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase()
+  )
 }
+
+function getPackForDeficit(deficit: number): number {
+  if (deficit <= 60) return 60
+  if (deficit <= 120) return 120
+  return 300
+}
+
+const PACK_PRICES: Record<number, number> = { 60: 15, 120: 25, 300: 55 }
 
 export default function ScheduleClient({ user, existingSessions, topupAdded }: ScheduleClientProps) {
   const router = useRouter()
   const hasExisting = existingSessions.length > 0
+  const autoScheduledRef = useRef(false)
 
-  const [topupBanner, setTopupBanner] = useState<string | null>(
-    topupAdded ? `${topupAdded} minutes added to your account. You can now confirm your schedule.` : null
-  )
-
-  useEffect(() => {
-    if (topupAdded) {
-      setTopupBanner(`${topupAdded} minutes added to your account. You can now confirm your schedule.`)
-    }
-  }, [topupAdded])
-
-  // Get tomorrow as default start date
   const tomorrow = new Date()
   tomorrow.setDate(tomorrow.getDate() + 1)
   const tomorrowStr = tomorrow.toISOString().split('T')[0]
@@ -87,7 +87,7 @@ export default function ScheduleClient({ user, existingSessions, topupAdded }: S
   const [preferredHour, setPreferredHour] = useState(9)
   const [saving, setSaving] = useState(false)
   const [confirmed, setConfirmed] = useState(false)
-  const [topUpOpen, setTopUpOpen] = useState(false)
+  const [autoScheduling, setAutoScheduling] = useState(false)
 
   const plan = useMemo(() => buildCurriculum(
     user.topic_interests ?? [],
@@ -95,56 +95,124 @@ export default function ScheduleClient({ user, existingSessions, topupAdded }: S
   ), [user.topic_interests, user.ai_maturity])
 
   const scheduledSessions = useMemo(() =>
-    scheduleSessions(plan, {
-      firstSessionDate: firstDate,
-      frequencyDays,
-      maxDurationMins: maxDuration,
-      preferredHour,
-    }),
+    scheduleSessions(plan, { firstSessionDate: firstDate, frequencyDays, maxDurationMins: maxDuration, preferredHour }),
     [plan, firstDate, frequencyDays, maxDuration, preferredHour]
   )
 
   const totalNeeded = totalMinutesNeeded(scheduledSessions)
   const balance = user.minutes_balance ?? 0
-  const { sufficient, deficit, recommendedPack } = checkMinutesSufficiency(totalNeeded, balance)
+  const { sufficient, deficit } = checkMinutesSufficiency(totalNeeded, balance)
+  const recommendedMinutes = getPackForDeficit(deficit)
 
-  async function handleConfirm() {
-    if (!sufficient) {
-      setTopUpOpen(true)
+  // ── Auto-schedule on return from successful payment ──────────────────────
+  useEffect(() => {
+    if (!topupAdded || autoScheduledRef.current) return
+    autoScheduledRef.current = true
+
+    const raw = sessionStorage.getItem(PENDING_KEY)
+    if (!raw) return
+
+    let pending: ScheduledSession[]
+    try {
+      pending = JSON.parse(raw) as ScheduledSession[]
+    } catch {
       return
     }
+    sessionStorage.removeItem(PENDING_KEY)
+
+    setAutoScheduling(true)
+    fetch('/api/sessions/schedule', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessions: pending }),
+    })
+      .then(() => router.push('/dashboard/sessions'))
+      .catch(() => {
+        // Auto-schedule failed — fall through to manual confirm
+        setAutoScheduling(false)
+      })
+  }, [topupAdded, router])
+
+  // ── Schedule sessions ────────────────────────────────────────────────────
+  async function submitSessions(sessions: ScheduledSession[]) {
     setSaving(true)
     try {
       await fetch('/api/sessions/schedule', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessions: scheduledSessions }),
+        body: JSON.stringify({ sessions }),
       })
-      setConfirmed(true)
+      router.push('/dashboard/sessions')
     } catch {
       setSaving(false)
     }
   }
 
-  async function handleQuickTest() {
+  async function handleConfirm() {
+    await submitSessions(scheduledSessions)
+  }
+
+  // ── Pay → schedule flow ──────────────────────────────────────────────────
+  async function handlePayAndSchedule() {
     setSaving(true)
     try {
-      const nowPlus2 = new Date(Date.now() + 2 * 60 * 1000).toISOString()
-      const firstSession = scheduledSessions[0]
-      if (!firstSession) { setSaving(false); return }
-      const testSession = { ...firstSession, scheduledAt: nowPlus2, sessionIndex: 1 }
+      // Save the current session plan so we can auto-schedule on return
+      sessionStorage.setItem(PENDING_KEY, JSON.stringify(scheduledSessions))
+
+      const returnUrl = `${window.location.origin}/dashboard/schedule`
+      const res = await fetch('/api/checkout/topup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ minutes: recommendedMinutes, returnUrl }),
+      })
+      const data = await res.json() as { checkoutUrl?: string; error?: string }
+
+      if (data.checkoutUrl) {
+        window.location.href = data.checkoutUrl
+      } else {
+        sessionStorage.removeItem(PENDING_KEY)
+        setSaving(false)
+      }
+    } catch {
+      sessionStorage.removeItem(PENDING_KEY)
+      setSaving(false)
+    }
+  }
+
+  // ── Quick test ───────────────────────────────────────────────────────────
+  async function handleQuickTest() {
+    const first = scheduledSessions[0]
+    if (!first) return
+    const testSession: ScheduledSession = {
+      ...first,
+      scheduledAt: new Date(Date.now() + 2 * 60 * 1000).toISOString(),
+      sessionIndex: 1,
+    }
+    setSaving(true)
+    try {
       await fetch('/api/sessions/schedule', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessions: [testSession] }),
       })
-      setConfirmed(true)
+      router.push('/dashboard/sessions')
     } catch {
       setSaving(false)
     }
   }
 
-  // Existing sessions view (already scheduled, not yet confirmed in this session)
+  // ── Auto-scheduling spinner ──────────────────────────────────────────────
+  if (autoScheduling) {
+    return (
+      <div className="flex flex-col items-center justify-center py-32 text-center gap-4">
+        <Loader size={32} className="text-[#7C3AED] animate-spin" />
+        <p className="text-white font-semibold">Payment confirmed — scheduling your sessions...</p>
+        <p className="text-sm text-[#475569]">You&apos;ll be redirected to your sessions in a moment</p>
+      </div>
+    )
+  }
+
+  // ── Existing sessions view ───────────────────────────────────────────────
   if (!confirmed && hasExisting) {
     return (
       <div className="max-w-2xl space-y-6">
@@ -163,9 +231,7 @@ export default function ScheduleClient({ user, existingSessions, topupAdded }: S
                   {session.session_title ?? `Session ${session.session_index}`}
                 </p>
                 {session.scheduled_at && (
-                  <p className="text-xs text-[#475569] mt-0.5">
-                    {formatDateTime(session.scheduled_at)}
-                  </p>
+                  <p className="text-xs text-[#475569] mt-0.5">{formatDateTime(session.scheduled_at)}</p>
                 )}
               </div>
               <div className="flex items-center gap-1 text-xs text-[#475569]">
@@ -174,7 +240,7 @@ export default function ScheduleClient({ user, existingSessions, topupAdded }: S
               </div>
               <span className={`text-xs px-2 py-0.5 rounded-full capitalize ${
                 session.status === 'completed' ? 'bg-green-950/40 text-green-400 border border-green-800/30' :
-                session.status === 'active' ? 'bg-cyan-950/40 text-cyan-400 border border-cyan-800/30' :
+                session.status === 'active'    ? 'bg-cyan-950/40 text-cyan-400 border border-cyan-800/30' :
                 'bg-[#1A1A1A] text-[#475569] border border-[#222]'
               }`}>
                 {session.status}
@@ -186,90 +252,9 @@ export default function ScheduleClient({ user, existingSessions, topupAdded }: S
     )
   }
 
-  // Confirmation view — shown after successful schedule POST
-  if (confirmed) {
-    return (
-      <AnimatePresence>
-        <motion.div
-          key="confirmed"
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4 }}
-          className="max-w-2xl space-y-8"
-        >
-          {/* Success header */}
-          <div className="flex flex-col items-center text-center py-8">
-            <CheckCircle size={56} className="text-[#10B981] mb-4" />
-            <h1 className="text-3xl font-bold text-white mb-2">Sessions Scheduled!</h1>
-            <p className="text-[#94A3B8] max-w-sm">
-              Your {scheduledSessions.length} session{scheduledSessions.length !== 1 ? 's are' : ' is'} confirmed.
-              Reminders will be sent the day before each session.
-            </p>
-          </div>
-
-          {/* Sessions list */}
-          <div className="space-y-2">
-            {scheduledSessions.map((session, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, x: -8 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: i * 0.05 }}
-                className="flex items-center gap-3 px-4 py-3 rounded-xl bg-[#111111] border border-[#1A1A1A]"
-              >
-                <div className="w-7 h-7 rounded-full bg-purple-950/50 border border-purple-800/40 flex items-center justify-center flex-shrink-0">
-                  <span className="text-[10px] font-bold text-[#A855F7]">{session.sessionIndex}</span>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-white truncate">{session.title}</p>
-                  <p className="text-xs text-[#475569] mt-0.5">{formatDateTime(session.scheduledAt)}</p>
-                </div>
-                <div className="flex items-center gap-1 text-xs text-[#475569] flex-shrink-0">
-                  <Clock size={10} />
-                  {session.estimatedMinutes}m
-                </div>
-              </motion.div>
-            ))}
-          </div>
-
-          {/* Actions */}
-          <div className="flex gap-3 flex-wrap">
-            {/* TODO: implement /api/sessions/calendar/all endpoint to generate ICS for all sessions */}
-            <a
-              href="/api/sessions/calendar/all"
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl border border-[#333333] text-sm font-semibold text-white hover:bg-[#1A1A1A] transition-colors"
-            >
-              <Download size={16} />
-              Download All Calendar Invites
-            </a>
-            <Button onClick={() => router.push('/dashboard')} className="gap-2">
-              Go to Dashboard
-              <ArrowRight size={16} />
-            </Button>
-          </div>
-        </motion.div>
-      </AnimatePresence>
-    )
-  }
-
-  // Scheduling form
+  // ── Scheduling form ──────────────────────────────────────────────────────
   return (
     <div className="max-w-2xl space-y-8">
-      {/* Top-up success banner */}
-      <AnimatePresence>
-        {topupBanner && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            className="flex items-center gap-3 p-4 rounded-xl bg-green-950/20 border border-green-800/30"
-          >
-            <CheckCircle size={16} className="text-[#10B981] flex-shrink-0" />
-            <p className="text-sm text-[#10B981]">{topupBanner}</p>
-            <button onClick={() => setTopupBanner(null)} className="ml-auto text-[#475569] hover:text-white text-xs">✕</button>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Header */}
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
@@ -283,28 +268,26 @@ export default function ScheduleClient({ user, existingSessions, topupAdded }: S
         </p>
       </motion.div>
 
-      {/* Minutes check */}
+      {/* Insufficient minutes banner */}
       <AnimatePresence>
         {!sufficient && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
-            className="flex items-start gap-3 p-4 rounded-xl bg-amber-950/20 border border-amber-800/30"
+            className="p-4 rounded-xl bg-amber-950/20 border border-amber-800/30"
           >
-            <AlertTriangle size={18} className="text-[#F59E0B] flex-shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <p className="text-sm font-semibold text-[#FCD34D] mb-1">
-                You need {deficit} more minutes
-              </p>
-              <p className="text-xs text-[#94A3B8] mb-3">
-                Your balance ({balance} min) won&apos;t cover all sessions ({totalNeeded} min needed).
-                Recommended: <strong className="text-white">{recommendedPack}</strong>
-              </p>
-              <Button variant="secondary" size="sm" className="gap-1.5" onClick={() => setTopUpOpen(true)}>
-                <Zap size={13} />
-                Top up minutes
-              </Button>
+            <div className="flex items-start gap-3">
+              <AlertTriangle size={18} className="text-[#F59E0B] flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-semibold text-[#FCD34D] mb-1">
+                  You need {deficit} more minutes to run all sessions
+                </p>
+                <p className="text-xs text-[#94A3B8]">
+                  Balance: {balance} min · Required: {totalNeeded} min ·
+                  {' '}<strong className="text-white">{recommendedMinutes} min pack — ${PACK_PRICES[recommendedMinutes]}</strong> will cover everything
+                </p>
+              </div>
             </div>
           </motion.div>
         )}
@@ -319,9 +302,7 @@ export default function ScheduleClient({ user, existingSessions, topupAdded }: S
       >
         {/* Start date */}
         <div>
-          <label className="text-sm font-semibold text-white mb-2 block">
-            First session date
-          </label>
+          <label className="text-sm font-semibold text-white mb-2 block">First session date</label>
           <input
             type="date"
             value={firstDate}
@@ -395,15 +376,9 @@ export default function ScheduleClient({ user, existingSessions, topupAdded }: S
         </div>
       </motion.div>
 
-      {/* Preview */}
-      <motion.div
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
-      >
-        <h3 className="text-sm font-semibold text-[#94A3B8] uppercase tracking-wider mb-3">
-          Schedule Preview
-        </h3>
+      {/* Schedule preview */}
+      <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+        <h3 className="text-sm font-semibold text-[#94A3B8] uppercase tracking-wider mb-3">Schedule Preview</h3>
         <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
           {scheduledSessions.map((session, i) => (
             <motion.div
@@ -431,7 +406,7 @@ export default function ScheduleClient({ user, existingSessions, topupAdded }: S
         </div>
       </motion.div>
 
-      {/* Confirm */}
+      {/* Actions */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -439,26 +414,27 @@ export default function ScheduleClient({ user, existingSessions, topupAdded }: S
         className="space-y-3"
       >
         <div className="flex items-center gap-4 flex-wrap">
-          <Button
-            onClick={handleConfirm}
-            disabled={saving}
-            size="lg"
-            className="gap-2"
-          >
-            {saving ? (
-              'Saving...'
-            ) : !sufficient ? (
-              <>
-                Top up to schedule
-                <Zap size={18} />
-              </>
-            ) : (
-              <>
-                Confirm Schedule
-                <ArrowRight size={18} />
-              </>
-            )}
-          </Button>
+          {sufficient ? (
+            <Button onClick={handleConfirm} disabled={saving} size="lg" className="gap-2">
+              {saving ? 'Scheduling...' : 'Confirm Schedule'}
+              {!saving && <ArrowRight size={18} />}
+            </Button>
+          ) : (
+            <Button onClick={handlePayAndSchedule} disabled={saving} size="lg" className="gap-2">
+              {saving ? (
+                <>
+                  <Loader size={16} className="animate-spin" />
+                  Redirecting to payment...
+                </>
+              ) : (
+                <>
+                  <Zap size={16} />
+                  Pay ${PACK_PRICES[recommendedMinutes]} &amp; Schedule
+                </>
+              )}
+            </Button>
+          )}
+
           {sufficient && (
             <p className="text-xs text-[#475569]">
               Uses {totalNeeded} of your {balance} available minutes
@@ -466,7 +442,7 @@ export default function ScheduleClient({ user, existingSessions, topupAdded }: S
           )}
         </div>
 
-        {/* Quick test option */}
+        {/* Quick test */}
         <button
           onClick={handleQuickTest}
           disabled={saving}
@@ -477,11 +453,6 @@ export default function ScheduleClient({ user, existingSessions, topupAdded }: S
         </button>
       </motion.div>
 
-      <TopUpModal
-        open={topUpOpen}
-        onClose={() => setTopUpOpen(false)}
-        currentBalance={balance}
-      />
     </div>
   )
 }
