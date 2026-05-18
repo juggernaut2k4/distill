@@ -36,14 +36,16 @@ export function getPlanFromPriceId(priceId: string): 'starter' | 'pro' | 'execut
  */
 export async function createCheckoutSession(
   userId: string,
-  priceId: string
+  priceId: string,
+  successUrl?: string
 ): Promise<string> {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
+  const resolvedSuccess = successUrl ?? `${appUrl}/dashboard/welcome`
+
   if (isPlaceholder || !stripeClient) {
     console.log('[MOCK] createCheckoutSession', { userId, priceId })
-    return `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/welcome`
+    return resolvedSuccess
   }
-
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
 
   const session = await stripeClient.checkout.sessions.create({
     mode: 'subscription',
@@ -54,7 +56,7 @@ export async function createCheckoutSession(
       metadata: { userId },
     },
     metadata: { userId },
-    success_url: `${appUrl}/dashboard/welcome`,
+    success_url: resolvedSuccess,
     cancel_url: `${appUrl}/pricing`,
   })
 

@@ -1,15 +1,16 @@
 'use client'
 
 import { useState, useMemo, useEffect, useRef } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { useRouter } from 'next/navigation'
 import {
-  CalendarDays, Clock, CheckCircle, AlertTriangle, ArrowRight, Zap, Download, FlaskConical, Loader,
+  CalendarDays, Clock, CheckCircle, ArrowRight, Zap, FlaskConical, Loader,
+  Crown, Sparkles, Building2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { buildCurriculum } from '@/lib/content/curriculum'
-import { scheduleSessions, totalMinutesNeeded, checkMinutesSufficiency } from '@/lib/sessions/planner'
+import { scheduleSessions, totalMinutesNeeded } from '@/lib/sessions/planner'
 import type { ScheduledSession } from '@/lib/sessions/planner'
 
 const PENDING_KEY = 'clio_pending_schedule'
@@ -18,7 +19,6 @@ interface User {
   id: string
   ai_maturity: string | null
   topic_interests: string[] | null
-  minutes_balance: number | null
   plan_tier: string | null
 }
 
@@ -35,7 +35,7 @@ interface ExistingSession {
 interface ScheduleClientProps {
   user: User
   existingSessions: ExistingSession[]
-  topupAdded?: string | null
+  subscribedSuccess?: boolean
 }
 
 const FREQUENCY_OPTIONS = [
@@ -55,6 +55,44 @@ const TIME_OPTIONS = [
   { value: 18, label: 'Evening',   description: '6:00 pm' },
 ]
 
+const PLANS = [
+  {
+    key: 'starter' as const,
+    name: 'Starter',
+    icon: Zap,
+    color: '#06B6D4',
+    monthly: 12,
+    annual: 99,
+    description: 'For executives just getting started with AI',
+    features: ['5 AI coaching sessions/mo', 'Email delivery', 'AI Readiness Score'],
+    popular: false,
+  },
+  {
+    key: 'pro' as const,
+    name: 'Pro',
+    icon: Sparkles,
+    color: '#7C3AED',
+    monthly: 25,
+    annual: 199,
+    description: 'For leaders who want to go deeper',
+    features: ['Unlimited sessions', 'Email + SMS delivery', 'Ask Anything via SMS', 'Priority support'],
+    popular: true,
+  },
+  {
+    key: 'executive' as const,
+    name: 'Executive',
+    icon: Crown,
+    color: '#F59E0B',
+    monthly: 49,
+    annual: 399,
+    description: 'For C-suite with a dedicated experience',
+    features: ['Everything in Pro', 'Dedicated phone number', 'Weekly digest report', 'White-glove onboarding'],
+    popular: false,
+  },
+]
+
+type PlanKey = 'starter' | 'pro' | 'executive'
+
 function formatDateTime(iso: string): string {
   const d = new Date(iso)
   return (
@@ -64,18 +102,11 @@ function formatDateTime(iso: string): string {
   )
 }
 
-function getPackForDeficit(deficit: number): number {
-  if (deficit <= 60) return 60
-  if (deficit <= 120) return 120
-  return 300
-}
-
-const PACK_PRICES: Record<number, number> = { 60: 15, 120: 25, 300: 55 }
-
-export default function ScheduleClient({ user, existingSessions, topupAdded }: ScheduleClientProps) {
+export default function ScheduleClient({ user, existingSessions, subscribedSuccess }: ScheduleClientProps) {
   const router = useRouter()
-  const hasExisting = existingSessions.length > 0
   const autoScheduledRef = useRef(false)
+
+  const hasPaidPlan = !!(user.plan_tier && user.plan_tier !== 'free')
 
   const tomorrow = new Date()
   tomorrow.setDate(tomorrow.getDate() + 1)
@@ -86,7 +117,9 @@ export default function ScheduleClient({ user, existingSessions, topupAdded }: S
   const [maxDuration, setMaxDuration] = useState(30)
   const [preferredHour, setPreferredHour] = useState(9)
   const [saving, setSaving] = useState(false)
-  const [confirmed, setConfirmed] = useState(false)
+  const [showPlans, setShowPlans] = useState(false)
+  const [selectedPlan, setSelectedPlan] = useState<PlanKey>('pro')
+  const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'annual'>('monthly')
   const [autoScheduling, setAutoScheduling] = useState(false)
 
   const plan = useMemo(() => buildCurriculum(
@@ -100,22 +133,23 @@ export default function ScheduleClient({ user, existingSessions, topupAdded }: S
   )
 
   const totalNeeded = totalMinutesNeeded(scheduledSessions)
-  const balance = user.minutes_balance ?? 0
-  const { sufficient, deficit } = checkMinutesSufficiency(totalNeeded, balance)
-  const recommendedMinutes = getPackForDeficit(deficit)
 
-  // ── Auto-schedule on return from successful payment ──────────────────────
+  // Auto-schedule on return from successful Stripe subscription
   useEffect(() => {
-    if (!topupAdded || autoScheduledRef.current) return
+    if (!subscribedSuccess || autoScheduledRef.current) return
     autoScheduledRef.current = true
 
     const raw = sessionStorage.getItem(PENDING_KEY)
-    if (!raw) return
+    if (!raw) {
+      router.push('/dashboard/sessions')
+      return
+    }
 
     let pending: ScheduledSession[]
     try {
       pending = JSON.parse(raw) as ScheduledSession[]
     } catch {
+      router.push('/dashboard/sessions')
       return
     }
     sessionStorage.removeItem(PENDING_KEY)
@@ -127,13 +161,9 @@ export default function ScheduleClient({ user, existingSessions, topupAdded }: S
       body: JSON.stringify({ sessions: pending }),
     })
       .then(() => router.push('/dashboard/sessions'))
-      .catch(() => {
-        // Auto-schedule failed — fall through to manual confirm
-        setAutoScheduling(false)
-      })
-  }, [topupAdded, router])
+      .catch(() => setAutoScheduling(false))
+  }, [subscribedSuccess, router])
 
-  // ── Schedule sessions ────────────────────────────────────────────────────
   async function submitSessions(sessions: ScheduledSession[]) {
     setSaving(true)
     try {
@@ -152,18 +182,15 @@ export default function ScheduleClient({ user, existingSessions, topupAdded }: S
     await submitSessions(scheduledSessions)
   }
 
-  // ── Pay → schedule flow ──────────────────────────────────────────────────
-  async function handlePayAndSchedule() {
+  async function handleSubscribeAndSchedule() {
     setSaving(true)
     try {
-      // Save the current session plan so we can auto-schedule on return
       sessionStorage.setItem(PENDING_KEY, JSON.stringify(scheduledSessions))
-
-      const returnUrl = `${window.location.origin}/dashboard/schedule`
-      const res = await fetch('/api/checkout/topup', {
+      const returnUrl = `${window.location.origin}/dashboard/schedule?subscribed=1`
+      const res = await fetch('/api/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ minutes: recommendedMinutes, returnUrl }),
+        body: JSON.stringify({ plan: selectedPlan, billingPeriod, returnUrl }),
       })
       const data = await res.json() as { checkoutUrl?: string; error?: string }
 
@@ -179,7 +206,6 @@ export default function ScheduleClient({ user, existingSessions, topupAdded }: S
     }
   }
 
-  // ── Quick test ───────────────────────────────────────────────────────────
   async function handleQuickTest() {
     const first = scheduledSessions[0]
     if (!first) return
@@ -201,19 +227,19 @@ export default function ScheduleClient({ user, existingSessions, topupAdded }: S
     }
   }
 
-  // ── Auto-scheduling spinner ──────────────────────────────────────────────
+  // Spinner while auto-scheduling after subscription
   if (autoScheduling) {
     return (
       <div className="flex flex-col items-center justify-center py-32 text-center gap-4">
         <Loader size={32} className="text-[#7C3AED] animate-spin" />
-        <p className="text-white font-semibold">Payment confirmed — scheduling your sessions...</p>
+        <p className="text-white font-semibold">Subscription confirmed — scheduling your sessions...</p>
         <p className="text-sm text-[#475569]">You&apos;ll be redirected to your sessions in a moment</p>
       </div>
     )
   }
 
-  // ── Existing sessions view ───────────────────────────────────────────────
-  if (!confirmed && hasExisting) {
+  // Existing sessions view (user already has scheduled sessions, not returning from Stripe)
+  if (existingSessions.length > 0 && !subscribedSuccess) {
     return (
       <div className="max-w-2xl space-y-6">
         <div>
@@ -252,7 +278,129 @@ export default function ScheduleClient({ user, existingSessions, topupAdded }: S
     )
   }
 
-  // ── Scheduling form ──────────────────────────────────────────────────────
+  // Plan selection screen
+  if (showPlans) {
+    return (
+      <div className="max-w-3xl space-y-8">
+        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
+          <button
+            onClick={() => setShowPlans(false)}
+            className="text-sm text-[#475569] hover:text-[#94A3B8] transition-colors mb-6 flex items-center gap-1"
+          >
+            ← Back to schedule
+          </button>
+          <h1 className="text-3xl font-bold text-white mb-2">Choose your plan</h1>
+          <p className="text-[#94A3B8]">
+            Select a plan to activate your sessions. All plans include a 3-day free trial.
+          </p>
+        </motion.div>
+
+        {/* Billing period toggle */}
+        <div className="flex items-center gap-3">
+          <span className={`text-sm font-medium ${billingPeriod === 'monthly' ? 'text-white' : 'text-[#475569]'}`}>
+            Monthly
+          </span>
+          <button
+            onClick={() => setBillingPeriod(p => p === 'monthly' ? 'annual' : 'monthly')}
+            className={`relative w-10 h-5 rounded-full transition-colors ${
+              billingPeriod === 'annual' ? 'bg-[#7C3AED]' : 'bg-[#333]'
+            }`}
+          >
+            <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+              billingPeriod === 'annual' ? 'translate-x-5' : ''
+            }`} />
+          </button>
+          <span className={`text-sm font-medium ${billingPeriod === 'annual' ? 'text-white' : 'text-[#475569]'}`}>
+            Annual
+            <span className="text-xs text-[#10B981] font-semibold ml-1.5">Save ~30%</span>
+          </span>
+        </div>
+
+        {/* Plan cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {PLANS.map((p, i) => {
+            const Icon = p.icon
+            const isSelected = selectedPlan === p.key
+            const perMonth = billingPeriod === 'annual' ? Math.round(p.annual / 12) : p.monthly
+            const billedAs = billingPeriod === 'annual' ? `$${p.annual}/yr` : null
+
+            return (
+              <motion.button
+                key={p.key}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.07 }}
+                onClick={() => setSelectedPlan(p.key)}
+                className={`relative text-left p-5 rounded-2xl border-2 transition-all ${
+                  isSelected
+                    ? 'border-[#7C3AED] bg-purple-950/20'
+                    : 'border-[#222] bg-[#111] hover:border-[#333]'
+                }`}
+              >
+                {p.popular && (
+                  <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-[10px] font-bold px-3 py-0.5 rounded-full bg-[#7C3AED] text-white whitespace-nowrap">
+                    Most popular
+                  </span>
+                )}
+
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Icon size={15} style={{ color: p.color }} />
+                    <span className="text-sm font-semibold text-white">{p.name}</span>
+                  </div>
+                  {isSelected && <CheckCircle size={15} className="text-[#7C3AED]" />}
+                </div>
+
+                <div className="mb-0.5">
+                  <span className="text-2xl font-bold text-white">${perMonth}</span>
+                  <span className="text-xs text-[#475569]">/mo</span>
+                </div>
+                {billedAs && (
+                  <p className="text-xs text-[#94A3B8] mb-2">{billedAs} billed annually</p>
+                )}
+                <p className="text-xs text-[#475569] mb-3">{p.description}</p>
+
+                <ul className="space-y-1.5">
+                  {p.features.map((f) => (
+                    <li key={f} className="flex items-start gap-1.5 text-xs text-[#94A3B8]">
+                      <CheckCircle size={11} className="text-[#10B981] mt-0.5 flex-shrink-0" />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+              </motion.button>
+            )
+          })}
+        </div>
+
+        <div className="flex items-center gap-2 text-xs text-[#475569]">
+          <Building2 size={12} />
+          <span>3-day free trial included. No charges until trial ends. Cancel anytime.</span>
+        </div>
+
+        <Button
+          onClick={handleSubscribeAndSchedule}
+          disabled={saving}
+          size="lg"
+          className="gap-2"
+        >
+          {saving ? (
+            <>
+              <Loader size={16} className="animate-spin" />
+              Redirecting to payment...
+            </>
+          ) : (
+            <>
+              <ArrowRight size={16} />
+              Subscribe &amp; Schedule Sessions
+            </>
+          )}
+        </Button>
+      </div>
+    )
+  }
+
+  // Main scheduling form
   return (
     <div className="max-w-2xl space-y-8">
 
@@ -267,31 +415,6 @@ export default function ScheduleClient({ user, existingSessions, topupAdded }: S
           {plan.sessions.length} sessions planned · {totalNeeded} minutes total
         </p>
       </motion.div>
-
-      {/* Insufficient minutes banner */}
-      <AnimatePresence>
-        {!sufficient && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            className="p-4 rounded-xl bg-amber-950/20 border border-amber-800/30"
-          >
-            <div className="flex items-start gap-3">
-              <AlertTriangle size={18} className="text-[#F59E0B] flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-semibold text-[#FCD34D] mb-1">
-                  You need {deficit} more minutes to run all sessions
-                </p>
-                <p className="text-xs text-[#94A3B8]">
-                  Balance: {balance} min · Required: {totalNeeded} min ·
-                  {' '}<strong className="text-white">{recommendedMinutes} min pack — ${PACK_PRICES[recommendedMinutes]}</strong> will cover everything
-                </p>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Preferences */}
       <motion.div
@@ -414,35 +537,19 @@ export default function ScheduleClient({ user, existingSessions, topupAdded }: S
         className="space-y-3"
       >
         <div className="flex items-center gap-4 flex-wrap">
-          {sufficient ? (
+          {hasPaidPlan ? (
             <Button onClick={handleConfirm} disabled={saving} size="lg" className="gap-2">
               {saving ? 'Scheduling...' : 'Confirm Schedule'}
               {!saving && <ArrowRight size={18} />}
             </Button>
           ) : (
-            <Button onClick={handlePayAndSchedule} disabled={saving} size="lg" className="gap-2">
-              {saving ? (
-                <>
-                  <Loader size={16} className="animate-spin" />
-                  Redirecting to payment...
-                </>
-              ) : (
-                <>
-                  <Zap size={16} />
-                  Pay ${PACK_PRICES[recommendedMinutes]} &amp; Schedule
-                </>
-              )}
+            <Button onClick={() => setShowPlans(true)} size="lg" className="gap-2">
+              <Sparkles size={16} />
+              Choose a plan to schedule
             </Button>
-          )}
-
-          {sufficient && (
-            <p className="text-xs text-[#475569]">
-              Uses {totalNeeded} of your {balance} available minutes
-            </p>
           )}
         </div>
 
-        {/* Quick test */}
         <button
           onClick={handleQuickTest}
           disabled={saving}

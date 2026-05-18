@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { requireAuth } from '@/lib/clerk'
 import { createCheckoutSession } from '@/lib/stripe'
-import { createSupabaseAdminClient } from '@/lib/supabase'
 
 const CheckoutSchema = z.object({
   plan: z.enum(['free', 'starter', 'pro', 'executive']),
   billingPeriod: z.enum(['monthly', 'annual']).default('monthly'),
+  returnUrl: z.string().url().optional(),
 })
 
 const PRICE_ID_MAP: Record<string, Record<string, string | undefined>> = {
@@ -49,18 +49,17 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { plan, billingPeriod } = parsed.data
+    const { plan, billingPeriod, returnUrl } = parsed.data
     const priceId = PRICE_ID_MAP[plan]?.[billingPeriod]
 
     if (!priceId || priceId.startsWith('PLACEHOLDER_')) {
-      // Mock mode: return a mock checkout URL
       console.log('[MOCK] createCheckoutSession', { plan, billingPeriod, userId })
       return NextResponse.json({
-        checkoutUrl: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/welcome`,
+        checkoutUrl: returnUrl ?? `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/welcome`,
       })
     }
 
-    const checkoutUrl = await createCheckoutSession(userId!, priceId)
+    const checkoutUrl = await createCheckoutSession(userId!, priceId, returnUrl)
 
     return NextResponse.json({ checkoutUrl })
   } catch (err) {
