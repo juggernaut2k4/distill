@@ -9,6 +9,14 @@ const FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? 'hello@hello-clio.com'
 const FROM_NAME = process.env.RESEND_FROM_NAME ?? 'Clio'
 const FROM = `${FROM_NAME} <${FROM_EMAIL}>`
 
+function logEmailResult(fnName: string, to: string, result: { data?: { id?: string } | null; error?: { message: string } | null }) {
+  if (result.error) {
+    console.error(`[email:${fnName}] FAILED to=${to} from=${FROM} error=${result.error.message}`)
+  } else {
+    console.log(`[email:${fnName}] SENT to=${to} from=${FROM} id=${result.data?.id}`)
+  }
+}
+
 export interface User {
   id: string
   email: string
@@ -272,6 +280,7 @@ export async function sendPlanReadyEmail(user: User): Promise<EmailResult> {
       text: `Your personalized AI learning plan is ready. Review and approve it at ${appUrl}/dashboard/plan`,
     })
 
+    logEmailResult('sendPlanReadyEmail', user.email, result)
     if (result.error) {
       return { success: false, error: result.error.message }
     }
@@ -279,6 +288,7 @@ export async function sendPlanReadyEmail(user: User): Promise<EmailResult> {
     return { success: true, messageId: result.data?.id }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error(`[email:sendPlanReadyEmail] EXCEPTION to=${user.email}:`, message)
     return { success: false, error: message }
   }
 }
@@ -305,6 +315,7 @@ export async function sendPlanApprovedEmail(user: User): Promise<EmailResult> {
       text: `Your personalized AI learning journey is confirmed. Schedule your first session at ${appUrl}/dashboard/schedule`,
     })
 
+    logEmailResult('sendPlanApprovedEmail', user.email, result)
     if (result.error) {
       return { success: false, error: result.error.message }
     }
@@ -312,6 +323,7 @@ export async function sendPlanApprovedEmail(user: User): Promise<EmailResult> {
     return { success: true, messageId: result.data?.id }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error(`[email:sendPlanApprovedEmail] EXCEPTION to=${user.email}:`, message)
     return { success: false, error: message }
   }
 }
@@ -351,6 +363,7 @@ export async function sendSessionsConfirmedEmail(
       ].join('\n'),
     })
 
+    logEmailResult('sendSessionsConfirmedEmail', user.email, result)
     if (result.error) {
       return { success: false, error: result.error.message }
     }
@@ -358,6 +371,7 @@ export async function sendSessionsConfirmedEmail(
     return { success: true, messageId: result.data?.id }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error(`[email:sendSessionsConfirmedEmail] EXCEPTION to=${user.email}:`, message)
     return { success: false, error: message }
   }
 }
