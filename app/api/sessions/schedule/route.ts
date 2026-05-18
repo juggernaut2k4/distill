@@ -137,7 +137,10 @@ export async function POST(request: NextRequest) {
       estimatedMinutes: s.estimatedMinutes,
     }))
 
-    sendSessionsConfirmedEmail(userRow as User, sessionSummaries).catch(console.error)
+    // Await before returning — Vercel kills fire-and-forget promises on response
+    const notifySends: Promise<unknown>[] = [
+      sendSessionsConfirmedEmail(userRow as User, sessionSummaries).catch(console.error),
+    ]
 
     if (userRow.phone && userRow.twilio_number_assigned) {
       const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
@@ -145,12 +148,16 @@ export async function POST(request: NextRequest) {
       const firstDate = new Date(first.scheduledAt).toLocaleDateString('en-US', {
         weekday: 'short', month: 'short', day: 'numeric',
       })
-      sendSMS(
-        userRow.phone,
-        userRow.twilio_number_assigned,
-        `Clio: ${parsed.data.sessions.length} sessions scheduled! First session: ${first.title} on ${firstDate}. View schedule: ${appUrl}/dashboard/sessions`
-      ).catch(console.error)
+      notifySends.push(
+        sendSMS(
+          userRow.phone,
+          userRow.twilio_number_assigned,
+          `Clio: ${parsed.data.sessions.length} sessions scheduled! First session: ${first.title} on ${firstDate}. View schedule: ${appUrl}/dashboard/sessions`
+        ).catch(console.error)
+      )
     }
+
+    await Promise.all(notifySends)
   }
 
   return NextResponse.json({ success: true, count: rows.length })

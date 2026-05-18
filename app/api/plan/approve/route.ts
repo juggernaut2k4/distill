@@ -26,19 +26,25 @@ export async function POST() {
     .eq('id', userId!)
     .single()
 
-  // Fire-and-forget — never block the 200 on email/SMS failures
+  // Await before returning — Vercel kills fire-and-forget promises when response sends
+  const sends: Promise<unknown>[] = []
+
   if (user?.email) {
-    sendPlanApprovedEmail(user as User).catch(console.error)
+    sends.push(sendPlanApprovedEmail(user as User).catch(console.error))
   }
 
   if (user?.phone && user.twilio_number_assigned) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
-    sendSMS(
-      user.phone,
-      user.twilio_number_assigned,
-      `Clio: Your learning plan is approved! Schedule your first session: ${appUrl}/dashboard/schedule`
-    ).catch(console.error)
+    sends.push(
+      sendSMS(
+        user.phone,
+        user.twilio_number_assigned,
+        `Clio: Your learning plan is approved! Schedule your first session: ${appUrl}/dashboard/schedule`
+      ).catch(console.error)
+    )
   }
+
+  await Promise.all(sends)
 
   return NextResponse.json({ success: true })
 }
@@ -64,18 +70,24 @@ export async function PUT() {
     .eq('id', userId!)
     .single()
 
+  const sends2: Promise<unknown>[] = []
+
   if (user?.email) {
-    sendPlanReadyEmail(user as User).catch(console.error)
+    sends2.push(sendPlanReadyEmail(user as User).catch(console.error))
   }
 
   if (user?.phone && user.twilio_number_assigned) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
-    sendSMS(
-      user.phone,
-      user.twilio_number_assigned,
-      `Your Clio learning plan is ready! Review and approve it here: ${appUrl}/dashboard/plan — Clio`
-    ).catch(console.error)
+    sends2.push(
+      sendSMS(
+        user.phone,
+        user.twilio_number_assigned,
+        `Your Clio learning plan is ready! Review and approve it here: ${appUrl}/dashboard/plan — Clio`
+      ).catch(console.error)
+    )
   }
+
+  await Promise.all(sends2)
 
   return NextResponse.json({ success: true })
 }
