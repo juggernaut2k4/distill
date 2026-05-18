@@ -14,6 +14,17 @@ export default function SignInPage() {
             colorInputBackground: '#1A1A1A',
             colorInputText: '#ffffff',
           },
+          elements: {
+            socialButtonsBlockButton: {
+              backgroundColor: '#ffffff',
+              color: '#111111',
+              border: '1px solid #333333',
+            },
+            socialButtonsBlockButtonText: {
+              color: '#111111',
+              fontWeight: '500',
+            },
+          },
         }}
       />
     </div>
