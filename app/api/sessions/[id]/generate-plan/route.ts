@@ -262,7 +262,7 @@ export async function POST(_request: NextRequest, { params }: Params) {
 
   try {
     // Generate first subtopic visual (enables launch button as soon as this completes)
-    const subtopicsAfterFirst = await generateFirstSubtopicVisual(subtopics, userProfile, topicTitle)
+    const subtopicsAfterFirst = await generateFirstSubtopicVisual(subtopics, userProfile, topicTitle, topicId)
 
     const partialPlan: SessionPlan = {
       topic_id: topicId,
@@ -279,7 +279,7 @@ export async function POST(_request: NextRequest, { params }: Params) {
       .eq('id', params.id)
 
     // Generate remaining subtopics in parallel (within maxDuration window)
-    const allSubtopics = await generateRemainingSubtopicVisuals(subtopicsAfterFirst, userProfile, topicTitle)
+    const allSubtopics = await generateRemainingSubtopicVisuals(subtopicsAfterFirst, userProfile, topicTitle, topicId)
     const allReady = allSubtopics.every((s) => s.visual_status === 'ready')
 
     const completePlan: SessionPlan = {
