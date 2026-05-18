@@ -1,0 +1,291 @@
+/**
+ * Template type system for the Distill session visualization.
+ * Each template is a full-screen section in the vertical stack layout.
+ * The discriminated union ensures TypeScript knows the data shape from the type field.
+ */
+
+// ─── META ─────────────────────────────────────────────────────────────────────
+
+export interface TemplateMeta {
+  subtopicTitle: string
+  sessionTitle: string
+  userRole: string
+  userIndustry: string
+}
+
+// ─── TEMPLATE DATA TYPES ──────────────────────────────────────────────────────
+
+export interface TopicHeroData {
+  topic_name: string
+  topic_number: number
+  total_topics: number
+  key_question: string
+  estimated_minutes: number
+  so_what_preview: string
+}
+
+export interface ConceptDefinitionData {
+  term: string
+  category: string
+  one_line: string
+  plain_english: string
+  real_world_example: {
+    company: string
+    what_they_did: string
+    result: string
+  }
+  common_misconception: string
+  so_what: string
+}
+
+export interface StepFlowData {
+  title: string
+  context: string
+  steps: Array<{
+    number: number
+    title: string
+    description: string
+    what_to_watch_for?: string
+    time_estimate?: string
+  }>
+  outcome: string
+  so_what: string
+}
+
+export interface ComparisonTableData {
+  title: string
+  context: string
+  options: Array<{
+    name: string
+    tagline: string
+    best_for: string
+  }>
+  criteria: Array<{
+    label: string
+    description?: string
+    values: string[]
+    winner_index?: number
+  }>
+  verdict: string
+  so_what: string
+}
+
+export interface TwoByTwoMatrixData {
+  title: string
+  context: string
+  x_axis: {
+    label: string
+    low_label: string
+    high_label: string
+  }
+  y_axis: {
+    label: string
+    low_label: string
+    high_label: string
+  }
+  quadrants: Array<{
+    position: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+    name: string
+    color: string
+    description: string
+    examples: string[]
+  }>
+  where_most_executives_are?: string
+  so_what: string
+}
+
+export interface FrameworkCardData {
+  framework_name: string
+  coined_by?: string
+  purpose: string
+  components: Array<{
+    letter?: string
+    name: string
+    description: string
+    executive_question: string
+  }>
+  when_to_use: string
+  when_not_to_use: string
+  so_what: string
+}
+
+export interface ProsConsData {
+  title: string
+  context: string
+  topic: string
+  pros: Array<{
+    title: string
+    description: string
+    evidence?: string
+  }>
+  cons: Array<{
+    title: string
+    description: string
+    mitigation?: string
+  }>
+  verdict: string
+  so_what: string
+}
+
+export interface CaseStudyData {
+  company: string
+  industry: string
+  company_size?: string
+  challenge: string
+  ai_solution: string
+  results: Array<{
+    metric: string
+    value: string
+    timeframe?: string
+  }>
+  key_lesson: string
+  what_they_got_right: string
+  what_they_got_wrong?: string
+  so_what_for_you: string
+}
+
+export interface StatCalloutData {
+  headline_stat: string
+  unit: string
+  context: string
+  source?: string
+  why_it_matters: string
+  supporting_stats: Array<{
+    stat: string
+    label: string
+  }>
+  so_what: string
+}
+
+export interface TimelineData {
+  title: string
+  context: string
+  events: Array<{
+    year: string
+    title: string
+    description: string
+    significance: 'low' | 'medium' | 'high'
+    color?: string
+  }>
+  where_we_are_now: string
+  so_what: string
+}
+
+export interface ConceptMapData {
+  title: string
+  central_concept: string
+  nodes: Array<{
+    id: string
+    label: string
+    description: string
+    category: string
+    color: string
+  }>
+  edges: Array<{
+    from: string
+    to: string
+    relationship: string
+  }>
+  so_what: string
+}
+
+export interface QuoteCalloutData {
+  quote: string
+  attribution?: string
+  context: string
+  so_what: string
+}
+
+export interface KeyTakeawayData {
+  topic: string
+  insights: Array<{
+    insight: string
+    implication: string
+  }>
+  one_thing_to_remember: string
+  action_for_you: string
+  next_topic_preview?: string
+}
+
+export interface QuestionAnswerData {
+  question: string
+  direct_answer: string
+  analogy?: string
+  example?: string
+  important_nuance?: string
+  so_what: string
+  returning_to: string
+}
+
+export interface ActionPlanData {
+  session_topic: string
+  key_takeaways: Array<{
+    takeaway: string
+    why_it_matters: string
+  }>
+  immediate_actions: Array<{
+    action: string
+    timeline: string
+    difficulty: 'easy' | 'medium' | 'hard'
+  }>
+  questions_to_ask_your_team: string[]
+  watch_out_for: string[]
+  next_session_preview?: string
+}
+
+export interface FunnelData {
+  title: string
+  context: string
+  stages: Array<{
+    name: string
+    description: string
+    what_gets_filtered_out: string
+    decision_criteria: string
+  }>
+  what_makes_it_through: string
+  so_what: string
+}
+
+// ─── SECTION STATUS ───────────────────────────────────────────────────────────
+
+export type SectionStatus = 'pending' | 'ready' | 'active' | 'completed' | 'skipped' | 'inserted'
+
+// ─── TEMPLATE NAME UNION ──────────────────────────────────────────────────────
+
+export type TemplateName =
+  | 'TopicHero'
+  | 'ConceptDefinition'
+  | 'StepFlow'
+  | 'ComparisonTable'
+  | 'TwoByTwoMatrix'
+  | 'FrameworkCard'
+  | 'ProsCons'
+  | 'CaseStudy'
+  | 'StatCallout'
+  | 'Timeline'
+  | 'ConceptMap'
+  | 'QuoteCallout'
+  | 'KeyTakeaway'
+  | 'QuestionAnswer'
+  | 'ActionPlan'
+  | 'Funnel'
+
+// ─── DISCRIMINATED UNION ──────────────────────────────────────────────────────
+
+export type TemplateSection =
+  | { id: string; type: 'TopicHero'; data: TopicHeroData; meta: TemplateMeta; status: SectionStatus }
+  | { id: string; type: 'ConceptDefinition'; data: ConceptDefinitionData; meta: TemplateMeta; status: SectionStatus }
+  | { id: string; type: 'StepFlow'; data: StepFlowData; meta: TemplateMeta; status: SectionStatus }
+  | { id: string; type: 'ComparisonTable'; data: ComparisonTableData; meta: TemplateMeta; status: SectionStatus }
+  | { id: string; type: 'TwoByTwoMatrix'; data: TwoByTwoMatrixData; meta: TemplateMeta; status: SectionStatus }
+  | { id: string; type: 'FrameworkCard'; data: FrameworkCardData; meta: TemplateMeta; status: SectionStatus }
+  | { id: string; type: 'ProsCons'; data: ProsConsData; meta: TemplateMeta; status: SectionStatus }
+  | { id: string; type: 'CaseStudy'; data: CaseStudyData; meta: TemplateMeta; status: SectionStatus }
+  | { id: string; type: 'StatCallout'; data: StatCalloutData; meta: TemplateMeta; status: SectionStatus }
+  | { id: string; type: 'Timeline'; data: TimelineData; meta: TemplateMeta; status: SectionStatus }
+  | { id: string; type: 'ConceptMap'; data: ConceptMapData; meta: TemplateMeta; status: SectionStatus }
+  | { id: string; type: 'QuoteCallout'; data: QuoteCalloutData; meta: TemplateMeta; status: SectionStatus }
+  | { id: string; type: 'KeyTakeaway'; data: KeyTakeawayData; meta: TemplateMeta; status: SectionStatus }
+  | { id: string; type: 'QuestionAnswer'; data: QuestionAnswerData; meta: TemplateMeta; status: SectionStatus }
+  | { id: string; type: 'ActionPlan'; data: ActionPlanData; meta: TemplateMeta; status: SectionStatus }
+  | { id: string; type: 'Funnel'; data: FunnelData; meta: TemplateMeta; status: SectionStatus }
