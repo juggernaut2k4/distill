@@ -124,8 +124,8 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
 
         const topic = topicRef.current
         const greeting = topic
-          ? `Hi, I'm Clio, your AI learning companion. Great to meet you. I see today's topic is "${topic}", so we can jump right in. Are you ready to get started?`
-          : `Hi, I'm Clio, your AI learning companion. Great to meet you. I see today's session is already set up, so we can jump right in. Are you ready to get started?`
+          ? `Hi, I'm Clio, your AI learning companion. Today we're covering "${topic}". I've prepared everything — let's dive straight in. Ready?`
+          : `Hi, I'm Clio, your AI learning companion. I'm here and ready to coach you. Let's get started.`
 
         const conv = await Conversation.startSession({
           agentId: AGENT_ID,
@@ -249,8 +249,8 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
           : ''
         const routingContext = ` When the participant asks a question, use your judgment to route it: (1) INSTANT — answer it directly in a sentence or two without calling any tool; (2) VISUAL — call show_visual to explain something that benefits from a diagram; (3) DEFER — call defer_question when the question is complex, deep, or off-topic and would take more time than the current session allows. When you defer, say something like: "That's a great question — it deserves more depth than we have time for today. I've saved it, and we can schedule a follow-up session to cover it properly."`
         const sessionContext = sessionTopic
-          ? `Pre-planned session context: Topic is "${sessionTopic}" — already confirmed, do NOT ask what they want to cover. Begin coaching immediately after the greeting. Use show_visual before each concept explanation. Ask questions sparingly — at most once per major section, only at natural pauses. Do NOT ask about the caller's role, background, or experience level — that is already known. Your job is to teach and coach, not to interview.${skippedContext}${routingContext}`
-          : `Pre-planned session context: A coaching session is in progress with a pre-set agenda. Begin coaching immediately. Do NOT ask what the caller wants to discuss. Ask questions sparingly — at most once per major section.${skippedContext}${routingContext}`
+          ? `SYSTEM: This is a pre-planned coaching session. Topic: "${sessionTopic}". STRICT RULES — you must follow these without exception: (1) NEVER ask the participant what they want to cover — the topic is already set. (2) NEVER ask about their role, background, or experience — that is already known. (3) Begin teaching the topic immediately after your greeting. (4) Call show_visual before introducing each new concept so the screen updates. (5) Ask questions sparingly — at most once per major section, only at natural pause points. (6) Your only job is to teach and coach this topic.${skippedContext}${routingContext}`
+          : `SYSTEM: A pre-planned coaching session is in progress. STRICT RULES: (1) NEVER ask the participant what they want to cover. (2) Begin coaching immediately. (3) Ask questions sparingly — at most once per major section.${skippedContext}${routingContext}`
 
         const reconnectContext = isReconnect
           ? ' The WebSocket connection briefly dropped and reconnected — do not re-introduce yourself, just continue the session naturally.'

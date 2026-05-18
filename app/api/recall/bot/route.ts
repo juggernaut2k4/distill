@@ -47,15 +47,17 @@ export async function POST(request: NextRequest) {
 
     const supabase = createSupabaseAdminClient()
 
-    // Load pre-generated template sections from the session plan
+    // Load session title + pre-generated template sections from the session plan
     const { data: sessionData } = await supabase
       .from('sessions')
-      .select('session_plan')
+      .select('session_title, topic_id, session_plan')
       .eq('id', sessionId)
       .single()
 
+    const sessionTitle = sessionData?.session_title ?? null
+    const topicId = sessionData?.topic_id ?? null
     const readySections = getAllReadySections(sessionData?.session_plan as SessionPlan | null)
-    console.log(`[recall/bot] Loading ${readySections.length} pre-generated sections into walkthrough_state`)
+    console.log(`[recall/bot] Session: "${sessionTitle}" — loading ${readySections.length} pre-generated sections`)
 
     // Upsert walkthrough_state — onConflict ensures existing row is updated, not duplicated
     const { error: upsertErr } = await supabase.from('walkthrough_state').upsert(
@@ -66,8 +68,8 @@ export async function POST(request: NextRequest) {
         session_id: sessionId,
         status: 'idle',
         visual_spec: null,
-        topic_title: null,
-        topic_id: null,
+        topic_title: sessionTitle,
+        topic_id: topicId,
         skipped_topics: skippedTopics,
         sections: readySections.length > 0 ? readySections : null,
         current_section_index: 0,
