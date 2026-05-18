@@ -3,6 +3,7 @@
 import { useState, useEffect, Suspense } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { useUser } from '@clerk/nextjs'
 import { ProgressBar } from '@/components/onboarding/ProgressBar'
 import { QuestionCard } from '@/components/onboarding/QuestionCard'
 import { Button } from '@/components/ui/Button'
@@ -85,12 +86,34 @@ const DELIVERY_MAP: Record<string, string> = {
 function OnboardingContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const { isLoaded, isSignedIn } = useUser()
   const [step, setStep] = useState(0)
   const [answers, setAnswers] = useState<Record<string, string>>({})
   const [selectedLabels, setSelectedLabels] = useState<Record<string, string>>({})
   const [otherTexts, setOtherTexts] = useState<Record<string, string>>({})
   const [direction, setDirection] = useState<'right' | 'left'>('right')
   const [building, setBuilding] = useState(false)
+
+  // If the user is already signed in, check whether they have a DB record.
+  // If yes → go straight to dashboard. If no (just signed up, pending flush) → go to /checkout.
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn) return
+    async function checkProfile() {
+      try {
+        const res = await fetch('/api/user/preferences')
+        if (res.ok) {
+          // Profile exists — skip onboarding entirely
+          router.replace('/dashboard')
+        } else {
+          // No profile yet (fresh sign-up) — flush localStorage data via /checkout
+          router.replace('/checkout')
+        }
+      } catch {
+        // Network error — stay on onboarding so user can complete it
+      }
+    }
+    checkProfile()
+  }, [isLoaded, isSignedIn, router])
 
   // Store selected plan from URL param so checkout knows which plan to use
   useEffect(() => {
