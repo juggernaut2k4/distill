@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useClerk } from '@clerk/nextjs'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { LogOut, AlertTriangle, CheckCircle, Loader, ShieldOff, User } from 'lucide-react'
+import { LogOut, AlertTriangle, CheckCircle, Loader, ShieldOff, User, Trash2 } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 
@@ -28,6 +28,8 @@ export default function SettingsClient({ email, planTier, subscriptionStatus, ha
 
   const [cancelState, setCancelState] = useState<'idle' | 'confirm' | 'loading' | 'done'>('idle')
   const [cancelError, setCancelError] = useState<string | null>(null)
+  const [deleteState, setDeleteState] = useState<'idle' | 'confirm' | 'loading'>('idle')
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const isCanceling = subscriptionStatus === 'canceling'
   const isActive = subscriptionStatus === 'active' || subscriptionStatus === 'trialing'
@@ -54,6 +56,26 @@ export default function SettingsClient({ email, planTier, subscriptionStatus, ha
   async function handleSignOut() {
     await signOut()
     router.push('/')
+  }
+
+  async function handleDeleteAccount() {
+    setDeleteState('loading')
+    setDeleteError(null)
+    try {
+      const res = await fetch('/api/account/delete', { method: 'POST' })
+      const data = await res.json() as { ok?: boolean; error?: string }
+      if (!res.ok || !data.ok) {
+        setDeleteError(data.error ?? 'Something went wrong. Please try again.')
+        setDeleteState('confirm')
+        return
+      }
+      // Clerk session is now invalid — sign out locally and redirect
+      await signOut()
+      router.push('/')
+    } catch {
+      setDeleteError('Network error — please try again.')
+      setDeleteState('confirm')
+    }
   }
 
   return (
@@ -112,8 +134,63 @@ export default function SettingsClient({ email, planTier, subscriptionStatus, ha
         </Card>
       </motion.div>
 
+      {/* Danger Zone — Delete Account */}
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+        <h2 className="text-xs font-semibold text-[#EF4444] uppercase tracking-wider mb-3">Danger Zone</h2>
+
+        {deleteState === 'idle' && (
+          <Card className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-white">Delete account</p>
+                <p className="text-xs text-[#475569] mt-0.5">
+                  Permanently removes all data. Cannot be undone.
+                </p>
+              </div>
+              <Button variant="danger" className="gap-2" onClick={() => setDeleteState('confirm')}>
+                <Trash2 size={14} />
+                Delete
+              </Button>
+            </div>
+          </Card>
+        )}
+
+        {deleteState === 'confirm' && (
+          <Card className="p-4 space-y-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle size={16} className="text-[#EF4444] flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-semibold text-white">Delete everything?</p>
+                <p className="text-xs text-[#475569] mt-1">
+                  This will permanently delete your account, all sessions, learning history, and settings.
+                  Your Clerk account will also be removed so you can re-register with the same email.
+                </p>
+                {deleteError && (
+                  <p className="text-xs text-red-400 mt-2">{deleteError}</p>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <Button variant="danger" className="gap-2" onClick={handleDeleteAccount}>
+                Yes, delete my account
+              </Button>
+              <Button variant="ghost" onClick={() => { setDeleteState('idle'); setDeleteError(null) }}>
+                Cancel
+              </Button>
+            </div>
+          </Card>
+        )}
+
+        {deleteState === 'loading' && (
+          <Card className="p-4 flex items-center gap-3">
+            <Loader size={15} className="text-[#475569] animate-spin flex-shrink-0" />
+            <p className="text-sm text-[#475569]">Deleting account and all data...</p>
+          </Card>
+        )}
+      </motion.div>
+
       {/* Subscription / Unsubscribe */}
-      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
         <h2 className="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-3">Subscription</h2>
 
         {cancelState === 'done' ? (
