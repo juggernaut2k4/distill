@@ -652,3 +652,56 @@ Generate the template data JSON for this subtopic.`
     return getMockData(templateType, subtopicTitle)
   }
 }
+
+/**
+ * Regenerates a TemplateSection incorporating user feedback.
+ * Sends the existing section JSON + feedback to Claude and returns an updated section.
+ * @param section - The current rendered section
+ * @param feedback - Free-text feedback from the user describing desired changes
+ */
+export async function regenerateWithFeedback(
+  section: TemplateSection,
+  feedback: string
+): Promise<TemplateSection> {
+  if (isPlaceholder || !anthropic) {
+    console.log('[TEMPLATE-GENERATOR] Mock regenerateWithFeedback — returning section unchanged')
+    return section
+  }
+
+  const systemPrompt = `You are a visual content editor for an AI coaching platform. You receive structured JSON that powers an infographic/slide, along with user feedback requesting changes. Your job is to apply the feedback and return ONLY the updated JSON — same structure, same field names, improved content.
+
+Rules:
+- Return ONLY valid JSON, no markdown, no explanation
+- Keep the exact same JSON structure and field names
+- Apply the feedback thoughtfully — improve content, not just rephrase
+- Keep language concise and executive-appropriate
+- If feedback asks for structural changes that can't fit the schema, do your best within the existing structure`
+
+  const userPrompt = `Current section type: ${section.type}
+
+Current section data:
+${JSON.stringify(section.data, null, 2)}
+
+User feedback:
+${feedback}
+
+Apply this feedback and return the updated JSON data object only (not the full section wrapper, just the data).`
+
+  try {
+    const response = await anthropic.messages.create({
+      model: MODEL,
+      max_tokens: 1500,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userPrompt }],
+    })
+
+    const rawText = response.content[0].type === 'text' ? response.content[0].text : '{}'
+    const cleaned = rawText.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim()
+    const updatedData = JSON.parse(cleaned) as TemplateSection['data']
+
+    return { ...section, data: updatedData } as TemplateSection
+  } catch (err) {
+    console.error('[TEMPLATE-GENERATOR] regenerateWithFeedback failed:', err)
+    throw new Error('Failed to regenerate section with feedback.')
+  }
+}
