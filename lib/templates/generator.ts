@@ -5,6 +5,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk'
+import { createSupabaseAdminClient } from '../supabase'
 import type { TemplateName, TemplateSection } from './types'
 
 // ─── CLIENT ───────────────────────────────────────────────────────────────────
@@ -16,6 +17,36 @@ const isPlaceholder =
 const anthropic = isPlaceholder ? null : new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 const MODEL = 'claude-sonnet-4-6'
+
+// ─── APPROVED RULES CACHE ─────────────────────────────────────────────────────
+// Fetched once from DB and reused for 5 minutes to avoid a Supabase round-trip
+// on every section generation. Cleared automatically when a rule is approved.
+
+let _rulesCache: string[] | null = null
+let _rulesCacheTime = 0
+const RULES_TTL_MS = 5 * 60 * 1000
+
+export async function getApprovedRules(): Promise<string[]> {
+  if (_rulesCache !== null && Date.now() - _rulesCacheTime < RULES_TTL_MS) {
+    return _rulesCache
+  }
+  try {
+    const supabase = createSupabaseAdminClient()
+    const { data } = await supabase
+      .from('kb_qa_rules')
+      .select('rule_text')
+      .eq('status', 'approved')
+    _rulesCache = (data ?? []).map((r: { rule_text: string }) => r.rule_text)
+    _rulesCacheTime = Date.now()
+    return _rulesCache
+  } catch {
+    return _rulesCache ?? []
+  }
+}
+
+export function invalidateRulesCache() {
+  _rulesCache = null
+}
 
 // ─── USER CONTEXT TYPE ────────────────────────────────────────────────────────
 
@@ -614,6 +645,12 @@ export async function generateTemplateData(
     ? `\nPrevious topic: ${adjacentTopics.previous ?? 'none'}\nNext topic: ${adjacentTopics.next ?? 'none'}`
     : ''
 
+  // Inject approved QA rules — they evolve as the QA agent reviews sections
+  const approvedRules = await getApprovedRules()
+  const rulesBlock = approvedRules.length > 0
+    ? `\n\nQUALITY RULES (approved by the content team — follow strictly):\n${approvedRules.map((r, i) => `${i + 1}. ${r}`).join('\n')}`
+    : ''
+
   const systemPrompt = `You are a world-class executive educator creating content for senior business leaders.
 Your output will be displayed as a full-screen visual section in a premium coaching product.
 
@@ -622,7 +659,7 @@ Rules:
 2. Every "so_what" or "so_what_for_you" field MUST be personalised to: Role="${userContext.role}", Industry="${userContext.industry}". Start with "As a ${userContext.role}," or "As a ${userContext.role} in ${userContext.industry},"
 3. All content must be immediately actionable or illuminating. No jargon. No fluff.
 4. Use real companies and real statistics where possible. If unsure of exact figures, use ranges.
-5. Write for someone who reads The Economist, not a technical paper.
+5. Write for someone who reads The Economist, not a technical paper.${rulesBlock}
 
 Template: ${templateType}
 Required JSON schema (data fields only):

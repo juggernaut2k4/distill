@@ -4,11 +4,18 @@ import { useEffect, useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   ArrowLeft, Loader2, AlertTriangle, RotateCcw,
-  SendHorizonal, CheckCircle, Layers
+  SendHorizonal, CheckCircle, Layers, PlayCircle, ShieldCheck
 } from 'lucide-react'
 import Link from 'next/link'
 import TemplateRenderer from '@/components/templates/TemplateRenderer'
 import type { TemplateSection } from '@/lib/templates/types'
+
+interface QAResult {
+  overall_score: number
+  summary: string
+  content_issues: Array<{ field: string; issue: string; severity: string; fix: string }>
+  layout_issues: Array<{ location: string; issue: string; severity: string; data_fix: string; component_fix: string | null }>
+}
 
 interface CacheRow {
   id: string
@@ -19,6 +26,9 @@ interface CacheRow {
   previous_section_data: TemplateSection | null
   kb_feedback: string | null
   generated_at: string
+  qa_score: number | null
+  qa_result: QAResult | null
+  qa_run_at: string | null
 }
 
 interface SectionState {
@@ -28,6 +38,7 @@ interface SectionState {
   isReverting: boolean
   justSaved: boolean
   error: string | null
+  showQA: boolean
 }
 
 interface Props { topicId: string }
@@ -57,6 +68,7 @@ export default function KBTopicClient({ topicId }: Props) {
         isReverting: false,
         justSaved: false,
         error: null,
+        showQA: false,
       })))
       // Derive topic title from first section's subtopicTitle metadata
       const first = rows[0]
@@ -225,6 +237,85 @@ export default function KBTopicClient({ topicId }: Props) {
                 />
               </motion.div>
             </AnimatePresence>
+
+            {/* QA score panel */}
+            {s.row.qa_score != null && (
+              <div className="bg-[#111111] border border-[#222222] rounded-xl p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5">
+                    <ShieldCheck className={`w-4 h-4 shrink-0 ${s.row.qa_score >= 8 ? 'text-[#10B981]' : s.row.qa_score >= 6 ? 'text-[#F59E0B]' : 'text-[#EF4444]'}`} />
+                    <span className={`text-lg font-bold ${s.row.qa_score >= 8 ? 'text-[#10B981]' : s.row.qa_score >= 6 ? 'text-[#F59E0B]' : 'text-[#EF4444]'}`}>
+                      {s.row.qa_score}
+                    </span>
+                    <span className="text-[#475569] text-xs">/10 QA score</span>
+                    {s.row.qa_result?.summary && (
+                      <p className="text-[#94A3B8] text-xs hidden sm:block truncate max-w-xs">{s.row.qa_result.summary}</p>
+                    )}
+                  </div>
+                  {((s.row.qa_result?.content_issues?.length ?? 0) + (s.row.qa_result?.layout_issues?.length ?? 0)) > 0 && (
+                    <button
+                      onClick={() => updateSection(s.row.subtopic_slug, { showQA: !s.showQA })}
+                      className="text-xs text-[#7C3AED] hover:text-[#A855F7] shrink-0 transition-colors"
+                    >
+                      {s.showQA ? 'Hide issues' : `View ${(s.row.qa_result?.content_issues?.length ?? 0) + (s.row.qa_result?.layout_issues?.length ?? 0)} issues`}
+                    </button>
+                  )}
+                </div>
+
+                {s.showQA && s.row.qa_result && (
+                  <div className="mt-4 space-y-3 border-t border-[#1a1a1a] pt-4">
+                    {s.row.qa_result.summary && (
+                      <p className="text-[#94A3B8] text-xs sm:hidden">{s.row.qa_result.summary}</p>
+                    )}
+
+                    {s.row.qa_result.content_issues.length > 0 && (
+                      <div>
+                        <p className="text-[#475569] text-xs font-medium uppercase tracking-wider mb-2">Content issues</p>
+                        <div className="space-y-2">
+                          {s.row.qa_result.content_issues.map((issue, i) => (
+                            <div key={i} className="bg-[#0d0d0d] rounded-lg p-3">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${
+                                  issue.severity === 'high' ? 'bg-[#EF4444]/10 text-[#EF4444]'
+                                  : issue.severity === 'medium' ? 'bg-[#F59E0B]/10 text-[#F59E0B]'
+                                  : 'bg-[#475569]/10 text-[#475569]'
+                                }`}>{issue.severity}</span>
+                                <span className="text-[#94A3B8] text-xs font-medium">{issue.field}</span>
+                              </div>
+                              <p className="text-[#94A3B8] text-xs">{issue.issue}</p>
+                              {issue.fix && <p className="text-[#7C3AED] text-xs mt-1">Fix: {issue.fix}</p>}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {s.row.qa_result.layout_issues.length > 0 && (
+                      <div>
+                        <p className="text-[#475569] text-xs font-medium uppercase tracking-wider mb-2">Layout issues</p>
+                        <div className="space-y-2">
+                          {s.row.qa_result.layout_issues.map((issue, i) => (
+                            <div key={i} className="bg-[#0d0d0d] rounded-lg p-3">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${
+                                  issue.severity === 'high' ? 'bg-[#EF4444]/10 text-[#EF4444]'
+                                  : issue.severity === 'medium' ? 'bg-[#F59E0B]/10 text-[#F59E0B]'
+                                  : 'bg-[#475569]/10 text-[#475569]'
+                                }`}>{issue.severity}</span>
+                                <span className="text-[#94A3B8] text-xs font-medium">{issue.location}</span>
+                              </div>
+                              <p className="text-[#94A3B8] text-xs">{issue.issue}</p>
+                              {issue.data_fix && <p className="text-[#7C3AED] text-xs mt-1">Data fix: {issue.data_fix}</p>}
+                              {issue.component_fix && <p className="text-[#06B6D4] text-xs mt-0.5">Component fix: {issue.component_fix}</p>}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Feedback area */}
             <div className="bg-[#111111] border border-[#222222] rounded-xl p-5">
