@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { requireAuth } from '@/lib/clerk'
-import { createCheckoutSession } from '@/lib/stripe'
+import { createSubscriptionIntent } from '@/lib/stripe'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 
 const CheckoutSchema = z.object({
   plan: z.enum(['free', 'starter', 'pro', 'executive']),
   billingPeriod: z.enum(['monthly', 'annual']).default('monthly'),
-  returnUrl: z.string().url().optional(),
 })
 
 const PRICE_ID_MAP: Record<string, Record<string, string | undefined>> = {
@@ -35,11 +34,9 @@ const isStripeConfigured =
 
 /**
  * POST /api/checkout
- * Creates a Stripe Checkout Session for the selected plan.
- *
- * Dev mode (Stripe not configured): activates the plan directly in the DB
- * and returns the returnUrl so the schedule flow completes end-to-end.
- * Production: always goes through real Stripe checkout.
+ * Creates a Stripe subscription intent for Stripe Elements custom checkout.
+ * Returns clientSecret for the pending SetupIntent (3-day trial flow).
+ * Dev mode: activates plan directly in DB and returns checkoutUrl.
  */
 export async function POST(request: NextRequest) {
   const { userId, error } = requireAuth()
@@ -56,44 +53,81 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { plan, billingPeriod, returnUrl } = parsed.data
+    const { plan, billingPeriod } = parsed.data
+    const resolvedPlan = plan === 'free' ? 'starter' : plan
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
 
     // ── Dev / mock mode ─────────────────────────────────────────────────────
-    // When Stripe is not configured, activate the plan directly in the DB so
-    // the rest of the scheduling flow works end-to-end without real payment.
     if (!isStripeConfigured) {
-      console.log('[checkout] MOCK mode — activating plan without Stripe:', plan)
+      console.log('[checkout] MOCK mode — activating plan without Stripe:', resolvedPlan)
       const supabase = createSupabaseAdminClient()
       await supabase
         .from('users')
         .update({
-          plan_tier: plan === 'free' ? 'starter' : plan,
+          plan_tier: resolvedPlan,
           subscription_status: 'trialing',
         })
         .eq('id', userId!)
 
-      const successUrl = returnUrl ?? `${appUrl}/dashboard/welcome`
-      return NextResponse.json({ checkoutUrl: successUrl, mock: true })
+      return NextResponse.json({ checkoutUrl: `${appUrl}/dashboard/welcome`, mock: true })
     }
 
-    // ── Production: real Stripe checkout ────────────────────────────────────
-    const priceId = PRICE_ID_MAP[plan]?.[billingPeriod]
+    // ── Production: Stripe Elements flow ────────────────────────────────────
+    const priceId = PRICE_ID_MAP[resolvedPlan]?.[billingPeriod]
 
     if (!priceId || priceId.startsWith('PLACEHOLDER_')) {
-      console.error('[checkout] Stripe price ID not configured', { plan, billingPeriod })
       return NextResponse.json(
         { error: 'Payment is not configured yet. Please contact support.' },
         { status: 503 }
       )
     }
 
-    const checkoutUrl = await createCheckoutSession(userId!, priceId, returnUrl)
-    return NextResponse.json({ checkoutUrl })
+    const supabase = createSupabaseAdminClient()
+
+    // Look up user for email + existing customer ID
+    const { data: user } = await supabase
+      .from('users')
+      .select('email, stripe_customer_id, stripe_subscription_id, subscription_status')
+      .eq('id', userId!)
+      .single()
+
+    // Reuse existing trialing subscription if present
+    if (user?.stripe_subscription_id && user?.subscription_status === 'trialing') {
+      const Stripe = (await import('stripe')).default
+      const stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+        apiVersion: '2025-02-24.acacia',
+      })
+      const sub = await stripeClient.subscriptions.retrieve(
+        user.stripe_subscription_id,
+        { expand: ['pending_setup_intent'] }
+      )
+      const existingIntent = sub.pending_setup_intent as { client_secret?: string } | null
+      if (existingIntent?.client_secret) {
+        return NextResponse.json({ clientSecret: existingIntent.client_secret })
+      }
+    }
+
+    const { clientSecret, customerId } = await createSubscriptionIntent(
+      userId!,
+      priceId,
+      user?.email ?? undefined,
+      user?.stripe_customer_id ?? null
+    )
+
+    // Persist customer ID immediately so reuse logic works on refresh
+    await supabase
+      .from('users')
+      .update({ stripe_customer_id: customerId })
+      .eq('id', userId!)
+
+    return NextResponse.json({ clientSecret })
   } catch (err) {
-    console.error('[checkout] Error creating Stripe session:', err)
+    const e = err as { type?: string; code?: string; message?: string }
+    console.error('[checkout-error-type]', e?.type ?? 'unknown')
+    console.error('[checkout-error-code]', e?.code ?? 'unknown')
+    console.error('[checkout-error-msg]', e?.message ?? 'unknown')
     return NextResponse.json(
-      { error: 'Failed to create checkout session. Please try again.' },
+      { error: 'Failed to initialize checkout. Please try again.' },
       { status: 500 }
     )
   }

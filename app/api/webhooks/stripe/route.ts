@@ -49,8 +49,8 @@ export async function POST(request: NextRequest) {
 
         const minutesMap: Record<string, number> = {
           starter: 30,
-          pro: 60,
-          executive: 120,
+          pro: 70,
+          executive: 150,
         }
         const minutesIncluded = minutesMap[resolvedPlan] ?? 30
         // During trial: give a taste (5 min). On activation, topped up to full minutes.
@@ -92,7 +92,7 @@ export async function POST(request: NextRequest) {
         const resolvedPlan = plan === 'unknown' ? 'starter' : plan
         const status = subscription.status
 
-        const minutesMap: Record<string, number> = { starter: 30, pro: 60, executive: 120 }
+        const minutesMap: Record<string, number> = { starter: 30, pro: 70, executive: 150 }
         const minutesIncluded = minutesMap[resolvedPlan] ?? 30
 
         // When trial converts to active, credit full plan minutes

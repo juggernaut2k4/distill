@@ -109,4 +109,54 @@ export function constructWebhookEvent(
   }
 }
 
+/**
+ * Creates a Stripe subscription with a 3-day trial and returns the pending
+ * SetupIntent client_secret for Stripe Elements to collect card details.
+ * @param userId - Clerk user ID (stored in metadata)
+ * @param priceId - Stripe price ID
+ * @param email - User email for customer record
+ * @param existingCustomerId - Reuse customer if already created
+ */
+export async function createSubscriptionIntent(
+  userId: string,
+  priceId: string,
+  email?: string,
+  existingCustomerId?: string | null
+): Promise<{ clientSecret: string; customerId: string; subscriptionId: string }> {
+  if (isPlaceholder || !stripeClient) {
+    throw new Error('Stripe is not configured.')
+  }
+
+  let customerId = existingCustomerId ?? undefined
+
+  if (!customerId) {
+    const customer = await stripeClient.customers.create({
+      ...(email ? { email } : {}),
+      metadata: { userId },
+    })
+    customerId = customer.id
+  }
+
+  const subscription = await stripeClient.subscriptions.create({
+    customer: customerId,
+    items: [{ price: priceId }],
+    trial_period_days: 3,
+    payment_behavior: 'default_incomplete',
+    payment_settings: { save_default_payment_method: 'on_subscription' },
+    expand: ['pending_setup_intent'],
+    metadata: { userId },
+  })
+
+  const setupIntent = subscription.pending_setup_intent as Stripe.SetupIntent | null
+  if (!setupIntent?.client_secret) {
+    throw new Error('Stripe did not return a pending setup intent for the trial subscription.')
+  }
+
+  return {
+    clientSecret: setupIntent.client_secret,
+    customerId,
+    subscriptionId: subscription.id,
+  }
+}
+
 export { stripeClient as stripe }

@@ -83,6 +83,39 @@ const DELIVERY_MAP: Record<string, string> = {
   'SMS only (Pro & Executive)': 'sms',
 }
 
+const PLANS = [
+  {
+    key: 'starter',
+    name: 'Starter',
+    price: '$12/mo',
+    annual: '$99/yr',
+    minutes: '30 min/mo',
+    tagline: 'Learn AI at your pace',
+    features: ['~1–2 coaching sessions/mo', 'Daily email insights', 'AI Readiness Score'],
+    highlight: false,
+  },
+  {
+    key: 'pro',
+    name: 'Pro',
+    price: '$25/mo',
+    annual: '$199/yr',
+    minutes: '70 min/mo',
+    tagline: 'Learn and walk in prepared',
+    features: ['~2–4 coaching sessions/mo', 'Email + SMS insights', 'Ask Clio anything via SMS'],
+    highlight: true,
+  },
+  {
+    key: 'executive',
+    name: 'Executive',
+    price: '$49/mo',
+    annual: '$399/yr',
+    minutes: '150 min/mo',
+    tagline: 'Learn, prepare, and apply',
+    features: ['~5–10 coaching sessions/mo', 'Meeting Readiness briefs', 'Dedicated phone number'],
+    highlight: false,
+  },
+]
+
 function OnboardingContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -93,6 +126,9 @@ function OnboardingContent() {
   const [otherTexts, setOtherTexts] = useState<Record<string, string>>({})
   const [direction, setDirection] = useState<'right' | 'left'>('right')
   const [building, setBuilding] = useState(false)
+  const [showPlanSelect, setShowPlanSelect] = useState(false)
+  // null = no pre-selected plan (show plan screen); non-null = skip plan screen
+  const [preSelectedPlan, setPreSelectedPlan] = useState<string | null>(null)
 
   // If the user is already signed in, check whether they have a DB record.
   // If yes → go straight to dashboard. If no (just signed up, pending flush) → go to /checkout.
@@ -102,23 +138,21 @@ function OnboardingContent() {
       try {
         const res = await fetch('/api/user/preferences')
         if (res.ok) {
-          // Profile exists — skip onboarding entirely
           router.replace('/dashboard')
         } else {
-          // No profile yet (fresh sign-up) — flush localStorage data via /checkout
           router.replace('/checkout')
         }
       } catch {
-        // Network error — stay on onboarding so user can complete it
+        // Network error — stay on onboarding
       }
     }
     checkProfile()
   }, [isLoaded, isSignedIn, router])
 
-  // Store selected plan from URL param so checkout knows which plan to use
+  // If a plan is in the URL, pre-highlight that card in the plan selection screen
   useEffect(() => {
     const plan = searchParams.get('plan')
-    if (plan) localStorage.setItem('clio_selected_plan', plan)
+    if (plan) setPreSelectedPlan(plan)
   }, [searchParams])
 
   const current = QUESTIONS[step]
@@ -126,8 +160,6 @@ function OnboardingContent() {
   const currentOtherText = otherTexts[current?.id] ?? ''
   const isOtherSelected = selectedLabel === 'Other'
   const hasOtherInOptions = current?.options.includes('Other') ?? false
-
-  // The actual answer value: typed text if "Other" selected, otherwise the label
   const currentAnswer = answers[current?.id] ?? null
   const canProceed = isOtherSelected
     ? currentOtherText.trim().length > 0
@@ -138,7 +170,6 @@ function OnboardingContent() {
     if (option !== 'Other') {
       setAnswers((prev) => ({ ...prev, [current.id]: option }))
     } else {
-      // Keep previous "Other" typed text if re-selecting "Other"
       const existingText = otherTexts[current.id] ?? ''
       setAnswers((prev) => ({ ...prev, [current.id]: existingText || '' }))
     }
@@ -150,6 +181,10 @@ function OnboardingContent() {
   }
 
   function handleBack() {
+    if (showPlanSelect) {
+      setShowPlanSelect(false)
+      return
+    }
     if (step === 0) return
     setDirection('left')
     setStep((s) => s - 1)
@@ -162,15 +197,18 @@ function OnboardingContent() {
       setDirection('right')
       setStep((s) => s + 1)
     } else {
-      // All questions answered — show building screen, then submit
-      setBuilding(true)
-      submitOnboarding()
+      // Always show plan selection — URL param only pre-highlights a card
+      setShowPlanSelect(true)
     }
   }
 
+  function handlePlanSelect(planKey: string) {
+    localStorage.setItem('clio_selected_plan', planKey)
+    setBuilding(true)
+    submitOnboarding()
+  }
+
   async function submitOnboarding() {
-    // Save answers to localStorage — the API call happens AFTER Clerk auth
-    // so the record is created with the real userId, not an anon one.
     const payload = {
       role: answers.role,
       industry: answers.industry,
@@ -181,7 +219,6 @@ function OnboardingContent() {
     }
     localStorage.setItem('clio_onboarding', JSON.stringify(payload))
 
-    // After 2 seconds of animation, redirect to sign-up
     setTimeout(() => {
       router.push('/sign-up')
     }, 2000)
@@ -189,6 +226,10 @@ function OnboardingContent() {
 
   if (building) {
     return <BuildingScreen />
+  }
+
+  if (showPlanSelect) {
+    return <PlanSelectScreen defaultSelected={preSelectedPlan} onSelect={handlePlanSelect} onBack={() => setShowPlanSelect(false)} />
   }
 
   return (
@@ -270,6 +311,81 @@ export default function OnboardingPage() {
     <Suspense fallback={<div className="min-h-screen bg-[#080808]" />}>
       <OnboardingContent />
     </Suspense>
+  )
+}
+
+function PlanSelectScreen({ defaultSelected, onSelect, onBack }: { defaultSelected: string | null; onSelect: (plan: string) => void; onBack: () => void }) {
+  const [selected, setSelected] = useState<string | null>(defaultSelected ?? null)
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: 60 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ duration: 0.4, ease: 'easeOut' }}
+      className="min-h-screen bg-[#080808] flex flex-col items-center justify-center px-6 py-16"
+    >
+      <p className="text-xs font-semibold tracking-widest text-[#7C3AED] uppercase mb-4">Almost there</p>
+      <h2 className="text-3xl font-bold text-white text-center mb-2">Choose your plan</h2>
+      <p className="text-[#94A3B8] text-center mb-10 max-w-md">
+        All plans include a 3-day free trial. Card required to activate.
+      </p>
+
+      <div className="w-full max-w-3xl grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        {PLANS.map((plan) => {
+          const isSelected = selected === plan.key
+          return (
+            <button
+              key={plan.key}
+              onClick={() => setSelected(plan.key)}
+              className={[
+                'text-left rounded-2xl border p-5 transition-all duration-200 relative',
+                isSelected
+                  ? 'border-[#7C3AED] bg-purple-950/30'
+                  : plan.highlight
+                    ? 'border-[#7C3AED]/50 bg-[#111111] hover:border-[#7C3AED]'
+                    : 'border-[#222222] bg-[#111111] hover:border-[#333333]',
+              ].join(' ')}
+            >
+              {plan.highlight && (
+                <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[#7C3AED] text-white text-xs font-bold px-3 py-1 rounded-full">
+                  Most popular
+                </span>
+              )}
+              <p className="text-white font-bold text-lg mb-0.5">{plan.name}</p>
+              <p className="text-[#7C3AED] font-bold text-2xl mb-0.5">{plan.price}</p>
+              <p className="text-[#475569] text-xs mb-3">{plan.annual} billed annually</p>
+              <p className="text-[#94A3B8] text-sm mb-3">{plan.minutes} · {plan.tagline}</p>
+              <ul className="space-y-1.5">
+                {plan.features.map((f) => (
+                  <li key={f} className="flex items-start gap-2 text-xs text-[#94A3B8]">
+                    <span className="text-[#10B981] mt-0.5">✓</span>
+                    {f}
+                  </li>
+                ))}
+              </ul>
+            </button>
+          )
+        })}
+      </div>
+
+      <div className="w-full max-w-sm flex gap-3">
+        <button
+          onClick={onBack}
+          className="flex items-center justify-center w-12 h-12 rounded-xl border border-[#333333] text-[#94A3B8] hover:text-white hover:border-[#555555] transition-colors flex-shrink-0"
+        >
+          <ArrowLeft size={18} />
+        </button>
+        <Button
+          onClick={() => selected && onSelect(selected)}
+          disabled={!selected}
+          size="lg"
+          className="flex-1 gap-2"
+        >
+          Continue with {selected ? PLANS.find(p => p.key === selected)?.name : 'a plan'}
+          <ArrowRight size={18} />
+        </Button>
+      </div>
+    </motion.div>
   )
 }
 

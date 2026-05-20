@@ -8,10 +8,10 @@ import { ArrowRight, CheckCircle } from 'lucide-react'
 import Link from 'next/link'
 
 const PLAN_FEATURES: Record<string, string[]> = {
-  free: ['1 email insight/day', 'Basic dashboard', 'No credit card required'],
-  starter: ['Email + SMS daily', '30 coaching mins/month', 'Weekly digest', 'Feedback adaptation', '$0.75/min extra'],
-  pro: ['Everything in Starter', '60 coaching mins/month', 'AI Readiness Score', 'Ask Anything SMS', '$0.55/min extra'],
-  executive: ['Everything in Pro', '120 coaching mins/month', 'Dedicated phone number', 'Priority scheduling', '$0.40/min extra'],
+  free: ['1 email insight/day', 'Basic dashboard', '3-day trial — upgrade to unlock sessions'],
+  starter: ['Email + SMS daily', '30 coaching mins/month', 'Weekly digest', 'Feedback adaptation', '$0.40/min extra'],
+  pro: ['Everything in Starter', '70 coaching mins/month', 'AI Readiness Score', 'Ask Anything SMS', '$0.39/min extra'],
+  executive: ['Everything in Pro', '150 coaching mins/month', 'Dedicated phone number', 'Priority scheduling', '$0.38/min extra'],
 }
 
 export default async function BillingPage() {

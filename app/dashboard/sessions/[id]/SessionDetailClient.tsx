@@ -111,6 +111,26 @@ export default function SessionDetailClient({ session }: Props) {
 
   // Live session state — pre-fill from auto-generated Meet link if available
   const [meetingUrl, setMeetingUrl] = useState(session.meeting_url ?? '')
+  const [resolvedMeetUrl, setResolvedMeetUrl] = useState<string | null>(session.meeting_url)
+
+  // Poll for Meet link until it appears (created async after scheduling)
+  useEffect(() => {
+    if (resolvedMeetUrl) return
+    const poll = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/sessions/${session.id}`)
+        if (!res.ok) return
+        const data = await res.json() as { session?: { meeting_url?: string } }
+        const url = data?.session?.meeting_url
+        if (url) {
+          setResolvedMeetUrl(url)
+          setMeetingUrl(url)
+          clearInterval(poll)
+        }
+      } catch { /* non-fatal */ }
+    }, 3000)
+    return () => clearInterval(poll)
+  }, [session.id, resolvedMeetUrl])
   const [botStatus, setBotStatus] = useState<BotStatus>('idle')
   const [botId, setBotId] = useState<string | null>(null)
   const [botError, setBotError] = useState<string | null>(null)
@@ -222,23 +242,23 @@ export default function SessionDetailClient({ session }: Props) {
           </div>
 
           {/* Google Meet link */}
-          {session.meeting_url ? (
+          {resolvedMeetUrl ? (
             <div className="flex items-center gap-3 p-4">
               <Video size={16} className="text-[#10B981] flex-shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="text-xs text-[#475569] mb-0.5">Google Meet</p>
-                <p className="text-sm font-mono text-[#10B981] truncate">{session.meeting_url}</p>
+                <p className="text-sm font-mono text-[#10B981] truncate">{resolvedMeetUrl}</p>
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
                 <button
-                  onClick={() => navigator.clipboard.writeText(session.meeting_url!)}
+                  onClick={() => navigator.clipboard.writeText(resolvedMeetUrl)}
                   title="Copy link"
                   className="text-[#475569] hover:text-[#94A3B8] transition-colors"
                 >
                   <Copy size={14} />
                 </button>
                 <a
-                  href={session.meeting_url}
+                  href={resolvedMeetUrl}
                   target="_blank"
                   rel="noreferrer"
                   className="text-[#475569] hover:text-[#94A3B8] transition-colors"

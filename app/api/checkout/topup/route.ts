@@ -5,14 +5,14 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
 import { stripe } from '@/lib/stripe'
 
 const TopUpSchema = z.object({
-  minutes: z.number().int().positive().max(1000),
+  minutes: z.number().int().positive().max(170),
   returnUrl: z.string().url().optional(), // client passes current origin so mock mode uses the right domain
 })
 
 const PACK_PRICES: Record<number, number> = {
-  60: 1500,   // $15.00 in cents
-  120: 2500,  // $25.00
-  300: 5500,  // $55.00
+  50: 2000,   // $20.00 in cents
+  90: 3500,   // $35.00
+  170: 6500,  // $65.00
 }
 
 /**

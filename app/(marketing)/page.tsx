@@ -61,7 +61,7 @@ function Hero() {
             <div className="flex flex-col sm:flex-row gap-4 mb-10">
               <Link href="/onboarding?plan=free">
                 <Button size="lg" className="gap-2">
-                  Start free — no card needed
+                  Start free — 3-day trial
                   <ArrowRight size={20} />
                 </Button>
               </Link>
@@ -372,7 +372,7 @@ function Pricing() {
         '1 email insight per day',
         'Personalized onboarding plan',
         'Basic dashboard',
-        'No credit card required',
+        '3-day free trial included',
       ],
       cta: 'Start free',
       href: '/onboarding?plan=free',
@@ -380,14 +380,14 @@ function Pricing() {
     },
     {
       name: 'Starter',
-      price: { monthly: 19, annual: 149 },
+      price: { monthly: 12, annual: 99 },
       period: annual ? '/year' : '/month',
       features: [
         'Email + SMS daily insights',
         '30 coaching mins/month',
         'Weekly digest (Sundays)',
         'Feedback adaptation',
-        '$0.75/min extra',
+        '$0.40/min extra',
       ],
       cta: 'Get Starter',
       href: '/onboarding?plan=starter',
@@ -396,14 +396,14 @@ function Pricing() {
     },
     {
       name: 'Pro',
-      price: { monthly: 49, annual: 389 },
+      price: { monthly: 25, annual: 199 },
       period: annual ? '/year' : '/month',
       features: [
         'Everything in Starter',
-        '60 coaching mins/month',
+        '70 coaching mins/month',
         'AI Readiness Score',
         'Ask Anything SMS',
-        '$0.55/min extra',
+        '$0.39/min extra',
       ],
       cta: 'Get Pro',
       href: '/onboarding?plan=pro',
@@ -412,14 +412,14 @@ function Pricing() {
     },
     {
       name: 'Executive',
-      price: { monthly: 99, annual: 799 },
+      price: { monthly: 49, annual: 399 },
       period: annual ? '/year' : '/month',
       features: [
         'Everything in Pro',
-        '120 coaching mins/month',
+        '150 coaching mins/month',
         'Dedicated phone number',
         'Priority scheduling',
-        '$0.40/min extra',
+        '$0.38/min extra',
       ],
       cta: 'Get Executive',
       href: '/onboarding?plan=executive',
@@ -566,7 +566,7 @@ function BottomCTA() {
           </p>
           <Link href="/onboarding?plan=free">
             <Button size="lg" className="gap-2">
-              Start free — 15 seconds to set up
+              Get started — 15 seconds to set up
               <ArrowRight size={20} />
             </Button>
           </Link>

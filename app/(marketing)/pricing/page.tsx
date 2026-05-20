@@ -32,7 +32,7 @@ const PLAN_META = [
       'Personalised onboarding (5 questions)',
       'Daily email insight',
       'AI Readiness Score',
-      'No credit card required',
+      '3-day trial — card required to activate',
     ],
     cta: 'Start free',
     href: '/onboarding',
@@ -44,7 +44,7 @@ const PLAN_META = [
     badge: null,
     tagline: 'Learn AI at your pace',
     features: [
-      '150 min/mo · ~5 live coaching sessions',
+      '30 min/mo · ~1–2 live coaching sessions',
       'Flat rate — same price whatever the topic (healthcare AI, finance AI, retail AI)',
       'Clio joins your Google Meet to coach you',
       'Pre-built visual aids for every session',
@@ -63,7 +63,7 @@ const PLAN_META = [
     badge: 'Most popular',
     tagline: 'Learn and walk in prepared',
     features: [
-      '400 min/mo · ~13 live coaching sessions',
+      '70 min/mo · ~2–4 live coaching sessions',
       'Flat rate — same price whatever the topic',
       'Everything in Starter',
       'Session Prep Brief — night before each session, Clio emails you what to expect, 3 key concepts, and 2 questions to think about',
@@ -82,7 +82,7 @@ const PLAN_META = [
     badge: 'C-Suite',
     tagline: 'Learn, prepare, and apply',
     features: [
-      '900 min/mo · ~30 live coaching sessions',
+      '150 min/mo · ~5–10 live coaching sessions',
       'Flat rate — same price whatever the topic',
       'Everything in Pro',
       'Meeting Readiness — before any AI vendor pitch or board session, get a full briefing: who you\'re meeting, what to expect, 5 questions to ask, red flags to watch for',
@@ -122,7 +122,7 @@ export default function PricingPage() {
             Simple pricing
           </h1>
           <p className="text-xl text-[#94A3B8] mb-10">
-            Start free. Upgrade when you see the value.
+            3-day free trial on all plans. Cancel anytime.
           </p>
 
           {/* Toggle */}
@@ -254,7 +254,7 @@ export default function PricingPage() {
 
         {/* FAQ note */}
         <p className="text-center text-sm text-[#475569] mt-12">
-          All plans include a 7-day free trial. Cancel anytime. No hidden fees.
+          All plans include a 3-day free trial. Card required to activate. Cancel anytime.
         </p>
       </div>
     </main>

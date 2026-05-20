@@ -63,11 +63,11 @@ const PLANS = [
     color: '#06B6D4',
     monthly: 12,
     annual: 99,
-    minutes: 150,
+    minutes: 30,
     tagline: 'Learn AI at your pace',
     description: 'Same price whatever the topic — healthcare AI, finance AI, retail AI.',
     features: [
-      '150 min/mo · ~5 coaching sessions',
+      '30 min/mo · ~1–2 coaching sessions',
       'Clio joins your Google Meet to coach you',
       'Session notes PDF after every call',
       'Daily email insights',
@@ -82,11 +82,11 @@ const PLANS = [
     color: '#7C3AED',
     monthly: 25,
     annual: 199,
-    minutes: 400,
+    minutes: 70,
     tagline: 'Learn and walk in prepared',
     description: 'Same price whatever the topic — flat rate across all technologies.',
     features: [
-      '400 min/mo · ~13 coaching sessions',
+      '70 min/mo · ~2–4 coaching sessions',
       'Session Prep Brief the night before — what to expect, 3 key concepts, 2 questions to think about',
       'Full curriculum PDF to share with your EA',
       'Email + SMS insights',
@@ -101,11 +101,11 @@ const PLANS = [
     color: '#F59E0B',
     monthly: 49,
     annual: 399,
-    minutes: 900,
+    minutes: 150,
     tagline: 'Learn, prepare, and apply',
     description: 'Same price whatever the topic — flat rate across all technologies.',
     features: [
-      '900 min/mo · ~30 coaching sessions',
+      '150 min/mo · ~5–10 coaching sessions',
       'Meeting Readiness — full briefing before any AI vendor pitch or board session',
       'Executive Briefing Pack — board-ready PDF of your AI progress',
       'Dedicated Clio phone number',
@@ -407,7 +407,7 @@ export default function ScheduleClient({ user, existingSessions, subscribedSucce
 
         <div className="flex items-center gap-2 text-xs text-[#475569]">
           <Building2 size={12} />
-          <span>3-day free trial included. No charges until trial ends. Cancel anytime.</span>
+          <span>3-day free trial included. Card charged after trial. Cancel anytime.</span>
         </div>
 
         {checkoutError && (

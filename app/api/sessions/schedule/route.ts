@@ -75,8 +75,8 @@ export async function POST(request: NextRequest) {
     (insertedRows ?? []).map((r: { id: string; session_index: number }) => [r.session_index, r.id])
   )
 
-  // Create Google Meet links for each session in parallel (fire-and-forget)
-  Promise.all(
+  // Create Google Meet links for all sessions in parallel — awaited so Vercel doesn't kill them
+  await Promise.all(
     parsed.data.sessions.map(async (s) => {
       const sessionId = indexToId.get(s.sessionIndex)
       if (!sessionId) return
@@ -98,7 +98,7 @@ export async function POST(request: NextRequest) {
         console.error(`[schedule] Meet creation failed for session ${s.sessionIndex}:`, err)
       }
     })
-  ).catch(() => {})
+  )
 
   // Fire Inngest event for each session to pre-generate visual specs in background
   const planEvents = parsed.data.sessions
