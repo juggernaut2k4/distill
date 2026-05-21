@@ -24,20 +24,35 @@ export default function CheckoutForm({ planName, planPrice, billingPeriod }: Che
     setIsLoading(true)
     setErrorMessage(null)
 
-    // Clear plan selection before redirecting
-    localStorage.removeItem('clio_selected_plan')
-    localStorage.removeItem('clio_billing_period')
+    try {
+      const { error, setupIntent } = await stripe.confirmSetup({
+        elements,
+        confirmParams: {
+          return_url: `${window.location.origin}/dashboard/welcome`,
+        },
+        redirect: 'if_required',
+      })
 
-    const { error } = await stripe.confirmSetup({
-      elements,
-      confirmParams: {
-        return_url: `${window.location.origin}/dashboard/welcome`,
-      },
-    })
+      if (error) {
+        setErrorMessage(error.message ?? 'Something went wrong. Please try again.')
+        setIsLoading(false)
+        return
+      }
 
-    // Only runs if Stripe didn't redirect (i.e. there was an error)
-    if (error) {
-      setErrorMessage(error.message ?? 'Something went wrong. Please try again.')
+      // Card confirmed without a redirect (no 3DS required) — navigate manually
+      if (setupIntent?.status === 'succeeded') {
+        localStorage.removeItem('clio_selected_plan')
+        localStorage.removeItem('clio_billing_period')
+        window.location.href = `${window.location.origin}/dashboard/welcome`
+        return
+      }
+
+      // Unexpected state — reset so user can retry
+      setErrorMessage('Unexpected payment state. Please try again.')
+      setIsLoading(false)
+    } catch (err) {
+      console.error('[checkout] confirmSetup exception:', err)
+      setErrorMessage('Something went wrong. Please try again.')
       setIsLoading(false)
     }
   }
