@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { requireAuth } from '@/lib/clerk'
-import { createSubscriptionIntent } from '@/lib/stripe'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 
 const CheckoutSchema = z.object({
@@ -72,7 +71,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ checkoutUrl: `${appUrl}/dashboard/welcome`, mock: true })
     }
 
-    // ── Production: Stripe Elements flow ────────────────────────────────────
+    // ── Production: Stripe hosted checkout ──────────────────────────────────
     const priceId = PRICE_ID_MAP[resolvedPlan]?.[billingPeriod]
 
     if (!priceId || priceId.startsWith('PLACEHOLDER_')) {
@@ -83,56 +82,21 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = createSupabaseAdminClient()
-
-    // Look up user for email + existing customer ID
     const { data: user } = await supabase
       .from('users')
-      .select('email, stripe_customer_id, stripe_subscription_id, subscription_status')
+      .select('email, stripe_subscription_id, subscription_status')
       .eq('id', userId!)
       .single()
 
-    // Handle existing Stripe subscription
-    if (user?.stripe_subscription_id) {
-      const Stripe = (await import('stripe')).default
-      const stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-        apiVersion: '2025-02-24.acacia',
-      })
-      const sub = await stripeClient.subscriptions.retrieve(
-        user.stripe_subscription_id,
-        { expand: ['pending_setup_intent'] }
-      )
-      const existingIntent = sub.pending_setup_intent as { client_secret?: string } | null
-
-      // Subscription has a pending setup intent → reuse it
-      if (existingIntent?.client_secret) {
-        console.log('[checkout] reusing pending setup intent for sub', user.stripe_subscription_id)
-        return NextResponse.json({ clientSecret: existingIntent.client_secret })
-      }
-
-      // No pending setup intent: payment method already collected → redirect to welcome
-      if (sub.status === 'trialing' || sub.status === 'active') {
-        console.log('[checkout] subscription already active/trialing — redirecting', sub.status)
-        return NextResponse.json({ alreadyActive: true })
-      }
-
-      // Subscription is canceled/past_due/etc — fall through to create a new one
-      console.log('[checkout] existing subscription status:', sub.status, '— creating new one')
+    // Already subscribed — send straight to dashboard
+    if (user?.stripe_subscription_id && (user.subscription_status === 'trialing' || user.subscription_status === 'active')) {
+      console.log('[checkout] already active — redirecting to welcome')
+      return NextResponse.json({ alreadyActive: true })
     }
 
-    const { clientSecret, customerId } = await createSubscriptionIntent(
-      userId!,
-      priceId,
-      user?.email ?? undefined,
-      user?.stripe_customer_id ?? null
-    )
-
-    // Persist customer ID immediately so reuse logic works on refresh
-    await supabase
-      .from('users')
-      .update({ stripe_customer_id: customerId })
-      .eq('id', userId!)
-
-    return NextResponse.json({ clientSecret })
+    const { createCheckoutSession } = await import('@/lib/stripe')
+    const checkoutUrl = await createCheckoutSession(userId!, priceId)
+    return NextResponse.json({ checkoutUrl })
   } catch (err) {
     const e = err as { type?: string; code?: string; message?: string }
     console.error('[checkout-error-type]', e?.type ?? 'unknown')

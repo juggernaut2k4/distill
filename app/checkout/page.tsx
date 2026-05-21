@@ -1,14 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { loadStripe } from '@stripe/stripe-js'
-import { Elements } from '@stripe/react-stripe-js'
 import { motion } from 'framer-motion'
-import { CheckCircle, Clock, Video, MessageSquare, Zap, ArrowLeft, Loader2 } from 'lucide-react'
+import { CheckCircle, Clock, Video, MessageSquare, Zap, ArrowLeft, Loader2, Lock } from 'lucide-react'
 import Link from 'next/link'
-import CheckoutForm from './CheckoutForm'
-
-const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
 
 const PLAN_DATA = {
   starter: {
@@ -57,177 +52,70 @@ const PLAN_DATA = {
 
 type PlanKey = keyof typeof PLAN_DATA
 
-const stripeAppearance = {
-  theme: 'night' as const,
-  variables: {
-    colorPrimary: '#7C3AED',
-    colorBackground: '#0f0f0f',
-    colorText: '#FFFFFF',
-    colorTextSecondary: '#94A3B8',
-    colorDanger: '#EF4444',
-    fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
-    borderRadius: '12px',
-    colorTextPlaceholder: '#475569',
-    spacingUnit: '4px',
-  },
-  rules: {
-    '.Input': {
-      border: '1px solid #333333',
-      boxShadow: 'none',
-      backgroundColor: '#111111',
-      color: '#FFFFFF',
-      padding: '12px 16px',
-    },
-    '.Input:focus': {
-      border: '1px solid #7C3AED',
-      boxShadow: '0 0 0 2px rgba(124, 58, 237, 0.15)',
-      outline: 'none',
-    },
-    '.Label': {
-      color: '#94A3B8',
-      fontSize: '13px',
-      fontWeight: '500',
-      marginBottom: '6px',
-    },
-    '.Tab': {
-      border: '1px solid #333333',
-      backgroundColor: '#111111',
-      color: '#94A3B8',
-    },
-    '.Tab--selected': {
-      borderColor: '#7C3AED',
-      color: '#FFFFFF',
-      backgroundColor: '#1a1a2e',
-    },
-    '.Tab:hover': {
-      borderColor: '#555555',
-    },
-    '.Error': {
-      color: '#EF4444',
-    },
-    '.TermsText': {
-      color: '#475569',
-    },
-  },
-}
-
 export default function CheckoutPage() {
-  const [clientSecret, setClientSecret] = useState<string | null>(null)
   const [planKey, setPlanKey] = useState<PlanKey>('starter')
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'annual'>('monthly')
+  const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [isInitializing, setIsInitializing] = useState(true)
 
   useEffect(() => {
-    async function init() {
-      // Flush any pending onboarding data first
-      const onboardingRaw = localStorage.getItem('clio_onboarding')
-      if (onboardingRaw) {
-        try {
-          await fetch('/api/onboarding', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: onboardingRaw,
-          })
-        } catch { /* non-fatal */ }
-        localStorage.removeItem('clio_onboarding')
-      }
+    const storedPlan = localStorage.getItem('clio_selected_plan')
+    const storedBilling = localStorage.getItem('clio_billing_period') as 'monthly' | 'annual' | null
+    if (storedPlan === 'pro' || storedPlan === 'executive') setPlanKey(storedPlan)
+    if (storedBilling) setBillingPeriod(storedBilling)
+  }, [])
 
-      const storedPlan = localStorage.getItem('clio_selected_plan') as string | null
-      const storedBilling = localStorage.getItem('clio_billing_period') as 'monthly' | 'annual' | null
-      const resolvedPlan: PlanKey =
-        storedPlan === 'pro' ? 'pro' :
-        storedPlan === 'executive' ? 'executive' :
-        'starter'
-      const resolvedBilling = storedBilling ?? 'monthly'
+  async function handleStartTrial() {
+    setIsLoading(true)
+    setError(null)
 
-      setPlanKey(resolvedPlan)
-      setBillingPeriod(resolvedBilling)
-
+    // Flush pending onboarding data
+    const onboardingRaw = localStorage.getItem('clio_onboarding')
+    if (onboardingRaw) {
       try {
-        const res = await fetch('/api/checkout', {
+        await fetch('/api/onboarding', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ plan: resolvedPlan, billingPeriod: resolvedBilling }),
+          body: onboardingRaw,
         })
-
-        const data = await res.json()
-
-        if (data.clientSecret) {
-          setClientSecret(data.clientSecret)
-        } else if (data.alreadyActive) {
-          // Payment already collected from a previous session — go straight to dashboard
-          localStorage.removeItem('clio_selected_plan')
-          localStorage.removeItem('clio_billing_period')
-          window.location.href = '/dashboard/welcome'
-          return
-        } else if (data.checkoutUrl) {
-          // Mock mode fallback — redirect immediately
-          localStorage.removeItem('clio_selected_plan')
-          localStorage.removeItem('clio_billing_period')
-          window.location.href = data.checkoutUrl
-          return
-        } else {
-          setError(data.error ?? 'Failed to initialize checkout. Please try again.')
-        }
-      } catch {
-        setError('Connection error. Please refresh and try again.')
-      } finally {
-        setIsInitializing(false)
-      }
+      } catch { /* non-fatal */ }
+      localStorage.removeItem('clio_onboarding')
     }
 
-    init()
-  }, [])
+    try {
+      const res = await fetch('/api/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan: planKey, billingPeriod }),
+      })
+      const data = await res.json()
+
+      if (data.alreadyActive) {
+        localStorage.removeItem('clio_selected_plan')
+        localStorage.removeItem('clio_billing_period')
+        window.location.href = '/dashboard/welcome'
+        return
+      }
+
+      if (data.checkoutUrl) {
+        localStorage.removeItem('clio_selected_plan')
+        localStorage.removeItem('clio_billing_period')
+        window.location.href = data.checkoutUrl
+        return
+      }
+
+      setError(data.error ?? 'Failed to start checkout. Please try again.')
+      setIsLoading(false)
+    } catch {
+      setError('Connection error. Please try again.')
+      setIsLoading(false)
+    }
+  }
 
   const plan = PLAN_DATA[planKey]
   const displayPrice = billingPeriod === 'annual' ? plan.annual : plan.monthly
   const billingLabel = billingPeriod === 'annual' ? '/yr' : '/mo'
 
-  // ── Loading state ──────────────────────────────────────────────────────────
-  if (isInitializing || (!clientSecret && !error)) {
-    return (
-      <div className="min-h-screen bg-[#080808] flex flex-col items-center justify-center">
-        <div className="relative w-16 h-16 mb-6">
-          <motion.div
-            animate={{ scale: [1, 1.5, 1], opacity: [0.5, 0, 0.5] }}
-            transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-            className="absolute inset-0 rounded-full bg-[#7C3AED]"
-          />
-          <div className="relative w-16 h-16 rounded-full bg-[#7C3AED] flex items-center justify-center">
-            <span className="text-xl font-extrabold text-white">C</span>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 text-[#94A3B8]">
-          <Loader2 className="w-4 h-4 animate-spin" />
-          <span>Setting up your checkout...</span>
-        </div>
-      </div>
-    )
-  }
-
-  // ── Error state ────────────────────────────────────────────────────────────
-  if (error) {
-    return (
-      <div className="min-h-screen bg-[#080808] flex flex-col items-center justify-center px-6">
-        <div className="text-center max-w-sm">
-          <div className="w-12 h-12 rounded-full bg-[#EF4444]/10 border border-[#EF4444]/30 flex items-center justify-center mx-auto mb-4">
-            <span className="text-[#EF4444] text-lg">!</span>
-          </div>
-          <p className="text-white font-semibold mb-2">Something went wrong</p>
-          <p className="text-[#94A3B8] text-sm mb-6">{error}</p>
-          <Link
-            href="/pricing"
-            className="text-[#7C3AED] hover:text-[#A855F7] transition-colors text-sm"
-          >
-            ← Back to pricing
-          </Link>
-        </div>
-      </div>
-    )
-  }
-
-  // ── Main two-panel checkout ────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-[#080808] flex flex-col lg:flex-row">
       {/* ── Left panel: Plan summary ── */}
@@ -240,7 +128,6 @@ export default function CheckoutPage() {
           <span className="text-white font-bold text-lg group-hover:text-[#A855F7] transition-colors">Clio</span>
         </Link>
 
-        {/* Plan details */}
         <div className="flex-1">
           <p className="text-[#94A3B8] text-sm font-medium uppercase tracking-wider mb-3">Your plan</p>
           <h1 className="text-white text-3xl font-bold mb-1">{plan.name}</h1>
@@ -255,7 +142,6 @@ export default function CheckoutPage() {
             <span className="text-[#A855F7] text-xs font-medium">3-day free trial included</span>
           </div>
 
-          {/* What you get */}
           <p className="text-[#94A3B8] text-sm font-medium uppercase tracking-wider mb-4">What&apos;s included</p>
           <ul className="space-y-3 mb-8">
             {plan.features.map((feature) => (
@@ -266,7 +152,6 @@ export default function CheckoutPage() {
             ))}
           </ul>
 
-          {/* Quick facts */}
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-[#111111] border border-[#222222] rounded-xl p-4 flex items-center gap-3">
               <Clock className="w-4 h-4 text-[#7C3AED] shrink-0" />
@@ -285,16 +170,15 @@ export default function CheckoutPage() {
           </div>
         </div>
 
-        {/* Footer note */}
         <div className="mt-8 pt-6 border-t border-[#1a1a1a]">
           <div className="flex items-start gap-2 text-[#475569] text-xs">
             <MessageSquare className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-            <span>3-day free trial. Card charged ${displayPrice}{billingLabel} after trial ends. Cancel anytime — no questions asked.</span>
+            <span>3-day free trial. Card charged ${displayPrice}{billingLabel} after trial ends. Cancel anytime.</span>
           </div>
         </div>
       </div>
 
-      {/* ── Right panel: Payment form ── */}
+      {/* ── Right panel: Start trial ── */}
       <div className="flex-1 flex items-center justify-center p-8 lg:p-16">
         <motion.div
           initial={{ opacity: 0, y: 16 }}
@@ -302,37 +186,74 @@ export default function CheckoutPage() {
           transition={{ duration: 0.4 }}
           className="w-full max-w-md"
         >
-          {/* Mobile plan badge */}
           <div className="lg:hidden flex items-center justify-between mb-8">
             <Link href="/pricing" className="flex items-center gap-1.5 text-[#94A3B8] hover:text-white text-sm transition-colors">
               <ArrowLeft className="w-4 h-4" />
               Back
             </Link>
-            <span className="text-[#94A3B8] text-sm">
-              {plan.name} · ${displayPrice}{billingLabel}
-            </span>
+            <span className="text-[#94A3B8] text-sm">{plan.name} · ${displayPrice}{billingLabel}</span>
           </div>
 
-          <Elements
-            stripe={stripePromise}
-            options={{
-              clientSecret: clientSecret!,
-              appearance: stripeAppearance,
-            }}
-          >
-            <CheckoutForm
-              planName={plan.name}
-              planPrice={displayPrice}
-              billingPeriod={billingPeriod}
-            />
-          </Elements>
+          <div className="space-y-6">
+            <div className="space-y-2">
+              <h2 className="text-white text-2xl font-bold">Start your free trial</h2>
+              <p className="text-[#94A3B8] text-sm">
+                3 days free, then ${displayPrice}{billingLabel}. Cancel anytime before your trial ends.
+              </p>
+            </div>
 
-          {/* Desktop back link */}
-          <div className="hidden lg:flex justify-center mt-6">
-            <Link href="/pricing" className="flex items-center gap-1.5 text-[#475569] hover:text-[#94A3B8] text-sm transition-colors">
-              <ArrowLeft className="w-3.5 h-3.5" />
-              Change plan
-            </Link>
+            <div className="bg-[#111111] border border-[#222222] rounded-xl p-5 space-y-3">
+              {[
+                'Enter your card details on the next screen',
+                'No charge for 3 days',
+                'Cancel anytime from your dashboard',
+              ].map((step, i) => (
+                <div key={i} className="flex items-center gap-3">
+                  <div className="w-5 h-5 rounded-full bg-[#7C3AED]/20 border border-[#7C3AED]/40 flex items-center justify-center shrink-0">
+                    <span className="text-[#A855F7] text-xs font-bold">{i + 1}</span>
+                  </div>
+                  <span className="text-[#94A3B8] text-sm">{step}</span>
+                </div>
+              ))}
+            </div>
+
+            {error && (
+              <div className="bg-[#EF4444]/10 border border-[#EF4444]/30 rounded-lg px-4 py-3">
+                <p className="text-[#EF4444] text-sm">{error}</p>
+              </div>
+            )}
+
+            <motion.button
+              onClick={handleStartTrial}
+              disabled={isLoading}
+              whileHover={{ scale: isLoading ? 1 : 1.02 }}
+              whileTap={{ scale: isLoading ? 1 : 0.98 }}
+              className="w-full py-4 px-6 bg-[#7C3AED] hover:bg-[#6D28D9] disabled:opacity-60 disabled:cursor-not-allowed rounded-xl text-white font-semibold text-base transition-colors flex items-center justify-center gap-2"
+            >
+              {isLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Preparing checkout...
+                </>
+              ) : (
+                <>
+                  <Lock className="w-4 h-4" />
+                  Start 3-day trial — {plan.name}
+                </>
+              )}
+            </motion.button>
+
+            <div className="flex items-center justify-center gap-1.5 text-[#475569] text-xs">
+              <Lock className="w-3 h-3" />
+              <span>Secured by Stripe · SSL encrypted</span>
+            </div>
+
+            <div className="hidden lg:flex justify-center">
+              <Link href="/pricing" className="flex items-center gap-1.5 text-[#475569] hover:text-[#94A3B8] text-sm transition-colors">
+                <ArrowLeft className="w-3.5 h-3.5" />
+                Change plan
+              </Link>
+            </div>
           </div>
         </motion.div>
       </div>
