@@ -25,15 +25,6 @@ export default function CheckoutForm({ planName, planPrice, billingPeriod }: Che
     setErrorMessage(null)
 
     try {
-      // elements.submit() is required before confirmSetup with redirect: 'if_required'
-      // It validates fields and collects payment details before the confirmation call
-      const { error: submitError } = await elements.submit()
-      if (submitError) {
-        setErrorMessage(submitError.message ?? 'Please check your payment details.')
-        setIsLoading(false)
-        return
-      }
-
       const { error, setupIntent } = await stripe.confirmSetup({
         elements,
         confirmParams: {
@@ -62,8 +53,9 @@ export default function CheckoutForm({ planName, planPrice, billingPeriod }: Che
       setErrorMessage(`Unexpected payment state (${setupIntent?.status ?? 'unknown'}). Please try again or contact support.`)
       setIsLoading(false)
     } catch (err) {
-      console.error('[checkout] confirmSetup threw:', err)
-      setErrorMessage('Connection error. Please check your network and try again.')
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[checkout] confirmSetup threw:', msg)
+      setErrorMessage(`Error: ${msg}`)
       setIsLoading(false)
     }
   }
