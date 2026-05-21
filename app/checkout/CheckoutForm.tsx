@@ -34,7 +34,8 @@ export default function CheckoutForm({ planName, planPrice, billingPeriod }: Che
       })
 
       if (error) {
-        setErrorMessage(error.message ?? 'Something went wrong. Please try again.')
+        console.error('[checkout] confirmSetup error:', error.type, error.code, error.message)
+        setErrorMessage(error.message ?? 'Payment failed. Please try again.')
         setIsLoading(false)
         return
       }
@@ -47,12 +48,13 @@ export default function CheckoutForm({ planName, planPrice, billingPeriod }: Che
         return
       }
 
-      // Unexpected state — reset so user can retry
-      setErrorMessage('Unexpected payment state. Please try again.')
+      // Unexpected state — log and reset
+      console.error('[checkout] unexpected setupIntent status:', setupIntent?.status)
+      setErrorMessage(`Unexpected payment state (${setupIntent?.status ?? 'unknown'}). Please try again or contact support.`)
       setIsLoading(false)
     } catch (err) {
-      console.error('[checkout] confirmSetup exception:', err)
-      setErrorMessage('Something went wrong. Please try again.')
+      console.error('[checkout] confirmSetup threw:', err)
+      setErrorMessage('Connection error. Please check your network and try again.')
       setIsLoading(false)
     }
   }

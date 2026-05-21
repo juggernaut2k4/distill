@@ -91,8 +91,8 @@ export async function POST(request: NextRequest) {
       .eq('id', userId!)
       .single()
 
-    // Reuse existing trialing subscription if present
-    if (user?.stripe_subscription_id && user?.subscription_status === 'trialing') {
+    // Handle existing Stripe subscription
+    if (user?.stripe_subscription_id) {
       const Stripe = (await import('stripe')).default
       const stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY!, {
         apiVersion: '2025-02-24.acacia',
@@ -102,9 +102,21 @@ export async function POST(request: NextRequest) {
         { expand: ['pending_setup_intent'] }
       )
       const existingIntent = sub.pending_setup_intent as { client_secret?: string } | null
+
+      // Subscription has a pending setup intent → reuse it
       if (existingIntent?.client_secret) {
+        console.log('[checkout] reusing pending setup intent for sub', user.stripe_subscription_id)
         return NextResponse.json({ clientSecret: existingIntent.client_secret })
       }
+
+      // No pending setup intent: payment method already collected → redirect to welcome
+      if (sub.status === 'trialing' || sub.status === 'active') {
+        console.log('[checkout] subscription already active/trialing — redirecting', sub.status)
+        return NextResponse.json({ alreadyActive: true })
+      }
+
+      // Subscription is canceled/past_due/etc — fall through to create a new one
+      console.log('[checkout] existing subscription status:', sub.status, '— creating new one')
     }
 
     const { clientSecret, customerId } = await createSubscriptionIntent(

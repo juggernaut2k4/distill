@@ -155,6 +155,12 @@ export default function CheckoutPage() {
 
         if (data.clientSecret) {
           setClientSecret(data.clientSecret)
+        } else if (data.alreadyActive) {
+          // Payment already collected from a previous session — go straight to dashboard
+          localStorage.removeItem('clio_selected_plan')
+          localStorage.removeItem('clio_billing_period')
+          window.location.href = '/dashboard/welcome'
+          return
         } else if (data.checkoutUrl) {
           // Mock mode fallback — redirect immediately
           localStorage.removeItem('clio_selected_plan')
