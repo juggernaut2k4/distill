@@ -24,38 +24,20 @@ export default function CheckoutForm({ planName, planPrice, billingPeriod }: Che
     setIsLoading(true)
     setErrorMessage(null)
 
-    try {
-      const { error, setupIntent } = await stripe.confirmSetup({
-        elements,
-        confirmParams: {
-          return_url: `${window.location.origin}/dashboard/welcome`,
-        },
-        redirect: 'if_required',
-      })
+    localStorage.removeItem('clio_selected_plan')
+    localStorage.removeItem('clio_billing_period')
 
-      if (error) {
-        console.error('[checkout] confirmSetup error:', error.type, error.code, error.message)
-        setErrorMessage(error.message ?? 'Payment failed. Please try again.')
-        setIsLoading(false)
-        return
-      }
+    const { error } = await stripe.confirmSetup({
+      elements,
+      confirmParams: {
+        return_url: `${window.location.origin}/dashboard/welcome`,
+      },
+    })
 
-      // Card confirmed without a redirect (no 3DS required) — navigate manually
-      if (setupIntent?.status === 'succeeded') {
-        localStorage.removeItem('clio_selected_plan')
-        localStorage.removeItem('clio_billing_period')
-        window.location.href = `${window.location.origin}/dashboard/welcome`
-        return
-      }
-
-      // Unexpected state — log and reset
-      console.error('[checkout] unexpected setupIntent status:', setupIntent?.status)
-      setErrorMessage(`Unexpected payment state (${setupIntent?.status ?? 'unknown'}). Please try again or contact support.`)
-      setIsLoading(false)
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      console.error('[checkout] confirmSetup threw:', msg)
-      setErrorMessage(`Error: ${msg}`)
+    // Only reached if Stripe could not redirect (error occurred)
+    if (error) {
+      console.error('[checkout] confirmSetup error:', error.type, error.code, error.message)
+      setErrorMessage(error.message ?? 'Payment failed. Please try again.')
       setIsLoading(false)
     }
   }
