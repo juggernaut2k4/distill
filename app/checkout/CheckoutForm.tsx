@@ -25,6 +25,15 @@ export default function CheckoutForm({ planName, planPrice, billingPeriod }: Che
     setErrorMessage(null)
 
     try {
+      // elements.submit() is required before confirmSetup with redirect: 'if_required'
+      // It validates fields and collects payment details before the confirmation call
+      const { error: submitError } = await elements.submit()
+      if (submitError) {
+        setErrorMessage(submitError.message ?? 'Please check your payment details.')
+        setIsLoading(false)
+        return
+      }
+
       const { error, setupIntent } = await stripe.confirmSetup({
         elements,
         confirmParams: {
