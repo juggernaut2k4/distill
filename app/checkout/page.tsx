@@ -9,7 +9,7 @@ import {
   useElements,
 } from '@stripe/react-stripe-js'
 import { motion } from 'framer-motion'
-import { CheckCircle, Lock, Loader2, ShieldCheck } from 'lucide-react'
+import { CheckCircle, Lock, Loader2, ShieldCheck, Gift } from 'lucide-react'
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
 
@@ -100,10 +100,14 @@ const STRIPE_APPEARANCE = {
 function PaymentForm({
   planKey,
   billingPeriod,
+  trialOptIn,
+  onTrialOptInChange,
   onSuccess,
 }: {
   planKey: PlanKey
   billingPeriod: 'monthly' | 'annual'
+  trialOptIn: boolean
+  onTrialOptInChange: (v: boolean) => void
   onSuccess: () => void
 }) {
   const stripe = useStripe()
@@ -148,6 +152,7 @@ function PaymentForm({
           plan: planKey,
           billingPeriod,
           paymentMethodId: setupIntent.payment_method,
+          trialOptIn,
         }),
       })
       const data = await res.json()
@@ -179,9 +184,46 @@ function PaymentForm({
       <div>
         <h2 className="text-white text-xl font-bold mb-1">Payment details</h2>
         <p className="text-[#475569] text-sm">
-          Your card won&apos;t be charged until {trialEndStr}.
+          {trialOptIn
+            ? `Your card won’t be charged until ${trialEndStr}.`
+            : 'Your card will be charged today when you subscribe.'}
         </p>
       </div>
+
+      {/* Trial opt-in checkbox */}
+      <label className="flex items-start gap-3 cursor-pointer group">
+        <div className="relative mt-0.5 flex-shrink-0">
+          <input
+            type="checkbox"
+            checked={trialOptIn}
+            onChange={(e) => onTrialOptInChange(e.target.checked)}
+            className="sr-only"
+          />
+          <div
+            className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors ${
+              trialOptIn
+                ? 'bg-[#7C3AED] border-[#7C3AED]'
+                : 'bg-transparent border-[#333333] group-hover:border-[#555555]'
+            }`}
+          >
+            {trialOptIn && (
+              <svg className="w-3 h-3 text-white" viewBox="0 0 12 12" fill="none">
+                <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            )}
+          </div>
+        </div>
+        <div>
+          <div className="flex items-center gap-2">
+            <Gift size={14} className="text-[#A855F7]" />
+            <span className="text-sm font-semibold text-white">Start with a 3-day free trial</span>
+          </div>
+          <p className="text-xs text-[#475569] mt-0.5 leading-relaxed">
+            Try Clio free for 3 days with 5 coaching minutes. Your card is saved but not charged.
+            Pay anytime within 3 days to unlock your full plan — or cancel and pay nothing.
+          </p>
+        </div>
+      </label>
 
       <PaymentElement
         options={{
@@ -207,10 +249,15 @@ function PaymentForm({
             <Loader2 className="w-4 h-4 animate-spin" />
             Activating your plan…
           </>
+        ) : trialOptIn ? (
+          <>
+            <Gift className="w-4 h-4" />
+            Start 3-day free trial — ${price}/{billingPeriod === 'annual' ? 'yr' : 'mo'} after
+          </>
         ) : (
           <>
             <Lock className="w-4 h-4" />
-            Start 3-day free trial — ${price}/{billingPeriod === 'annual' ? 'yr' : 'mo'} after
+            Subscribe now — ${price}/{billingPeriod === 'annual' ? 'yr' : 'mo'}
           </>
         )}
       </button>
@@ -230,6 +277,7 @@ function CheckoutContent() {
 
   const [planKey, setPlanKey] = useState<PlanKey>('starter')
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'annual'>('monthly')
+  const [trialOptIn, setTrialOptIn] = useState(true)
   const [clientSecret, setClientSecret] = useState<string | null>(null)
   const [isLoadingIntent, setIsLoadingIntent] = useState(false)
   const [initError, setInitError] = useState<string | null>(null)
@@ -366,13 +414,22 @@ function CheckoutContent() {
           </ul>
 
           {/* Trial callout */}
-          <div className="bg-[#7C3AED]/10 border border-[#7C3AED]/25 rounded-xl p-4">
-            <p className="text-[#A855F7] text-sm font-semibold mb-1">3-day free trial included</p>
-            <p className="text-[#475569] text-xs leading-relaxed">
-              Your card is saved today but nothing is charged until {trialEndStr}.
-              Cancel before then and you won&apos;t be billed a cent.
-            </p>
-          </div>
+          {trialOptIn ? (
+            <div className="bg-[#7C3AED]/10 border border-[#7C3AED]/25 rounded-xl p-4">
+              <p className="text-[#A855F7] text-sm font-semibold mb-1">3-day free trial selected</p>
+              <p className="text-[#475569] text-xs leading-relaxed">
+                Your card is saved today but nothing is charged until {trialEndStr}.
+                You get 5 coaching minutes to try Clio. Cancel before then and you won&apos;t be billed a cent.
+              </p>
+            </div>
+          ) : (
+            <div className="bg-[#10B981]/10 border border-[#10B981]/25 rounded-xl p-4">
+              <p className="text-[#10B981] text-sm font-semibold mb-1">Full plan — starts today</p>
+              <p className="text-[#475569] text-xs leading-relaxed">
+                Your card will be charged today and you&apos;ll get your full coaching minutes immediately.
+              </p>
+            </div>
+          )}
         </div>
 
         <p className="text-xs text-[#333333] mt-8">
@@ -419,6 +476,8 @@ function CheckoutContent() {
               <PaymentForm
                 planKey={planKey}
                 billingPeriod={billingPeriod}
+                trialOptIn={trialOptIn}
+                onTrialOptInChange={setTrialOptIn}
                 onSuccess={() => router.push('/dashboard/welcome')}
               />
             </Elements>

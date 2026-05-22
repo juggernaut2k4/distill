@@ -157,25 +157,69 @@ export async function sendPaymentFailedEmail(user: User): Promise<EmailResult> {
 }
 
 /**
- * Sends a trial ending soon email (3 days before trial ends).
+ * Sends a trial ending soon email.
  * @param user - The user whose trial is ending
+ * @param hoursLeft - Hours remaining in trial (defaults to 72 = 3 days)
  * @returns Success/failure result
  */
-export async function sendTrialEndingEmail(user: User): Promise<EmailResult> {
+export async function sendTrialEndingEmail(
+  user: { email: string; plan_tier?: string | null; id?: string },
+  hoursLeft = 72
+): Promise<EmailResult> {
   if (isPlaceholder || !resend) {
-    console.log('[MOCK] sendTrialEndingEmail', { userId: user.id })
+    console.log('[MOCK] sendTrialEndingEmail', { email: user.email, hoursLeft })
     return { success: true }
   }
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
+  const label = hoursLeft <= 24 ? '24 hours' : `${Math.round(hoursLeft / 24)} days`
 
   try {
     const result = await resend.emails.send({
       from: FROM,
       to: user.email,
-      subject: 'Your Clio trial ends in 3 days',
-      html: `<p>Your free trial ends in 3 days. Continue building your AI confidence with a Clio subscription.</p><p><a href="${process.env.NEXT_PUBLIC_APP_URL}/pricing">Choose your plan</a></p>`,
-      text: `Your Clio trial ends in 3 days. Visit ${process.env.NEXT_PUBLIC_APP_URL}/pricing to subscribe.`,
+      subject: `Your Clio trial ends in ${label}`,
+      html: `<p>Your free trial ends in ${label}. Pay anytime to unlock your full plan minutes and continue building your AI confidence.</p><p><a href="${appUrl}/checkout">Activate your plan</a></p>`,
+      text: `Your Clio trial ends in ${label}. Visit ${appUrl}/checkout to activate your plan.`,
     })
 
+    logEmailResult('sendTrialEndingEmail', user.email, result)
+    if (result.error) {
+      return { success: false, error: result.error.message }
+    }
+
+    return { success: true, messageId: result.data?.id }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    return { success: false, error: message }
+  }
+}
+
+/**
+ * Sends a trial expired / account suspended email.
+ * @param user - The user whose trial has expired
+ * @returns Success/failure result
+ */
+export async function sendTrialExpiredEmail(
+  user: { email: string; plan_tier?: string | null; id?: string }
+): Promise<EmailResult> {
+  if (isPlaceholder || !resend) {
+    console.log('[MOCK] sendTrialExpiredEmail', { email: user.email })
+    return { success: true }
+  }
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
+
+  try {
+    const result = await resend.emails.send({
+      from: FROM,
+      to: user.email,
+      subject: 'Your Clio trial has ended',
+      html: `<p>Your 3-day Clio trial has ended and your account has been paused. Activate your plan anytime to pick up right where you left off.</p><p><a href="${appUrl}/checkout">Reactivate my plan</a></p>`,
+      text: `Your Clio trial has ended. Reactivate your plan at ${appUrl}/checkout.`,
+    })
+
+    logEmailResult('sendTrialExpiredEmail', user.email, result)
     if (result.error) {
       return { success: false, error: result.error.message }
     }

@@ -1,13 +1,13 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useUser } from '@clerk/nextjs'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
 import {
   ArrowLeft, CalendarDays, Clock, Download, Tag, CheckCircle,
   Circle, XCircle, Loader, Video, StopCircle, ExternalLink, Sparkles, EyeOff, Eye,
-  MessageSquare, BookmarkPlus, Copy,
+  MessageSquare, BookmarkPlus, Copy, AlertTriangle, Timer,
 } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -135,15 +135,73 @@ export default function SessionDetailClient({ session }: Props) {
   const [botId, setBotId] = useState<string | null>(null)
   const [botError, setBotError] = useState<string | null>(null)
 
+  // Session timer state
+  const [timerSecondsLeft, setTimerSecondsLeft] = useState<number | null>(null)
+  const [timerWarning, setTimerWarning] = useState(false)  // true when ≤ 2 min left
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
   // Public URL — no auth, accessible by Recall.ai headless browser
   const walkthroughUrl = user?.id
     ? `${typeof window !== 'undefined' ? window.location.origin : ''}/walkthrough/${user.id}`
     : ''
 
+  function startTimer(durationMins: number) {
+    const totalSeconds = durationMins * 60
+    setTimerSecondsLeft(totalSeconds)
+    setTimerWarning(false)
+
+    timerRef.current = setInterval(() => {
+      setTimerSecondsLeft((prev) => {
+        if (prev === null || prev <= 0) return 0
+        const next = prev - 1
+        if (next <= 120) setTimerWarning(true)
+        return next
+      })
+    }, 1000)
+  }
+
+  function stopTimer() {
+    if (timerRef.current) {
+      clearInterval(timerRef.current)
+      timerRef.current = null
+    }
+    setTimerSecondsLeft(null)
+    setTimerWarning(false)
+  }
+
+  // Auto-end when timer hits zero
+  useEffect(() => {
+    if (timerSecondsLeft === 0 && botStatus === 'active') {
+      handleEndSession()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timerSecondsLeft, botStatus])
+
+  // Clean up timer on unmount
+  useEffect(() => () => stopTimer(), [])
+
   async function handleLaunchBot() {
     if (!meetingUrl.trim()) return
     setBotStatus('joining')
     setBotError(null)
+
+    // Check minutes balance and record session start
+    let effectiveDurationMins = session.duration_mins
+    try {
+      const startRes = await fetch(`/api/sessions/${session.id}/start`, { method: 'POST' })
+      const startData = (await startRes.json()) as { effectiveDurationMins?: number; error?: string }
+      if (!startRes.ok) {
+        setBotError(startData.error ?? 'Could not start session — check your minutes balance')
+        setBotStatus('idle')
+        return
+      }
+      effectiveDurationMins = startData.effectiveDurationMins ?? session.duration_mins
+    } catch {
+      setBotError('Network error — please try again')
+      setBotStatus('idle')
+      return
+    }
+
     const skippedTopics = sessionPlan?.subtopics.filter((s) => s.skipped).map((s) => s.title) ?? []
     try {
       const res = await fetch('/api/recall/bot', {
@@ -159,6 +217,7 @@ export default function SessionDetailClient({ session }: Props) {
       }
       setBotId(data.botId)
       setBotStatus('active')
+      startTimer(effectiveDurationMins)
     } catch {
       setBotError('Network error — please try again')
       setBotStatus('idle')
@@ -166,17 +225,30 @@ export default function SessionDetailClient({ session }: Props) {
   }
 
   async function handleEndSession() {
-    if (!botId) return
+    if (!botId && botStatus !== 'active') return
     setBotStatus('ending')
-    try {
-      await fetch('/api/recall/bot', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ botId }),
-      })
-    } catch {
-      // Non-fatal
+    stopTimer()
+
+    // Remove bot from meeting
+    if (botId) {
+      try {
+        await fetch('/api/recall/bot', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ botId }),
+        })
+      } catch {
+        // Non-fatal
+      }
     }
+
+    // Record session end and deduct minutes
+    try {
+      await fetch(`/api/sessions/${session.id}/end`, { method: 'POST' })
+    } catch {
+      // Non-fatal — balance will reconcile on next load
+    }
+
     setBotId(null)
     setBotStatus('idle')
   }
@@ -541,11 +613,38 @@ export default function SessionDetailClient({ session }: Props) {
 
               {botStatus === 'active' && (
                 <div className="space-y-3">
-                  {/* Status indicator */}
-                  <div className="flex items-center gap-2.5 py-1">
-                    <span className="w-2 h-2 rounded-full bg-[#10B981] animate-pulse flex-shrink-0" />
-                    <p className="text-sm text-[#10B981] font-medium">Bot is in the call</p>
+                  {/* Status indicator + countdown */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5 py-1">
+                      <span className="w-2 h-2 rounded-full bg-[#10B981] animate-pulse flex-shrink-0" />
+                      <p className="text-sm text-[#10B981] font-medium">Bot is in the call</p>
+                    </div>
+                    {timerSecondsLeft !== null && (
+                      <div
+                        className={`flex items-center gap-1.5 px-3 py-1 rounded-lg border font-mono text-sm font-semibold ${
+                          timerWarning
+                            ? 'bg-red-950/30 border-red-800/40 text-[#EF4444]'
+                            : 'bg-[#111111] border-[#222222] text-[#94A3B8]'
+                        }`}
+                      >
+                        <Timer size={13} className={timerWarning ? 'text-[#EF4444]' : 'text-[#475569]'} />
+                        {String(Math.floor(timerSecondsLeft / 60)).padStart(2, '0')}:
+                        {String(timerSecondsLeft % 60).padStart(2, '0')}
+                      </div>
+                    )}
                   </div>
+
+                  {/* 2-minute warning banner */}
+                  {timerWarning && timerSecondsLeft !== null && timerSecondsLeft > 0 && (
+                    <div className="flex items-center gap-2.5 py-2 px-3 rounded-lg bg-red-950/20 border border-red-800/30">
+                      <AlertTriangle size={13} className="text-[#EF4444] flex-shrink-0" />
+                      <p className="text-xs text-[#EF4444]">
+                        {timerSecondsLeft <= 60
+                          ? 'Less than 1 minute left — wrapping up now'
+                          : '2 minutes remaining — Clio will begin wrapping up'}
+                      </p>
+                    </div>
+                  )}
 
                   {/* Walkthrough URL */}
                   <div className="bg-[#0D0D0D] border border-[#1E1E1E] rounded-lg p-3">

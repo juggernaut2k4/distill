@@ -7,6 +7,7 @@ const ConfirmSchema = z.object({
   plan: z.enum(['starter', 'pro', 'executive']),
   billingPeriod: z.enum(['monthly', 'annual']),
   paymentMethodId: z.string().min(1),
+  trialOptIn: z.boolean().default(true),
 })
 
 const PRICE_ID_MAP: Record<string, Record<string, string | undefined>> = {
@@ -50,7 +51,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { plan, billingPeriod, paymentMethodId } = parsed.data
+    const { plan, billingPeriod, paymentMethodId, trialOptIn } = parsed.data
 
     const priceId = PRICE_ID_MAP[plan]?.[billingPeriod]
     if (!priceId || priceId.startsWith('PLACEHOLDER_')) {
@@ -83,14 +84,22 @@ export async function POST(request: NextRequest) {
       invoice_settings: { default_payment_method: paymentMethodId },
     })
 
-    // Create subscription with 3-day trial
-    const subscription = await stripe.subscriptions.create({
+    // Create subscription — trial or immediate based on user opt-in
+    const subscriptionParams: Parameters<typeof stripe.subscriptions.create>[0] = {
       customer: customerId,
       items: [{ price: priceId }],
-      trial_period_days: 3,
       default_payment_method: paymentMethodId,
-      metadata: { userId: userId!, plan, billingPeriod },
-    })
+      metadata: { userId: userId!, plan, billingPeriod, trialOptIn: String(trialOptIn) },
+    }
+    if (trialOptIn) {
+      subscriptionParams.trial_period_days = 3
+    }
+
+    const subscription = await stripe.subscriptions.create(subscriptionParams)
+
+    const trialEndDate = trialOptIn
+      ? new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString()
+      : null
 
     // Update Supabase immediately (webhook will also update, this is for speed)
     await supabase
@@ -100,7 +109,9 @@ export async function POST(request: NextRequest) {
         subscription_status: subscription.status,
         stripe_subscription_id: subscription.id,
         minutes_included: MINUTES_MAP[plan],
-        minutes_balance: MINUTES_MAP[plan],
+        minutes_balance: trialOptIn ? 5 : MINUTES_MAP[plan],
+        trial_opted_in: trialOptIn,
+        trial_ends_at: trialEndDate,
       })
       .eq('id', userId!)
 

@@ -8,7 +8,7 @@ import { MessageCard } from '@/components/dashboard/MessageCard'
 import { DeliveryToggle } from '@/components/dashboard/DeliveryToggle'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
-import { Timer, ArrowRight, RefreshCw } from 'lucide-react'
+import { Timer, ArrowRight, RefreshCw, Hourglass } from 'lucide-react'
 import Link from 'next/link'
 
 interface DeliveryEntry {
@@ -35,6 +35,9 @@ interface User {
   minutes_included?: number | null
   plan_approved?: boolean | null
   needs_recalibration?: boolean | null
+  subscription_status?: string | null
+  trial_opted_in?: boolean | null
+  trial_ends_at?: string | null
 }
 
 interface DashboardClientProps {
@@ -63,6 +66,19 @@ export default function DashboardClient({
   const minutesColor = minutesPct > 50 ? '#10B981' : minutesPct > 20 ? '#F59E0B' : '#EF4444'
   const planPending = !user.plan_approved && planTier !== 'free'
   const needsRecalibration = user.needs_recalibration ?? false
+
+  const isTrialing = user.subscription_status === 'trialing' && user.trial_opted_in
+  const trialEndsAt = user.trial_ends_at ? new Date(user.trial_ends_at) : null
+  const trialDaysLeft = trialEndsAt
+    ? Math.max(0, Math.ceil((trialEndsAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+    : 0
+  const trialHoursLeft = trialEndsAt
+    ? Math.max(0, Math.ceil((trialEndsAt.getTime() - Date.now()) / (1000 * 60 * 60)))
+    : 0
+  const trialLabel = trialHoursLeft < 24
+    ? `${trialHoursLeft} hour${trialHoursLeft !== 1 ? 's' : ''}`
+    : `${trialDaysLeft} day${trialDaysLeft !== 1 ? 's' : ''}`
+  const trialUrgent = trialHoursLeft < 24
 
   async function handleDeliveryChange(pref: 'email' | 'sms' | 'both') {
     setDeliveryPref(pref)
@@ -100,6 +116,44 @@ export default function DashboardClient({
           <Link href="/topics">
             <Button variant="secondary" size="sm" className="gap-1.5 whitespace-nowrap ml-4">
               Update topics <ArrowRight size={13} />
+            </Button>
+          </Link>
+        </motion.div>
+      )}
+
+      {/* Trial banner */}
+      {isTrialing && trialEndsAt && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className={`flex items-center justify-between px-4 py-3 rounded-xl border ${
+            trialUrgent
+              ? 'border-red-800/40 bg-red-950/20'
+              : 'border-amber-800/30 bg-amber-950/20'
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <Hourglass
+              size={16}
+              className={trialUrgent ? 'text-[#EF4444] flex-shrink-0' : 'text-[#F59E0B] flex-shrink-0'}
+            />
+            <div>
+              <p className={`text-sm font-semibold ${trialUrgent ? 'text-red-300' : 'text-amber-300'}`}>
+                {trialUrgent
+                  ? `Trial ending in ${trialLabel} — activate now to keep access`
+                  : `${trialLabel} left in your free trial`}
+              </p>
+              <p className="text-xs text-[#475569] mt-0.5">
+                You have {minutesBalance} min of coaching time. Pay now to unlock your full {minutesIncluded} min/month.
+              </p>
+            </div>
+          </div>
+          <Link href="/checkout">
+            <Button
+              size="sm"
+              className={`gap-1.5 whitespace-nowrap ml-4 ${trialUrgent ? 'bg-[#EF4444] hover:bg-red-600' : ''}`}
+            >
+              Activate plan <ArrowRight size={13} />
             </Button>
           </Link>
         </motion.div>
