@@ -29,9 +29,9 @@ const isStripeConfigured =
 
 /**
  * POST /api/checkout
- * Creates a Stripe subscription intent for Stripe Elements custom checkout.
- * Returns clientSecret for the pending SetupIntent (3-day trial flow).
- * Dev mode: activates plan directly in DB and returns checkoutUrl.
+ * Free plan: activates directly in Supabase, returns checkoutUrl.
+ * Paid plans: creates Stripe customer + SetupIntent, returns clientSecret
+ * for the embedded PaymentElement on the checkout page.
  */
 export async function POST(request: NextRequest) {
   const { userId, error } = requireAuth()
@@ -51,9 +51,7 @@ export async function POST(request: NextRequest) {
     const { plan, billingPeriod } = parsed.data
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
 
-    // ── Free plan: activate directly, no Stripe involved ────────────────────
-    // Free tier gets a limited minute allowance. No card required.
-    // When minutes run out: upgrade prompt → suspend if not upgraded.
+    // ── Free plan: activate directly, no Stripe ──────────────────────────────
     if (plan === 'free') {
       const supabase = createSupabaseAdminClient()
       await supabase
@@ -69,24 +67,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ checkoutUrl: `${appUrl}/dashboard/welcome` })
     }
 
-    // ── Dev / mock mode (paid plans) ─────────────────────────────────────────
+    // ── Dev / mock mode ──────────────────────────────────────────────────────
     if (!isStripeConfigured) {
-      console.log('[checkout] MOCK mode — activating plan without Stripe:', plan)
+      console.log('[checkout] MOCK — activating without Stripe:', plan)
       const supabase = createSupabaseAdminClient()
       await supabase
         .from('users')
-        .update({
-          plan_tier: plan,
-          subscription_status: 'trialing',
-        })
+        .update({ plan_tier: plan, subscription_status: 'trialing' })
         .eq('id', userId!)
 
       return NextResponse.json({ checkoutUrl: `${appUrl}/dashboard/welcome`, mock: true })
     }
 
-    // ── Production: Stripe hosted checkout (paid plans only) ─────────────────
+    // ── Paid plan: create SetupIntent for embedded checkout ──────────────────
     const priceId = PRICE_ID_MAP[plan]?.[billingPeriod]
-
     if (!priceId || priceId.startsWith('PLACEHOLDER_')) {
       return NextResponse.json(
         { error: 'Payment is not configured yet. Please contact support.' },
@@ -94,27 +88,54 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const { stripe } = await import('@/lib/stripe')
+    if (!stripe) {
+      return NextResponse.json({ error: 'Stripe not configured' }, { status: 503 })
+    }
     const supabase = createSupabaseAdminClient()
+
     const { data: user } = await supabase
       .from('users')
-      .select('email, stripe_subscription_id, subscription_status')
+      .select('email, stripe_customer_id, stripe_subscription_id, subscription_status')
       .eq('id', userId!)
       .single()
 
-    // Already subscribed — send straight to dashboard
-    if (user?.stripe_subscription_id && (user.subscription_status === 'trialing' || user.subscription_status === 'active')) {
-      console.log('[checkout] already active — redirecting to welcome')
+    // Already subscribed — send to dashboard
+    if (
+      user?.stripe_subscription_id &&
+      (user.subscription_status === 'trialing' || user.subscription_status === 'active')
+    ) {
       return NextResponse.json({ alreadyActive: true })
     }
 
-    const { createCheckoutSession } = await import('@/lib/stripe')
-    const checkoutUrl = await createCheckoutSession(userId!, priceId)
-    return NextResponse.json({ checkoutUrl })
+    // Get or create Stripe customer
+    let customerId = user?.stripe_customer_id
+    if (!customerId) {
+      const customer = await stripe.customers.create({
+        email: user?.email ?? undefined,
+        metadata: { userId: userId! },
+      })
+      customerId = customer.id
+      await supabase
+        .from('users')
+        .update({ stripe_customer_id: customerId })
+        .eq('id', userId!)
+    }
+
+    // Create SetupIntent — payment method will be saved and billed after trial
+    const setupIntent = await stripe.setupIntents.create({
+      customer: customerId,
+      usage: 'off_session',
+      metadata: { userId: userId!, plan, billingPeriod },
+    })
+
+    return NextResponse.json({
+      clientSecret: setupIntent.client_secret,
+      customerId,
+    })
   } catch (err) {
     const e = err as { type?: string; code?: string; message?: string }
-    console.error('[checkout-error-type]', e?.type ?? 'unknown')
-    console.error('[checkout-error-code]', e?.code ?? 'unknown')
-    console.error('[checkout-error-msg]', e?.message ?? 'unknown')
+    console.error('[checkout-error]', e?.type, e?.code, e?.message)
     return NextResponse.json(
       { error: 'Failed to initialize checkout. Please try again.' },
       { status: 500 }
