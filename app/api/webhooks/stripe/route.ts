@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
           executive: 150,
         }
         const minutesIncluded = minutesMap[resolvedPlan] ?? 30
-        // During trial: give a taste (5 min). On activation, topped up to full minutes.
+        // During trial: give a taste (5 min). On activation, topped up to full plan minutes.
         const isTrialing = subscription.status === 'trialing'
         const minutesBalance = isTrialing ? 5 : minutesIncluded
 
@@ -167,46 +167,44 @@ export async function POST(request: NextRequest) {
 
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session
-        if (session.metadata?.type !== 'topup') break
 
-        const userId = session.metadata?.user_id
-        const minutes = parseInt(session.metadata?.minutes ?? '0', 10)
-        if (!userId || !minutes) break
+        // ── Topup flow — credit purchased minutes ──────────────────────────
+        if (session.metadata?.type === 'topup') {
+          const userId = session.metadata?.user_id
+          const minutes = parseInt(session.metadata?.minutes ?? '0', 10)
+          if (!userId || !minutes) break
 
-        // Credit minutes using the add_minutes DB function
-        const { data: newBalance, error: rpcError } = await supabase.rpc('add_minutes', {
-          p_user_id: userId,
-          p_minutes: minutes,
-        })
+          const { data: newBalance, error: rpcError } = await supabase.rpc('add_minutes', {
+            p_user_id: userId,
+            p_minutes: minutes,
+          })
 
-        if (rpcError) {
-          console.error('[stripe-webhook] add_minutes RPC error:', rpcError)
-          break
-        }
+          if (rpcError) {
+            console.error('[stripe-webhook] add_minutes RPC error:', rpcError)
+            break
+          }
 
-        console.log(`[stripe-webhook] Top-up: +${minutes} min for user ${userId}, new balance: ${newBalance}`)
+          console.log(`[stripe-webhook] Top-up: +${minutes} min for user ${userId}, new balance: ${newBalance}`)
 
-        // Notify user
-        const { data: user } = await supabase
-          .from('users')
-          .select('id, email, role, industry, ai_maturity, phone, twilio_number_assigned')
-          .eq('id', userId)
-          .single()
+          const { data: topupUser } = await supabase
+            .from('users')
+            .select('id, email, role, industry, ai_maturity, phone, twilio_number_assigned')
+            .eq('id', userId)
+            .single()
 
-        if (user?.email) {
-          const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
-          // Fire-and-forget top-up confirmation email (plain transactional, reuse sendWelcomeEmail pattern)
-          const { Resend } = await import('resend')
-          const resendKey = process.env.RESEND_API_KEY
-          if (resendKey && !resendKey.startsWith('PLACEHOLDER_')) {
-            const resend = new Resend(resendKey)
-            const fromName = process.env.RESEND_FROM_NAME ?? 'Clio'
-            const fromEmail = process.env.RESEND_FROM_EMAIL ?? 'hello@hello-clio.com'
-            resend.emails.send({
-              from: `${fromName} <${fromEmail}>`,
-              to: user.email,
-              subject: `${minutes} minutes added to your Clio account`,
-              html: `<!DOCTYPE html><html><body style="background:#080808;color:#fff;font-family:Inter,system-ui,sans-serif;margin:0;padding:0;">
+          if (topupUser?.email) {
+            const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
+            const { Resend } = await import('resend')
+            const resendKey = process.env.RESEND_API_KEY
+            if (resendKey && !resendKey.startsWith('PLACEHOLDER_')) {
+              const resend = new Resend(resendKey)
+              const fromName = process.env.RESEND_FROM_NAME ?? 'Clio'
+              const fromEmail = process.env.RESEND_FROM_EMAIL ?? 'hello@hello-clio.com'
+              resend.emails.send({
+                from: `${fromName} <${fromEmail}>`,
+                to: topupUser.email,
+                subject: `${minutes} minutes added to your Clio account`,
+                html: `<!DOCTYPE html><html><body style="background:#080808;color:#fff;font-family:Inter,system-ui,sans-serif;margin:0;padding:0;">
 <table width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;padding:40px 24px;">
 <tr><td>
 <p style="color:#7C3AED;font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin:0 0 32px;">CLIO</p>
@@ -219,17 +217,48 @@ export async function POST(request: NextRequest) {
 </td></tr>
 </table>
 </body></html>`,
-            }).catch(console.error)
+              }).catch(console.error)
+            }
           }
+
+          if (topupUser?.phone && topupUser?.twilio_number_assigned) {
+            const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
+            sendSMS(
+              topupUser.phone,
+              topupUser.twilio_number_assigned,
+              `Clio: ${minutes} minutes added! New balance: ${newBalance} min. Ready to schedule: ${appUrl}/dashboard/schedule`
+            ).catch(console.error)
+          }
+
+          break
         }
 
-        if (user?.phone && user?.twilio_number_assigned) {
-          const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
-          sendSMS(
-            user.phone,
-            user.twilio_number_assigned,
-            `Clio: ${minutes} minutes added! New balance: ${newBalance} min. Ready to schedule: ${appUrl}/dashboard/schedule`
-          ).catch(console.error)
+        // ── Regular subscription checkout — backup handler ─────────────────
+        // customer.subscription.created should fire and handle DB updates,
+        // but this catches any race-condition cases.
+        if (session.mode === 'subscription' && session.subscription) {
+          const userId = session.metadata?.userId
+          if (!userId) break
+
+          // Only act if the subscription event hasn't already updated the user
+          const { data: existingUser } = await supabase
+            .from('users')
+            .select('stripe_subscription_id')
+            .eq('id', userId)
+            .single()
+
+          if (!existingUser?.stripe_subscription_id) {
+            await supabase
+              .from('users')
+              .update({
+                stripe_customer_id: session.customer as string,
+                stripe_subscription_id: session.subscription as string,
+                subscription_status: 'trialing',
+              })
+              .eq('id', userId)
+
+            console.log('[stripe-webhook] checkout.session.completed fallback: updated user', userId)
+          }
         }
 
         break

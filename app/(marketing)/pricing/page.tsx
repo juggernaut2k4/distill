@@ -23,22 +23,6 @@ const DEFAULT_PRICES: PlanPrices = {
 
 const PLAN_META = [
   {
-    name: 'Free Trial',
-    key: null as null,
-    badge: null,
-    tagline: 'Try Clio free for 3 days',
-    features: [
-      '1 AI coaching session included',
-      'Personalised onboarding (5 questions)',
-      'Daily email insight',
-      'AI Readiness Score',
-      '3-day trial — card required to activate',
-    ],
-    cta: 'Start free',
-    href: '/onboarding',
-    highlight: false,
-  },
-  {
     name: 'Starter',
     key: 'starter' as const,
     badge: null,
@@ -91,6 +75,22 @@ const PLAN_META = [
       'White-glove onboarding session',
     ],
     cta: 'Get Executive',
+    href: '/onboarding',
+    highlight: false,
+  },
+  {
+    name: 'Free',
+    key: 'free' as const,
+    badge: null,
+    tagline: 'Try Clio with no card needed',
+    features: [
+      '5 coaching minutes to get started',
+      'Personalised onboarding (5 questions)',
+      'Daily email insight',
+      'AI Readiness Score',
+      'Upgrade anytime to unlock full sessions',
+    ],
+    cta: 'Start free',
     href: '/onboarding',
     highlight: false,
   },
@@ -150,7 +150,7 @@ export default function PricingPage() {
         {/* Plan cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
           {PLAN_META.map((plan, i) => {
-            const planPrices = plan.key ? prices[plan.key] : null
+            const planPrices = (plan.key && plan.key !== 'free') ? prices[plan.key as keyof PlanPrices] : null
             const priceMonthly = planPrices?.monthly ?? 0
             const priceAnnual = planPrices?.annual ?? 0
             const price = annual ? priceAnnual : priceMonthly
@@ -236,7 +236,12 @@ export default function PricingPage() {
                     })}
                   </ul>
 
-                  <Link href={plan.href}>
+                  <Link
+                    href={plan.href}
+                    onClick={() => {
+                      localStorage.setItem('clio_selected_plan', plan.key)
+                    }}
+                  >
                     <Button
                       variant={plan.highlight ? 'primary' : 'secondary'}
                       size="md"

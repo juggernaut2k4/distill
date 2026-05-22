@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { ArrowRight, CheckCircle } from 'lucide-react'
 import Link from 'next/link'
+import ManageBillingButton from './ManageBillingButton'
 
 const PLAN_FEATURES: Record<string, string[]> = {
   free: ['1 email insight/day', 'Basic dashboard', '3-day trial — upgrade to unlock sessions'],
@@ -28,7 +29,7 @@ export default async function BillingPage() {
   if (!user) redirect('/onboarding')
 
   const planTier = user.plan_tier ?? 'free'
-  const isActive = user.subscription_status === 'active'
+  const isActive = user.subscription_status === 'active' || user.subscription_status === 'trialing'
   const features = PLAN_FEATURES[planTier] ?? PLAN_FEATURES.free
 
   return (
@@ -45,7 +46,7 @@ export default async function BillingPage() {
               <p className="text-2xl font-bold text-white capitalize">{planTier}</p>
             </div>
             <Badge variant={isActive ? 'green' : 'amber'}>
-              {isActive ? 'Active' : 'Inactive'}
+              {user.subscription_status === 'trialing' ? 'Trial' : isActive ? 'Active' : 'Inactive'}
             </Badge>
           </div>
 
@@ -59,9 +60,7 @@ export default async function BillingPage() {
           </ul>
 
           <div className="flex flex-col sm:flex-row gap-3">
-            {user.stripe_customer_id && (
-              <ManageBillingButton />
-            )}
+            {user.stripe_customer_id && <ManageBillingButton />}
             {(planTier === 'free' || planTier === 'starter') && (
               <Link href="/pricing" className="w-full sm:w-auto">
                 <Button size="md" className="w-full gap-1">
@@ -81,17 +80,3 @@ export default async function BillingPage() {
   )
 }
 
-function ManageBillingButton() {
-  async function handleManageBilling() {
-    'use server'
-    // This is handled client-side via portal route
-  }
-
-  return (
-    <form action="/api/portal" method="POST">
-      <Button type="submit" variant="secondary" size="md">
-        Manage billing
-      </Button>
-    </form>
-  )
-}

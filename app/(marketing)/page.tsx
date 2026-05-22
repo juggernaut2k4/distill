@@ -59,7 +59,7 @@ function Hero() {
             </p>
 
             <div className="flex flex-col sm:flex-row gap-4 mb-10">
-              <Link href="/onboarding?plan=free">
+              <Link href="/onboarding">
                 <Button size="lg" className="gap-2">
                   Start free — 3-day trial
                   <ArrowRight size={20} />
@@ -375,7 +375,7 @@ function Pricing() {
         '3-day free trial included',
       ],
       cta: 'Start free',
-      href: '/onboarding?plan=free',
+      href: '/onboarding',
       highlight: false,
     },
     {
@@ -390,7 +390,7 @@ function Pricing() {
         '$0.40/min extra',
       ],
       cta: 'Get Starter',
-      href: '/onboarding?plan=starter',
+      href: '/onboarding',
       highlight: false,
       trial: '3-day free trial',
     },
@@ -406,7 +406,7 @@ function Pricing() {
         '$0.39/min extra',
       ],
       cta: 'Get Pro',
-      href: '/onboarding?plan=pro',
+      href: '/onboarding',
       highlight: true,
       trial: '3-day free trial',
     },
@@ -422,7 +422,7 @@ function Pricing() {
         '$0.38/min extra',
       ],
       cta: 'Get Executive',
-      href: '/onboarding?plan=executive',
+      href: '/onboarding',
       highlight: false,
       trial: '3-day free trial',
     },
@@ -564,7 +564,7 @@ function BottomCTA() {
           <p className="text-xl text-[#94A3B8] mb-10">
             Are you?
           </p>
-          <Link href="/onboarding?plan=free">
+          <Link href="/onboarding">
             <Button size="lg" className="gap-2">
               Get started — 15 seconds to set up
               <ArrowRight size={20} />

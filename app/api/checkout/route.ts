@@ -9,10 +9,6 @@ const CheckoutSchema = z.object({
 })
 
 const PRICE_ID_MAP: Record<string, Record<string, string | undefined>> = {
-  free: {
-    monthly: process.env.STRIPE_STARTER_MONTHLY_PRICE_ID,
-    annual: process.env.STRIPE_STARTER_MONTHLY_PRICE_ID,
-  },
   starter: {
     monthly: process.env.STRIPE_STARTER_MONTHLY_PRICE_ID,
     annual: process.env.STRIPE_STARTER_ANNUAL_PRICE_ID,
@@ -53,17 +49,34 @@ export async function POST(request: NextRequest) {
     }
 
     const { plan, billingPeriod } = parsed.data
-    const resolvedPlan = plan === 'free' ? 'starter' : plan
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
 
-    // ── Dev / mock mode ─────────────────────────────────────────────────────
-    if (!isStripeConfigured) {
-      console.log('[checkout] MOCK mode — activating plan without Stripe:', resolvedPlan)
+    // ── Free plan: activate directly, no Stripe involved ────────────────────
+    // Free tier gets a limited minute allowance. No card required.
+    // When minutes run out: upgrade prompt → suspend if not upgraded.
+    if (plan === 'free') {
       const supabase = createSupabaseAdminClient()
       await supabase
         .from('users')
         .update({
-          plan_tier: resolvedPlan,
+          plan_tier: 'free',
+          subscription_status: 'active',
+          minutes_included: 5,
+          minutes_balance: 5,
+        })
+        .eq('id', userId!)
+
+      return NextResponse.json({ checkoutUrl: `${appUrl}/dashboard/welcome` })
+    }
+
+    // ── Dev / mock mode (paid plans) ─────────────────────────────────────────
+    if (!isStripeConfigured) {
+      console.log('[checkout] MOCK mode — activating plan without Stripe:', plan)
+      const supabase = createSupabaseAdminClient()
+      await supabase
+        .from('users')
+        .update({
+          plan_tier: plan,
           subscription_status: 'trialing',
         })
         .eq('id', userId!)
@@ -71,8 +84,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ checkoutUrl: `${appUrl}/dashboard/welcome`, mock: true })
     }
 
-    // ── Production: Stripe hosted checkout ──────────────────────────────────
-    const priceId = PRICE_ID_MAP[resolvedPlan]?.[billingPeriod]
+    // ── Production: Stripe hosted checkout (paid plans only) ─────────────────
+    const priceId = PRICE_ID_MAP[plan]?.[billingPeriod]
 
     if (!priceId || priceId.startsWith('PLACEHOLDER_')) {
       return NextResponse.json(

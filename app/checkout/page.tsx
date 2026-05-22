@@ -1,9 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, Suspense } from 'react'
 import { motion } from 'framer-motion'
-import { CheckCircle, Clock, Video, MessageSquare, Zap, ArrowLeft, Loader2, Lock } from 'lucide-react'
+import { CheckCircle, Clock, Video, MessageSquare, Zap, Loader2, Lock } from 'lucide-react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 
 const PLAN_DATA = {
   starter: {
@@ -52,18 +53,65 @@ const PLAN_DATA = {
 
 type PlanKey = keyof typeof PLAN_DATA
 
-export default function CheckoutPage() {
+function CheckoutContent() {
+  const searchParams = useSearchParams()
   const [planKey, setPlanKey] = useState<PlanKey>('starter')
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'annual'>('monthly')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isFreeActivating, setIsFreeActivating] = useState(false)
+  const freeSubmittedRef = useRef(false)
 
   useEffect(() => {
-    const storedPlan = localStorage.getItem('clio_selected_plan')
+    // URL param takes priority (set explicitly by /plan page on user selection)
+    const planFromUrl = searchParams.get('plan')
+    const storedPlan = planFromUrl ?? localStorage.getItem('clio_selected_plan')
     const storedBilling = localStorage.getItem('clio_billing_period') as 'monthly' | 'annual' | null
-    if (storedPlan === 'pro' || storedPlan === 'executive') setPlanKey(storedPlan)
+
+    // Free plan: auto-activate on mount, no card or plan selection needed
+    if (storedPlan === 'free' && !freeSubmittedRef.current) {
+      freeSubmittedRef.current = true
+      setIsFreeActivating(true)
+      activateFreePlan()
+      return
+    }
+
+    if (storedPlan && storedPlan in PLAN_DATA) setPlanKey(storedPlan as PlanKey)
     if (storedBilling) setBillingPeriod(storedBilling)
-  }, [])
+  }, [searchParams])
+
+  async function activateFreePlan() {
+    const onboardingRaw = localStorage.getItem('clio_onboarding')
+    if (onboardingRaw) {
+      try {
+        await fetch('/api/onboarding', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: onboardingRaw,
+        })
+      } catch { /* non-fatal */ }
+      localStorage.removeItem('clio_onboarding')
+    }
+    try {
+      const res = await fetch('/api/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan: 'free', billingPeriod: 'monthly' }),
+      })
+      const data = await res.json()
+      localStorage.removeItem('clio_selected_plan')
+      localStorage.removeItem('clio_billing_period')
+      window.location.href = data.checkoutUrl ?? '/dashboard/welcome'
+    } catch {
+      setIsFreeActivating(false)
+      setError('Could not activate your account. Please try again.')
+    }
+  }
+
+  function handlePlanSwitch(key: PlanKey) {
+    setPlanKey(key)
+    localStorage.setItem('clio_selected_plan', key)
+  }
 
   async function handleStartTrial() {
     setIsLoading(true)
@@ -116,12 +164,26 @@ export default function CheckoutPage() {
   const displayPrice = billingPeriod === 'annual' ? plan.annual : plan.monthly
   const billingLabel = billingPeriod === 'annual' ? '/yr' : '/mo'
 
+  // Free plan loading screen — shown while auto-activating, no UI needed
+  if (isFreeActivating) {
+    return (
+      <div className="min-h-screen bg-[#080808] flex flex-col items-center justify-center gap-5">
+        <div className="w-12 h-12 rounded-full bg-[#7C3AED] flex items-center justify-center">
+          <span className="text-lg font-extrabold text-white">C</span>
+        </div>
+        <Loader2 className="w-6 h-6 text-[#7C3AED] animate-spin" />
+        <p className="text-[#94A3B8] text-sm">Setting up your account…</p>
+        {error && <p className="text-[#EF4444] text-sm">{error}</p>}
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-[#080808] flex flex-col lg:flex-row">
       {/* ── Left panel: Plan summary ── */}
-      <div className="lg:w-[420px] lg:min-h-screen bg-[#0d0d0d] border-b lg:border-b-0 lg:border-r border-[#1a1a1a] flex flex-col p-8 lg:p-12">
+      <div className="lg:w-[440px] lg:min-h-screen bg-[#0d0d0d] border-b lg:border-b-0 lg:border-r border-[#1a1a1a] flex flex-col p-8 lg:p-12">
         {/* Logo */}
-        <Link href="/" className="flex items-center gap-2 mb-12 group">
+        <Link href="/" className="flex items-center gap-2 mb-10 group">
           <div className="w-8 h-8 rounded-full bg-[#7C3AED] flex items-center justify-center">
             <span className="text-sm font-extrabold text-white">C</span>
           </div>
@@ -130,16 +192,52 @@ export default function CheckoutPage() {
 
         <div className="flex-1">
           <p className="text-[#94A3B8] text-sm font-medium uppercase tracking-wider mb-3">Your plan</p>
-          <h1 className="text-white text-3xl font-bold mb-1">{plan.name}</h1>
+
+          {/* Inline plan switcher — stay in flow, no navigation out */}
+          <div className="flex gap-2 mb-5">
+            {(Object.keys(PLAN_DATA) as PlanKey[]).map((key) => (
+              <button
+                key={key}
+                onClick={() => handlePlanSwitch(key)}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  planKey === key
+                    ? 'bg-[#7C3AED] text-white'
+                    : 'bg-[#1a1a1a] text-[#94A3B8] hover:text-white border border-[#222222] hover:border-[#444444]'
+                }`}
+              >
+                {PLAN_DATA[key].name}
+              </button>
+            ))}
+          </div>
 
           <div className="flex items-baseline gap-1 mb-2">
             <span className="text-white text-5xl font-extrabold">${displayPrice}</span>
             <span className="text-[#94A3B8] text-lg">{billingLabel}</span>
           </div>
 
+          {/* Billing period toggle */}
+          <div className="flex gap-2 mb-5">
+            {(['monthly', 'annual'] as const).map((period) => (
+              <button
+                key={period}
+                onClick={() => {
+                  setBillingPeriod(period)
+                  localStorage.setItem('clio_billing_period', period)
+                }}
+                className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+                  billingPeriod === period
+                    ? 'bg-[#1a1a1a] text-white border border-[#7C3AED]'
+                    : 'text-[#475569] hover:text-[#94A3B8]'
+                }`}
+              >
+                {period === 'annual' ? 'Annual (save ~30%)' : 'Monthly'}
+              </button>
+            ))}
+          </div>
+
           <div className="inline-flex items-center gap-1.5 bg-[#7C3AED]/10 border border-[#7C3AED]/30 rounded-full px-3 py-1 mb-8">
             <Zap className="w-3 h-3 text-[#7C3AED]" />
-            <span className="text-[#A855F7] text-xs font-medium">3-day free trial included</span>
+            <span className="text-[#A855F7] text-xs font-medium">3-day free trial — no charge today</span>
           </div>
 
           <p className="text-[#94A3B8] text-sm font-medium uppercase tracking-wider mb-4">What&apos;s included</p>
@@ -186,14 +284,6 @@ export default function CheckoutPage() {
           transition={{ duration: 0.4 }}
           className="w-full max-w-md"
         >
-          <div className="lg:hidden flex items-center justify-between mb-8">
-            <Link href="/pricing" className="flex items-center gap-1.5 text-[#94A3B8] hover:text-white text-sm transition-colors">
-              <ArrowLeft className="w-4 h-4" />
-              Back
-            </Link>
-            <span className="text-[#94A3B8] text-sm">{plan.name} · ${displayPrice}{billingLabel}</span>
-          </div>
-
           <div className="space-y-6">
             <div className="space-y-2">
               <h2 className="text-white text-2xl font-bold">Start your free trial</h2>
@@ -247,16 +337,17 @@ export default function CheckoutPage() {
               <Lock className="w-3 h-3" />
               <span>Secured by Stripe · SSL encrypted</span>
             </div>
-
-            <div className="hidden lg:flex justify-center">
-              <Link href="/pricing" className="flex items-center gap-1.5 text-[#475569] hover:text-[#94A3B8] text-sm transition-colors">
-                <ArrowLeft className="w-3.5 h-3.5" />
-                Change plan
-              </Link>
-            </div>
           </div>
         </motion.div>
       </div>
     </div>
+  )
+}
+
+export default function CheckoutPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#080808]" />}>
+      <CheckoutContent />
+    </Suspense>
   )
 }
