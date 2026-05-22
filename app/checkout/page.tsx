@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, Suspense } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { loadStripe } from '@stripe/stripe-js'
 import {
   Elements,
@@ -231,36 +231,22 @@ function CheckoutContent() {
   const [planKey, setPlanKey] = useState<PlanKey>('starter')
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'annual'>('monthly')
   const [clientSecret, setClientSecret] = useState<string | null>(null)
-  const [isFreeActivating, setIsFreeActivating] = useState(false)
   const [isLoadingIntent, setIsLoadingIntent] = useState(false)
   const [initError, setInitError] = useState<string | null>(null)
-  const freeSubmittedRef = useRef(false)
 
-  // Determine plan on mount
+  // Determine plan on mount from URL param then localStorage
   useEffect(() => {
     const planFromUrl = searchParams.get('plan')
     const storedPlan = planFromUrl ?? localStorage.getItem('clio_selected_plan')
     const storedBilling = localStorage.getItem('clio_billing_period') as 'monthly' | 'annual' | null
     if (storedBilling) setBillingPeriod(storedBilling)
-
-    if (storedPlan === 'free' && !freeSubmittedRef.current) {
-      freeSubmittedRef.current = true
-      setIsFreeActivating(true)
-      activateFreePlan()
-      return
-    }
-
-    const resolvedPlan = (storedPlan && storedPlan in PLAN_DATA)
-      ? storedPlan as PlanKey
-      : 'starter'
+    const resolvedPlan = (storedPlan && storedPlan in PLAN_DATA) ? storedPlan as PlanKey : 'starter'
     setPlanKey(resolvedPlan)
   }, [searchParams])
 
   // Fetch a new SetupIntent whenever plan or billing period changes
   useEffect(() => {
-    if (isFreeActivating) return
     if (!planKey) return
-
     setClientSecret(null)
     setInitError(null)
     setIsLoadingIntent(true)
@@ -291,35 +277,7 @@ function CheckoutContent() {
       })
       .catch(() => setInitError('Connection error. Please refresh and try again.'))
       .finally(() => setIsLoadingIntent(false))
-  }, [planKey, billingPeriod, isFreeActivating, router])
-
-  async function activateFreePlan() {
-    const onboardingRaw = localStorage.getItem('clio_onboarding')
-    if (onboardingRaw) {
-      try {
-        await fetch('/api/onboarding', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: onboardingRaw,
-        })
-      } catch { /* non-fatal */ }
-      localStorage.removeItem('clio_onboarding')
-    }
-    try {
-      const res = await fetch('/api/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plan: 'free', billingPeriod: 'monthly' }),
-      })
-      const data = await res.json()
-      localStorage.removeItem('clio_selected_plan')
-      localStorage.removeItem('clio_billing_period')
-      window.location.href = data.checkoutUrl ?? '/dashboard/welcome'
-    } catch {
-      setIsFreeActivating(false)
-      setInitError('Could not activate your account. Please try again.')
-    }
-  }
+  }, [planKey, billingPeriod, router])
 
   function handlePlanSwitch(key: PlanKey) {
     setPlanKey(key)
@@ -329,18 +287,6 @@ function CheckoutContent() {
   function handleBillingSwitch(period: 'monthly' | 'annual') {
     setBillingPeriod(period)
     localStorage.setItem('clio_billing_period', period)
-  }
-
-  if (isFreeActivating) {
-    return (
-      <div className="min-h-screen bg-[#080808] flex flex-col items-center justify-center gap-4">
-        <div className="w-12 h-12 rounded-full bg-[#7C3AED] flex items-center justify-center">
-          <span className="text-lg font-extrabold text-white">C</span>
-        </div>
-        <Loader2 className="w-6 h-6 text-[#7C3AED] animate-spin" />
-        <p className="text-[#94A3B8] text-sm">Setting up your account…</p>
-      </div>
-    )
   }
 
   const plan = PLAN_DATA[planKey]

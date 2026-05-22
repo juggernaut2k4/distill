@@ -4,7 +4,7 @@ import { requireAuth } from '@/lib/clerk'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 
 const CheckoutSchema = z.object({
-  plan: z.enum(['free', 'starter', 'pro', 'executive']),
+  plan: z.enum(['starter', 'pro', 'executive']),
   billingPeriod: z.enum(['monthly', 'annual']).default('monthly'),
 })
 
@@ -29,8 +29,8 @@ const isStripeConfigured =
 
 /**
  * POST /api/checkout
- * Free plan: activates directly in Supabase, returns checkoutUrl.
- * Paid plans: creates Stripe customer + SetupIntent, returns clientSecret
+ * Creates a Stripe customer + SetupIntent for the embedded checkout.
+ * Returns clientSecret for PaymentElement.
  * for the embedded PaymentElement on the checkout page.
  */
 export async function POST(request: NextRequest) {
@@ -50,22 +50,6 @@ export async function POST(request: NextRequest) {
 
     const { plan, billingPeriod } = parsed.data
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
-
-    // ── Free plan: activate directly, no Stripe ──────────────────────────────
-    if (plan === 'free') {
-      const supabase = createSupabaseAdminClient()
-      await supabase
-        .from('users')
-        .update({
-          plan_tier: 'free',
-          subscription_status: 'active',
-          minutes_included: 5,
-          minutes_balance: 5,
-        })
-        .eq('id', userId!)
-
-      return NextResponse.json({ checkoutUrl: `${appUrl}/dashboard/welcome` })
-    }
 
     // ── Dev / mock mode ──────────────────────────────────────────────────────
     if (!isStripeConfigured) {

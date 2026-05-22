@@ -365,20 +365,6 @@ function Pricing() {
 
   const plans = [
     {
-      name: 'Free',
-      price: { monthly: 0, annual: 0 },
-      period: 'forever',
-      features: [
-        '1 email insight per day',
-        'Personalized onboarding plan',
-        'Basic dashboard',
-        '3-day free trial included',
-      ],
-      cta: 'Start free',
-      href: '/onboarding',
-      highlight: false,
-    },
-    {
       name: 'Starter',
       price: { monthly: 12, annual: 99 },
       period: annual ? '/year' : '/month',
@@ -468,7 +454,7 @@ function Pricing() {
           </div>
         </motion.div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
           {plans.map((plan, i) => (
             <motion.div
               key={plan.name}

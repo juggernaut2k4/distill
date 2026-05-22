@@ -53,24 +53,9 @@ const PLANS = [
       'Dedicated Clio phone number',
     ],
   },
-  {
-    key: 'free',
-    name: 'Free',
-    price: 'Free',
-    annual: 'Free',
-    minutes: '5 min',
-    tagline: 'Try Clio with no card needed',
-    highlight: false,
-    features: [
-      '5 coaching minutes to get started',
-      'Daily email insight',
-      'AI Readiness Score',
-      'Upgrade anytime',
-    ],
-  },
 ] as const
 
-type PlanKey = 'starter' | 'pro' | 'executive' | 'free'
+type PlanKey = 'starter' | 'pro' | 'executive'
 
 export default function PlanPage() {
   const router = useRouter()
@@ -117,10 +102,9 @@ export default function PlanPage() {
           </div>
 
           {/* Plan cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
             {PLANS.map((plan, i) => {
               const isSelected = selected === plan.key
-              const isFree = plan.key === 'free'
               return (
                 <motion.button
                   key={plan.key}
@@ -143,7 +127,6 @@ export default function PlanPage() {
                     </span>
                   )}
 
-                  {/* Selected indicator */}
                   {isSelected && (
                     <div className="absolute top-3 right-3 w-5 h-5 rounded-full bg-[#7C3AED] flex items-center justify-center">
                       <CheckCircle size={12} className="text-white" />
@@ -152,9 +135,7 @@ export default function PlanPage() {
 
                   <p className="text-[#475569] text-xs font-bold uppercase tracking-widest mb-1">{plan.name}</p>
                   <p className="text-white font-extrabold text-2xl mb-0.5">{plan.price}</p>
-                  {!isFree && (
-                    <p className="text-[#475569] text-xs mb-3">{plan.annual} billed annually</p>
-                  )}
+                  <p className="text-[#475569] text-xs mb-3">{plan.annual} billed annually</p>
                   <p className="text-[#94A3B8] text-xs mb-4">{plan.minutes} · {plan.tagline}</p>
 
                   <ul className="space-y-1.5">
@@ -183,9 +164,7 @@ export default function PlanPage() {
           </div>
 
           <p className="text-center text-xs text-[#475569] mt-5">
-            {selected === 'free'
-              ? 'No card required. 5 minutes included.'
-              : '3-day free trial. Card required. Cancel anytime.'}
+            3-day free trial on all plans. Card required. Cancel anytime.
           </p>
         </motion.div>
       </div>

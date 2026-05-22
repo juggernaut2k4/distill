@@ -26,7 +26,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
     user?.subscription_status === 'trialing'
 
   if (!hasAccess) {
-    redirect('/pricing')
+    redirect('/plan')
   }
 
   return <>{children}</>
