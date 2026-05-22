@@ -219,6 +219,44 @@ export async function sendRecalibrationEmail(user: User): Promise<EmailResult> {
 }
 
 /**
+ * Sends a welcome email immediately after account creation (before plan selection).
+ * @param email - The new user's email address
+ * @param firstName - First name from Clerk profile (may be empty)
+ * @returns Success/failure result
+ */
+export async function sendSignupWelcomeEmail(
+  email: string,
+  firstName: string
+): Promise<EmailResult> {
+  if (isPlaceholder || !resend) {
+    console.log('[MOCK] sendSignupWelcomeEmail', { email, firstName })
+    return { success: true, messageId: 'mock-signup-welcome-id' }
+  }
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
+  const greeting = firstName ? `Hi ${firstName}` : 'Hi there'
+
+  try {
+    const result = await resend.emails.send({
+      from: FROM,
+      to: email,
+      subject: 'Welcome to Clio — you\'re in',
+      html: buildSignupWelcomeEmailHtml(greeting, appUrl),
+      text: `${greeting},\n\nWelcome to Clio — your personal AI coach for executives.\n\nYou're one step away. Choose your plan to start learning:\n${appUrl}/plan\n\n— The Clio team`,
+    })
+
+    if (result.error) {
+      return { success: false, error: result.error.message }
+    }
+
+    return { success: true, messageId: result.data?.id }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    return { success: false, error: message }
+  }
+}
+
+/**
  * Sends a welcome email after successful subscription payment.
  * @param user - The newly subscribed user
  * @param planTier - The plan tier they subscribed to
@@ -482,6 +520,39 @@ function buildWeeklyDigestHtml(user: User, items: ContentItem[]): string {
         <a href="${process.env.NEXT_PUBLIC_APP_URL}/dashboard" style="color:#7C3AED;">View dashboard</a> ·
         <a href="${process.env.NEXT_PUBLIC_APP_URL}/api/unsubscribe" style="color:#475569;">Unsubscribe</a>
       </p>
+    </td></tr>
+  </table>
+</body>
+</html>`
+}
+
+function buildSignupWelcomeEmailHtml(greeting: string, appUrl: string): string {
+  return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="background:#080808;color:#ffffff;font-family:Inter,system-ui,sans-serif;margin:0;padding:0;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;padding:40px 24px;">
+    <tr><td>
+      <p style="color:#7C3AED;font-size:12px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin:0 0 32px;">CLIO</p>
+      <h1 style="color:#ffffff;font-size:32px;font-weight:800;margin:0 0 12px;">${greeting}, welcome to Clio.</h1>
+      <p style="color:#94A3B8;font-size:16px;line-height:1.7;margin:0 0 32px;">Your personal AI coach for executives is ready. One step left — choose a plan to start building your AI confidence.</p>
+      <div style="background:#111111;border:1px solid #222222;border-radius:12px;padding:32px;margin-bottom:32px;">
+        <p style="color:#94A3B8;font-size:14px;margin:0 0 20px;">What you'll get with Clio:</p>
+        <div style="margin-bottom:12px;display:flex;align-items:flex-start;gap:12px;">
+          <span style="color:#7C3AED;font-size:16px;line-height:1;flex-shrink:0;">✓</span>
+          <p style="color:#ffffff;font-size:14px;margin:0;">Personalized AI insights — 15 seconds a day, calibrated to your role</p>
+        </div>
+        <div style="margin-bottom:12px;display:flex;align-items:flex-start;gap:12px;">
+          <span style="color:#7C3AED;font-size:16px;line-height:1;flex-shrink:0;">✓</span>
+          <p style="color:#ffffff;font-size:14px;margin:0;">Live AI coaching sessions via Google Meet</p>
+        </div>
+        <div style="margin-bottom:24px;display:flex;align-items:flex-start;gap:12px;">
+          <span style="color:#7C3AED;font-size:16px;line-height:1;flex-shrink:0;">✓</span>
+          <p style="color:#ffffff;font-size:14px;margin:0;">Your AI Readiness Score — track your progress week by week</p>
+        </div>
+        <a href="${appUrl}/plan" style="background:#7C3AED;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:700;display:inline-block;">Choose your plan →</a>
+      </div>
+      <p style="color:#475569;font-size:12px;text-align:center;">Paid plans include a 3-day free trial. Cancel anytime.</p>
     </td></tr>
   </table>
 </body>
