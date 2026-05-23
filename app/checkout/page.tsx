@@ -247,7 +247,6 @@ function PaymentForm({
       <PaymentElement
         options={{
           layout: 'tabs',
-          fields: { billingDetails: { email: 'never' } },
           terms: { card: 'never' },
         }}
       />
