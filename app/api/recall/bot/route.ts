@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { createBot, deleteBot } from '@/lib/recall'
 import { getAllReadySections, type SessionPlan } from '@/lib/session-plan'
+import { buildClioSessionContext } from '@/lib/clio-context-builder'
 
 const CreateBotSchema = z.object({
   meetingUrl: z.string().url(),
@@ -50,28 +51,46 @@ export async function POST(request: NextRequest) {
     // Load session title + pre-generated template sections from the session plan
     const { data: sessionData } = await supabase
       .from('sessions')
-      .select('session_title, topic_id, session_plan')
+      .select('session_title, topic_id, session_plan, session_index')
       .eq('id', sessionId)
       .single()
 
     const sessionTitle = sessionData?.session_title ?? null
     const topicId = sessionData?.topic_id ?? null
+    const sessionIndex = sessionData?.session_index as number | null ?? null
     const readySections = getAllReadySections(sessionData?.session_plan as SessionPlan | null)
     console.log(`[recall/bot] Session: "${sessionTitle}" — loading ${readySections.length} pre-generated sections`)
 
-    // Fetch training scripts from topic_content_cache, aligned by subtopic_slug order
+    // Fetch training scripts + content outlines from topic_content_cache, ordered by section
     let trainingScripts: unknown[] = []
+    let clioSessionContext: string | null = null
+
     if (topicId && readySections.length > 0) {
       const slugs = readySections.map((s) => s.id)
-      const { data: scriptRows } = await supabase
+      const { data: cacheRows } = await supabase
         .from('topic_content_cache')
-        .select('subtopic_slug, training_script')
+        .select('subtopic_slug, training_script, content_outline')
         .eq('topic_id', topicId)
         .in('subtopic_slug', slugs)
-      const scriptMap = new Map((scriptRows ?? []).map((r) => [r.subtopic_slug, r.training_script]))
-      // Preserve section order so training_scripts[i] matches sections[i]
+
+      const scriptMap = new Map((cacheRows ?? []).map((r) => [r.subtopic_slug, r.training_script]))
+      const outlineMap = new Map((cacheRows ?? []).map((r) => [r.subtopic_slug, r.content_outline]))
+
       trainingScripts = readySections.map((s) => scriptMap.get(s.id) ?? null)
-      console.log(`[recall/bot] Loaded ${scriptRows?.length ?? 0} training scripts`)
+      const contentOutlines = readySections.map((s) => outlineMap.get(s.id) ?? null)
+
+      console.log(`[recall/bot] Loaded ${cacheRows?.length ?? 0} scripts + outlines`)
+
+      // Build Clio's complete coaching brief
+      clioSessionContext = buildClioSessionContext({
+        sessionTitle: sessionTitle ?? 'AI Coaching Session',
+        sessionIndex,
+        topicId: topicId ?? '',
+        sections: readySections.map((s) => ({ id: s.id, meta: s.meta })),
+        trainingScripts: trainingScripts as never[],
+        contentOutlines: contentOutlines as never[],
+        skippedTopics,
+      })
     }
 
     // Upsert walkthrough_state — onConflict ensures existing row is updated, not duplicated
@@ -89,6 +108,7 @@ export async function POST(request: NextRequest) {
         sections: readySections.length > 0 ? readySections : null,
         current_section_index: 0,
         training_scripts: trainingScripts.length > 0 ? trainingScripts : null,
+        clio_session_context: clioSessionContext,
       },
       { onConflict: 'user_id' }
     )

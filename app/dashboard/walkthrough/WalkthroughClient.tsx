@@ -44,6 +44,7 @@ interface WalkthroughState {
   pending_transcript?: string | null
   skipped_topics?: string[] | null
   training_scripts?: TrainingScript[] | null
+  clio_session_context?: string | null
 }
 
 /**
@@ -135,6 +136,7 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
   const skippedTopicsRef = useRef<string[]>(initialState.skipped_topics ?? [])
   const sectionsRef = useRef<TemplateSection[]>(initialState.sections ?? [])
   const trainingScriptsRef = useRef<TrainingScript[]>((initialState.training_scripts ?? []) as TrainingScript[])
+  const clioSessionContextRef = useRef<string | null>(initialState.clio_session_context ?? null)
   const reconnectAttemptsRef = useRef(0)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -314,34 +316,36 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
         conversationRef.current = conv
         lastActivityRef.current = Date.now()
 
-        // Give the LLM its session instructions via context update (no voice response).
-        // firstMessage (set via overrides above) handles the spoken greeting.
-        const sessionTopic = topicRef.current
-        const skippedTopics = skippedTopicsRef.current
-        const skippedContext = skippedTopics.length > 0
-          ? ` The following subtopics have been marked as skipped by the participant: ${skippedTopics.map((t) => `"${t}"`).join(', ')}. When you reach each skipped topic, briefly say "We're skipping [topic] today" and move immediately to the next one — do not explain or justify the skip.`
-          : ''
-        const routingContext = ` When the participant asks a question, use your judgment: (1) INSTANT — answer directly in one or two sentences, no tool needed; (2) VISUAL — call show_visual with the subtopic title to advance the screen to the relevant section before you explain it; (3) DEFER — call defer_question when the question is complex or off-topic and deserves its own session. When deferring say: "Great question — that deserves more depth than we have today. I've saved it and we can cover it properly next time."`
-        const visualContext = ` The participant's screen shows a series of full-screen visual sections — one per subtopic — that you control. Call show_visual with the exact subtopic title to scroll their screen to the matching section. Do this at the START of each subtopic before you begin explaining it, so the visual and your voice are always in sync.`
-        const sessionContext = sessionTopic
-          ? `SYSTEM: This is a pre-planned coaching session. Topic: "${sessionTopic}". STRICT RULES — follow without exception: (1) NEVER ask what the participant wants to cover — the agenda is fixed. (2) NEVER ask about their role or background — already known. (3) Start coaching immediately after your greeting. (4) Call show_visual at the beginning of each subtopic to advance the screen. (5) Ask questions at most once per subtopic, only at natural pauses. (6) Teach and coach — do not interview.${skippedContext}${visualContext}${routingContext}`
-          : `SYSTEM: A pre-planned coaching session is in progress. STRICT RULES: (1) NEVER ask what to cover — begin immediately. (2) Call show_visual at the start of each section to keep the screen in sync. (3) Ask questions sparingly.${skippedContext}${visualContext}${routingContext}`
-
-        const reconnectContext = isReconnect
-          ? ' The WebSocket connection briefly dropped and reconnected — do not re-introduce yourself, just continue the session naturally.'
+        // Send Clio its full session brief — agenda, scripts, Q&A context, screen rules.
+        // Pre-built server-side at bot creation; falls back to inline if unavailable.
+        const reconnectSuffix = isReconnect
+          ? '\n\nThe WebSocket connection briefly dropped and reconnected — do not re-introduce yourself, just continue the session naturally from where you left off.'
           : ''
 
-        conv.sendContextualUpdate(sessionContext + reconnectContext)
-        console.log('[Walkthrough]', isReconnect ? 'Context restored after reconnect' : 'Session context sent')
+        const preBuiltContext = clioSessionContextRef.current
+        if (preBuiltContext) {
+          conv.sendContextualUpdate(preBuiltContext + reconnectSuffix)
+          console.log('[Walkthrough]', isReconnect ? 'Full context restored after reconnect' : 'Full session context sent to Clio')
+        } else {
+          // Fallback — no pre-built context (e.g. content pipeline not yet run)
+          const sessionTopic = topicRef.current
+          const skippedTopics = skippedTopicsRef.current
+          const skippedContext = skippedTopics.length > 0
+            ? ` Skipped topics: ${skippedTopics.map((t) => `"${t}"`).join(', ')} — say "We're skipping [topic] today" and move on.`
+            : ''
+          const fallbackContext = sessionTopic
+            ? `SYSTEM: Pre-planned coaching session. Topic: "${sessionTopic}". Rules: (1) Never ask what to cover — agenda is fixed. (2) Never ask background — already known. (3) Call show_visual at the start of each subtopic. (4) Teach and coach — do not interview.${skippedContext}`
+            : `SYSTEM: Pre-planned coaching session in progress. Call show_visual at the start of each section. Never ask what to cover.${skippedContext}`
+          conv.sendContextualUpdate(fallbackContext + reconnectSuffix)
+          console.log('[Walkthrough] Fallback context sent (no pre-built brief available)')
 
-        // Send training scripts on first connect only — gives Clio its coaching brief
-        // so every spoken word is grounded in the pre-written script for that section.
-        if (!isReconnect) {
-          const scripts = trainingScriptsRef.current
-          if (scripts.length > 0) {
-            const scriptCtx = buildScriptContext(scripts)
-            conv.sendContextualUpdate(scriptCtx)
-            console.log('[Walkthrough] Training scripts sent to agent:', scripts.length, 'sections')
+          // Include script content if available
+          if (!isReconnect) {
+            const scripts = trainingScriptsRef.current
+            if (scripts.length > 0) {
+              conv.sendContextualUpdate(buildScriptContext(scripts))
+              console.log('[Walkthrough] Training scripts sent separately:', scripts.length, 'sections')
+            }
           }
         }
       } catch (err) {
@@ -389,6 +393,7 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
         if (data.skipped_topics) skippedTopicsRef.current = data.skipped_topics
         if (data.sections) sectionsRef.current = data.sections
         if (data.training_scripts) trainingScriptsRef.current = data.training_scripts as TrainingScript[]
+        if (data.clio_session_context) clioSessionContextRef.current = data.clio_session_context
 
         const conv = conversationRef.current
 

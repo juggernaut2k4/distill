@@ -2,6 +2,8 @@ import { inngest } from './client'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { createBot } from '@/lib/recall'
 import { sendSMS } from '@/lib/delivery/sms'
+import { getAllReadySections, type SessionPlan } from '@/lib/session-plan'
+import { buildClioSessionContext } from '@/lib/clio-context-builder'
 import { Resend } from 'resend'
 
 /**
@@ -26,7 +28,7 @@ export const sessionMeetingSetup = inngest.createFunction(
       const supabase = createSupabaseAdminClient()
       const { data, error } = await supabase
         .from('sessions')
-        .select('id, user_id, session_index, session_title, scheduled_at, duration_mins, meeting_url')
+        .select('id, user_id, session_index, session_title, scheduled_at, duration_mins, meeting_url, topic_id, session_plan')
         .eq('status', 'scheduled')
         .not('meeting_url', 'is', null) // only sessions that have a meeting URL
         .gte('scheduled_at', windowStart.toISOString())
@@ -56,7 +58,39 @@ export const sessionMeetingSetup = inngest.createFunction(
           // Send bot into the meeting
           const { botId } = await createBot(meetingUrl, userId, walkthroughUrl)
 
-          // Store bot ID on walkthrough_state so the webhook can find it
+          // Load pre-generated template sections from the session plan
+          const topicId = session.topic_id as string | null
+          const readySections = getAllReadySections(session.session_plan as SessionPlan | null)
+
+          // Fetch training scripts + content outlines from topic_content_cache
+          let trainingScripts: unknown[] = []
+          let clioSessionContext: string | null = null
+
+          if (topicId && readySections.length > 0) {
+            const slugs = readySections.map((s) => s.id)
+            const { data: cacheRows } = await supabase
+              .from('topic_content_cache')
+              .select('subtopic_slug, training_script, content_outline')
+              .eq('topic_id', topicId)
+              .in('subtopic_slug', slugs)
+
+            const scriptMap = new Map((cacheRows ?? []).map((r) => [r.subtopic_slug, r.training_script]))
+            const outlineMap = new Map((cacheRows ?? []).map((r) => [r.subtopic_slug, r.content_outline]))
+
+            trainingScripts = readySections.map((s) => scriptMap.get(s.id) ?? null)
+            const contentOutlines = readySections.map((s) => outlineMap.get(s.id) ?? null)
+
+            clioSessionContext = buildClioSessionContext({
+              sessionTitle,
+              sessionIndex: session.session_index as number | null ?? null,
+              topicId,
+              sections: readySections.map((s) => ({ id: s.id, meta: s.meta })),
+              trainingScripts: trainingScripts as never[],
+              contentOutlines: contentOutlines as never[],
+            })
+          }
+
+          // Upsert walkthrough_state with full session context
           await supabase
             .from('walkthrough_state')
             .upsert({
@@ -66,7 +100,13 @@ export const sessionMeetingSetup = inngest.createFunction(
               session_id: session.id,
               status: 'idle',
               visual_spec: null,
-            })
+              topic_title: sessionTitle,
+              topic_id: topicId,
+              sections: readySections.length > 0 ? readySections : null,
+              current_section_index: 0,
+              training_scripts: trainingScripts.length > 0 ? trainingScripts : null,
+              clio_session_context: clioSessionContext,
+            }, { onConflict: 'user_id' })
 
           // Fetch user contact details
           const { data: userRow } = await supabase
