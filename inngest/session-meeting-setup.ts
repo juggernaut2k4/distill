@@ -3,7 +3,8 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
 import { createBot } from '@/lib/recall'
 import { sendSMS } from '@/lib/delivery/sms'
 import { getAllReadySections, type SessionPlan } from '@/lib/session-plan'
-import { buildClioSessionContext } from '@/lib/clio-context-builder'
+import { buildAllClioDocs } from '@/lib/clio-context-builder'
+import { generateTopicContextDoc } from '@/lib/content/topic-context-generator'
 import { Resend } from 'resend'
 
 /**
@@ -60,37 +61,88 @@ export const sessionMeetingSetup = inngest.createFunction(
 
           // Load pre-generated template sections from the session plan
           const topicId = session.topic_id as string | null
+          const sessionIndex = session.session_index as number | null ?? null
           const readySections = getAllReadySections(session.session_plan as SessionPlan | null)
 
-          // Fetch training scripts + content outlines from topic_content_cache
+          // Fetch full user profile (role/industry for context docs + contact for notifications)
+          const { data: userRow } = await supabase
+            .from('users')
+            .select('role, industry, email, phone, twilio_number_assigned')
+            .eq('id', userId)
+            .single()
+          const userRole = (userRow?.role as string | null) ?? 'executive'
+          const userIndustry = (userRow?.industry as string | null) ?? 'business'
+
+          // Fetch training scripts + content outlines + cached context docs
           let trainingScripts: unknown[] = []
-          let clioSessionContext: string | null = null
+          let topicContextDocs: (string | null)[] = []
+          let docs = { session_brief: '', topic_context: '', session_script: '', system_prompt: '' }
 
           if (topicId && readySections.length > 0) {
             const slugs = readySections.map((s) => s.id)
             const { data: cacheRows } = await supabase
               .from('topic_content_cache')
-              .select('subtopic_slug, training_script, content_outline')
+              .select('subtopic_slug, training_script, content_outline, topic_context_doc')
               .eq('topic_id', topicId)
               .in('subtopic_slug', slugs)
 
             const scriptMap = new Map((cacheRows ?? []).map((r) => [r.subtopic_slug, r.training_script]))
             const outlineMap = new Map((cacheRows ?? []).map((r) => [r.subtopic_slug, r.content_outline]))
+            const ctxDocMap = new Map((cacheRows ?? []).map((r) => [r.subtopic_slug, r.topic_context_doc as string | null]))
 
             trainingScripts = readySections.map((s) => scriptMap.get(s.id) ?? null)
             const contentOutlines = readySections.map((s) => outlineMap.get(s.id) ?? null)
 
-            clioSessionContext = buildClioSessionContext({
+            // Generate topic context docs for uncached subtopics
+            const contextDocUpdates: Array<{ slug: string; doc: string }> = []
+            topicContextDocs = await Promise.all(
+              readySections.map(async (s, i) => {
+                const cached = ctxDocMap.get(s.id)
+                if (cached) return cached
+                const outline = contentOutlines[i] as Record<string, unknown> | null
+                if (!outline) return null
+                const doc = await generateTopicContextDoc(
+                  {
+                    subtopic_title: s.meta.subtopicTitle,
+                    content_summary: outline.content_summary as string | undefined,
+                    key_concepts: outline.key_concepts as string[] | undefined,
+                    common_misconceptions: outline.common_misconceptions as string[] | undefined,
+                    executive_relevance: outline.executive_relevance as string | undefined,
+                    builds_on: outline.builds_on as string[] | undefined,
+                  },
+                  sessionTitle,
+                  { role: userRole, industry: userIndustry }
+                )
+                contextDocUpdates.push({ slug: s.id, doc })
+                return doc
+              })
+            )
+
+            if (contextDocUpdates.length > 0) {
+              await Promise.all(
+                contextDocUpdates.map(({ slug, doc }) =>
+                  supabase
+                    .from('topic_content_cache')
+                    .update({ topic_context_doc: doc })
+                    .eq('topic_id', topicId)
+                    .eq('subtopic_slug', slug)
+                )
+              ).catch((err) => console.error('[session-meeting-setup] context doc write failed:', err))
+            }
+
+            docs = buildAllClioDocs({
               sessionTitle,
-              sessionIndex: session.session_index as number | null ?? null,
+              sessionIndex,
               topicId,
               sections: readySections.map((s) => ({ id: s.id, meta: s.meta })),
               trainingScripts: trainingScripts as never[],
-              contentOutlines: contentOutlines as never[],
+              topicContextDocs,
+              userRole,
+              userIndustry,
             })
           }
 
-          // Upsert walkthrough_state with full session context
+          // Upsert walkthrough_state with all three Clio documents
           await supabase
             .from('walkthrough_state')
             .upsert({
@@ -105,15 +157,11 @@ export const sessionMeetingSetup = inngest.createFunction(
               sections: readySections.length > 0 ? readySections : null,
               current_section_index: 0,
               training_scripts: trainingScripts.length > 0 ? trainingScripts : null,
-              clio_session_context: clioSessionContext,
+              session_brief: docs.session_brief || null,
+              topic_context: docs.topic_context || null,
+              session_script: docs.session_script || null,
+              clio_session_context: docs.system_prompt || null,
             }, { onConflict: 'user_id' })
-
-          // Fetch user contact details
-          const { data: userRow } = await supabase
-            .from('users')
-            .select('email, phone, twilio_number_assigned')
-            .eq('id', userId)
-            .single()
 
           if (!userRow) return
 

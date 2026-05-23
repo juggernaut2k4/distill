@@ -184,6 +184,13 @@ async function handleEvent(event: RecallWebhookEvent, userIdFromQuery?: string) 
           visual_spec: null,
           topic_id: null,
           topic_title: null,
+          sections: null,
+          training_scripts: null,
+          session_brief: null,
+          topic_context: null,
+          session_script: null,
+          clio_session_context: null,
+          current_section_index: 0,
         })
         .eq('bot_id', botId)
 

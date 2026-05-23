@@ -44,6 +44,11 @@ interface WalkthroughState {
   pending_transcript?: string | null
   skipped_topics?: string[] | null
   training_scripts?: TrainingScript[] | null
+  // Three-document system
+  session_brief?: string | null
+  topic_context?: string | null
+  session_script?: string | null
+  // Legacy combined field — fallback only
   clio_session_context?: string | null
 }
 
@@ -136,6 +141,11 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
   const skippedTopicsRef = useRef<string[]>(initialState.skipped_topics ?? [])
   const sectionsRef = useRef<TemplateSection[]>(initialState.sections ?? [])
   const trainingScriptsRef = useRef<TrainingScript[]>((initialState.training_scripts ?? []) as TrainingScript[])
+  // Three-document system — used to build the ElevenLabs system prompt override
+  const sessionBriefRef = useRef<string | null>(initialState.session_brief ?? null)
+  const topicContextRef = useRef<string | null>(initialState.topic_context ?? null)
+  const sessionScriptRef = useRef<string | null>(initialState.session_script ?? null)
+  // Legacy fallback
   const clioSessionContextRef = useRef<string | null>(initialState.clio_session_context ?? null)
   const reconnectAttemptsRef = useRef(0)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -178,11 +188,26 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
           ? `Hi, I'm Clio, your AI learning companion. Today we're covering "${topic}". I've prepared everything — let's dive straight in. Ready?`
           : `Hi, I'm Clio, your AI learning companion. I'm here and ready to coach you. Let's get started.`
 
+        // Build system prompt from the 3 pre-generated documents.
+        // Falls back to the legacy combined field, then to a minimal inline prompt.
+        const systemPrompt: string | null = (() => {
+          const brief = sessionBriefRef.current
+          const context = topicContextRef.current
+          const script = sessionScriptRef.current
+          if (brief || context || script) {
+            return [brief, context, script].filter(Boolean).join('\n\n---\n\n')
+          }
+          return clioSessionContextRef.current
+        })()
+
         const conv = await Conversation.startSession({
           agentId: AGENT_ID,
           connectionType: 'websocket',
           overrides: {
             agent: {
+              // Inject full session context as the system prompt — persistent across
+              // the entire WebSocket session, not just a one-time context update.
+              ...(systemPrompt ? { prompt: { prompt: systemPrompt } } : {}),
               // Suppress re-greeting on reconnect — ElevenLabs replays firstMessage
               // every time a new WebSocket session starts without this override.
               firstMessage: isReconnect ? '' : greeting,
@@ -316,38 +341,26 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
         conversationRef.current = conv
         lastActivityRef.current = Date.now()
 
-        // Send Clio its full session brief — agenda, scripts, Q&A context, screen rules.
-        // Pre-built server-side at bot creation; falls back to inline if unavailable.
-        const reconnectSuffix = isReconnect
-          ? '\n\nThe WebSocket connection briefly dropped and reconnected — do not re-introduce yourself, just continue the session naturally from where you left off.'
-          : ''
-
-        const preBuiltContext = clioSessionContextRef.current
-        if (preBuiltContext) {
-          conv.sendContextualUpdate(preBuiltContext + reconnectSuffix)
-          console.log('[Walkthrough]', isReconnect ? 'Full context restored after reconnect' : 'Full session context sent to Clio')
-        } else {
-          // Fallback — no pre-built context (e.g. content pipeline not yet run)
+        // Context is now injected via agent.prompt.prompt override above — persistent.
+        // Only send a reconnect notice if the WebSocket dropped mid-session.
+        if (isReconnect) {
+          conv.sendContextualUpdate(
+            'The WebSocket connection briefly dropped and reconnected. Do not re-introduce yourself — continue the session naturally from where you left off.'
+          )
+        } else if (!systemPrompt) {
+          // Last-resort fallback: no pre-built docs and no legacy context available.
           const sessionTopic = topicRef.current
-          const skippedTopics = skippedTopicsRef.current
-          const skippedContext = skippedTopics.length > 0
-            ? ` Skipped topics: ${skippedTopics.map((t) => `"${t}"`).join(', ')} — say "We're skipping [topic] today" and move on.`
-            : ''
-          const fallbackContext = sessionTopic
-            ? `SYSTEM: Pre-planned coaching session. Topic: "${sessionTopic}". Rules: (1) Never ask what to cover — agenda is fixed. (2) Never ask background — already known. (3) Call show_visual at the start of each subtopic. (4) Teach and coach — do not interview.${skippedContext}`
-            : `SYSTEM: Pre-planned coaching session in progress. Call show_visual at the start of each section. Never ask what to cover.${skippedContext}`
-          conv.sendContextualUpdate(fallbackContext + reconnectSuffix)
-          console.log('[Walkthrough] Fallback context sent (no pre-built brief available)')
-
-          // Include script content if available
-          if (!isReconnect) {
-            const scripts = trainingScriptsRef.current
-            if (scripts.length > 0) {
-              conv.sendContextualUpdate(buildScriptContext(scripts))
-              console.log('[Walkthrough] Training scripts sent separately:', scripts.length, 'sections')
-            }
-          }
+          const inline = sessionTopic
+            ? `You are Clio, an AI executive coach. Session topic: "${sessionTopic}". Rules: call show_visual before each section, never ask what to cover, teach and coach only.`
+            : `You are Clio, an AI executive coach. Call show_visual before each section. Teach and coach — never ask what to cover.`
+          conv.sendContextualUpdate(inline)
+          console.log('[Walkthrough] Inline fallback context sent (no pre-built docs)')
         }
+
+        console.log(
+          '[Walkthrough]',
+          isReconnect ? 'Reconnected — context persists from system prompt' : `Session started — system prompt: ${systemPrompt ? systemPrompt.length + ' chars' : 'none (fallback)'}`
+        )
       } catch (err) {
         if (cancelled) return
         const msg = err instanceof Error ? err.message : String(err)
@@ -393,6 +406,9 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
         if (data.skipped_topics) skippedTopicsRef.current = data.skipped_topics
         if (data.sections) sectionsRef.current = data.sections
         if (data.training_scripts) trainingScriptsRef.current = data.training_scripts as TrainingScript[]
+        if (data.session_brief) sessionBriefRef.current = data.session_brief
+        if (data.topic_context) topicContextRef.current = data.topic_context
+        if (data.session_script) sessionScriptRef.current = data.session_script
         if (data.clio_session_context) clioSessionContextRef.current = data.clio_session_context
 
         const conv = conversationRef.current

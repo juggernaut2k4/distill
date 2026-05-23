@@ -4,7 +4,8 @@ import { z } from 'zod'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { createBot, deleteBot } from '@/lib/recall'
 import { getAllReadySections, type SessionPlan } from '@/lib/session-plan'
-import { buildClioSessionContext } from '@/lib/clio-context-builder'
+import { buildAllClioDocs } from '@/lib/clio-context-builder'
+import { generateTopicContextDoc } from '@/lib/content/topic-context-generator'
 
 const CreateBotSchema = z.object({
   meetingUrl: z.string().url(),
@@ -18,7 +19,8 @@ const DeleteBotSchema = z.object({
 
 /**
  * POST /api/recall/bot
- * Creates a Recall.ai bot, joins the meeting, and updates walkthrough_state.
+ * Creates a Recall.ai bot, joins the meeting, and populates walkthrough_state
+ * with all three Clio session documents (brief, topic context, script).
  */
 export async function POST(request: NextRequest) {
   const { userId } = auth()
@@ -39,61 +41,124 @@ export async function POST(request: NextRequest) {
   }
 
   const { meetingUrl, sessionId, skippedTopics } = parsed.data
-
-  // Public URL — no auth required so the Recall.ai headless browser can render it
   const walkthroughUrl = `${process.env.NEXT_PUBLIC_APP_URL}/walkthrough/${userId}`
 
   try {
     const { botId } = await createBot(meetingUrl, userId, walkthroughUrl)
-
     const supabase = createSupabaseAdminClient()
 
-    // Load session title + pre-generated template sections from the session plan
-    const { data: sessionData } = await supabase
-      .from('sessions')
-      .select('session_title, topic_id, session_plan, session_index')
-      .eq('id', sessionId)
-      .single()
+    // ── Fetch session + user profile ────────────────────────────────────────
+    const [{ data: sessionData }, { data: userRow }] = await Promise.all([
+      supabase
+        .from('sessions')
+        .select('session_title, topic_id, session_plan, session_index')
+        .eq('id', sessionId)
+        .single(),
+      supabase
+        .from('users')
+        .select('role, industry, ai_maturity')
+        .eq('id', userId)
+        .single(),
+    ])
 
-    const sessionTitle = sessionData?.session_title ?? null
+    const sessionTitle = sessionData?.session_title ?? 'AI Coaching Session'
     const topicId = sessionData?.topic_id ?? null
-    const sessionIndex = sessionData?.session_index as number | null ?? null
+    const sessionIndex = (sessionData?.session_index as number | null) ?? null
     const readySections = getAllReadySections(sessionData?.session_plan as SessionPlan | null)
-    console.log(`[recall/bot] Session: "${sessionTitle}" — loading ${readySections.length} pre-generated sections`)
+    const userRole = userRow?.role ?? 'executive'
+    const userIndustry = userRow?.industry ?? 'business'
 
-    // Fetch training scripts + content outlines from topic_content_cache, ordered by section
+    console.log(`[recall/bot] "${sessionTitle}" — ${readySections.length} sections`)
+
+    // ── Fetch training scripts + content outlines + cached context docs ─────
     let trainingScripts: unknown[] = []
-    let clioSessionContext: string | null = null
+    let topicContextDocs: (string | null)[] = []
+    let docs = { session_brief: '', topic_context: '', session_script: '', system_prompt: '' }
 
     if (topicId && readySections.length > 0) {
       const slugs = readySections.map((s) => s.id)
+
       const { data: cacheRows } = await supabase
         .from('topic_content_cache')
-        .select('subtopic_slug, training_script, content_outline')
+        .select('subtopic_slug, training_script, content_outline, topic_context_doc')
         .eq('topic_id', topicId)
         .in('subtopic_slug', slugs)
 
       const scriptMap = new Map((cacheRows ?? []).map((r) => [r.subtopic_slug, r.training_script]))
       const outlineMap = new Map((cacheRows ?? []).map((r) => [r.subtopic_slug, r.content_outline]))
+      const ctxDocMap = new Map((cacheRows ?? []).map((r) => [r.subtopic_slug, r.topic_context_doc as string | null]))
 
       trainingScripts = readySections.map((s) => scriptMap.get(s.id) ?? null)
       const contentOutlines = readySections.map((s) => outlineMap.get(s.id) ?? null)
 
-      console.log(`[recall/bot] Loaded ${cacheRows?.length ?? 0} scripts + outlines`)
+      // Generate topic context docs for any subtopics that don't have one cached
+      const contextDocUpdates: Array<{ slug: string; doc: string }> = []
+      topicContextDocs = await Promise.all(
+        readySections.map(async (s, i) => {
+          const cached = ctxDocMap.get(s.id)
+          if (cached) return cached
 
-      // Build Clio's complete coaching brief
-      clioSessionContext = buildClioSessionContext({
-        sessionTitle: sessionTitle ?? 'AI Coaching Session',
+          const outline = contentOutlines[i] as {
+            subtopic_title?: string
+            content_summary?: string
+            key_concepts?: string[]
+            common_misconceptions?: string[]
+            executive_relevance?: string
+            builds_on?: string[]
+          } | null
+
+          if (!outline) return null
+
+          const doc = await generateTopicContextDoc(
+            {
+              subtopic_title: s.meta.subtopicTitle,
+              content_summary: outline.content_summary,
+              key_concepts: outline.key_concepts,
+              common_misconceptions: outline.common_misconceptions,
+              executive_relevance: outline.executive_relevance,
+              builds_on: outline.builds_on,
+            },
+            sessionTitle,
+            { role: userRole, industry: userIndustry }
+          )
+          contextDocUpdates.push({ slug: s.id, doc })
+          return doc
+        })
+      )
+
+      // Persist any newly generated context docs to the cache (fire and forget)
+      if (contextDocUpdates.length > 0) {
+        Promise.all(
+          contextDocUpdates.map(({ slug, doc }) =>
+            supabase
+              .from('topic_content_cache')
+              .update({ topic_context_doc: doc })
+              .eq('topic_id', topicId)
+              .eq('subtopic_slug', slug)
+          )
+        ).catch((err) => console.error('[recall/bot] context doc cache write failed:', err))
+      }
+
+      // ── Build all 3 Clio documents ────────────────────────────────────────
+      docs = buildAllClioDocs({
+        sessionTitle,
         sessionIndex,
-        topicId: topicId ?? '',
+        topicId,
         sections: readySections.map((s) => ({ id: s.id, meta: s.meta })),
         trainingScripts: trainingScripts as never[],
-        contentOutlines: contentOutlines as never[],
+        topicContextDocs,
         skippedTopics,
+        userRole,
+        userIndustry,
       })
+
+      console.log(
+        `[recall/bot] Built: brief=${docs.session_brief.length}c, ` +
+        `context=${docs.topic_context.length}c, script=${docs.session_script.length}c`
+      )
     }
 
-    // Upsert walkthrough_state — onConflict ensures existing row is updated, not duplicated
+    // ── Upsert walkthrough_state ────────────────────────────────────────────
     const { error: upsertErr } = await supabase.from('walkthrough_state').upsert(
       {
         user_id: userId,
@@ -108,7 +173,12 @@ export async function POST(request: NextRequest) {
         sections: readySections.length > 0 ? readySections : null,
         current_section_index: 0,
         training_scripts: trainingScripts.length > 0 ? trainingScripts : null,
-        clio_session_context: clioSessionContext,
+        // Three-document context
+        session_brief: docs.session_brief || null,
+        topic_context: docs.topic_context || null,
+        session_script: docs.session_script || null,
+        // Legacy combined field — kept for fallback compatibility
+        clio_session_context: docs.system_prompt || null,
       },
       { onConflict: 'user_id' }
     )
@@ -117,16 +187,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ botId, walkthroughUrl }, { status: 200 })
   } catch (err) {
     console.error('[recall/bot POST] Error:', err)
-    return NextResponse.json(
-      { error: 'Failed to create bot' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Failed to create bot' }, { status: 500 })
   }
 }
 
 /**
  * DELETE /api/recall/bot
- * Stops and removes the Recall.ai bot, resets walkthrough_state to idle.
+ * Stops the Recall.ai bot and clears all session context from walkthrough_state.
  */
 export async function DELETE(request: NextRequest) {
   const { userId } = auth()
@@ -159,14 +226,18 @@ export async function DELETE(request: NextRequest) {
       visual_spec: null,
       topic_title: null,
       topic_id: null,
+      sections: null,
+      training_scripts: null,
+      session_brief: null,
+      topic_context: null,
+      session_script: null,
+      clio_session_context: null,
+      current_section_index: 0,
     }).eq('user_id', userId)
 
     return NextResponse.json({ success: true }, { status: 200 })
   } catch (err) {
     console.error('[recall/bot DELETE] Error:', err)
-    return NextResponse.json(
-      { error: 'Failed to delete bot' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Failed to delete bot' }, { status: 500 })
   }
 }
