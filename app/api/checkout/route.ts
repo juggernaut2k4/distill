@@ -84,6 +84,8 @@ export async function POST(request: NextRequest) {
       .eq('id', userId!)
       .single()
 
+    console.log('[checkout] user subscription_status:', user?.subscription_status, '| stripe_subscription_id:', user?.stripe_subscription_id ?? 'none')
+
     // Already subscribed (real or mock-mode) — send to dashboard
     if (user?.subscription_status === 'trialing' || user?.subscription_status === 'active') {
       return NextResponse.json({ alreadyActive: true })

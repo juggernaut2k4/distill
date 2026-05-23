@@ -123,13 +123,23 @@ function PaymentForm({
     setError(null)
 
     // Confirm the SetupIntent — saves the card to Stripe
-    const { error: stripeError, setupIntent } = await stripe.confirmSetup({
-      elements,
-      redirect: 'if_required',
-      confirmParams: {
-        return_url: `${window.location.origin}/dashboard/welcome`,
-      },
-    })
+    let confirmResult: Awaited<ReturnType<typeof stripe.confirmSetup>>
+    try {
+      confirmResult = await stripe.confirmSetup({
+        elements,
+        redirect: 'if_required',
+        confirmParams: {
+          return_url: `${window.location.origin}/dashboard`,
+        },
+      })
+    } catch (e) {
+      console.error('[confirmSetup] threw:', e)
+      setError('Card verification failed. Please refresh and try again.')
+      setIsSubmitting(false)
+      return
+    }
+
+    const { error: stripeError, setupIntent } = confirmResult
 
     if (stripeError) {
       setError(stripeError.message ?? 'Card verification failed. Please try again.')
