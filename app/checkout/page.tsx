@@ -122,63 +122,51 @@ function PaymentForm({
     setIsSubmitting(true)
     setError(null)
 
-    // Confirm the SetupIntent — saves the card to Stripe
-    let confirmResult: Awaited<ReturnType<typeof stripe.confirmSetup>>
     try {
-      confirmResult = await stripe.confirmSetup({
+      // Confirm the SetupIntent — saves the card to Stripe
+      const { error: stripeError, setupIntent } = await stripe.confirmSetup({
         elements,
         redirect: 'if_required',
         confirmParams: {
           return_url: `${window.location.origin}/dashboard`,
         },
       })
-    } catch (e) {
-      console.error('[confirmSetup] threw:', e)
-      setError('Card verification failed. Please refresh and try again.')
-      setIsSubmitting(false)
-      return
-    }
 
-    const { error: stripeError, setupIntent } = confirmResult
+      if (stripeError) {
+        setError(stripeError.message ?? 'Card verification failed. Please try again.')
+        return
+      }
 
-    if (stripeError) {
-      setError(stripeError.message ?? 'Card verification failed. Please try again.')
-      setIsSubmitting(false)
-      return
-    }
+      if (!setupIntent?.payment_method) {
+        setError('Something went wrong. Please try again.')
+        return
+      }
 
-    if (!setupIntent?.payment_method) {
-      setError('Something went wrong. Please try again.')
-      setIsSubmitting(false)
-      return
-    }
+      const paymentMethodId =
+        typeof setupIntent.payment_method === 'string'
+          ? setupIntent.payment_method
+          : setupIntent.payment_method?.id ?? ''
 
-    // Create the subscription using the saved payment method
-    try {
+      // Create the subscription using the saved payment method
       const res = await fetch('/api/checkout/confirm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          plan: planKey,
-          billingPeriod,
-          paymentMethodId: setupIntent.payment_method,
-          trialOptIn,
-        }),
+        body: JSON.stringify({ plan: planKey, billingPeriod, paymentMethodId, trialOptIn }),
       })
       const data = await res.json()
 
       if (!res.ok || !data.success) {
         setError(data.error ?? 'Failed to activate your plan. Please try again.')
-        setIsSubmitting(false)
         return
       }
 
-      // Clear plan selection from storage
       localStorage.removeItem('clio_selected_plan')
       localStorage.removeItem('clio_billing_period')
       onSuccess()
-    } catch {
-      setError('Connection error. Please try again.')
+    } catch (err) {
+      console.error('[checkout] handleSubmit error:', err)
+      setError('Something went wrong. Please refresh and try again.')
+    } finally {
       setIsSubmitting(false)
     }
   }
