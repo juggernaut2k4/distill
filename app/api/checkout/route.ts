@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { requireAuth } from '@/lib/clerk'
+import { requireAuth, getCurrentUser } from '@/lib/clerk'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 
 const CheckoutSchema = z.object({
@@ -80,15 +80,40 @@ export async function POST(request: NextRequest) {
 
     const { data: user } = await supabase
       .from('users')
-      .select('email, stripe_customer_id, stripe_subscription_id, subscription_status')
+      .select('email, stripe_customer_id, stripe_subscription_id, subscription_status, trial_ends_at')
       .eq('id', userId!)
       .single()
 
     console.log('[checkout] user subscription_status:', user?.subscription_status, '| stripe_subscription_id:', user?.stripe_subscription_id ?? 'none')
 
-    // Already subscribed (real or mock-mode) — send to dashboard
+    // This Clerk account already has an active subscription — send to dashboard
     if (user?.subscription_status === 'trialing' || user?.subscription_status === 'active') {
-      return NextResponse.json({ alreadyActive: true })
+      const trialEnd = user?.trial_ends_at ? new Date(user.trial_ends_at) : null
+      const isExpired = trialEnd ? trialEnd < new Date() : false
+      if (!isExpired) {
+        return NextResponse.json({ alreadyActive: true })
+      }
+    }
+
+    // Check if a DIFFERENT account with the same email is already active
+    const clerkUser = await getCurrentUser()
+    const email = clerkUser?.emailAddresses?.[0]?.emailAddress
+    if (email) {
+      const { data: existingActiveUser } = await supabase
+        .from('users')
+        .select('id, subscription_status, trial_ends_at')
+        .eq('email', email)
+        .neq('id', userId!)
+        .in('subscription_status', ['trialing', 'active'])
+        .maybeSingle()
+
+      if (existingActiveUser) {
+        const trialEnd = existingActiveUser.trial_ends_at ? new Date(existingActiveUser.trial_ends_at) : null
+        const isExpired = trialEnd ? trialEnd < new Date() : false
+        if (!isExpired) {
+          return NextResponse.json({ existingAccount: true, email })
+        }
+      }
     }
 
     // Get or create Stripe customer

@@ -299,6 +299,7 @@ function CheckoutContent() {
   const [clientSecret, setClientSecret] = useState<string | null>(null)
   const [isLoadingIntent, setIsLoadingIntent] = useState(false)
   const [initError, setInitError] = useState<string | null>(null)
+  const [existingAccountEmail, setExistingAccountEmail] = useState<string | null>(null)
 
   // Determine plan on mount from URL param then localStorage
   useEffect(() => {
@@ -325,7 +326,6 @@ function CheckoutContent() {
       .then((r) => r.json())
       .then((data) => {
         if (data.checkoutUrl) {
-          // mock mode or already active
           localStorage.removeItem('clio_selected_plan')
           localStorage.removeItem('clio_billing_period')
           window.location.href = data.checkoutUrl
@@ -333,6 +333,10 @@ function CheckoutContent() {
         }
         if (data.alreadyActive) {
           router.push('/dashboard')
+          return
+        }
+        if (data.existingAccount) {
+          setExistingAccountEmail(data.email ?? null)
           return
         }
         if (data.clientSecret) {
@@ -470,7 +474,29 @@ function CheckoutContent() {
             </div>
           )}
 
-          {initError && !isLoadingIntent && (
+          {existingAccountEmail && !isLoadingIntent && (
+            <div className="text-center py-12">
+              <div className="w-14 h-14 rounded-full bg-amber-900/30 border border-amber-700/40 flex items-center justify-center mx-auto mb-5">
+                <Lock className="w-6 h-6 text-amber-400" />
+              </div>
+              <h2 className="text-white text-xl font-bold mb-2">Account already exists</h2>
+              <p className="text-[#94A3B8] text-sm mb-1">
+                An active subscription is already linked to
+              </p>
+              <p className="text-white font-medium text-sm mb-6">{existingAccountEmail}</p>
+              <p className="text-[#475569] text-sm mb-8">
+                Sign in with your original account to access your dashboard.
+              </p>
+              <Link
+                href="/sign-in"
+                className="inline-flex items-center gap-2 px-6 py-3 bg-[#7C3AED] hover:bg-[#6D28D9] text-white font-semibold rounded-xl transition-colors"
+              >
+                Sign in to your account
+              </Link>
+            </div>
+          )}
+
+          {initError && !isLoadingIntent && !existingAccountEmail && (
             <div className="text-center py-12">
               <p className="text-[#EF4444] text-sm mb-4">{initError}</p>
               <button
