@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useTransition } from 'react'
 import { motion } from 'framer-motion'
 import { ScoreRing } from '@/components/dashboard/ScoreRing'
 import { StreakCounter } from '@/components/dashboard/StreakCounter'
@@ -8,7 +8,8 @@ import { MessageCard } from '@/components/dashboard/MessageCard'
 import { DeliveryToggle } from '@/components/dashboard/DeliveryToggle'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
-import { Timer, ArrowRight, RefreshCw, Hourglass } from 'lucide-react'
+import { Timer, ArrowRight, RefreshCw, Hourglass, CheckCircle2 } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
 interface DeliveryEntry {
@@ -55,6 +56,11 @@ export default function DashboardClient({
     (user.delivery_preference as 'email' | 'sms' | 'both') ?? 'email'
   )
   const [paused, setPaused] = useState(false)
+  const [activating, setActivating] = useState(false)
+  const [activated, setActivated] = useState(false)
+  const [activateError, setActivateError] = useState<string | null>(null)
+  const [, startTransition] = useTransition()
+  const router = useRouter()
 
   const score = user.ai_readiness_score ?? 0
   const streak = user.streak_days ?? 0
@@ -98,6 +104,27 @@ export default function DashboardClient({
     }).catch(() => {})
   }
 
+  async function handleActivatePlan() {
+    setActivating(true)
+    setActivateError(null)
+    try {
+      const res = await fetch('/api/checkout/activate', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) {
+        setActivateError(data.error ?? 'Something went wrong. Please try again.')
+        return
+      }
+      setActivated(true)
+      startTransition(() => {
+        router.refresh()
+      })
+    } catch {
+      setActivateError('Network error. Please try again.')
+    } finally {
+      setActivating(false)
+    }
+  }
+
   return (
     <div className="space-y-8">
       {/* Recalibration banner */}
@@ -138,24 +165,37 @@ export default function DashboardClient({
               className={trialUrgent ? 'text-[#EF4444] flex-shrink-0' : 'text-[#F59E0B] flex-shrink-0'}
             />
             <div>
-              <p className={`text-sm font-semibold ${trialUrgent ? 'text-red-300' : 'text-amber-300'}`}>
-                {trialUrgent
-                  ? `Trial ending in ${trialLabel} — activate now to keep access`
-                  : `${trialLabel} left in your free trial`}
-              </p>
-              <p className="text-xs text-[#475569] mt-0.5">
-                You have {minutesBalance} min of coaching time. Pay now to unlock your full {minutesIncluded} min/month.
-              </p>
+              {activated ? (
+                <p className="text-sm font-semibold text-green-300 flex items-center gap-1.5">
+                  <CheckCircle2 size={14} /> Plan activated — full access unlocked
+                </p>
+              ) : (
+                <>
+                  <p className={`text-sm font-semibold ${trialUrgent ? 'text-red-300' : 'text-amber-300'}`}>
+                    {trialUrgent
+                      ? `Trial ending in ${trialLabel} — activate now to keep access`
+                      : `${trialLabel} left in your free trial`}
+                  </p>
+                  <p className="text-xs text-[#475569] mt-0.5">
+                    You have {minutesBalance} min of coaching time. Activate to unlock your full {minutesIncluded} min/month.
+                  </p>
+                  {activateError && (
+                    <p className="text-xs text-[#EF4444] mt-0.5">{activateError}</p>
+                  )}
+                </>
+              )}
             </div>
           </div>
-          <Link href="/checkout">
+          {!activated && (
             <Button
               size="sm"
+              onClick={handleActivatePlan}
+              disabled={activating}
               className={`gap-1.5 whitespace-nowrap ml-4 ${trialUrgent ? 'bg-[#EF4444] hover:bg-red-600' : ''}`}
             >
-              Activate plan <ArrowRight size={13} />
+              {activating ? 'Activating…' : <>Activate plan <ArrowRight size={13} /></>}
             </Button>
-          </Link>
+          )}
         </motion.div>
       )}
 
