@@ -20,6 +20,19 @@ const KEEPALIVE_INTERVAL = 25_000
 type WalkthroughStatus = 'idle' | 'generating' | 'ready' | 'wiping'
 type AgentStatus = 'disconnected' | 'connecting' | 'listening' | 'speaking' | 'error'
 
+// Inline types — mirrors lib/content/script-generator.ts without the server-only Anthropic import
+type ScriptSegmentType = 'TEACH' | 'CHECKPOINT' | 'PROBE' | 'CONTINUE'
+interface ScriptSegment {
+  type: ScriptSegmentType
+  content: string
+  duration_seconds?: number
+}
+interface TrainingScript {
+  subtopic_title: string
+  subtopic_slug: string
+  segments: ScriptSegment[]
+}
+
 interface WalkthroughState {
   user_id: string
   status: WalkthroughStatus
@@ -30,6 +43,41 @@ interface WalkthroughState {
   bot_id?: string | null
   pending_transcript?: string | null
   skipped_topics?: string[] | null
+  training_scripts?: TrainingScript[] | null
+}
+
+/**
+ * Formats all training scripts as a coaching brief for Clio's LLM context.
+ * Sent once on session connect — gives Clio the exact content for every section
+ * so its spoken words align with the visuals shown on screen.
+ */
+function buildScriptContext(scripts: TrainingScript[]): string {
+  if (scripts.length === 0) return ''
+  const sections = scripts
+    .filter(Boolean)
+    .map((s, i) => {
+      const get = (type: ScriptSegmentType) =>
+        s.segments.find((seg) => seg.type === type)?.content ?? ''
+      return [
+        `[SECTION ${i + 1}: "${s.subtopic_title}"]`,
+        `TEACH: ${get('TEACH')}`,
+        `CHECKPOINT: ${get('CHECKPOINT')}`,
+        `PROBE (if they seem uncertain): ${get('PROBE')}`,
+        `CONTINUE (bridge before calling show_visual for next section): ${get('CONTINUE')}`,
+      ].join('\n')
+    })
+    .join('\n\n---\n\n')
+
+  return (
+    '\n\nYOUR PRE-WRITTEN COACHING SCRIPTS — these are your exact words for this session. ' +
+    'Deliver the TEACH content naturally when you advance to each section. Do not improvise the core explanation — use the script.\n\n' +
+    sections +
+    '\n\nScript delivery rules: ' +
+    '(1) Call show_visual first, then deliver the TEACH script for that section. ' +
+    '(2) After TEACH, ask the CHECKPOINT question verbatim. ' +
+    '(3) If the participant seems uncertain, deliver the PROBE reframe. ' +
+    '(4) Use the CONTINUE text as the bridge before advancing to the next section.'
+  )
 }
 
 interface Props {
@@ -86,6 +134,7 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
   const topicRef = useRef<string | null | undefined>(initialState.topic_title)
   const skippedTopicsRef = useRef<string[]>(initialState.skipped_topics ?? [])
   const sectionsRef = useRef<TemplateSection[]>(initialState.sections ?? [])
+  const trainingScriptsRef = useRef<TrainingScript[]>((initialState.training_scripts ?? []) as TrainingScript[])
   const reconnectAttemptsRef = useRef(0)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -164,6 +213,31 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ command: 'scroll_to', section_index: idx }),
                     })
+
+                    // Look up the training script for this section and return it as an
+                    // instruction so Clio's LLM delivers the pre-written TEACH script
+                    // verbatim — aligning what Clio says with what's on screen.
+                    const scripts = trainingScriptsRef.current
+                    const script = scripts[idx]
+                    if (script) {
+                      const teachSeg = script.segments.find((s) => s.type === 'TEACH')
+                      const checkpointSeg = script.segments.find((s) => s.type === 'CHECKPOINT')
+                      const probeSeg = script.segments.find((s) => s.type === 'PROBE')
+                      const continueSeg = script.segments.find((s) => s.type === 'CONTINUE')
+                      if (teachSeg) {
+                        const sectionTitle = sections[idx].meta.subtopicTitle
+                        return (
+                          `Visual is now showing: "${sectionTitle}" (section ${idx + 1} of ${sections.length}).\n\n` +
+                          `Deliver your TEACH script for this section now — speak it naturally as if from memory:\n\n` +
+                          `${teachSeg.content}\n\n` +
+                          `Then ask this CHECKPOINT question:\n"${checkpointSeg?.content ?? 'How does that land for you?'}"\n\n` +
+                          `If they seem uncertain, use this PROBE reframe:\n"${probeSeg?.content ?? 'Let me try a different angle.'}"\n\n` +
+                          `When ready to advance, say this CONTINUE bridge:\n"${continueSeg?.content ?? 'Good — let\'s move on.'}"\n` +
+                          `Then call show_visual for the next section.`
+                        )
+                      }
+                    }
+
                     return `Now showing: ${sections[idx].meta.subtopicTitle}`
                   }
                 }
@@ -259,6 +333,17 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
 
         conv.sendContextualUpdate(sessionContext + reconnectContext)
         console.log('[Walkthrough]', isReconnect ? 'Context restored after reconnect' : 'Session context sent')
+
+        // Send training scripts on first connect only — gives Clio its coaching brief
+        // so every spoken word is grounded in the pre-written script for that section.
+        if (!isReconnect) {
+          const scripts = trainingScriptsRef.current
+          if (scripts.length > 0) {
+            const scriptCtx = buildScriptContext(scripts)
+            conv.sendContextualUpdate(scriptCtx)
+            console.log('[Walkthrough] Training scripts sent to agent:', scripts.length, 'sections')
+          }
+        }
       } catch (err) {
         if (cancelled) return
         const msg = err instanceof Error ? err.message : String(err)
@@ -303,6 +388,7 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
         if (data.topic_title) topicRef.current = data.topic_title
         if (data.skipped_topics) skippedTopicsRef.current = data.skipped_topics
         if (data.sections) sectionsRef.current = data.sections
+        if (data.training_scripts) trainingScriptsRef.current = data.training_scripts as TrainingScript[]
 
         const conv = conversationRef.current
 

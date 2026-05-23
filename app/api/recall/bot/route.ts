@@ -59,6 +59,21 @@ export async function POST(request: NextRequest) {
     const readySections = getAllReadySections(sessionData?.session_plan as SessionPlan | null)
     console.log(`[recall/bot] Session: "${sessionTitle}" — loading ${readySections.length} pre-generated sections`)
 
+    // Fetch training scripts from topic_content_cache, aligned by subtopic_slug order
+    let trainingScripts: unknown[] = []
+    if (topicId && readySections.length > 0) {
+      const slugs = readySections.map((s) => s.id)
+      const { data: scriptRows } = await supabase
+        .from('topic_content_cache')
+        .select('subtopic_slug, training_script')
+        .eq('topic_id', topicId)
+        .in('subtopic_slug', slugs)
+      const scriptMap = new Map((scriptRows ?? []).map((r) => [r.subtopic_slug, r.training_script]))
+      // Preserve section order so training_scripts[i] matches sections[i]
+      trainingScripts = readySections.map((s) => scriptMap.get(s.id) ?? null)
+      console.log(`[recall/bot] Loaded ${scriptRows?.length ?? 0} training scripts`)
+    }
+
     // Upsert walkthrough_state — onConflict ensures existing row is updated, not duplicated
     const { error: upsertErr } = await supabase.from('walkthrough_state').upsert(
       {
@@ -73,6 +88,7 @@ export async function POST(request: NextRequest) {
         skipped_topics: skippedTopics,
         sections: readySections.length > 0 ? readySections : null,
         current_section_index: 0,
+        training_scripts: trainingScripts.length > 0 ? trainingScripts : null,
       },
       { onConflict: 'user_id' }
     )
