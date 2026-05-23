@@ -99,10 +99,10 @@ export async function POST(request: NextRequest) {
         metadata: { userId: userId! },
       })
       customerId = customer.id
+      // upsert so this works even if the users row doesn't exist yet
       await supabase
         .from('users')
-        .update({ stripe_customer_id: customerId })
-        .eq('id', userId!)
+        .upsert({ id: userId!, stripe_customer_id: customerId }, { onConflict: 'id' })
     }
 
     // Create SetupIntent — payment method will be saved and billed after trial

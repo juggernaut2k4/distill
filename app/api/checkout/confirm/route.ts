@@ -69,15 +69,22 @@ export async function POST(request: NextRequest) {
 
     const { data: user } = await supabase
       .from('users')
-      .select('stripe_customer_id')
+      .select('stripe_customer_id, email')
       .eq('id', userId!)
       .single()
 
-    if (!user?.stripe_customer_id) {
-      return NextResponse.json({ error: 'Customer not found' }, { status: 400 })
+    // If no customer ID in DB, create one now (handles new accounts that skipped onboarding)
+    let customerId = user?.stripe_customer_id
+    if (!customerId) {
+      const customer = await stripe.customers.create({
+        email: user?.email ?? undefined,
+        metadata: { userId: userId! },
+      })
+      customerId = customer.id
+      await supabase
+        .from('users')
+        .upsert({ id: userId!, stripe_customer_id: customerId }, { onConflict: 'id' })
     }
-
-    const customerId = user.stripe_customer_id
 
     // Set as default payment method on the customer
     await stripe.customers.update(customerId, {
@@ -101,10 +108,12 @@ export async function POST(request: NextRequest) {
       ? new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString()
       : null
 
-    // Update Supabase immediately (webhook will also update, this is for speed)
+    // Upsert so this works even if the users row didn't exist before checkout
     await supabase
       .from('users')
-      .update({
+      .upsert({
+        id: userId!,
+        stripe_customer_id: customerId,
         plan_tier: plan,
         subscription_status: subscription.status,
         stripe_subscription_id: subscription.id,
@@ -112,8 +121,7 @@ export async function POST(request: NextRequest) {
         minutes_balance: trialOptIn ? 5 : MINUTES_MAP[plan],
         trial_opted_in: trialOptIn,
         trial_ends_at: trialEndDate,
-      })
-      .eq('id', userId!)
+      }, { onConflict: 'id' })
 
     return NextResponse.json({ success: true })
   } catch (err) {
