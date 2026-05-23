@@ -314,7 +314,7 @@ function CheckoutContent() {
           return
         }
         if (data.alreadyActive) {
-          router.push('/dashboard/welcome')
+          router.push('/dashboard')
           return
         }
         if (data.clientSecret) {
