@@ -9,6 +9,15 @@ import ProsCons from './renderers/ProsCons'
 import CaseStudy from './renderers/CaseStudy'
 import KeyTakeaway from './renderers/KeyTakeaway'
 import QuestionAnswer from './renderers/QuestionAnswer'
+import Timeline from './renderers/Timeline'
+import ConceptMap from './renderers/ConceptMap'
+import TwoByTwoMatrix from './renderers/TwoByTwoMatrix'
+import FrameworkCard from './renderers/FrameworkCard'
+import StatCallout from './renderers/StatCallout'
+import ActionPlan from './renderers/ActionPlan'
+import Funnel from './renderers/Funnel'
+import FlowchartRenderer from './renderers/Flowchart'
+import Hierarchy from './renderers/Hierarchy'
 import GenericTemplate from './renderers/GenericTemplate'
 
 export interface TemplateRendererProps {
@@ -17,45 +26,43 @@ export interface TemplateRendererProps {
   onReady?: () => void
 }
 
-/**
- * Routes a TemplateSection to its correct renderer component.
- * Falls back to GenericTemplate for types without a dedicated renderer.
- */
 export default function TemplateRenderer({ section, isActive, onReady }: TemplateRendererProps) {
   switch (section.type) {
     case 'TopicHero':
       return <TopicHero data={section.data} isActive={isActive} onReady={onReady} />
-
     case 'ConceptDefinition':
       return <ConceptDefinition data={section.data} isActive={isActive} onReady={onReady} />
-
     case 'ComparisonTable':
       return <ComparisonTable data={section.data} isActive={isActive} onReady={onReady} />
-
     case 'StepFlow':
       return <StepFlow data={section.data} isActive={isActive} onReady={onReady} />
-
     case 'ProsCons':
       return <ProsCons data={section.data} isActive={isActive} onReady={onReady} />
-
     case 'CaseStudy':
       return <CaseStudy data={section.data} isActive={isActive} onReady={onReady} />
-
     case 'KeyTakeaway':
       return <KeyTakeaway data={section.data} isActive={isActive} onReady={onReady} />
-
     case 'QuestionAnswer':
       return <QuestionAnswer data={section.data} isActive={isActive} onReady={onReady} />
-
-    // All remaining types use GenericTemplate until dedicated renderers are built
-    case 'TwoByTwoMatrix':
-    case 'FrameworkCard':
-    case 'StatCallout':
     case 'Timeline':
+      return <Timeline data={section.data} isActive={isActive} onReady={onReady} />
     case 'ConceptMap':
-    case 'QuoteCallout':
+      return <ConceptMap data={section.data} isActive={isActive} onReady={onReady} />
+    case 'TwoByTwoMatrix':
+      return <TwoByTwoMatrix data={section.data} isActive={isActive} onReady={onReady} />
+    case 'FrameworkCard':
+      return <FrameworkCard data={section.data} isActive={isActive} onReady={onReady} />
+    case 'StatCallout':
+      return <StatCallout data={section.data} isActive={isActive} onReady={onReady} />
     case 'ActionPlan':
+      return <ActionPlan data={section.data} isActive={isActive} onReady={onReady} />
     case 'Funnel':
+      return <Funnel data={section.data} isActive={isActive} onReady={onReady} />
+    case 'Flowchart':
+      return <FlowchartRenderer data={section.data} isActive={isActive} onReady={onReady} />
+    case 'Hierarchy':
+      return <Hierarchy data={section.data} isActive={isActive} onReady={onReady} />
+    case 'QuoteCallout':
       return <GenericTemplate section={section} isActive={isActive} onReady={onReady} />
   }
 }

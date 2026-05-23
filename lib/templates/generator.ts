@@ -251,6 +251,33 @@ function getSchemaForTemplate(type: TemplateName): string {
   "what_makes_it_through": string,
   "so_what": string
 }`,
+    Flowchart: `{
+  "title": string,
+  "context": string,
+  "nodes": [
+    { "id": string, "type": "start"|"decision"|"action"|"end", "label": string, "detail": string|null }
+  ],
+  "edges": [
+    { "from": string, "to": string, "label": string|null }
+  ],
+  "so_what": string
+}`,
+    Hierarchy: `{
+  "title": string,
+  "context": string,
+  "root": {
+    "label": string,
+    "detail": string|null,
+    "children": [
+      {
+        "label": string,
+        "detail": string|null,
+        "children": [{ "label": string, "detail": string|null }]
+      }
+    ]
+  },
+  "so_what": string
+}`,
   }
 
   return schemas[type]
@@ -609,6 +636,73 @@ export function getMockData(type: TemplateName, subtopicTitle: string): Template
       ],
       what_makes_it_through: 'AI projects with a direct board-level KPI owner, clean accessible data, a deliberate build/buy decision, and a named business accountable.',
       so_what: 'As a CEO, run every proposed AI initiative through this funnel before approving budget. Most will fail at Stage 1 or 2 — and that\'s the point. Filter fast, fund deeply.',
+    },
+    Flowchart: {
+      title: `${subtopicTitle} — Decision Flow`,
+      context: 'A decision framework for evaluating AI opportunities at the executive level.',
+      nodes: [
+        { id: 'start', type: 'start' as const, label: 'New AI Opportunity', detail: undefined },
+        { id: 'd1', type: 'decision' as const, label: 'Strategic fit?', detail: 'Does it map to a top-3 priority?' },
+        { id: 'a1', type: 'action' as const, label: 'Reject or Park', detail: 'Add to a future consideration list.' },
+        { id: 'd2', type: 'decision' as const, label: 'Data ready?', detail: 'Clean, accessible, governed?' },
+        { id: 'a2', type: 'action' as const, label: 'Launch Data Programme', detail: 'Fix the data first. AI comes second.' },
+        { id: 'd3', type: 'decision' as const, label: 'Build vs buy decided?', detail: 'Deliberate, not defaulted.' },
+        { id: 'a3', type: 'action' as const, label: 'Approve & Fund', detail: 'Assign owner, set KPI, start sprint.' },
+        { id: 'end', type: 'end' as const, label: 'Launch', detail: undefined },
+      ],
+      edges: [
+        { from: 'start', to: 'd1', label: undefined },
+        { from: 'd1', to: 'a1', label: 'No' },
+        { from: 'd1', to: 'd2', label: 'Yes' },
+        { from: 'd2', to: 'a2', label: 'No' },
+        { from: 'd2', to: 'd3', label: 'Yes' },
+        { from: 'd3', to: 'a3', label: 'Yes' },
+        { from: 'a3', to: 'end', label: undefined },
+      ],
+      so_what: 'Most AI opportunities fail at the first decision gate. Use this flow to filter fast — every rejected idea saves 6 months of wasted effort.',
+    },
+    Hierarchy: {
+      title: `${subtopicTitle} — Structure Breakdown`,
+      context: 'Understanding the layered structure of modern AI systems.',
+      root: {
+        label: 'AI System',
+        detail: 'Enterprise-grade AI stack',
+        children: [
+          {
+            label: 'Data Layer',
+            detail: 'Raw inputs & pipelines',
+            children: [
+              { label: 'Structured Data', detail: 'Databases, CRM, ERP' },
+              { label: 'Unstructured Data', detail: 'Docs, emails, audio' },
+            ],
+          },
+          {
+            label: 'Model Layer',
+            detail: 'Intelligence & reasoning',
+            children: [
+              { label: 'Foundation Model', detail: 'GPT, Claude, Gemini' },
+              { label: 'Fine-tuned Model', detail: 'Domain-specific tuning' },
+            ],
+          },
+          {
+            label: 'Application Layer',
+            detail: 'User-facing tools',
+            children: [
+              { label: 'Internal Tools', detail: 'Copilots, assistants' },
+              { label: 'Customer-facing', detail: 'Chatbots, recommendations' },
+            ],
+          },
+          {
+            label: 'Governance Layer',
+            detail: 'Control & accountability',
+            children: [
+              { label: 'Risk & Compliance', detail: 'Audit trails, bias checks' },
+              { label: 'Performance Monitoring', detail: 'Drift detection, KPIs' },
+            ],
+          },
+        ],
+      },
+      so_what: 'As a CEO, you own the governance layer even if you don\'t touch the model layer. Most AI failures happen because leadership disengages after the model is deployed.',
     },
   }
 

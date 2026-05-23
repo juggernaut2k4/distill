@@ -71,6 +71,21 @@ export function selectTemplate(
     return 'TwoByTwoMatrix'
   }
 
+  // Flowchart / decision / branching logic
+  if (/flow|decision|if.*then|branch|route|path|workflow/.test(t)) {
+    return 'Flowchart'
+  }
+
+  // Hierarchy / taxonomy / tree / structure
+  if (/hierarch|taxonomy|tree|categor|breakdown|structure|organis|organizat/.test(t)) {
+    return 'Hierarchy'
+  }
+
+  // Funnel / pipeline / selection
+  if (/funnel|pipeline|filter|select|screen/.test(t)) {
+    return 'Funnel'
+  }
+
   // Default
   return 'ConceptDefinition'
 }

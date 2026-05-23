@@ -246,6 +246,36 @@ export interface FunnelData {
   so_what: string
 }
 
+export interface FlowchartData {
+  title: string
+  context: string
+  nodes: Array<{
+    id: string
+    type: 'start' | 'decision' | 'action' | 'end'
+    label: string
+    detail?: string
+  }>
+  edges: Array<{
+    from: string
+    to: string
+    label?: string
+  }>
+  so_what: string
+}
+
+export interface HierarchyNode {
+  label: string
+  detail?: string
+  children?: HierarchyNode[]
+}
+
+export interface HierarchyData {
+  title: string
+  context: string
+  root: HierarchyNode
+  so_what: string
+}
+
 // ─── SECTION STATUS ───────────────────────────────────────────────────────────
 
 export type SectionStatus = 'pending' | 'ready' | 'active' | 'completed' | 'skipped' | 'inserted'
@@ -267,6 +297,8 @@ export type TemplateName =
   | 'QuoteCallout'
   | 'KeyTakeaway'
   | 'QuestionAnswer'
+  | 'Flowchart'
+  | 'Hierarchy'
   | 'ActionPlan'
   | 'Funnel'
 
@@ -289,3 +321,5 @@ export type TemplateSection =
   | { id: string; type: 'QuestionAnswer'; data: QuestionAnswerData; meta: TemplateMeta; status: SectionStatus }
   | { id: string; type: 'ActionPlan'; data: ActionPlanData; meta: TemplateMeta; status: SectionStatus }
   | { id: string; type: 'Funnel'; data: FunnelData; meta: TemplateMeta; status: SectionStatus }
+  | { id: string; type: 'Flowchart'; data: FlowchartData; meta: TemplateMeta; status: SectionStatus }
+  | { id: string; type: 'Hierarchy'; data: HierarchyData; meta: TemplateMeta; status: SectionStatus }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
+import { useState, Suspense } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useRouter } from 'next/navigation'
 import { useUser } from '@clerk/nextjs'
@@ -93,24 +93,8 @@ function OnboardingContent() {
   const [direction, setDirection] = useState<'right' | 'left'>('right')
   const [building, setBuilding] = useState(false)
 
-  // Signed-in users land here only if something went wrong mid-flow.
-  // Send them to /plan (plan selection) rather than starting over.
-  useEffect(() => {
-    if (!isLoaded || !isSignedIn) return
-    async function checkProfile() {
-      try {
-        const res = await fetch('/api/user/preferences')
-        if (res.ok) {
-          router.replace('/dashboard')
-        } else {
-          router.replace('/plan')
-        }
-      } catch {
-        // Network error — stay on onboarding
-      }
-    }
-    checkProfile()
-  }, [isLoaded, isSignedIn, router])
+  // isSignedIn is read in submitOnboarding to decide where to go after Q5.
+  // We intentionally do NOT redirect mid-questions — let the user finish first.
 
   const current = QUESTIONS[step]
   const selectedLabel = selectedLabels[current?.id] ?? null
@@ -169,7 +153,12 @@ function OnboardingContent() {
     localStorage.setItem('clio_onboarding', JSON.stringify(payload))
 
     setTimeout(() => {
-      router.push('/sign-up')
+      // Already signed in → skip sign-up, go straight to plan selection
+      if (isSignedIn) {
+        router.push('/plan')
+      } else {
+        router.push('/sign-up')
+      }
     }, 2000)
   }
 
