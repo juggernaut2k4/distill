@@ -124,13 +124,24 @@ function PaymentForm({
 
     try {
       // Confirm the SetupIntent — saves the card to Stripe
-      const { error: stripeError, setupIntent } = await stripe.confirmSetup({
-        elements,
-        redirect: 'if_required',
-        confirmParams: {
-          return_url: `${window.location.origin}/dashboard`,
-        },
-      })
+      let stripeError: import('@stripe/stripe-js').StripeError | undefined
+      let setupIntent: import('@stripe/stripe-js').SetupIntent | undefined
+      try {
+        const result = await stripe.confirmSetup({
+          elements,
+          redirect: 'if_required',
+          confirmParams: {
+            return_url: `${window.location.origin}/dashboard`,
+          },
+        })
+        stripeError = result.error
+        setupIntent = (result as { setupIntent?: import('@stripe/stripe-js').SetupIntent }).setupIntent
+      } catch (confirmErr) {
+        const msg = confirmErr instanceof Error ? confirmErr.message : String(confirmErr)
+        console.error('[checkout] confirmSetup threw:', msg)
+        setError(`Card setup failed: ${msg}`)
+        return
+      }
 
       if (stripeError) {
         setError(stripeError.message ?? 'Card verification failed. Please try again.')
@@ -138,7 +149,7 @@ function PaymentForm({
       }
 
       if (!setupIntent?.payment_method) {
-        setError('Something went wrong. Please try again.')
+        setError('Card saved but payment method missing. Please try again.')
         return
       }
 
@@ -148,15 +159,24 @@ function PaymentForm({
           : setupIntent.payment_method?.id ?? ''
 
       // Create the subscription using the saved payment method
-      const res = await fetch('/api/checkout/confirm', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plan: planKey, billingPeriod, paymentMethodId, trialOptIn }),
-      })
-      const data = await res.json()
+      let res: Response
+      let data: Record<string, unknown>
+      try {
+        res = await fetch('/api/checkout/confirm', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ plan: planKey, billingPeriod, paymentMethodId, trialOptIn }),
+        })
+        data = await res.json()
+      } catch (fetchErr) {
+        const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr)
+        console.error('[checkout] confirm fetch failed:', msg)
+        setError(`Network error contacting server: ${msg}`)
+        return
+      }
 
       if (!res.ok || !data.success) {
-        setError(data.error ?? 'Failed to activate your plan. Please try again.')
+        setError((data.error as string) ?? 'Failed to activate your plan. Please try again.')
         return
       }
 
@@ -164,8 +184,9 @@ function PaymentForm({
       localStorage.removeItem('clio_billing_period')
       onSuccess()
     } catch (err) {
-      console.error('[checkout] handleSubmit error:', err)
-      setError('Something went wrong. Please refresh and try again.')
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[checkout] handleSubmit unexpected error:', msg)
+      setError(`Unexpected error: ${msg}`)
     } finally {
       setIsSubmitting(false)
     }
