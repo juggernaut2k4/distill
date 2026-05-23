@@ -8,6 +8,7 @@ import { sessionMeetingSetup } from '@/inngest/session-meeting-setup'
 import { sessionPlanGenerator } from '@/inngest/session-plan-generator'
 import { sessionAgendaEmail } from '@/inngest/session-agenda-email'
 import { trialExpiryJob } from '@/inngest/trial-expiry'
+import { sessionContentPipeline } from '@/inngest/session-content-pipeline'
 
 /**
  * POST /api/inngest
@@ -16,5 +17,5 @@ import { trialExpiryJob } from '@/inngest/trial-expiry'
  */
 export const { GET, POST, PUT } = serve({
   client: inngest,
-  functions: [dailyDelivery, weeklyDigest, feedbackProcessor, sessionReminder, sessionMeetingSetup, sessionPlanGenerator, sessionAgendaEmail, trialExpiryJob],
+  functions: [dailyDelivery, weeklyDigest, feedbackProcessor, sessionReminder, sessionMeetingSetup, sessionPlanGenerator, sessionAgendaEmail, trialExpiryJob, sessionContentPipeline],
 })

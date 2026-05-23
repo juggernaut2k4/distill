@@ -7,11 +7,12 @@ import Link from 'next/link'
 import {
   ArrowLeft, CalendarDays, Clock, Download, Tag, CheckCircle,
   Circle, XCircle, Loader, Video, StopCircle, ExternalLink, Sparkles, EyeOff, Eye,
-  MessageSquare, BookmarkPlus, Copy, AlertTriangle, Timer,
+  MessageSquare, BookmarkPlus, Copy, AlertTriangle, Timer, FileText, ChevronDown, ChevronRight,
 } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import type { SessionPlan } from '@/lib/session-plan'
+import type { TrainingScript } from '@/lib/content/script-generator'
 
 interface DeferredQuestion {
   question: string
@@ -108,6 +109,50 @@ export default function SessionDetailClient({ session }: Props) {
     const interval = setInterval(fetchPlan, 4000)
     return () => clearInterval(interval)
   }, [session.id, sessionPlan, fetchPlan, triggerGeneration])
+
+  // ── Content pipeline state ──────────────────────────────────────────────────
+  interface ContentSubtopic {
+    title: string
+    slug: string
+    pipeline_status: string
+    training_script: TrainingScript | null
+    content_outline: { content_summary?: string; key_concepts?: string[]; builds_on?: string[] } | null
+    template_type: string | null
+  }
+
+  const [contentStatus, setContentStatus] = useState<'pending' | 'generating' | 'ready' | 'failed'>('pending')
+  const [contentSubtopics, setContentSubtopics] = useState<ContentSubtopic[]>([])
+  const [isGeneratingContent, setIsGeneratingContent] = useState(false)
+  const [expandedScript, setExpandedScript] = useState<string | null>(null)
+
+  const fetchContentStatus = useCallback(async () => {
+    const res = await fetch(`/api/sessions/${session.id}/generate-content`)
+    if (!res.ok) return
+    const data = await res.json() as { content_status: string; subtopics: ContentSubtopic[] }
+    setContentStatus(data.content_status as typeof contentStatus)
+    setContentSubtopics(data.subtopics ?? [])
+  }, [session.id])
+
+  // Poll while generating
+  useEffect(() => {
+    fetchContentStatus()
+  }, [fetchContentStatus])
+
+  useEffect(() => {
+    if (contentStatus !== 'generating') return
+    const interval = setInterval(fetchContentStatus, 5000)
+    return () => clearInterval(interval)
+  }, [contentStatus, fetchContentStatus])
+
+  const handleGenerateContent = useCallback(async () => {
+    setIsGeneratingContent(true)
+    setContentStatus('generating')
+    try {
+      await fetch(`/api/sessions/${session.id}/generate-content`, { method: 'POST' })
+      await fetchContentStatus()
+    } catch { /* non-fatal */ }
+    setIsGeneratingContent(false)
+  }, [session.id, fetchContentStatus])
 
   // Live session state — pre-fill from auto-generated Meet link if available
   const [meetingUrl, setMeetingUrl] = useState(session.meeting_url ?? '')
@@ -397,6 +442,30 @@ export default function SessionDetailClient({ session }: Props) {
           )}
         </div>
 
+        {/* Generate Content button — shown when visual plan is ready */}
+        {sessionPlan?.plan_status === 'ready' && contentStatus === 'pending' && (
+          <div className="mb-3">
+            <Button
+              variant="primary"
+              className="gap-2 w-full justify-center"
+              onClick={handleGenerateContent}
+              disabled={isGeneratingContent}
+            >
+              {isGeneratingContent ? <Loader size={14} className="animate-spin" /> : <Sparkles size={14} />}
+              Generate Content &amp; Training Script
+            </Button>
+            <p className="text-xs text-[#475569] text-center mt-1.5">
+              Clio will analyse your session plan and build personalised content + coaching scripts
+            </p>
+          </div>
+        )}
+        {contentStatus === 'generating' && (
+          <div className="flex items-center gap-2 mb-3 text-xs text-[#06B6D4]">
+            <Loader size={12} className="animate-spin" />
+            Building content and training scripts...
+          </div>
+        )}
+
         {!sessionPlan || sessionPlan.plan_status === 'generating' ? (
           <Card className="p-4 flex items-center gap-3">
             <Loader size={15} className="text-[#7C3AED] animate-spin flex-shrink-0" />
@@ -475,6 +544,85 @@ export default function SessionDetailClient({ session }: Props) {
           </div>
         )}
       </motion.div>
+
+      {/* ── TRAINING SCRIPTS ── */}
+      {contentStatus === 'ready' && contentSubtopics.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.18 }}
+        >
+          <div className="flex items-center gap-2 mb-3">
+            <FileText size={14} className="text-[#A855F7]" />
+            <h2 className="text-sm font-semibold text-[#94A3B8] uppercase tracking-wider">Training Scripts</h2>
+            <span className="text-xs text-[#475569] px-2 py-0.5 rounded-full bg-[#1A1A1A] border border-[#2A2A2A]">
+              {contentSubtopics.filter((s) => s.training_script).length} ready
+            </span>
+          </div>
+          <div className="space-y-2">
+            {contentSubtopics.map((sub, i) => (
+              <div key={sub.slug} className="rounded-xl border border-[#1A1A1A] bg-[#111111] overflow-hidden">
+                <button
+                  onClick={() => setExpandedScript(expandedScript === sub.slug ? null : sub.slug)}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[#1A1A1A] transition-colors"
+                >
+                  <div className="w-5 h-5 rounded-full bg-purple-950/50 border border-purple-800/40 flex items-center justify-center flex-shrink-0">
+                    <span className="text-[9px] font-bold text-[#A855F7]">{i + 1}</span>
+                  </div>
+                  <span className="text-sm text-[#94A3B8] flex-1 leading-snug">{sub.title}</span>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {sub.pipeline_status === 'ready'
+                      ? <CheckCircle size={13} className="text-[#10B981]" />
+                      : <Loader size={13} className="text-[#475569] animate-spin" />}
+                    {expandedScript === sub.slug
+                      ? <ChevronDown size={14} className="text-[#475569]" />
+                      : <ChevronRight size={14} className="text-[#475569]" />}
+                  </div>
+                </button>
+
+                {expandedScript === sub.slug && sub.training_script && (
+                  <div className="px-4 pb-4 space-y-3 border-t border-[#1A1A1A] pt-3">
+                    {sub.content_outline?.key_concepts && (
+                      <div>
+                        <p className="text-xs font-semibold text-[#06B6D4] mb-1.5 uppercase tracking-wide">Key Concepts</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {sub.content_outline.key_concepts.map((c, ci) => (
+                            <span key={ci} className="text-xs px-2 py-0.5 rounded-full bg-[#1A1A1A] border border-[#2A2A2A] text-[#94A3B8]">{c}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {sub.training_script.segments.map((seg, si) => (
+                      <div key={si} className={`rounded-lg p-3 border ${
+                        seg.type === 'TEACH'      ? 'border-[#7C3AED]/30 bg-[#7C3AED]/5' :
+                        seg.type === 'CHECKPOINT' ? 'border-[#06B6D4]/30 bg-[#06B6D4]/5' :
+                        seg.type === 'PROBE'      ? 'border-[#F59E0B]/30 bg-[#F59E0B]/5' :
+                                                    'border-[#10B981]/30 bg-[#10B981]/5'
+                      }`}>
+                        <div className={`text-xs font-bold mb-1.5 uppercase tracking-widest ${
+                          seg.type === 'TEACH'      ? 'text-[#A855F7]' :
+                          seg.type === 'CHECKPOINT' ? 'text-[#06B6D4]' :
+                          seg.type === 'PROBE'      ? 'text-[#F59E0B]' :
+                                                      'text-[#10B981]'
+                        }`}>
+                          {seg.type}
+                          {seg.duration_seconds && (
+                            <span className="ml-2 text-[#475569] font-normal normal-case">~{seg.duration_seconds}s</span>
+                          )}
+                        </div>
+                        <p className="text-xs text-[#94A3B8] leading-relaxed">{seg.content}</p>
+                      </div>
+                    ))}
+                    <p className="text-xs text-[#475569] text-right">
+                      Total: ~{Math.round((sub.training_script.total_duration_seconds ?? 0) / 60)} min
+                    </p>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </motion.div>
+      )}
 
       {/* Actions */}
       <motion.div
