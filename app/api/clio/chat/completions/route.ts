@@ -119,10 +119,13 @@ function toAnthropicMessages(messages: OAIMessage[]): Anthropic.MessageParam[] {
  * Set Authorization header secret = ELEVENLABS_CUSTOM_LLM_SECRET env var.
  */
 export async function POST(request: NextRequest) {
+  console.log('[clio/llm] Request received — headers:', JSON.stringify(Object.fromEntries(request.headers.entries())).slice(0, 300))
+
   // Verify the request is from ElevenLabs using a shared secret
   const authHeader = request.headers.get('authorization')
   const secret = process.env.ELEVENLABS_CUSTOM_LLM_SECRET
   if (secret && authHeader !== `Bearer ${secret}`) {
+    console.warn('[clio/llm] Unauthorized request — bad auth header')
     return new Response('Unauthorized', { status: 401 })
   }
 

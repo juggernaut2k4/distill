@@ -304,15 +304,15 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
           onConnect: ({ conversationId }: { conversationId: string }) => {
             console.log('[Walkthrough] Agent connected, id:', conversationId)
             setAgentStatus('listening')
-            // Only reset retry counter after 10s of stable connection.
-            // A brief connect→disconnect cycle (ElevenLabs dropping the WebSocket)
-            // must not reset the counter or we'll loop at "retry 1" forever.
+            // Only reset retry counter after 30s of stable connection.
+            // ElevenLabs can hold a WebSocket for 10-15s before dropping even when
+            // something is wrong — 30s means the session is genuinely working.
             if (stableConnectionTimerRef.current) clearTimeout(stableConnectionTimerRef.current)
             stableConnectionTimerRef.current = setTimeout(() => {
               reconnectAttemptsRef.current = 0
               setRetryCount(0)
-              console.log('[Walkthrough] Connection stable — retry counter reset')
-            }, 10_000)
+              console.log('[Walkthrough] Connection stable for 30s — retry counter reset')
+            }, 30_000)
           },
           onDisconnect: () => {
             console.log('[Walkthrough] Agent disconnected')
