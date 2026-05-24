@@ -15,6 +15,7 @@ const isPublicRoute = createRouteMatcher([
   '/api/tts(.*)',             // TTS audio — called by Recall.ai headless browser (no auth)
   '/api/walkthrough-state/(.*)', // Walkthrough state polling — called by headless browser
   '/api/generate-visual(.*)', // Visual generation — triggered by ElevenLabs client tool in headless browser
+  '/api/clio/chat/completions', // Custom LLM endpoint — called by ElevenLabs servers (no user auth)
   '/walkthrough/(.*)',        // Public walkthrough page shared by Recall.ai bot
 ])
 
