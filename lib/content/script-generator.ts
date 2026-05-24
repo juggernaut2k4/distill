@@ -152,7 +152,8 @@ Return ONLY valid JSON (no markdown, no commentary):
     messages: [{ role: 'user', content: prompt }],
   })
 
-  const raw = (message.content[0] as { type: string; text: string }).text.trim()
+  let raw = (message.content[0] as { type: string; text: string }).text.trim()
+  raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
   const json = JSON.parse(raw) as { segments: ScriptSegment[] }
 
   const total = json.segments.reduce((sum, s) => sum + (s.duration_seconds ?? 30), 0)

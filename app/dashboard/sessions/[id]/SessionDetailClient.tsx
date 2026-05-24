@@ -180,7 +180,9 @@ export default function SessionDetailClient({ session }: Props) {
     setContentStatus('pending')
     setIsGeneratingContent(false)
     setContentGenStartedAt(null)
-  }, [])
+    // Reset DB status so the API won't skip re-generation
+    fetch(`/api/sessions/${session.id}/generate-content`, { method: 'DELETE' }).catch(() => {})
+  }, [session.id])
 
   // Live session state — pre-fill from auto-generated Meet link if available
   const [meetingUrl, setMeetingUrl] = useState(session.meeting_url ?? '')
@@ -563,6 +565,24 @@ export default function SessionDetailClient({ session }: Props) {
             </div>
           )
         })()}
+
+        {/* Failed state */}
+        {contentStatus === 'failed' && (
+          <div className="mb-4 rounded-xl border border-[#EF4444]/30 bg-[#EF4444]/5 p-4 space-y-3">
+            <div className="flex items-center gap-2 text-sm text-[#EF4444]">
+              <AlertTriangle size={14} className="flex-shrink-0" />
+              Content generation failed. This is usually a temporary issue — click Retry to try again.
+            </div>
+            <Button
+              variant="secondary"
+              className="gap-2 w-full justify-center"
+              onClick={handleRetryContent}
+            >
+              <Loader size={13} />
+              Retry
+            </Button>
+          </div>
+        )}
 
         {!sessionPlan || sessionPlan.plan_status === 'generating' ? (
           <Card className="p-4 flex items-center gap-3">

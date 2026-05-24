@@ -1,11 +1,12 @@
 /**
  * POST /api/sessions/[id]/generate-content
- * Runs the full 6-step content pipeline for a session inline (same pattern as
- * generate-plan — sequential Claude calls within maxDuration instead of Inngest,
- * so the session detail page can poll for completion).
+ * Runs the full 6-step content pipeline for a session inline.
  *
  * GET /api/sessions/[id]/generate-content
  * Returns the current content pipeline status + per-subtopic training scripts.
+ *
+ * DELETE /api/sessions/[id]/generate-content
+ * Resets content_status to 'pending' so the pipeline can be re-run after a failure.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -220,4 +221,20 @@ export async function POST(_req: NextRequest, { params }: Params) {
       .eq('id', params.id)
     return NextResponse.json({ error: 'Content pipeline failed' }, { status: 500 })
   }
+}
+
+// ─── DELETE — reset status so the pipeline can be re-run ──────────────────────
+
+export async function DELETE(_req: NextRequest, { params }: Params) {
+  const { userId, error } = requireAuth()
+  if (error) return error
+
+  const supabase = createSupabaseAdminClient()
+  await supabase
+    .from('sessions')
+    .update({ content_status: 'pending' })
+    .eq('id', params.id)
+    .eq('user_id', userId!)
+
+  return NextResponse.json({ ok: true })
 }

@@ -201,7 +201,9 @@ Return ONLY valid JSON matching this exact schema (no markdown, no commentary):
     messages: [{ role: 'user', content: prompt }],
   })
 
-  const raw = (message.content[0] as { type: string; text: string }).text.trim()
+  let raw = (message.content[0] as { type: string; text: string }).text.trim()
+  // Strip markdown code fences that Claude sometimes wraps around JSON
+  raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
   const json = JSON.parse(raw) as {
     subtopics: Array<{
       subtopic_title: string
