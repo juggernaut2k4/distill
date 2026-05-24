@@ -1,14 +1,37 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   ArrowLeft, Loader2, AlertTriangle, RotateCcw,
-  SendHorizonal, CheckCircle, Layers, PlayCircle, ShieldCheck
+  SendHorizonal, CheckCircle, Layers, ShieldCheck,
+  RefreshCw, RotateCw, ChevronDown,
 } from 'lucide-react'
 import Link from 'next/link'
-import TemplateRenderer from '@/components/templates/TemplateRenderer'
-import type { TemplateSection } from '@/lib/templates/types'
+import KBSessionPreview from '@/components/kb/KBSessionPreview'
+import type { TemplateSection, TemplateName } from '@/lib/templates/types'
+
+// ── All available template types with display labels ──────────────────────────
+const TEMPLATE_OPTIONS: { value: TemplateName; label: string }[] = [
+  { value: 'TopicHero',         label: 'Topic Hero' },
+  { value: 'ConceptDefinition', label: 'Concept Definition' },
+  { value: 'StepFlow',          label: 'Step Flow' },
+  { value: 'ComparisonTable',   label: 'Comparison Table' },
+  { value: 'TwoByTwoMatrix',    label: '2×2 Matrix' },
+  { value: 'FrameworkCard',     label: 'Framework Card' },
+  { value: 'ProsCons',          label: 'Pros & Cons' },
+  { value: 'CaseStudy',         label: 'Case Study' },
+  { value: 'StatCallout',       label: 'Stat Callout' },
+  { value: 'Timeline',          label: 'Timeline' },
+  { value: 'ConceptMap',        label: 'Concept Map' },
+  { value: 'QuoteCallout',      label: 'Quote Callout' },
+  { value: 'KeyTakeaway',       label: 'Key Takeaway' },
+  { value: 'QuestionAnswer',    label: 'Q&A' },
+  { value: 'ActionPlan',        label: 'Action Plan' },
+  { value: 'Funnel',            label: 'Funnel' },
+  { value: 'Flowchart',         label: 'Flowchart' },
+  { value: 'Hierarchy',         label: 'Hierarchy' },
+]
 
 interface QAResult {
   overall_score: number
@@ -34,8 +57,10 @@ interface CacheRow {
 interface SectionState {
   row: CacheRow
   feedback: string
+  pendingTemplateType: TemplateName
   isApplying: boolean
   isReverting: boolean
+  isRegenerating: boolean
   justSaved: boolean
   error: string | null
   showQA: boolean
@@ -48,29 +73,41 @@ export default function KBTopicClient({ topicId }: Props) {
   const [topicTitle, setTopicTitle] = useState<string>('')
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [activeSectionIndex, setActiveSectionIndex] = useState(0)
+  const [isPortrait, setIsPortrait] = useState(false)
   const textareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({})
 
+  // ── Portrait detection ────────────────────────────────────────────────────
+  useEffect(() => {
+    const check = () => {
+      setIsPortrait(window.innerHeight > window.innerWidth && window.innerWidth < 1024)
+    }
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
+
+  // ── Data loading ──────────────────────────────────────────────────────────
   async function loadSections() {
     setIsLoading(true)
     setLoadError(null)
     try {
       const res = await fetch(`/api/kb/topics/${encodeURIComponent(topicId)}`)
       const data = await res.json()
-      if (!res.ok) {
-        setLoadError(data.error ?? 'Failed to load topic.')
-        return
-      }
+      if (!res.ok) { setLoadError(data.error ?? 'Failed to load topic.'); return }
+
       const rows: CacheRow[] = data.sections ?? []
       setSections(rows.map((row) => ({
         row,
         feedback: '',
+        pendingTemplateType: row.section_data.type as TemplateName,
         isApplying: false,
         isReverting: false,
+        isRegenerating: false,
         justSaved: false,
         error: null,
         showQA: false,
       })))
-      // Derive topic title from first section's subtopicTitle metadata
       const first = rows[0]
       setTopicTitle(first?.section_data?.meta?.sessionTitle ?? topicId)
     } catch {
@@ -88,34 +125,23 @@ export default function KBTopicClient({ topicId }: Props) {
     )
   }
 
+  // ── Apply feedback ────────────────────────────────────────────────────────
   async function applyFeedback(s: SectionState) {
     if (!s.feedback.trim()) return
     updateSection(s.row.subtopic_slug, { isApplying: true, error: null })
-
     try {
       const res = await fetch(
         `/api/kb/topics/${encodeURIComponent(topicId)}/sections/${encodeURIComponent(s.row.subtopic_slug)}/feedback`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ feedback: s.feedback }),
-        }
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ feedback: s.feedback }) }
       )
       const data = await res.json()
-      if (!res.ok) {
-        updateSection(s.row.subtopic_slug, { isApplying: false, error: data.error ?? 'Regeneration failed.' })
-        return
-      }
+      if (!res.ok) { updateSection(s.row.subtopic_slug, { isApplying: false, error: data.error ?? 'Regeneration failed.' }); return }
 
       const updatedSection: TemplateSection = data.section
       updateSection(s.row.subtopic_slug, {
-        row: {
-          ...s.row,
-          section_data: updatedSection,
-          previous_section_data: s.row.section_data,
-          kb_feedback: s.feedback,
-        },
+        row: { ...s.row, section_data: updatedSection, previous_section_data: s.row.section_data, kb_feedback: s.feedback },
         feedback: '',
+        pendingTemplateType: updatedSection.type as TemplateName,
         isApplying: false,
         justSaved: true,
         error: null,
@@ -126,29 +152,57 @@ export default function KBTopicClient({ topicId }: Props) {
     }
   }
 
+  // ── Regenerate (fresh or new template) ────────────────────────────────────
+  async function regenerateSection(s: SectionState) {
+    updateSection(s.row.subtopic_slug, { isRegenerating: true, error: null })
+    try {
+      const res = await fetch(
+        `/api/kb/topics/${encodeURIComponent(topicId)}/sections/${encodeURIComponent(s.row.subtopic_slug)}/regenerate`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ templateType: s.pendingTemplateType }),
+        }
+      )
+      const data = await res.json()
+      if (!res.ok) { updateSection(s.row.subtopic_slug, { isRegenerating: false, error: data.error ?? 'Regeneration failed.' }); return }
+
+      const updatedSection: TemplateSection = data.section
+      updateSection(s.row.subtopic_slug, {
+        row: {
+          ...s.row,
+          section_data: updatedSection,
+          previous_section_data: s.row.section_data,
+          template_type: data.templateType,
+          kb_feedback: null,
+        },
+        pendingTemplateType: updatedSection.type as TemplateName,
+        isRegenerating: false,
+        justSaved: true,
+        error: null,
+      })
+      setTimeout(() => updateSection(s.row.subtopic_slug, { justSaved: false }), 2500)
+    } catch {
+      updateSection(s.row.subtopic_slug, { isRegenerating: false, error: 'Request failed. Try again.' })
+    }
+  }
+
+  // ── Revert ────────────────────────────────────────────────────────────────
   async function revertSection(s: SectionState) {
     if (!s.row.previous_section_data) return
     updateSection(s.row.subtopic_slug, { isReverting: true, error: null })
-
     try {
       const res = await fetch(
         `/api/kb/topics/${encodeURIComponent(topicId)}/sections/${encodeURIComponent(s.row.subtopic_slug)}/revert`,
         { method: 'POST' }
       )
       const data = await res.json()
-      if (!res.ok) {
-        updateSection(s.row.subtopic_slug, { isReverting: false, error: data.error ?? 'Revert failed.' })
-        return
-      }
+      if (!res.ok) { updateSection(s.row.subtopic_slug, { isReverting: false, error: data.error ?? 'Revert failed.' }); return }
 
       const revertedSection: TemplateSection = data.section
       updateSection(s.row.subtopic_slug, {
-        row: {
-          ...s.row,
-          section_data: revertedSection,
-          previous_section_data: s.row.section_data,
-          kb_feedback: null,
-        },
+        row: { ...s.row, section_data: revertedSection, previous_section_data: s.row.section_data, kb_feedback: null },
+        pendingTemplateType: revertedSection.type as TemplateName,
         isReverting: false,
         error: null,
       })
@@ -157,6 +211,19 @@ export default function KBTopicClient({ topicId }: Props) {
     }
   }
 
+  const handleSectionChange = useCallback((index: number) => {
+    setActiveSectionIndex(index)
+  }, [])
+
+  // ── Derived: TemplateSection[] for preview ────────────────────────────────
+  const previewSections = sections.map((s) => ({
+    ...s.row.section_data,
+    status: 'active' as const,
+  }))
+
+  const activeSection = sections[activeSectionIndex]
+
+  // ── Loading / error states ────────────────────────────────────────────────
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-24 text-[#94A3B8]">
@@ -183,189 +250,176 @@ export default function KBTopicClient({ topicId }: Props) {
     )
   }
 
+  // ── Portrait rotation prompt ──────────────────────────────────────────────
+  if (isPortrait) {
+    return (
+      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#080808] gap-6 px-8">
+        <motion.div
+          animate={{ rotate: [0, 90, 90, 0] }}
+          transition={{ duration: 2, repeat: Infinity, repeatDelay: 1.5 }}
+        >
+          <RotateCw className="w-14 h-14 text-[#7C3AED]" />
+        </motion.div>
+        <div className="text-center space-y-2">
+          <p className="text-white text-lg font-semibold">Rotate to landscape</p>
+          <p className="text-[#475569] text-sm">
+            The session preview is designed for landscape orientation. Rotate your device for the full view.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  const isBusy = activeSection && (activeSection.isApplying || activeSection.isReverting || activeSection.isRegenerating)
+  const templateChanged = activeSection && activeSection.pendingTemplateType !== activeSection.row.section_data.type
+
   return (
-    <div className="max-w-4xl mx-auto">
-      {/* Header */}
-      <div className="mb-8">
+    <div>
+      {/* ── Header ── */}
+      <div className="mb-4">
         <Link
           href="/dashboard/knowledge-base"
-          className="inline-flex items-center gap-1.5 text-[#475569] hover:text-[#94A3B8] text-sm transition-colors mb-4"
+          className="inline-flex items-center gap-1.5 text-[#475569] hover:text-[#94A3B8] text-sm transition-colors mb-3"
         >
           <ArrowLeft className="w-4 h-4" />
           Knowledge Base
         </Link>
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-white text-2xl font-bold mb-1">{topicTitle}</h1>
-            <div className="flex items-center gap-1.5 text-[#475569] text-sm">
-              <Layers className="w-3.5 h-3.5" />
-              <span>{sections.length} {sections.length === 1 ? 'section' : 'sections'}</span>
-            </div>
+        <div className="flex items-center gap-3">
+          <h1 className="text-white text-xl font-bold">{topicTitle}</h1>
+          <div className="flex items-center gap-1.5 text-[#475569] text-xs">
+            <Layers className="w-3.5 h-3.5" />
+            <span>{sections.length} {sections.length === 1 ? 'section' : 'sections'}</span>
           </div>
         </div>
       </div>
 
-      {/* Sections */}
-      <div className="space-y-12">
-        {sections.map((s, idx) => (
-          <div key={s.row.subtopic_slug} className="space-y-4">
-            {/* Section label */}
-            <div className="flex items-center gap-3">
-              <div className="w-6 h-6 rounded-full bg-[#7C3AED]/20 border border-[#7C3AED]/40 flex items-center justify-center shrink-0">
-                <span className="text-[#A855F7] text-xs font-bold">{idx + 1}</span>
+      {/* ── Session Preview ── */}
+      <div style={{ height: '70vh' }}>
+        <KBSessionPreview
+          sections={previewSections}
+          activeSectionIndex={activeSectionIndex}
+          onSectionChange={handleSectionChange}
+        />
+      </div>
+
+      {/* ── Feedback Panel ── */}
+      {activeSection && (
+        <div className="mt-5 bg-[#111111] border border-[#222222] rounded-xl overflow-hidden">
+
+          {/* Panel header — section identity */}
+          <div className="flex items-center justify-between gap-4 px-5 py-3 border-b border-[#1a1a1a]">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-5 h-5 rounded-full bg-[#7C3AED]/20 border border-[#7C3AED]/40 flex items-center justify-center shrink-0">
+                <span className="text-[#A855F7] text-[10px] font-bold">{activeSectionIndex + 1}</span>
               </div>
-              <div>
-                <p className="text-white text-sm font-semibold">{s.row.subtopic_title}</p>
-                <p className="text-[#475569] text-xs">{s.row.template_type}</p>
-              </div>
+              <p className="text-white text-sm font-medium truncate">{activeSection.row.subtopic_title}</p>
             </div>
 
-            {/* Visual render — fixed height so ReactFlow can measure its container */}
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={JSON.stringify(s.row.section_data)}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.3 }}
-                className="relative w-full rounded-xl overflow-hidden border border-[#222222] bg-[#080808]"
-                style={{ height: '540px' }}
-              >
-                <div className="absolute inset-0">
-                  <TemplateRenderer
-                    section={s.row.section_data}
-                    isActive={true}
-                  />
+            {/* QA score */}
+            {activeSection.row.qa_score != null && (
+              <div className="flex items-center gap-1.5 shrink-0">
+                <ShieldCheck className={`w-3.5 h-3.5 ${activeSection.row.qa_score >= 8 ? 'text-[#10B981]' : activeSection.row.qa_score >= 6 ? 'text-[#F59E0B]' : 'text-[#EF4444]'}`} />
+                <span className={`text-sm font-bold ${activeSection.row.qa_score >= 8 ? 'text-[#10B981]' : activeSection.row.qa_score >= 6 ? 'text-[#F59E0B]' : 'text-[#EF4444]'}`}>
+                  {activeSection.row.qa_score}
+                </span>
+                <span className="text-[#475569] text-xs">/10</span>
+              </div>
+            )}
+          </div>
+
+          <div className="p-5 space-y-4">
+
+            {/* Template selector + Regenerate */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-2">
+                <label className="text-[#475569] text-xs font-medium whitespace-nowrap">Template</label>
+                <div className="relative">
+                  <select
+                    value={activeSection.pendingTemplateType}
+                    onChange={(e) => updateSection(activeSection.row.subtopic_slug, {
+                      pendingTemplateType: e.target.value as TemplateName
+                    })}
+                    disabled={!!isBusy}
+                    className="appearance-none bg-[#0d0d0d] border border-[#333333] focus:border-[#7C3AED] outline-none rounded-lg pl-3 pr-8 py-2 text-white text-sm disabled:opacity-40 cursor-pointer transition-colors"
+                  >
+                    {TEMPLATE_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#475569] pointer-events-none" />
                 </div>
-              </motion.div>
-            </AnimatePresence>
-
-            {/* QA score panel */}
-            {s.row.qa_score != null && (
-              <div className="bg-[#111111] border border-[#222222] rounded-xl p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2.5">
-                    <ShieldCheck className={`w-4 h-4 shrink-0 ${s.row.qa_score >= 8 ? 'text-[#10B981]' : s.row.qa_score >= 6 ? 'text-[#F59E0B]' : 'text-[#EF4444]'}`} />
-                    <span className={`text-lg font-bold ${s.row.qa_score >= 8 ? 'text-[#10B981]' : s.row.qa_score >= 6 ? 'text-[#F59E0B]' : 'text-[#EF4444]'}`}>
-                      {s.row.qa_score}
-                    </span>
-                    <span className="text-[#475569] text-xs">/10 QA score</span>
-                    {s.row.qa_result?.summary && (
-                      <p className="text-[#94A3B8] text-xs hidden sm:block truncate max-w-xs">{s.row.qa_result.summary}</p>
-                    )}
-                  </div>
-                  {((s.row.qa_result?.content_issues?.length ?? 0) + (s.row.qa_result?.layout_issues?.length ?? 0)) > 0 && (
-                    <button
-                      onClick={() => updateSection(s.row.subtopic_slug, { showQA: !s.showQA })}
-                      className="text-xs text-[#7C3AED] hover:text-[#A855F7] shrink-0 transition-colors"
-                    >
-                      {s.showQA ? 'Hide issues' : `View ${(s.row.qa_result?.content_issues?.length ?? 0) + (s.row.qa_result?.layout_issues?.length ?? 0)} issues`}
-                    </button>
-                  )}
-                </div>
-
-                {s.showQA && s.row.qa_result && (
-                  <div className="mt-4 space-y-3 border-t border-[#1a1a1a] pt-4">
-                    {s.row.qa_result.summary && (
-                      <p className="text-[#94A3B8] text-xs sm:hidden">{s.row.qa_result.summary}</p>
-                    )}
-
-                    {s.row.qa_result.content_issues.length > 0 && (
-                      <div>
-                        <p className="text-[#475569] text-xs font-medium uppercase tracking-wider mb-2">Content issues</p>
-                        <div className="space-y-2">
-                          {s.row.qa_result.content_issues.map((issue, i) => (
-                            <div key={i} className="bg-[#0d0d0d] rounded-lg p-3">
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${
-                                  issue.severity === 'high' ? 'bg-[#EF4444]/10 text-[#EF4444]'
-                                  : issue.severity === 'medium' ? 'bg-[#F59E0B]/10 text-[#F59E0B]'
-                                  : 'bg-[#475569]/10 text-[#475569]'
-                                }`}>{issue.severity}</span>
-                                <span className="text-[#94A3B8] text-xs font-medium">{issue.field}</span>
-                              </div>
-                              <p className="text-[#94A3B8] text-xs">{issue.issue}</p>
-                              {issue.fix && <p className="text-[#7C3AED] text-xs mt-1">Fix: {issue.fix}</p>}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {s.row.qa_result.layout_issues.length > 0 && (
-                      <div>
-                        <p className="text-[#475569] text-xs font-medium uppercase tracking-wider mb-2">Layout issues</p>
-                        <div className="space-y-2">
-                          {s.row.qa_result.layout_issues.map((issue, i) => (
-                            <div key={i} className="bg-[#0d0d0d] rounded-lg p-3">
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${
-                                  issue.severity === 'high' ? 'bg-[#EF4444]/10 text-[#EF4444]'
-                                  : issue.severity === 'medium' ? 'bg-[#F59E0B]/10 text-[#F59E0B]'
-                                  : 'bg-[#475569]/10 text-[#475569]'
-                                }`}>{issue.severity}</span>
-                                <span className="text-[#94A3B8] text-xs font-medium">{issue.location}</span>
-                              </div>
-                              <p className="text-[#94A3B8] text-xs">{issue.issue}</p>
-                              {issue.data_fix && <p className="text-[#7C3AED] text-xs mt-1">Data fix: {issue.data_fix}</p>}
-                              {issue.component_fix && <p className="text-[#06B6D4] text-xs mt-0.5">Component fix: {issue.component_fix}</p>}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                {templateChanged && (
+                  <span className="text-[10px] text-[#F59E0B] font-medium px-1.5 py-0.5 rounded bg-[#F59E0B]/10 border border-[#F59E0B]/20">
+                    changed
+                  </span>
                 )}
+              </div>
+
+              <button
+                onClick={() => regenerateSection(activeSection)}
+                disabled={!!isBusy}
+                className="flex items-center gap-1.5 px-3 py-2 bg-[#1a1a1a] border border-[#333333] hover:border-[#555555] disabled:opacity-40 disabled:cursor-not-allowed text-[#94A3B8] hover:text-white text-sm font-medium rounded-lg transition-colors"
+                title={templateChanged ? `Switch to ${activeSection.pendingTemplateType} and regenerate` : 'Regenerate fresh with same template'}
+              >
+                {activeSection.isRegenerating
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <RefreshCw className="w-3.5 h-3.5" />
+                }
+                {activeSection.isRegenerating
+                  ? 'Regenerating...'
+                  : templateChanged
+                  ? `Switch & regenerate`
+                  : 'Regenerate'
+                }
+              </button>
+            </div>
+
+            {/* Last feedback applied */}
+            {activeSection.row.kb_feedback && (
+              <div className="bg-[#0d0d0d] border border-[#1a1a1a] rounded-lg px-3 py-2">
+                <p className="text-[#475569] text-xs mb-0.5">Last feedback applied:</p>
+                <p className="text-[#94A3B8] text-xs italic">&ldquo;{activeSection.row.kb_feedback}&rdquo;</p>
               </div>
             )}
 
-            {/* Feedback area */}
-            <div className="bg-[#111111] border border-[#222222] rounded-xl p-5">
-              <p className="text-[#94A3B8] text-sm font-medium mb-3">Suggest changes</p>
-
-              {s.row.kb_feedback && (
-                <div className="bg-[#1a1a1a] border border-[#333333] rounded-lg px-3 py-2 mb-3">
-                  <p className="text-[#475569] text-xs mb-0.5">Last feedback applied:</p>
-                  <p className="text-[#94A3B8] text-xs italic">&ldquo;{s.row.kb_feedback}&rdquo;</p>
-                </div>
-              )}
-
+            {/* Feedback textarea + actions */}
+            <div>
+              <p className="text-[#475569] text-xs font-medium mb-2">Suggest specific changes</p>
               <div className="flex gap-2">
                 <textarea
-                  ref={(el) => { textareaRefs.current[s.row.subtopic_slug] = el }}
-                  value={s.feedback}
-                  onChange={(e) => updateSection(s.row.subtopic_slug, { feedback: e.target.value })}
+                  ref={(el) => { textareaRefs.current[activeSection.row.subtopic_slug] = el }}
+                  value={activeSection.feedback}
+                  onChange={(e) => updateSection(activeSection.row.subtopic_slug, { feedback: e.target.value })}
                   placeholder="e.g. Make the example more specific to retail, add a cost comparison row..."
                   rows={2}
-                  className="flex-1 bg-[#0d0d0d] border border-[#333333] focus:border-[#7C3AED] outline-none rounded-lg px-3 py-2.5 text-white text-sm placeholder:text-[#475569] resize-none transition-colors"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) applyFeedback(s)
-                  }}
+                  disabled={!!isBusy}
+                  className="flex-1 bg-[#0d0d0d] border border-[#333333] focus:border-[#7C3AED] outline-none rounded-lg px-3 py-2.5 text-white text-sm placeholder:text-[#475569] resize-none transition-colors disabled:opacity-40"
+                  onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) applyFeedback(activeSection) }}
                 />
                 <div className="flex flex-col gap-2">
                   <button
-                    onClick={() => applyFeedback(s)}
-                    disabled={!s.feedback.trim() || s.isApplying || s.isReverting}
+                    onClick={() => applyFeedback(activeSection)}
+                    disabled={!activeSection.feedback.trim() || !!isBusy}
                     className="flex items-center gap-1.5 px-3 py-2.5 bg-[#7C3AED] hover:bg-[#6D28D9] disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors shrink-0"
                     title="Apply feedback (⌘↵)"
                   >
-                    {s.isApplying
+                    {activeSection.isApplying
                       ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      : s.justSaved
+                      : activeSection.justSaved
                       ? <CheckCircle className="w-3.5 h-3.5 text-[#10B981]" />
                       : <SendHorizonal className="w-3.5 h-3.5" />
                     }
-                    {s.isApplying ? 'Updating...' : s.justSaved ? 'Updated' : 'Apply'}
+                    {activeSection.isApplying ? 'Updating...' : activeSection.justSaved ? 'Updated' : 'Apply'}
                   </button>
 
-                  {s.row.previous_section_data && (
+                  {activeSection.row.previous_section_data && (
                     <button
-                      onClick={() => revertSection(s)}
-                      disabled={s.isApplying || s.isReverting}
+                      onClick={() => revertSection(activeSection)}
+                      disabled={!!isBusy}
                       className="flex items-center gap-1.5 px-3 py-2.5 bg-transparent border border-[#333333] hover:border-[#555555] disabled:opacity-40 disabled:cursor-not-allowed text-[#94A3B8] hover:text-white text-sm font-medium rounded-lg transition-colors shrink-0"
-                      title="Revert to version before last feedback"
+                      title="Revert to previous version"
                     >
-                      {s.isReverting
+                      {activeSection.isReverting
                         ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
                         : <RotateCcw className="w-3.5 h-3.5" />
                       }
@@ -374,14 +428,84 @@ export default function KBTopicClient({ topicId }: Props) {
                   )}
                 </div>
               </div>
-
-              {s.error && (
-                <p className="text-[#EF4444] text-xs mt-2">{s.error}</p>
-              )}
             </div>
+
+            {activeSection.error && (
+              <p className="text-[#EF4444] text-xs">{activeSection.error}</p>
+            )}
+
+            {/* QA issues expanded */}
+            {activeSection.row.qa_score != null && (
+              <div className="border-t border-[#1a1a1a] pt-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-[#475569] text-xs">{activeSection.row.qa_result?.summary}</p>
+                  {((activeSection.row.qa_result?.content_issues?.length ?? 0) + (activeSection.row.qa_result?.layout_issues?.length ?? 0)) > 0 && (
+                    <button
+                      onClick={() => updateSection(activeSection.row.subtopic_slug, { showQA: !activeSection.showQA })}
+                      className="text-xs text-[#7C3AED] hover:text-[#A855F7] shrink-0 transition-colors ml-4"
+                    >
+                      {activeSection.showQA ? 'Hide issues' : `View ${(activeSection.row.qa_result?.content_issues?.length ?? 0) + (activeSection.row.qa_result?.layout_issues?.length ?? 0)} issues`}
+                    </button>
+                  )}
+                </div>
+
+                <AnimatePresence>
+                  {activeSection.showQA && activeSection.row.qa_result && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="mt-3 space-y-3">
+                        {activeSection.row.qa_result.content_issues.length > 0 && (
+                          <div>
+                            <p className="text-[#475569] text-xs font-medium uppercase tracking-wider mb-2">Content issues</p>
+                            <div className="space-y-2">
+                              {activeSection.row.qa_result.content_issues.map((issue, i) => (
+                                <div key={i} className="bg-[#0d0d0d] rounded-lg p-3">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${issue.severity === 'high' ? 'bg-[#EF4444]/10 text-[#EF4444]' : issue.severity === 'medium' ? 'bg-[#F59E0B]/10 text-[#F59E0B]' : 'bg-[#475569]/10 text-[#475569]'}`}>{issue.severity}</span>
+                                    <span className="text-[#94A3B8] text-xs font-medium">{issue.field}</span>
+                                  </div>
+                                  <p className="text-[#94A3B8] text-xs">{issue.issue}</p>
+                                  {issue.fix && <p className="text-[#7C3AED] text-xs mt-1">Fix: {issue.fix}</p>}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {activeSection.row.qa_result.layout_issues.length > 0 && (
+                          <div>
+                            <p className="text-[#475569] text-xs font-medium uppercase tracking-wider mb-2">Layout issues</p>
+                            <div className="space-y-2">
+                              {activeSection.row.qa_result.layout_issues.map((issue, i) => (
+                                <div key={i} className="bg-[#0d0d0d] rounded-lg p-3">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${issue.severity === 'high' ? 'bg-[#EF4444]/10 text-[#EF4444]' : issue.severity === 'medium' ? 'bg-[#F59E0B]/10 text-[#F59E0B]' : 'bg-[#475569]/10 text-[#475569]'}`}>{issue.severity}</span>
+                                    <span className="text-[#94A3B8] text-xs font-medium">{issue.location}</span>
+                                  </div>
+                                  <p className="text-[#94A3B8] text-xs">{issue.issue}</p>
+                                  {issue.data_fix && <p className="text-[#7C3AED] text-xs mt-1">Data fix: {issue.data_fix}</p>}
+                                  {issue.component_fix && <p className="text-[#06B6D4] text-xs mt-0.5">Component fix: {issue.component_fix}</p>}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
           </div>
-        ))}
-      </div>
+        </div>
+      )}
+
+      {/* Bottom spacer so panel doesn't feel jammed against page end */}
+      <div className="h-12" />
     </div>
   )
 }
