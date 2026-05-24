@@ -14,8 +14,14 @@ const AGENT_ID = process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID ?? 'agent_0701krp1t
 // across the firstMessage and all subsequent LLM-generated responses.
 const VOICE_ID = process.env.NEXT_PUBLIC_ELEVENLABS_VOICE_ID ?? 'eXpIbVcVbLo8ZJQDlDnl'
 
-// How long (ms) of polling silence before sending a keep-alive context update
-const KEEPALIVE_INTERVAL = 25_000
+// How long (ms) of polling silence before sending a keep-alive context update.
+// Keep short — ElevenLabs closes the WebSocket after ~15s of inactivity.
+const KEEPALIVE_INTERVAL = 8_000
+
+// ElevenLabs agent.prompt.prompt override has a practical limit around 12,000 chars.
+// Beyond this the connection drops silently. session_brief + session_script fit easily;
+// topic_context is truncated to fill the remaining budget.
+const MAX_PROMPT_CHARS = 12_000
 
 type WalkthroughStatus = 'idle' | 'generating' | 'ready' | 'wiping'
 type AgentStatus = 'disconnected' | 'connecting' | 'listening' | 'speaking' | 'error'
@@ -188,26 +194,18 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
           ? `Hi, I'm Clio, your AI learning companion. Today we're covering "${topic}". I've prepared everything — let's dive straight in. Ready?`
           : `Hi, I'm Clio, your AI learning companion. I'm here and ready to coach you. Let's get started.`
 
-        // Build system prompt from the 3 pre-generated documents.
-        // Falls back to the legacy combined field, then to a minimal inline prompt.
-        const systemPrompt: string | null = (() => {
-          const brief = sessionBriefRef.current
-          const context = topicContextRef.current
-          const script = sessionScriptRef.current
-          if (brief || context || script) {
-            return [brief, context, script].filter(Boolean).join('\n\n---\n\n')
-          }
-          return clioSessionContextRef.current
-        })()
-
+        // Custom LLM mode: the full session context (41k chars) lives server-side at
+        // /api/clio/llm. We pass only the userId so the endpoint knows which user's
+        // context to fetch from walkthrough_state. No size limit issues.
         const conv = await Conversation.startSession({
           agentId: AGENT_ID,
           connectionType: 'websocket',
+          dynamicVariables: { user_id: userId },
           overrides: {
             agent: {
-              // Inject full session context as the system prompt — persistent across
-              // the entire WebSocket session, not just a one-time context update.
-              ...(systemPrompt ? { prompt: { prompt: systemPrompt } } : {}),
+              // Minimal prompt — just the userId marker. The custom LLM endpoint
+              // at /api/clio/llm fetches the real 41k context from the DB each turn.
+              prompt: { prompt: `You are Clio, an AI business coach. DISTILL_USER_ID: ${userId}` },
               // Suppress re-greeting on reconnect — ElevenLabs replays firstMessage
               // every time a new WebSocket session starts without this override.
               firstMessage: isReconnect ? '' : greeting,
@@ -341,25 +339,17 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
         conversationRef.current = conv
         lastActivityRef.current = Date.now()
 
-        // Context is now injected via agent.prompt.prompt override above — persistent.
+        // Context is fetched server-side by /api/clio/llm on every turn — no client-side context needed.
         // Only send a reconnect notice if the WebSocket dropped mid-session.
         if (isReconnect) {
           conv.sendContextualUpdate(
             'The WebSocket connection briefly dropped and reconnected. Do not re-introduce yourself — continue the session naturally from where you left off.'
           )
-        } else if (!systemPrompt) {
-          // Last-resort fallback: no pre-built docs and no legacy context available.
-          const sessionTopic = topicRef.current
-          const inline = sessionTopic
-            ? `You are Clio, an AI executive coach. Session topic: "${sessionTopic}". Rules: call show_visual before each section, never ask what to cover, teach and coach only.`
-            : `You are Clio, an AI executive coach. Call show_visual before each section. Teach and coach — never ask what to cover.`
-          conv.sendContextualUpdate(inline)
-          console.log('[Walkthrough] Inline fallback context sent (no pre-built docs)')
         }
 
         console.log(
           '[Walkthrough]',
-          isReconnect ? 'Reconnected — context persists from system prompt' : `Session started — system prompt: ${systemPrompt ? systemPrompt.length + ' chars' : 'none (fallback)'}`
+          isReconnect ? 'Reconnected — server-side context persists' : `Session started — context fetched by custom LLM for user=${userId}`
         )
       } catch (err) {
         if (cancelled) return

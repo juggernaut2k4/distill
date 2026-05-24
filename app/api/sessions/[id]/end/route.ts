@@ -17,24 +17,32 @@ export async function POST(_request: NextRequest, { params }: Params) {
 
   const supabase = createSupabaseAdminClient()
 
-  const { data: session } = await supabase
-    .from('sessions')
-    .select('id, started_at, duration_mins, status')
-    .eq('id', params.id)
-    .eq('user_id', userId!)
-    .single()
+  const [{ data: session }, { data: userRow }] = await Promise.all([
+    supabase
+      .from('sessions')
+      .select('id, started_at, duration_mins, status')
+      .eq('id', params.id)
+      .eq('user_id', userId!)
+      .single(),
+    supabase
+      .from('users')
+      .select('minutes_balance')
+      .eq('id', userId!)
+      .single(),
+  ])
 
   if (!session) {
     return NextResponse.json({ error: 'Session not found' }, { status: 404 })
   }
 
-  // Calculate actual minutes used (round up to nearest minute, cap at scheduled duration)
-  let minutesUsed = session.duration_mins
+  // Deduct actual elapsed time (rounded up to nearest minute), capped at current balance.
+  // session.duration_mins is the planned length — not a cap. Users run until balance runs out.
+  let minutesUsed = 1
   if (session.started_at) {
     const elapsedMs = Date.now() - new Date(session.started_at).getTime()
-    const elapsedMins = Math.ceil(elapsedMs / (1000 * 60))
-    minutesUsed = Math.min(elapsedMins, session.duration_mins)
+    minutesUsed = Math.max(1, Math.ceil(elapsedMs / (1000 * 60)))
   }
+  minutesUsed = Math.min(minutesUsed, userRow?.minutes_balance ?? minutesUsed)
 
   const now = new Date().toISOString()
 

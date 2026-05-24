@@ -44,8 +44,9 @@ export async function POST(_request: NextRequest, { params }: Params) {
     )
   }
 
-  // Effective duration is the lesser of the session plan and the balance
-  const effectiveDurationMins = Math.min(session.duration_mins, minutesBalance)
+  // Timer runs from the full balance — the session can continue until the balance
+  // is exhausted, not just until the planned session duration elapses.
+  const effectiveDurationMins = minutesBalance
 
   await supabase
     .from('sessions')
