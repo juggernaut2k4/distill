@@ -187,11 +187,20 @@ export default function SessionDetailClient({ session }: Props) {
   // Live session state — pre-fill from auto-generated Meet link if available
   const [meetingUrl, setMeetingUrl] = useState(session.meeting_url ?? '')
   const [resolvedMeetUrl, setResolvedMeetUrl] = useState<string | null>(session.meeting_url)
+  const [meetLinkTimedOut, setMeetLinkTimedOut] = useState(false)
 
-  // Poll for Meet link until it appears (created async after scheduling)
+  // Poll for Meet link for up to 30s. If not created by then (e.g. Google credentials
+  // not configured), fall back to a manual input so the user isn't stuck spinning.
   useEffect(() => {
     if (resolvedMeetUrl) return
+    let polls = 0
     const poll = setInterval(async () => {
+      polls++
+      if (polls > 10) {
+        clearInterval(poll)
+        setMeetLinkTimedOut(true)
+        return
+      }
       try {
         const res = await fetch(`/api/sessions/${session.id}`)
         if (!res.ok) return
@@ -413,6 +422,20 @@ export default function SessionDetailClient({ session }: Props) {
                 >
                   <ExternalLink size={14} />
                 </a>
+              </div>
+            </div>
+          ) : meetLinkTimedOut ? (
+            <div className="flex items-start gap-3 p-4">
+              <Video size={16} className="text-[#475569] flex-shrink-0 mt-2" />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-[#475569] mb-1.5">Google Meet — paste your meeting link</p>
+                <input
+                  type="url"
+                  value={meetingUrl}
+                  onChange={(e) => setMeetingUrl(e.target.value)}
+                  placeholder="https://meet.google.com/xxx-xxxx-xxx"
+                  className="w-full bg-[#111111] border border-[#333333] focus:border-[#7C3AED] outline-none rounded-lg px-3 py-2 text-sm text-white placeholder:text-[#475569] transition-colors"
+                />
               </div>
             </div>
           ) : (

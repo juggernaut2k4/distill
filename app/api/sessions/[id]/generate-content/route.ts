@@ -18,6 +18,7 @@ import { selectTemplate } from '@/lib/templates/selector'
 import { generateTemplateData } from '@/lib/templates/generator'
 import { getCachedSection, setCachedSection } from '@/lib/topic-cache'
 import type { TemplateSection, TemplateMeta } from '@/lib/templates/types'
+import type { SessionPlan } from '@/lib/session-plan'
 
 export const maxDuration = 300
 
@@ -51,7 +52,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
   // Get session to verify ownership and fetch content_status
   const { data: session } = await supabase
     .from('sessions')
-    .select('topic_id, content_status, topics, session_title')
+    .select('topic_id, content_status, topics, session_title, session_plan')
     .eq('id', params.id)
     .eq('user_id', userId!)
     .single()
@@ -59,7 +60,11 @@ export async function GET(_req: NextRequest, { params }: Params) {
   if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 })
 
   const topicId = session.topic_id ?? 'ai-fundamentals'
-  const subtopicTitles = getSubtopics(topicId, session.topics)
+  // Prefer session_plan subtopics (the actual agenda items) over the high-level topics array
+  const planSubtopics = (session.session_plan as SessionPlan | null)?.subtopics
+    ?.filter((s: { skipped?: boolean }) => !s.skipped)
+    ?.map((s: { title: string }) => s.title) ?? []
+  const subtopicTitles = planSubtopics.length > 0 ? planSubtopics : getSubtopics(topicId, session.topics as string[] | null)
 
   // Fetch per-subtopic pipeline state from cache
   const { data: cacheRows } = await supabase
@@ -100,7 +105,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
   const [{ data: session }, { data: userRow }] = await Promise.all([
     supabase
       .from('sessions')
-      .select('id, session_title, topic_id, topics, content_status')
+      .select('id, session_title, topic_id, topics, content_status, session_plan')
       .eq('id', params.id)
       .eq('user_id', userId!)
       .single(),
@@ -116,7 +121,10 @@ export async function POST(_req: NextRequest, { params }: Params) {
 
   const topicId = session.topic_id ?? 'ai-fundamentals'
   const topicTitle = session.session_title ?? 'AI Strategy Session'
-  const subtopicTitles = getSubtopics(topicId, session.topics)
+  const planSubtopics = (session.session_plan as SessionPlan | null)?.subtopics
+    ?.filter((s: { skipped?: boolean }) => !s.skipped)
+    ?.map((s: { title: string }) => s.title) ?? []
+  const subtopicTitles = planSubtopics.length > 0 ? planSubtopics : getSubtopics(topicId, session.topics as string[] | null)
   const userContext = {
     role: userRow?.role ?? 'executive',
     industry: userRow?.industry ?? 'business',
