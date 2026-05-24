@@ -4,9 +4,10 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
-import { ArrowRight, CheckCircle } from 'lucide-react'
+import { ArrowRight, CheckCircle, Clock } from 'lucide-react'
 import Link from 'next/link'
 import ManageBillingButton from './ManageBillingButton'
+import TopUpButton from './TopUpButton'
 
 const PLAN_FEATURES: Record<string, string[]> = {
   free: ['1 email insight/day', 'Basic dashboard', '3-day trial — upgrade to unlock sessions'],
@@ -22,7 +23,7 @@ export default async function BillingPage() {
   const supabase = createSupabaseAdminClient()
   const { data: user } = await supabase
     .from('users')
-    .select('plan_tier, subscription_status, stripe_customer_id, email')
+    .select('plan_tier, subscription_status, stripe_customer_id, email, minutes_balance')
     .eq('id', userId)
     .single()
 
@@ -31,6 +32,7 @@ export default async function BillingPage() {
   const planTier = user.plan_tier ?? 'free'
   const isActive = user.subscription_status === 'active' || user.subscription_status === 'trialing'
   const features = PLAN_FEATURES[planTier] ?? PLAN_FEATURES.free
+  const minutesBalance = user.minutes_balance ?? 0
 
   return (
     <div className="min-h-screen bg-[#080808] p-8">
@@ -62,7 +64,7 @@ export default async function BillingPage() {
           <div className="flex flex-col sm:flex-row gap-3">
             {user.stripe_customer_id && <ManageBillingButton />}
             {(planTier === 'free' || planTier === 'starter') && (
-              <Link href="/pricing" className="w-full sm:w-auto">
+              <Link href="/dashboard/upgrade" className="w-full sm:w-auto">
                 <Button size="md" className="w-full gap-1">
                   Upgrade plan <ArrowRight size={14} />
                 </Button>
@@ -70,6 +72,28 @@ export default async function BillingPage() {
             )}
           </div>
         </Card>
+
+        {/* Coaching minutes */}
+        {planTier !== 'free' && (
+          <Card className="p-6 mb-5">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <Clock size={16} className="text-[#06B6D4]" />
+                  <p className="text-sm font-semibold text-white">Coaching Minutes</p>
+                </div>
+                <p className="text-3xl font-bold text-[#06B6D4]">
+                  {minutesBalance}
+                  <span className="text-base font-normal text-[#475569] ml-1">min remaining</span>
+                </p>
+              </div>
+              <TopUpButton currentBalance={minutesBalance} />
+            </div>
+            <div className="text-xs text-[#475569]">
+              Minutes are deducted at the end of each coaching session. They never expire.
+            </div>
+          </Card>
+        )}
 
         {/* Invoice note */}
         <p className="text-xs text-[#475569] text-center">

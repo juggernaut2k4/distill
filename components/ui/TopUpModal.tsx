@@ -13,9 +13,9 @@ interface TopUpPack {
 }
 
 const PACKS: TopUpPack[] = [
-  { minutes: 60,  price: 15, label: '60 min pack' },
-  { minutes: 120, price: 25, label: '2 hour pack', popular: true },
-  { minutes: 300, price: 55, label: '5 hour pack' },
+  { minutes: 50,  price: 20, label: '50 min pack' },
+  { minutes: 90,  price: 35, label: '90 min pack', popular: true },
+  { minutes: 170, price: 65, label: '170 min pack' },
 ]
 
 interface TopUpModalProps {
@@ -25,7 +25,7 @@ interface TopUpModalProps {
 }
 
 export function TopUpModal({ open, onClose, currentBalance }: TopUpModalProps) {
-  const [selected, setSelected] = useState<number>(120)
+  const [selected, setSelected] = useState<number>(90)
   const [loading, setLoading] = useState(false)
   const [done, setDone] = useState(false)
 
@@ -35,7 +35,7 @@ export function TopUpModal({ open, onClose, currentBalance }: TopUpModalProps) {
       const res = await fetch('/api/checkout/topup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ minutes: selected }),
+        body: JSON.stringify({ minutes: selected, returnUrl: window.location.href }),
       })
       const { checkoutUrl } = await res.json()
       if (checkoutUrl) {

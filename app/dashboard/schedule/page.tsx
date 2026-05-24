@@ -16,7 +16,7 @@ export default async function SchedulePage({
 
   const { data: user } = await supabase
     .from('users')
-    .select('id, email, plan_tier, ai_maturity, topic_interests, plan_approved')
+    .select('id, email, plan_tier, ai_maturity, topic_interests, plan_approved, minutes_balance')
     .eq('id', userId)
     .single()
 
@@ -37,6 +37,7 @@ export default async function SchedulePage({
         user={user}
         existingSessions={sessions ?? []}
         subscribedSuccess={subscribedSuccess}
+        minutesBalance={user.minutes_balance ?? 0}
       />
     </DashboardShell>
   )

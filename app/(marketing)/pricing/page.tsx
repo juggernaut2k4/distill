@@ -2,12 +2,14 @@
 
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { CheckCircle, ArrowRight } from 'lucide-react'
+// Link removed — plan CTAs use onClick handler for auth-aware routing
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import MarketingNav from '@/components/marketing/MarketingNav'
+import { useAuth } from '@clerk/nextjs'
 
 interface PlanPrices {
   starter: { monthly: number; annual: number }
@@ -81,8 +83,20 @@ const PLAN_META = [
 ]
 
 export default function PricingPage() {
+  const { isSignedIn, isLoaded } = useAuth()
+  const router = useRouter()
   const [annual, setAnnual] = useState(false)
   const [prices, setPrices] = useState<PlanPrices>(DEFAULT_PRICES)
+
+  function handlePlanCta(planKey: string, fallbackHref: string) {
+    localStorage.setItem('clio_selected_plan', planKey)
+    localStorage.setItem('clio_billing_period', annual ? 'annual' : 'monthly')
+    if (isLoaded && isSignedIn) {
+      router.push(`/checkout?plan=${planKey}&billing=${annual ? 'annual' : 'monthly'}`)
+    } else {
+      router.push(fallbackHref)
+    }
+  }
 
   useEffect(() => {
     fetch('/api/prices')
@@ -220,21 +234,15 @@ export default function PricingPage() {
                     })}
                   </ul>
 
-                  <Link
-                    href={plan.href}
-                    onClick={() => {
-                      localStorage.setItem('clio_selected_plan', plan.key)
-                    }}
+                  <Button
+                    variant={plan.highlight ? 'primary' : 'secondary'}
+                    size="md"
+                    className="w-full gap-1"
+                    onClick={() => handlePlanCta(plan.key, plan.href)}
                   >
-                    <Button
-                      variant={plan.highlight ? 'primary' : 'secondary'}
-                      size="md"
-                      className="w-full gap-1"
-                    >
-                      {plan.cta}
-                      <ArrowRight size={14} />
-                    </Button>
-                  </Link>
+                    {plan.cta}
+                    <ArrowRight size={14} />
+                  </Button>
                 </Card>
               </motion.div>
             )

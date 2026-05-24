@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
+import { TopUpModal } from '@/components/ui/TopUpModal'
 import { buildCurriculum } from '@/lib/content/curriculum'
 import { scheduleSessions, totalMinutesNeeded } from '@/lib/sessions/planner'
 import type { ScheduledSession } from '@/lib/sessions/planner'
@@ -36,6 +37,7 @@ interface ScheduleClientProps {
   user: User
   existingSessions: ExistingSession[]
   subscribedSuccess?: boolean
+  minutesBalance?: number
 }
 
 const FREQUENCY_OPTIONS = [
@@ -126,7 +128,7 @@ function formatDateTime(iso: string): string {
   )
 }
 
-export default function ScheduleClient({ user, existingSessions, subscribedSuccess }: ScheduleClientProps) {
+export default function ScheduleClient({ user, existingSessions, subscribedSuccess, minutesBalance = 0 }: ScheduleClientProps) {
   const router = useRouter()
   const autoScheduledRef = useRef(false)
 
@@ -146,6 +148,7 @@ export default function ScheduleClient({ user, existingSessions, subscribedSucce
   const [selectedPlan, setSelectedPlan] = useState<PlanKey>('pro')
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'annual'>('monthly')
   const [autoScheduling, setAutoScheduling] = useState(false)
+  const [topUpOpen, setTopUpOpen] = useState(false)
 
   const plan = useMemo(() => buildCurriculum(
     user.topic_interests ?? [],
@@ -444,15 +447,37 @@ export default function ScheduleClient({ user, existingSessions, subscribedSucce
 
       {/* Header */}
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
-        <div className="flex items-center gap-2 mb-2">
-          <CalendarDays size={18} className="text-[#06B6D4]" />
-          <span className="text-xs font-semibold text-[#06B6D4] uppercase tracking-wider">Schedule</span>
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <CalendarDays size={18} className="text-[#06B6D4]" />
+              <span className="text-xs font-semibold text-[#06B6D4] uppercase tracking-wider">Schedule</span>
+            </div>
+            <h1 className="text-3xl font-bold text-white mb-2">Schedule your sessions</h1>
+            <p className="text-[#94A3B8]">
+              {plan.sessions.length} sessions planned · {totalNeeded} minutes total
+            </p>
+          </div>
+          {/* Balance + TopUp */}
+          <div className="flex items-center gap-3 mt-1">
+            <div className="text-right">
+              <p className="text-xs text-[#475569]">Balance</p>
+              <p className={`text-lg font-bold ${minutesBalance < totalNeeded ? 'text-[#F59E0B]' : 'text-[#06B6D4]'}`}>
+                {minutesBalance} min
+              </p>
+            </div>
+            <button
+              onClick={() => setTopUpOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-[#333333] bg-[#111111] hover:border-[#555555] hover:bg-[#1A1A1A] text-sm font-medium text-white transition-all"
+            >
+              <Zap size={13} className="text-[#F59E0B]" />
+              Top up
+            </button>
+          </div>
         </div>
-        <h1 className="text-3xl font-bold text-white mb-2">Schedule your sessions</h1>
-        <p className="text-[#94A3B8]">
-          {plan.sessions.length} sessions planned · {totalNeeded} minutes total
-        </p>
       </motion.div>
+
+      <TopUpModal open={topUpOpen} onClose={() => setTopUpOpen(false)} currentBalance={minutesBalance} />
 
       {/* Preferences */}
       <motion.div

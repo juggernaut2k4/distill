@@ -360,7 +360,7 @@ export default function DashboardClient({
                 Get daily insights on your phone + Ask Anything via SMS
               </p>
             </div>
-            <Link href="/pricing">
+            <Link href="/dashboard/upgrade">
               <Button size="sm" className="gap-1 whitespace-nowrap">
                 Upgrade <ArrowRight size={14} />
               </Button>
