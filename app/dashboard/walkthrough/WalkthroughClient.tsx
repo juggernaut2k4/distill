@@ -171,10 +171,15 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
     return () => observer.disconnect()
   }, [])
 
-  // Connect to ElevenLabs agent on mount, with auto-reconnect on drop
+  // Track graceful session end — set true when Clio says goodbye or calls end_session
+  const [sessionComplete, setSessionComplete] = useState(false)
+  // Track the reason for a permanent connection failure (after all retries exhausted)
+  const [connectionError, setConnectionError] = useState<string | null>(null)
+
+  // Connect to ElevenLabs agent on mount, with auto-reconnect on unexpected drops
   useEffect(() => {
     let cancelled = false
-    const MAX_RECONNECT = 8
+    const MAX_RECONNECT = 6
 
     const connect = async () => {
       if (cancelled) return
@@ -218,6 +223,7 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
             end_session: async () => {
               console.log('[Walkthrough] Agent called end_session — session closing')
               sessionEndedRef.current = true
+              setSessionComplete(true)
               return 'Session ended.'
             },
             show_visual: async ({ topic_id, topic_title }: { topic_id: string; topic_title: string }) => {
@@ -313,8 +319,11 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
               console.log(`[Walkthrough] Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current}/${MAX_RECONNECT})`)
               reconnectTimerRef.current = setTimeout(connect, delay)
             } else if (!cancelled) {
+              const reason = 'ElevenLabs WebSocket dropped and could not reconnect after 6 attempts.'
+              console.error('[Walkthrough] Max reconnect attempts reached —', reason)
               setAgentStatus('error')
-              setAgentError('Connection lost — please refresh')
+              setAgentError(reason)
+              setConnectionError(reason)
             }
           },
           onError: (message: string) => {
@@ -328,6 +337,18 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
           },
           onMessage: ({ message, source }: { message: string; source: string }) => {
             console.log(`[Walkthrough] Agent message [${source}]:`, message.slice(0, 120))
+            // Detect graceful session end from Clio's speech so we don't reconnect
+            if (source === 'ai') {
+              const lower = message.toLowerCase()
+              const farewells = ['bye', 'goodbye', 'farewell', 'take care', 'see you',
+                'until next time', 'session is complete', "that's all for today",
+                "we're done", 'all done', 'great work today', 'well done today']
+              if (farewells.some((w) => lower.includes(w))) {
+                console.log('[Walkthrough] Farewell detected in agent speech — marking session ended')
+                sessionEndedRef.current = true
+                setSessionComplete(true)
+              }
+            }
           },
           onStatusChange: ({ status }: { status: string }) => {
             console.log('[Walkthrough] Agent status:', status)
@@ -361,7 +382,12 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
         if (reconnectAttemptsRef.current < MAX_RECONNECT) {
           reconnectAttemptsRef.current++
           const delay = Math.min(3000 * reconnectAttemptsRef.current, 20000)
+          console.log(`[Walkthrough] Connection failed, retrying in ${delay}ms (attempt ${reconnectAttemptsRef.current}/${MAX_RECONNECT})`)
           reconnectTimerRef.current = setTimeout(connect, delay)
+        } else {
+          const reason = `Failed to establish ElevenLabs connection after ${MAX_RECONNECT} attempts. Last error: ${msg}`
+          console.error('[Walkthrough] Giving up —', reason)
+          setConnectionError(reason)
         }
       }
     }
@@ -541,6 +567,48 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
           </motion.div>
         )}
       </AnimatePresence>}
+
+      {/* Session complete overlay */}
+      {sessionComplete && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="fixed inset-0 z-40 flex items-center justify-center bg-[#080808]/90"
+        >
+          <div className="text-center space-y-4 max-w-md px-8">
+            <div className="text-5xl">✓</div>
+            <h2 className="text-2xl font-bold text-white">Session Complete</h2>
+            <p className="text-[#94A3B8]">Great work today. Clio has wrapped up the session.</p>
+          </div>
+        </motion.div>
+      )}
+
+      {/* Permanent connection error overlay */}
+      {connectionError && !sessionComplete && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="fixed inset-0 z-40 flex items-center justify-center bg-[#080808]/90"
+        >
+          <div className="bg-[#111111] border border-red-900/50 rounded-xl p-8 max-w-md mx-4 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-3 h-3 rounded-full bg-red-500 shrink-0" />
+              <h2 className="text-lg font-semibold text-white">Unable to Connect</h2>
+            </div>
+            <p className="text-[#94A3B8] text-sm leading-relaxed">
+              Clio could not establish a stable connection after 6 attempts. This is usually a
+              temporary issue with the voice service.
+            </p>
+            <p className="text-[#475569] text-xs font-mono break-all">{connectionError}</p>
+            <button
+              onClick={() => window.location.reload()}
+              className="w-full py-2.5 rounded-lg bg-[#7C3AED] text-white text-sm font-medium hover:bg-[#6D28D9] transition-colors"
+            >
+              Refresh & Try Again
+            </button>
+          </div>
+        </motion.div>
+      )}
 
       {/* Debug overlay */}
       <div className="fixed bottom-3 right-3 z-50 text-xs font-mono space-y-1">
