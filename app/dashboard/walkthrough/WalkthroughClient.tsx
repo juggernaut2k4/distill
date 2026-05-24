@@ -17,6 +17,7 @@ const VOICE_ID = process.env.NEXT_PUBLIC_ELEVENLABS_VOICE_ID ?? 'eXpIbVcVbLo8ZJQ
 // How long (ms) of polling silence before sending a keep-alive context update.
 // Keep short — ElevenLabs closes the WebSocket after ~15s of inactivity.
 const KEEPALIVE_INTERVAL = 8_000
+const MAX_RECONNECT = 6
 
 // ElevenLabs agent.prompt.prompt override has a practical limit around 12,000 chars.
 // Beyond this the connection drops silently. session_brief + session_script fit easily;
@@ -175,11 +176,13 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
   const [sessionComplete, setSessionComplete] = useState(false)
   // Track the reason for a permanent connection failure (after all retries exhausted)
   const [connectionError, setConnectionError] = useState<string | null>(null)
+  // Retry count as state so the UI re-renders when it changes
+  const [retryCount, setRetryCount] = useState(0)
+  const stableConnectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Connect to ElevenLabs agent on mount, with auto-reconnect on unexpected drops
   useEffect(() => {
     let cancelled = false
-    const MAX_RECONNECT = 6
 
     const connect = async () => {
       if (cancelled) return
@@ -300,8 +303,16 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
           },
           onConnect: ({ conversationId }: { conversationId: string }) => {
             console.log('[Walkthrough] Agent connected, id:', conversationId)
-            reconnectAttemptsRef.current = 0
             setAgentStatus('listening')
+            // Only reset retry counter after 10s of stable connection.
+            // A brief connect→disconnect cycle (ElevenLabs dropping the WebSocket)
+            // must not reset the counter or we'll loop at "retry 1" forever.
+            if (stableConnectionTimerRef.current) clearTimeout(stableConnectionTimerRef.current)
+            stableConnectionTimerRef.current = setTimeout(() => {
+              reconnectAttemptsRef.current = 0
+              setRetryCount(0)
+              console.log('[Walkthrough] Connection stable — retry counter reset')
+            }, 10_000)
           },
           onDisconnect: () => {
             console.log('[Walkthrough] Agent disconnected')
@@ -315,6 +326,7 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
 
             if (!cancelled && reconnectAttemptsRef.current < MAX_RECONNECT) {
               reconnectAttemptsRef.current++
+              setRetryCount(reconnectAttemptsRef.current)
               const delay = Math.min(3000 * reconnectAttemptsRef.current, 20000)
               console.log(`[Walkthrough] Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current}/${MAX_RECONNECT})`)
               reconnectTimerRef.current = setTimeout(connect, delay)
@@ -381,6 +393,7 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
 
         if (reconnectAttemptsRef.current < MAX_RECONNECT) {
           reconnectAttemptsRef.current++
+          setRetryCount(reconnectAttemptsRef.current)
           const delay = Math.min(3000 * reconnectAttemptsRef.current, 20000)
           console.log(`[Walkthrough] Connection failed, retrying in ${delay}ms (attempt ${reconnectAttemptsRef.current}/${MAX_RECONNECT})`)
           reconnectTimerRef.current = setTimeout(connect, delay)
@@ -613,7 +626,7 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
       {/* Debug overlay */}
       <div className="fixed bottom-3 right-3 z-50 text-xs font-mono space-y-1">
         <div className={`px-2 py-1 rounded ${agentStatusColor}`}>
-          🎙 {agentStatus}{agentStatus === 'disconnected' && reconnectAttemptsRef.current > 0 ? ` (retry ${reconnectAttemptsRef.current})` : ''}{agentStatus === 'error' && agentError ? `: ${agentError}` : ''}
+          🎙 {agentStatus}{retryCount > 0 && agentStatus !== 'error' ? ` (retry ${retryCount}/${MAX_RECONNECT})` : ''}{agentStatus === 'error' && agentError ? `: ${agentError.slice(0, 50)}` : ''}
         </div>
         <div className="bg-gray-900/60 text-gray-600 px-2 py-1 rounded">
           polls: {pollCount}
