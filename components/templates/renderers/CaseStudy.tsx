@@ -113,7 +113,7 @@ export default function CaseStudy({ data, isActive, onReady }: CaseStudyProps) {
   const onInit = useCallback(() => { if (isActive) onReady?.() }, [isActive, onReady])
 
   return (
-    <div className="min-h-screen w-full flex flex-col bg-[#080808] px-8 md:px-16 py-12">
+    <div className="h-full w-full flex flex-col bg-[#080808] px-8 md:px-16 py-12">
       <motion.div className="flex-1 flex flex-col pb-20" initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ duration: 0.5 }} onAnimationComplete={() => { if (isActive) onReady?.() }}>
         <div className="mb-4 flex items-center gap-3">
           <div>
@@ -129,7 +129,7 @@ export default function CaseStudy({ data, isActive, onReady }: CaseStudyProps) {
             ))}
           </div>
         </div>
-        <div className="flex-1 min-h-[480px] rounded-2xl overflow-hidden border border-[#1a1a1a]">
+        <div className="flex-1 rounded-2xl overflow-hidden border border-[#1a1a1a]">
           <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} nodeTypes={nodeTypes} onInit={onInit} fitView fitViewOptions={{ padding: 0.15 }} nodesDraggable={false} nodesConnectable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }}>
             <Background color="#1a1a1a" variant={BackgroundVariant.Dots} gap={20} />
           </ReactFlow>

@@ -42,7 +42,7 @@ export default function GenericTemplate({ section, isActive, onReady }: GenericT
   }
 
   return (
-    <div className="min-h-screen w-full flex flex-col bg-[#080808] px-8 md:px-16 py-12">
+    <div className="h-full w-full flex flex-col bg-[#080808] px-8 md:px-16 py-12">
       <motion.div
         className="flex-1 flex flex-col pb-20"
         initial={{ opacity: 0, y: 20 }}

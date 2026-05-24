@@ -220,7 +220,7 @@ export default function KBTopicClient({ topicId }: Props) {
               </div>
             </div>
 
-            {/* Visual render — fixed 16:9 aspect ratio */}
+            {/* Visual render — fixed height so ReactFlow can measure its container */}
             <AnimatePresence mode="wait">
               <motion.div
                 key={JSON.stringify(s.row.section_data)}
@@ -229,12 +229,14 @@ export default function KBTopicClient({ topicId }: Props) {
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.3 }}
                 className="relative w-full rounded-xl overflow-hidden border border-[#222222] bg-[#080808]"
-                style={{ aspectRatio: '16 / 9' }}
+                style={{ height: '540px' }}
               >
-                <TemplateRenderer
-                  section={s.row.section_data}
-                  isActive={true}
-                />
+                <div className="absolute inset-0">
+                  <TemplateRenderer
+                    section={s.row.section_data}
+                    isActive={true}
+                  />
+                </div>
               </motion.div>
             </AnimatePresence>
 

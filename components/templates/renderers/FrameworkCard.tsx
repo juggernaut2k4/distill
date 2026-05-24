@@ -67,9 +67,9 @@ export default function FrameworkCard({ data, isActive, onReady }: FrameworkProp
   const onInit = useCallback(() => { if (isActive) onReady?.() }, [isActive, onReady])
 
   return (
-    <div className="min-h-screen w-full flex flex-col bg-[#080808] px-8 md:px-16 py-12">
+    <div className="h-full w-full flex flex-col bg-[#080808] px-8 md:px-16 py-12">
       <motion.div className="flex-1 flex flex-col pb-20" initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ duration: 0.5 }} onAnimationComplete={() => { if (isActive) onReady?.() }}>
-        <div className="flex-1 min-h-[500px] rounded-2xl overflow-hidden border border-[#1a1a1a]">
+        <div className="flex-1 rounded-2xl overflow-hidden border border-[#1a1a1a]">
           <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} nodeTypes={nodeTypes} onInit={onInit} fitView fitViewOptions={{ padding: 0.12 }} nodesDraggable={false} nodesConnectable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }}>
             <Background color="#1a1a1a" variant={BackgroundVariant.Dots} gap={22} />
           </ReactFlow>
