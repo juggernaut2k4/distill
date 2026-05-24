@@ -18,7 +18,7 @@ import { generateTemplateData } from '@/lib/templates/generator'
 import { getCachedSection, setCachedSection } from '@/lib/topic-cache'
 import type { TemplateSection, TemplateMeta } from '@/lib/templates/types'
 
-export const maxDuration = 120
+export const maxDuration = 300
 
 // ─── SUBTOPICS CATALOG ────────────────────────────────────────────────────────
 // Inline copy to avoid circular imports from generate-plan route
@@ -129,7 +129,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
     .eq('id', params.id)
 
   try {
-    // Step 1: Generate content outlines for all subtopics
+    // Step 1: Generate content outlines for all subtopics in one Claude call
     const outline = await generateSessionContentOutline(
       params.id,
       topicId,
@@ -139,18 +139,28 @@ export async function POST(_req: NextRequest, { params }: Params) {
       userContext
     )
 
-    // Steps 2-5: For each subtopic — sequential to stay within maxDuration
-    for (const subtopicOutline of outline.subtopics) {
+    // Steps 2–5: Process subtopics in parallel batches of 3 to stay within rate limits.
+    // Each subtopic writes its own cache row incrementally so the GET poll can track progress.
+    const BATCH_SIZE = 3
+
+    const processSubtopic = async (subtopicOutline: (typeof outline.subtopics)[number]) => {
       const subtopicTitle = subtopicOutline.subtopic_title
       const subtopicSlug = subtopicOutline.subtopic_slug
 
-      // Step 2: Training script
-      const script = await generateTrainingScript(subtopicOutline, userContext)
+      // Stamp as generating so polling sees it immediately
+      await supabase
+        .from('topic_content_cache')
+        .upsert(
+          { topic_id: topicId, subtopic_slug: subtopicSlug, subtopic_title: subtopicTitle, pipeline_status: 'generating' },
+          { onConflict: 'topic_id,subtopic_slug' }
+        )
 
-      // Step 3: Template selection
-      const templateType = selectTemplate(subtopicTitle, subtopicOutline.position)
+      // Run script + template selection in parallel; template data needs type first
+      const [script, templateType] = await Promise.all([
+        generateTrainingScript(subtopicOutline, userContext),
+        Promise.resolve(selectTemplate(subtopicTitle, subtopicOutline.position)),
+      ])
 
-      // Step 4: Template data (cache hit skips Claude)
       let section: TemplateSection | null = await getCachedSection(topicId, subtopicSlug, {
         role: userContext.role,
         industry: userContext.industry,
@@ -165,12 +175,9 @@ export async function POST(_req: NextRequest, { params }: Params) {
         }
         const data = await generateTemplateData(templateType, subtopicTitle, topicTitle, userContext)
         section = { id: subtopicSlug, type: templateType, data, meta, status: 'pending' } as TemplateSection
-
-        // Write new section_data to cache (non-blocking)
         setCachedSection(topicId, subtopicSlug, subtopicTitle, section).catch(() => {})
       }
 
-      // Step 5: Save script + outline to cache row
       const expiresAt = new Date()
       expiresAt.setDate(expiresAt.getDate() + 60)
 
@@ -192,6 +199,10 @@ export async function POST(_req: NextRequest, { params }: Params) {
           },
           { onConflict: 'topic_id,subtopic_slug' }
         )
+    }
+
+    for (let i = 0; i < outline.subtopics.length; i += BATCH_SIZE) {
+      await Promise.all(outline.subtopics.slice(i, i + BATCH_SIZE).map(processSubtopic))
     }
 
     // Step 6: Mark session ready

@@ -124,35 +124,63 @@ export default function SessionDetailClient({ session }: Props) {
   const [contentSubtopics, setContentSubtopics] = useState<ContentSubtopic[]>([])
   const [isGeneratingContent, setIsGeneratingContent] = useState(false)
   const [expandedScript, setExpandedScript] = useState<string | null>(null)
+  const [contentGenStartedAt, setContentGenStartedAt] = useState<number | null>(null)
+  const [isStuck, setIsStuck] = useState(false)
 
   const fetchContentStatus = useCallback(async () => {
     const res = await fetch(`/api/sessions/${session.id}/generate-content`)
     if (!res.ok) return
     const data = await res.json() as { content_status: string; subtopics: ContentSubtopic[] }
-    setContentStatus(data.content_status as typeof contentStatus)
+    const status = data.content_status as typeof contentStatus
+    setContentStatus(status)
     setContentSubtopics(data.subtopics ?? [])
+    if (status === 'ready' || status === 'failed') {
+      setIsGeneratingContent(false)
+      setContentGenStartedAt(null)
+      setIsStuck(false)
+    }
   }, [session.id])
 
-  // Poll while generating
+  // Initial load + poll every 3s while generating
   useEffect(() => {
     fetchContentStatus()
   }, [fetchContentStatus])
 
   useEffect(() => {
     if (contentStatus !== 'generating') return
-    const interval = setInterval(fetchContentStatus, 5000)
+    const interval = setInterval(fetchContentStatus, 3000)
     return () => clearInterval(interval)
   }, [contentStatus, fetchContentStatus])
 
-  const handleGenerateContent = useCallback(async () => {
+  // Stuck detection: if still generating after 5 minutes with no topics ready, surface error
+  useEffect(() => {
+    if (!contentGenStartedAt || contentStatus !== 'generating') return
+    const check = setInterval(() => {
+      const elapsed = Date.now() - contentGenStartedAt
+      const readyCount = contentSubtopics.filter((s) => s.pipeline_status === 'ready').length
+      if (elapsed > 5 * 60 * 1000 && readyCount === 0) {
+        setIsStuck(true)
+      }
+    }, 15000)
+    return () => clearInterval(check)
+  }, [contentGenStartedAt, contentStatus, contentSubtopics])
+
+  const handleGenerateContent = useCallback(() => {
     setIsGeneratingContent(true)
     setContentStatus('generating')
-    try {
-      await fetch(`/api/sessions/${session.id}/generate-content`, { method: 'POST' })
-      await fetchContentStatus()
-    } catch { /* non-fatal */ }
+    setContentGenStartedAt(Date.now())
+    setIsStuck(false)
+    // Fire-and-forget — the pipeline runs up to 5 min server-side;
+    // polling every 3s picks up per-topic progress as each row is written.
+    fetch(`/api/sessions/${session.id}/generate-content`, { method: 'POST' }).catch(() => {})
+  }, [session.id])
+
+  const handleRetryContent = useCallback(() => {
+    setIsStuck(false)
+    setContentStatus('pending')
     setIsGeneratingContent(false)
-  }, [session.id, fetchContentStatus])
+    setContentGenStartedAt(null)
+  }, [])
 
   // Live session state — pre-fill from auto-generated Meet link if available
   const [meetingUrl, setMeetingUrl] = useState(session.meeting_url ?? '')
@@ -459,12 +487,82 @@ export default function SessionDetailClient({ session }: Props) {
             </p>
           </div>
         )}
-        {contentStatus === 'generating' && (
-          <div className="flex items-center gap-2 mb-3 text-xs text-[#06B6D4]">
-            <Loader size={12} className="animate-spin" />
-            Building content and training scripts...
-          </div>
-        )}
+
+        {/* Content generation progress */}
+        {contentStatus === 'generating' && (() => {
+          const total = contentSubtopics.length || topics.length || 1
+          const done = contentSubtopics.filter((s) => s.pipeline_status === 'ready').length
+          const inProgress = contentSubtopics.filter((s) => s.pipeline_status === 'generating').length
+          const pct = Math.round((done / total) * 100)
+
+          const stepLabel =
+            done === 0 && inProgress === 0
+              ? 'Analysing session structure...'
+              : done === total
+              ? 'Finalising...'
+              : inProgress > 0
+              ? `Writing scripts (${done + inProgress} of ${total} in progress)...`
+              : `${done} of ${total} topics ready`
+
+          return (
+            <div className="mb-4 rounded-xl border border-[#1A1A1A] bg-[#111111] p-4 space-y-3">
+              {isStuck ? (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-sm text-[#EF4444]">
+                    <AlertTriangle size={14} />
+                    Generation is taking longer than expected. The server may have timed out.
+                  </div>
+                  <Button variant="secondary" className="gap-2 w-full justify-center" onClick={handleRetryContent}>
+                    <Loader size={13} />
+                    Retry
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-xs text-[#06B6D4]">
+                      <Loader size={11} className="animate-spin flex-shrink-0" />
+                      <span>{stepLabel}</span>
+                    </div>
+                    <span className="text-xs font-semibold text-[#94A3B8]">{pct}%</span>
+                  </div>
+                  {/* Progress bar */}
+                  <div className="h-1.5 rounded-full bg-[#1A1A1A] overflow-hidden">
+                    <motion.div
+                      className="h-full rounded-full bg-gradient-to-r from-[#7C3AED] to-[#06B6D4]"
+                      initial={{ width: '4%' }}
+                      animate={{ width: `${Math.max(pct, 4)}%` }}
+                      transition={{ duration: 0.6, ease: 'easeOut' }}
+                    />
+                  </div>
+                  {/* Per-topic chips */}
+                  {contentSubtopics.length > 0 && (
+                    <div className="flex flex-col gap-1.5 pt-1">
+                      {contentSubtopics.map((sub) => (
+                        <div key={sub.slug} className="flex items-center gap-2">
+                          {sub.pipeline_status === 'ready' ? (
+                            <CheckCircle size={11} className="text-[#10B981] flex-shrink-0" />
+                          ) : sub.pipeline_status === 'generating' ? (
+                            <Loader size={11} className="text-[#06B6D4] animate-spin flex-shrink-0" />
+                          ) : (
+                            <Circle size={11} className="text-[#333333] flex-shrink-0" />
+                          )}
+                          <span className={`text-xs truncate ${
+                            sub.pipeline_status === 'ready' ? 'text-[#94A3B8]' :
+                            sub.pipeline_status === 'generating' ? 'text-[#06B6D4]' :
+                            'text-[#475569]'
+                          }`}>
+                            {sub.title}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )
+        })()}
 
         {!sessionPlan || sessionPlan.plan_status === 'generating' ? (
           <Card className="p-4 flex items-center gap-3">
