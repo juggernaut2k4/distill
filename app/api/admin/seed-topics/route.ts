@@ -87,8 +87,16 @@ async function runBatch(
  * Pass body { replace: true } to clear existing non-custom topics first.
  */
 export async function POST(request: NextRequest) {
+  // Accept either Clerk session auth OR the ElevenLabs shared secret header
+  // (the latter allows server-to-server calls without a browser session)
   const { userId } = auth()
-  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const secret = process.env.ELEVENLABS_CUSTOM_LLM_SECRET
+  const providedSecret = request.headers.get('x-admin-secret')
+  const secretOk = secret && providedSecret === secret
+
+  if (!userId && !secretOk) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
 
   const body = await request.json().catch(() => ({})) as {
     replace?: boolean
