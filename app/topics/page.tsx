@@ -16,6 +16,15 @@ interface TopicCategory {
   topics: string[]
 }
 
+interface CatalogTopic {
+  id: string
+  title: string
+  description: string
+  domain_id: string
+  relevant_maturity: string[]
+  tags: string[]
+}
+
 const CATEGORIES: Array<{ name: string; color: string; keywords: string[] }> = [
   {
     name: 'AI Strategy & Leadership',
@@ -100,20 +109,45 @@ export default function TopicsPage() {
   const allTopics = [...allGeneratedTopics, ...manualTopics]
   const allSelected = allTopics.length > 0 && selected.size === allTopics.length
 
-  // Auto-generate topics from profile on mount
+  // Load topics on mount: catalog (DB) first, fall back to profile-based Claude generation
   useEffect(() => {
-    fetch('/api/topics/generate')
-      .then((r) => r.json())
-      .then((data: { topics?: string[]; error?: string }) => {
-        if (data.topics && data.topics.length > 0) {
-          setTopicGroups(categorizeTopics(data.topics))
-          setSelected(new Set(data.topics))
+    async function loadTopics() {
+      // 1. Try catalog (pre-seeded, role/domain-filtered)
+      try {
+        const catalogRes = await fetch('/api/topics/catalog')
+        const catalogData = await catalogRes.json() as {
+          topics?: CatalogTopic[]
+          seeded?: boolean
+          error?: string
+        }
+        if (catalogData.topics && catalogData.topics.length > 0) {
+          const titles = catalogData.topics.map((t) => t.title)
+          setTopicGroups(categorizeTopics(titles))
+          setSelected(new Set(titles))
+          setView('selection')
+          return
+        }
+      } catch {
+        // catalog failed or empty — fall through
+      }
+
+      // 2. Fall back to Claude profile-based generation
+      try {
+        const genRes = await fetch('/api/topics/generate')
+        const genData = await genRes.json() as { topics?: string[]; error?: string }
+        if (genData.topics && genData.topics.length > 0) {
+          setTopicGroups(categorizeTopics(genData.topics))
+          setSelected(new Set(genData.topics))
           setView('selection')
         } else {
           setView('input')
         }
-      })
-      .catch(() => setView('input'))
+      } catch {
+        setView('input')
+      }
+    }
+
+    loadTopics()
   }, [])
 
   // ── Actions ────────────────────────────────────────────────────────────────

@@ -406,25 +406,62 @@ export function buildCurriculum(
   }
 }
 
+const STOP_WORDS = new Set(['the', 'a', 'an', 'and', 'for', 'in', 'of', 'to', 'with', 'by', 'on', 'at', 'from', 'as', 'is', 'are', 'your', 'how', 'why', 'what'])
+
+function significantWords(text: string): Set<string> {
+  return new Set(
+    text.toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter((w) => w.length > 2 && !STOP_WORDS.has(w))
+  )
+}
+
 function matchTopicsToCatalog(titles: string[]): CurriculumTopic[] {
   const result: CurriculumTopic[] = []
   const addedIds = new Set<string>()
 
   for (const title of titles) {
-    // Exact match first
-    const exact = TOPIC_CATALOG.find(
-      (t) => t.title.toLowerCase() === title.toLowerCase()
-    )
+    const titleWords = significantWords(title)
+
+    // 1. Exact title match
+    const exact = TOPIC_CATALOG.find((t) => t.title.toLowerCase() === title.toLowerCase())
     if (exact && !addedIds.has(exact.id)) {
       result.push(exact)
       addedIds.add(exact.id)
       continue
     }
 
-    // Tag/category match
+    // 2. Best keyword overlap against catalog titles (score = shared significant words)
+    let bestScore = 0
+    let bestMatch: CurriculumTopic | null = null
+    for (const t of TOPIC_CATALOG) {
+      if (addedIds.has(t.id)) continue
+      const catalogWords = significantWords(t.title)
+      let score = 0
+      titleWords.forEach((w) => { if (catalogWords.has(w)) score++ })
+      // Also check against subtopic titles for richer signal
+      for (const sub of t.subtopics) {
+        const subWords = significantWords(sub)
+        titleWords.forEach((w) => { if (subWords.has(w)) score += 0.3 })
+      }
+      if (score > bestScore) { bestScore = score; bestMatch = t }
+    }
+
+    // Require at least 1 meaningful word overlap to accept a keyword match
+    if (bestMatch && bestScore >= 1) {
+      result.push(bestMatch)
+      addedIds.add(bestMatch.id)
+      continue
+    }
+
+    // 3. Tag category fallback (first catalog entry whose tag includes a word from the title)
+    const titleWordsArr = Array.from(titleWords)
     const tagMatch = TOPIC_CATALOG.find(
-      (t) => t.tags.some((tag) => title.toLowerCase().includes(tag.toLowerCase().split(' ')[0]))
-        && !addedIds.has(t.id)
+      (t) => t.tags.some((tag) => {
+        const tagWords = significantWords(tag)
+        return titleWordsArr.some((w) => tagWords.has(w))
+      }) && !addedIds.has(t.id)
     )
     if (tagMatch) {
       result.push(tagMatch)
