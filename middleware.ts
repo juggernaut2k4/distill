@@ -16,6 +16,7 @@ const isPublicRoute = createRouteMatcher([
   '/api/walkthrough-state/(.*)', // Walkthrough state polling — called by headless browser
   '/api/generate-visual(.*)', // Visual generation — triggered by ElevenLabs client tool in headless browser
   '/api/clio/chat/completions', // Custom LLM endpoint — called by ElevenLabs servers (no user auth)
+  '/api/admin/seed-topics',    // Admin seed — checked via secret header; Clerk session also accepted
   '/walkthrough/(.*)',        // Public walkthrough page shared by Recall.ai bot
 ])
 
