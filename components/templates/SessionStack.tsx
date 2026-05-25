@@ -174,7 +174,7 @@ export default function SessionStack({
           <div
             key={section.id}
             ref={el => { sectionRefs.current[i] = el }}
-            className="relative min-h-screen w-full"
+            className="relative h-screen w-full"
             style={{ scrollSnapAlign: 'start' }}
           >
             <TemplateRenderer

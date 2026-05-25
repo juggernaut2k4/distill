@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
         .in('subtopic_slug', slugs)
 
       console.log(`[recall/bot] Querying cache: topic_id=${topicId}, slugs=[${slugs.join(', ')}]`)
-      console.log(`[recall/bot] Cache rows found: ${cacheRows?.length ?? 0}`, (cacheRows ?? []).map((r) => `${r.subtopic_slug}(${r.training_script ? 'has_script' : 'no_script'})`))
+      console.log(`[recall/bot] Cache rows found: ${cacheRows?.length ?? 0}`, (cacheRows ?? []).map((r) => `${r.subtopic_slug}(script=${r.training_script ? 'yes' : 'no'}, section_data=${r.section_data ? 'yes' : 'null'})`))
 
       const scriptMap = new Map((cacheRows ?? []).map((r) => [r.subtopic_slug, r.training_script]))
       const outlineMap = new Map((cacheRows ?? []).map((r) => [r.subtopic_slug, r.content_outline]))
@@ -116,12 +116,18 @@ export async function POST(request: NextRequest) {
           .map((r) => [r.subtopic_slug, r.section_data as TemplateSection])
       )
 
+      console.log(`[recall/bot] freshSectionMap has ${freshSectionMap.size} entries with section_data`)
+
       // Replace each section's data with the latest from topic_content_cache,
       // patching meta so role/industry reflects the current user.
       // Falls back to the session-plan snapshot if the slug isn't cached yet.
       freshSections = readySections.map((s) => {
         const cached = freshSectionMap.get(s.id)
-        if (!cached) return s
+        if (!cached) {
+          console.log(`[recall/bot] FALLBACK to session plan snapshot for slug="${s.id}" — no section_data in cache`)
+          return s
+        }
+        console.log(`[recall/bot] Using KB-fresh section for slug="${s.id}" type=${cached.type}`)
         return {
           ...cached,
           meta: { ...cached.meta, userRole: userRole, userIndustry: userIndustry },

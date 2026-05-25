@@ -155,7 +155,7 @@ export default function ComparisonTable({ data, isActive, onReady }: ComparisonT
           <p className="text-[#94A3B8] text-sm">{data.context}</p>
         </div>
         <div className="flex-1 rounded-2xl overflow-hidden border border-[#1a1a1a]">
-          <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} nodeTypes={nodeTypes} onInit={onInit} fitView fitViewOptions={{ padding: 0.12 }} nodesDraggable={false} nodesConnectable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }}>
+          <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} nodeTypes={nodeTypes} onInit={onInit} fitView fitViewOptions={{ padding: 0.12 }} nodesDraggable={false} nodesConnectable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }} style={{ width: '100%', height: '100%' }}>
             <Background color="#1a1a1a" variant={BackgroundVariant.Dots} gap={20} />
           </ReactFlow>
         </div>

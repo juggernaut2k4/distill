@@ -80,6 +80,7 @@ export default function Timeline({ data, isActive, onReady }: TimelineProps) {
             nodesConnectable={false}
             elementsSelectable={false}
             proOptions={{ hideAttribution: true }}
+            style={{ width: '100%', height: '100%' }}
           >
             <Background color="#1a1a1a" variant={BackgroundVariant.Dots} gap={20} />
           </ReactFlow>
