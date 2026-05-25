@@ -37,7 +37,7 @@ export default function TopicHero({ data, isActive, onReady }: TopicHeroProps) {
         <div className="border border-[#222222] rounded-xl p-5 bg-[#111111]">
           <p className="text-xs font-semibold text-[#94A3B8] uppercase tracking-wide mb-4">What you&apos;ll walk away knowing</p>
           <ul className="flex flex-col gap-3">
-            {data.key_takeaways.map((t, i) => (
+            {(data.key_takeaways ?? []).map((t, i) => (
               <motion.li
                 key={i}
                 className="flex gap-3 items-start"
