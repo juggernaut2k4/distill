@@ -26,8 +26,8 @@ export function selectTemplate(
     return 'ConceptDefinition'
   }
 
-  // Comparison
-  if (/\bvs\b|versus|compare|difference between/.test(t)) {
+  // Comparison / tool landscape
+  if (/\bvs\b|versus|compare|difference between|top tools|tools compared|platforms compared|platform comparison|tool landscape/.test(t)) {
     return 'ComparisonTable'
   }
 

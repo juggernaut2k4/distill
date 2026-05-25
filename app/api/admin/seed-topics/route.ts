@@ -30,16 +30,21 @@ async function generateTopicsForDomain(
 Domain description: ${domain.description}
 Related keywords: ${domain.tags.join(', ')}
 
-Generate exactly 6 practical learning topics for professionals in this domain.
+Generate exactly 7 practical learning topics for professionals in this domain.
 
 Requirements:
 - Each topic title: 4–8 words, specific and outcome-focused
 - Each description: one sentence, 12–18 words, states the concrete skill gained
 - Maturity: which proficiency levels apply? Choose from: beginner, intermediate, advanced, expert
-  (beginner = first steps, intermediate = building skill, advanced = deep mastery, expert = frontier/strategic)
 - Cover a range: include 1–2 beginner topics, 2–3 intermediate, 1–2 advanced/expert
 - Tags: 3–5 lowercase searchable keywords specific to this topic
 - Topics must be practical and job-applicable, not academic theory
+
+IMPORTANT: One of the 7 topics must be a "Tools & Platforms" comparison topic that:
+- Compares 3–4 leading real tools or platforms in this domain
+- Uses "vs" in the title (e.g. "Tool A vs Tool B vs Tool C — When to Use Each")
+- Covers key differentiators, pricing model, and best-fit scenarios
+- Is appropriate for a business professional evaluating or buying tools, not a developer installing them
 
 Return ONLY valid JSON with no extra text:
 {"topics":[{"title":"...","description":"...","maturity":["beginner","intermediate"],"tags":["tag1","tag2"]},...]}`
