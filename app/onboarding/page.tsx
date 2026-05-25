@@ -7,15 +7,64 @@ import { useUser } from '@clerk/nextjs'
 import { ProgressBar } from '@/components/onboarding/ProgressBar'
 import { ArrowRight, ArrowLeft, Plus, X, Search } from 'lucide-react'
 import {
-  ROLES, ALL_DOMAINS, PROFICIENCY_LEVELS, LEARNING_GOALS,
+  ALL_DOMAINS, PROFICIENCY_LEVELS, LEARNING_GOALS,
   getDomainsForRole, searchDomains,
   type Domain, type Proficiency, type LearningGoal,
 } from '@/lib/learning/taxonomy'
 
 // ─── Step definitions ─────────────────────────────────────────────────────────
 
-const TOTAL_STEPS = 5
-// 0: Role  1: Domains  2: Proficiency  3: Goal  4: Industry
+const TOTAL_STEPS = 6
+// 0: Level  1: Department → resolves roleId  2: Domains  3: Proficiency  4: Goal  5: Industry
+
+// ─── Role level + department mapping ─────────────────────────────────────────
+
+const ROLE_LEVELS = [
+  { id: 'c-suite',    label: 'Executive / C-Suite',               subtitle: 'CEO, CTO, COO, CFO, CMO and similar' },
+  { id: 'vp-dir',    label: 'VP / Director',                      subtitle: 'Senior leader managing a function or business unit' },
+  { id: 'manager',   label: 'Manager / Team Lead',                subtitle: 'Leading a team or specialist function' },
+  { id: 'specialist',label: 'Specialist / Individual Contributor', subtitle: 'Expert practitioner or senior specialist' },
+]
+
+const DEPARTMENTS: Record<string, { label: string; roleId: string }[]> = {
+  'c-suite': [
+    { label: 'General Management',     roleId: 'ceo' },
+    { label: 'Technology & Engineering', roleId: 'cto' },
+    { label: 'Operations',             roleId: 'coo' },
+    { label: 'Finance',                roleId: 'cfo' },
+    { label: 'Product',                roleId: 'product-manager' },
+    { label: 'People & HR',            roleId: 'hr' },
+    { label: 'Marketing & Growth',     roleId: 'marketing' },
+  ],
+  'vp-dir': [
+    { label: 'Technology & Engineering', roleId: 'cto' },
+    { label: 'Operations',             roleId: 'coo' },
+    { label: 'Finance',                roleId: 'cfo' },
+    { label: 'Product',                roleId: 'product-manager' },
+    { label: 'Data & Analytics',       roleId: 'data-analyst' },
+    { label: 'Design & UX',            roleId: 'designer' },
+    { label: 'Marketing & Growth',     roleId: 'marketing' },
+    { label: 'People & HR',            roleId: 'hr' },
+  ],
+  'manager': [
+    { label: 'Engineering',            roleId: 'developer' },
+    { label: 'Data & Analytics',       roleId: 'data-analyst' },
+    { label: 'Product',                roleId: 'product-manager' },
+    { label: 'Design & UX',            roleId: 'designer' },
+    { label: 'Marketing & Growth',     roleId: 'marketing' },
+    { label: 'People & HR',            roleId: 'hr' },
+    { label: 'Operations',             roleId: 'director' },
+  ],
+  'specialist': [
+    { label: 'Software Engineer / Developer', roleId: 'developer' },
+    { label: 'Data Scientist / ML Engineer',  roleId: 'data-scientist' },
+    { label: 'Data / Business Analyst',       roleId: 'data-analyst' },
+    { label: 'Designer / UX',                 roleId: 'designer' },
+    { label: 'Marketing / Growth',            roleId: 'marketing' },
+    { label: 'People & HR',                   roleId: 'hr' },
+    { label: 'Product Manager',               roleId: 'product-manager' },
+  ],
+}
 
 // ─── Industry options (kept for so_what personalisation) ─────────────────────
 
@@ -89,17 +138,43 @@ function DomainCard({ domain, selected, onClick }: { domain: Domain; selected: b
   )
 }
 
-// ─── Step 0: Role ─────────────────────────────────────────────────────────────
+// ─── Step 0: Level ───────────────────────────────────────────────────────────
 
-function RoleStep({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function LevelStep({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
     <div className="w-full max-w-sm mx-auto">
-      <StepHeading title="What's your role?" subtitle="We'll tailor your learning path to your perspective" />
-      <div className="flex flex-col gap-2">
-        {ROLES.map((r) => (
-          <SingleOptionButton key={r.id} label={r.label} selected={value === r.id} onClick={() => onChange(r.id)} />
+      <StepHeading title="What's your level?" subtitle="We'll calibrate depth and framing to match your perspective" />
+      <div className="flex flex-col gap-3">
+        {ROLE_LEVELS.map((l) => (
+          <button
+            key={l.id}
+            onClick={() => onChange(l.id)}
+            className={`w-full p-4 rounded-xl border text-left transition-all ${
+              value === l.id
+                ? 'border-[#7C3AED] bg-[#7C3AED]/15'
+                : 'border-[#222222] bg-[#111111] hover:border-[#444]'
+            }`}
+          >
+            <div className={`text-sm font-semibold ${value === l.id ? 'text-white' : 'text-[#94A3B8]'}`}>{l.label}</div>
+            <div className="text-xs text-[#475569] mt-0.5">{l.subtitle}</div>
+          </button>
         ))}
-        <SingleOptionButton label="Other" selected={value === 'other'} onClick={() => onChange('other')} />
+      </div>
+    </div>
+  )
+}
+
+// ─── Step 1: Department → resolves to roleId ─────────────────────────────────
+
+function DepartmentStep({ levelId, value, onChange }: { levelId: string; value: string; onChange: (roleId: string) => void }) {
+  const options = DEPARTMENTS[levelId] ?? []
+  return (
+    <div className="w-full max-w-sm mx-auto">
+      <StepHeading title="Which area?" subtitle="Pick the function that best describes your work" />
+      <div className="flex flex-col gap-2">
+        {options.map((o) => (
+          <SingleOptionButton key={o.label} label={o.label} selected={value === o.roleId} onClick={() => onChange(o.roleId)} />
+        ))}
       </div>
     </div>
   )
@@ -351,7 +426,8 @@ function OnboardingContent() {
   const [building, setBuilding] = useState(false)
 
   // Step answers
-  const [role, setRole] = useState('')
+  const [roleLevel, setRoleLevel] = useState('')          // step 0: level bucket
+  const [role, setRole] = useState('')                    // step 1: resolved roleId
   const [selectedDomains, setSelectedDomains] = useState<string[]>([])
   const [customDomains, setCustomDomains] = useState<string[]>([])
   const [proficiencies, setProficiencies] = useState<Record<string, Proficiency>>({})
@@ -360,16 +436,17 @@ function OnboardingContent() {
 
   // ── Can proceed from each step ──────────────────────────────────────────────
   const canProceed = useMemo(() => {
-    if (step === 0) return role !== ''
-    if (step === 1) return selectedDomains.length > 0 || customDomains.length > 0
-    if (step === 2) {
+    if (step === 0) return roleLevel !== ''
+    if (step === 1) return role !== ''
+    if (step === 2) return selectedDomains.length > 0 || customDomains.length > 0
+    if (step === 3) {
       const allKeys = [...selectedDomains, ...customDomains]
       return allKeys.length > 0 && allKeys.every((k) => proficiencies[k])
     }
-    if (step === 3) return learningGoal !== ''
-    if (step === 4) return industry !== ''
+    if (step === 4) return learningGoal !== ''
+    if (step === 5) return industry !== ''
     return false
-  }, [step, role, selectedDomains, customDomains, proficiencies, learningGoal, industry])
+  }, [step, roleLevel, role, selectedDomains, customDomains, proficiencies, learningGoal, industry])
 
   // ── Domain handlers ─────────────────────────────────────────────────────────
   function toggleDomain(id: string) {
@@ -449,9 +526,15 @@ function OnboardingContent() {
             transition={{ duration: 0.3, ease: 'easeInOut' }}
             className="w-full"
           >
-            {step === 0 && <RoleStep value={role} onChange={setRole} />}
+            {step === 0 && (
+              <LevelStep value={roleLevel} onChange={(v) => { setRoleLevel(v); setRole('') }} />
+            )}
 
             {step === 1 && (
+              <DepartmentStep levelId={roleLevel} value={role} onChange={setRole} />
+            )}
+
+            {step === 2 && (
               <DomainStep
                 roleId={role}
                 selected={selectedDomains}
@@ -462,7 +545,7 @@ function OnboardingContent() {
               />
             )}
 
-            {step === 2 && (
+            {step === 3 && (
               <ProficiencyStep
                 selectedDomainIds={selectedDomains}
                 customDomains={customDomains}
@@ -471,9 +554,9 @@ function OnboardingContent() {
               />
             )}
 
-            {step === 3 && <GoalStep value={learningGoal} onChange={setLearningGoal} />}
+            {step === 4 && <GoalStep value={learningGoal} onChange={setLearningGoal} />}
 
-            {step === 4 && <IndustryStep value={industry} onChange={setIndustry} />}
+            {step === 5 && <IndustryStep value={industry} onChange={setIndustry} />}
           </motion.div>
         </AnimatePresence>
 
