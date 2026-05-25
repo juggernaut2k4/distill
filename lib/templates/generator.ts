@@ -69,11 +69,10 @@ function getSchemaForTemplate(type: TemplateName): string {
   const schemas: Record<TemplateName, string> = {
     TopicHero: `{
   "topic_name": string,
-  "topic_number": number,
-  "total_topics": number,
   "key_question": string,          // the single most important question this topic answers
-  "estimated_minutes": number,     // 3-8
-  "so_what_preview": string        // one-line teaser personalised to role+industry
+  "key_takeaways": string[],       // exactly 3 concrete things the reader will leave knowing/able to do
+  "so_what_preview": string,       // one-line payoff personalised to role+industry
+  "why_now": string | null         // one sentence on why this is urgent or relevant right now (null if not applicable)
 }`,
     ConceptDefinition: `{
   "term": string,
@@ -295,11 +294,14 @@ export function getMockData(type: TemplateName, subtopicTitle: string): Template
   const mockMap: Record<TemplateName, TemplateSection['data']> = {
     TopicHero: {
       topic_name: subtopicTitle,
-      topic_number: 1,
-      total_topics: 5,
       key_question: `What does ${subtopicTitle} actually mean for how you run your business?`,
-      estimated_minutes: 5,
-      so_what_preview: 'As a CEO, this one concept will change how you evaluate every AI vendor pitch.',
+      key_takeaways: [
+        'How to spot when an AI vendor is overselling their capabilities',
+        'The one question to ask before any AI procurement decision',
+        'What your CTO should own versus what you need to govern',
+      ],
+      so_what_preview: 'This one concept will change how you evaluate every AI vendor pitch.',
+      why_now: 'Boards are beginning to ask about AI strategy in every governance cycle.',
     },
     ConceptDefinition: {
       term: subtopicTitle,
@@ -816,7 +818,7 @@ ComparisonTable — option "name": max 3 words | "tagline": max 8 words | "best_
 ProsCons — pro/con "title": max 5 words | "description": max 15 words | "evidence"/"mitigation": max 12 words | max 3 pros, 3 cons | "verdict": max 20 words
 KeyTakeaway — "insight": max 8 words | "implication": max 18 words | max 3 insights | "one_thing_to_remember": max 15 words | "action_for_you": max 20 words
 FrameworkCard — "framework_name": max 5 words | "purpose": max 5 words | component "description": max 8 words | "executive_question": max 12 words | "when_to_use"/"when_not_to_use": max 20 words | max 4 components
-TopicHero — "topic_name": max 5 words | "key_question": max 10 words | "so_what_preview": max 10 words
+TopicHero — "topic_name": max 5 words | "key_question": max 12 words | each "key_takeaways" item: max 12 words | "so_what_preview": max 15 words | "why_now": max 15 words or null
 CaseStudy — "challenge": max 12 words | "ai_solution": max 12 words | "what_they_got_right": max 10 words | "what_they_got_wrong": max 8 words | result "metric": max 4 words | "value": max 5 words
 StatCallout — "headline_stat": 1-3 characters (number only) | "unit": max 8 words | "context": max 15 words | "why_it_matters": max 30 words | supporting stat "label": max 5 words | max 3 supporting stats
 Timeline — event "title": max 6 words | "description": max 20 words | max 6 events | "where_we_are_now": max 25 words
@@ -1024,7 +1026,7 @@ LAYOUT CONSTRAINTS — content renders in fixed-height ReactFlow nodes. Stay wit
 - KeyTakeaway "insight": max 8w | "implication": max 18w | max 3 insights
 - FrameworkCard "framework_name": max 5w | "purpose": max 5w | component "description": max 8w | "executive_question": max 12w | max 4 components
 - Flowchart decision "label": max 3w | action "label": max 4w | action "detail": max 5w | set decision "detail" to null
-- TopicHero "topic_name": max 5w | "key_question": max 10w | "so_what_preview": max 10w
+- TopicHero "topic_name": max 5w | "key_question": max 12w | each "key_takeaways" item: max 12w | "so_what_preview": max 15w | "why_now": max 15w or null
 - CaseStudy "challenge": max 12w | "ai_solution": max 12w | "what_they_got_right": max 10w | "what_they_got_wrong": max 8w
 - StatCallout "context": max 15w | "headline_stat": number only 1-3 chars
 - ActionPlan takeaway "takeaway": max 8w | question: max 10w

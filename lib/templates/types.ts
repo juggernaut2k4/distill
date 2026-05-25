@@ -17,11 +17,10 @@ export interface TemplateMeta {
 
 export interface TopicHeroData {
   topic_name: string
-  topic_number: number
-  total_topics: number
   key_question: string
-  estimated_minutes: number
-  so_what_preview: string
+  key_takeaways: string[]   // 2-3 concrete outcomes the reader will leave with
+  so_what_preview: string   // one-line payoff personalised to role
+  why_now?: string          // optional urgency/relevance hook
 }
 
 export interface ConceptDefinitionData {
