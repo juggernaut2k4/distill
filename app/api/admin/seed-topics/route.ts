@@ -51,7 +51,7 @@ Return ONLY valid JSON with no extra text:
 
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 1024,
+    max_tokens: 2048,
     messages: [{ role: 'user', content: prompt }],
   })
 
@@ -90,21 +90,37 @@ export async function POST(request: NextRequest) {
   const { userId } = auth()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const body = await request.json().catch(() => ({})) as { replace?: boolean }
+  const body = await request.json().catch(() => ({})) as {
+    replace?: boolean
+    domains?: string[]  // optional: seed only these domain IDs (for re-running failures)
+  }
 
   const supabase = createSupabaseAdminClient()
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
+  const domainsToSeed = body.domains && body.domains.length > 0
+    ? ALL_DOMAINS.filter((d) => body.domains!.includes(d.id))
+    : ALL_DOMAINS
+
   if (body.replace) {
-    await supabase.from('topic_catalog').delete().eq('is_custom', false)
-    console.log('[seed-topics] Cleared existing non-custom topics')
+    if (body.domains && body.domains.length > 0) {
+      // Clear only the specified domains
+      await supabase.from('topic_catalog')
+        .delete()
+        .eq('is_custom', false)
+        .in('domain_id', body.domains)
+      console.log('[seed-topics] Cleared topics for domains:', body.domains)
+    } else {
+      await supabase.from('topic_catalog').delete().eq('is_custom', false)
+      console.log('[seed-topics] Cleared all non-custom topics')
+    }
   }
 
   const BATCH_SIZE = 5
   const results: Array<{ domainId: string; inserted: number; error?: string }> = []
 
-  for (let i = 0; i < ALL_DOMAINS.length; i += BATCH_SIZE) {
-    const batch = ALL_DOMAINS.slice(i, i + BATCH_SIZE)
+  for (let i = 0; i < domainsToSeed.length; i += BATCH_SIZE) {
+    const batch = domainsToSeed.slice(i, i + BATCH_SIZE)
     console.log(`[seed-topics] Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(ALL_DOMAINS.length / BATCH_SIZE)}: ${batch.map((d) => d.id).join(', ')}`)
 
     let batchResults: Array<{ domainId: string; topics: GeneratedTopic[] }>

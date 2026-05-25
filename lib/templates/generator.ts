@@ -711,6 +711,41 @@ export function getMockData(type: TemplateName, subtopicTitle: string): Template
   return mockMap[type]
 }
 
+// ─── ROLE DEPTH CLASSIFIER ────────────────────────────────────────────────────
+
+const EXECUTIVE_ROLES = new Set(['ceo', 'coo', 'cfo', 'director', 'chro', 'cmo', 'cpo'])
+const TECHNICAL_ROLES = new Set(['developer', 'data-scientist', 'data-analyst', 'cto'])
+
+/**
+ * Returns a depth instruction that tells Claude how much technical detail
+ * vs strategic context to provide, based on the learner's role tier.
+ *
+ * Executive tier:  buy/decide/govern — business outcomes, TCO, vendor risk
+ * Technical tier:  build/use/evaluate — features, APIs, benchmarks, trade-offs
+ * Functional tier: manage/specify/advocate — balanced, workflow-impact focused
+ */
+function getRoleDepthInstruction(role: string): string {
+  const r = role.toLowerCase().replace(/\s+/g, '-')
+
+  if (EXECUTIVE_ROLES.has(r)) {
+    return `This learner is a senior executive (${role}) who makes decisions, not implementations.
+- For tool/platform comparisons: skip installation, configuration, and API details entirely. Focus on strategic fit, total cost of ownership, vendor stability, procurement complexity, and the 1–2 questions they need answered to make a buy/build/partner call. Frame criteria in business language (e.g. "scales to enterprise contracts" not "supports horizontal pod autoscaling").
+- For all content: lead with business outcomes and competitive implications. Explain what they need to tell their board or their team, not how the technology works internally.
+- Technical terms are allowed only when necessary — always follow them with a one-clause plain-English translation.`
+  }
+
+  if (TECHNICAL_ROLES.has(r)) {
+    return `This learner is a technical practitioner (${role}) who evaluates, builds, or operates these tools directly.
+- For tool/platform comparisons: include technical feature depth — API quality, integration patterns, performance characteristics, scalability limits, licensing model, and real implementation trade-offs. Name specific capabilities that differentiate tools at the feature level.
+- For all content: be precise and concrete. Avoid vague business language where specific technical terms are clearer. Include "gotchas" and edge cases a practitioner would encounter.`
+  }
+
+  // Functional tier: PM, Designer, Marketing, HR — balanced
+  return `This learner is a functional leader (${role}) who bridges business strategy and technical implementation.
+- For tool/platform comparisons: balance business value with functional capabilities. Explain technical trade-offs in terms of their impact on team workflows and outcomes, without deep implementation detail. Include procurement considerations and integration effort.
+- For all content: connect the subject to this role's day-to-day decisions. Be specific enough to have an informed conversation with both executives and technical teams.`
+}
+
 // ─── MAIN GENERATOR ───────────────────────────────────────────────────────────
 
 /**
@@ -750,9 +785,15 @@ export async function generateTemplateData(
   const domainLabel = userContext.domain ?? 'the subject'
   const proficiencyLabel = userContext.proficiency ?? userContext.maturity ?? 'intermediate'
 
+  // Role-tier depth instruction — determines how technical vs strategic the content is
+  const roleDepthInstruction = getRoleDepthInstruction(userContext.role)
+
   const systemPrompt = `You are a world-class educator and subject matter expert in ${domainLabel}.
 You are creating content for a ${userContext.role} at ${proficiencyLabel} level.
 Your output will be displayed as a full-screen visual section in a premium learning platform.
+
+AUDIENCE DEPTH:
+${roleDepthInstruction}
 
 Rules:
 1. Return ONLY valid JSON matching the schema below. No markdown, no explanation.
