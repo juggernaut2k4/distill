@@ -42,6 +42,7 @@ interface BuildDocsInput {
   skippedTopics?: string[]
   userRole?: string
   userIndustry?: string
+  learnerProfile?: string | null        // Document 4 — from buildProfileContextForClio()
 }
 
 // ─── DOCUMENT 1: SESSION BRIEF ────────────────────────────────────────────────
@@ -181,7 +182,10 @@ export function buildAllClioDocs(input: BuildDocsInput): ClioSessionDocs {
   const topic_context = buildTopicContext(input.sections, input.topicContextDocs)
   const session_script = buildSessionScript(input.sections, input.trainingScripts)
 
-  const system_prompt = [session_brief, topic_context, session_script].join('\n\n---\n\n')
+  const parts = [session_brief, topic_context, session_script]
+  if (input.learnerProfile) parts.push(input.learnerProfile)
+
+  const system_prompt = parts.join('\n\n---\n\n')
 
   return { session_brief, topic_context, session_script, system_prompt }
 }

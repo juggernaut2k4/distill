@@ -7,7 +7,7 @@ import type { KeyTakeawayData } from '@/lib/templates/types'
 import '@xyflow/react/dist/style.css'
 
 const INSIGHT_W = 260
-const INSIGHT_H = 110
+const INSIGHT_H = 140
 const GAP = 20
 
 function TopicCenterNode({ data }: NodeProps) {
@@ -77,7 +77,7 @@ export default function KeyTakeaway({ data, isActive, onReady }: KeyTakeawayProp
       position: { x: centerX, y: 0 },
       data: { topic: data.topic, one_thing: data.one_thing_to_remember },
       width: 340,
-      height: 140,
+      height: 150,
       draggable: false,
     }
 
@@ -103,7 +103,7 @@ export default function KeyTakeaway({ data, isActive, onReady }: KeyTakeawayProp
       position: { x: centerX, y: actionY },
       data: { action_for_you: data.action_for_you },
       width: 340,
-      height: 80,
+      height: 96,
       draggable: false,
     }
 
@@ -126,7 +126,7 @@ export default function KeyTakeaway({ data, isActive, onReady }: KeyTakeawayProp
         position: { x: centerX, y: actionY + 120 },
         data: { next_topic_preview: data.next_topic_preview },
         width: 280,
-        height: 60,
+        height: 72,
         draggable: false,
       })
       edges.push({ id: 'e-action-next', source: 'action', target: 'next', markerEnd: { type: MarkerType.ArrowClosed, color: '#475569' }, style: { stroke: '#47556960', strokeWidth: 1.5 } })

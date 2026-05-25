@@ -62,10 +62,10 @@ interface TopicHeroProps { data: TopicHeroData; isActive: boolean; onReady?: () 
 export default function TopicHero({ data, isActive, onReady }: TopicHeroProps) {
   const { rawNodes, rawEdges } = useMemo<{ rawNodes: Node[]; rawEdges: Edge[] }>(() => {
     const nodes: Node[] = [
-      { id: 'hero', type: 'hero', position: { x: 0, y: 0 }, data: { topic_name: data.topic_name, topic_number: data.topic_number, total_topics: data.total_topics }, width: 360, height: 110, draggable: false },
-      { id: 'question', type: 'keyQuestion', position: { x: 0, y: 0 }, data: { key_question: data.key_question }, width: 300, height: 90, draggable: false },
-      { id: 'time', type: 'time', position: { x: 0, y: 0 }, data: { estimated_minutes: data.estimated_minutes }, width: 160, height: 80, draggable: false },
-      { id: 'outcome', type: 'outcome', position: { x: 0, y: 0 }, data: { so_what_preview: data.so_what_preview }, width: 300, height: 90, draggable: false },
+      { id: 'hero', type: 'hero', position: { x: 0, y: 0 }, data: { topic_name: data.topic_name, topic_number: data.topic_number, total_topics: data.total_topics }, width: 360, height: 130, draggable: false },
+      { id: 'question', type: 'keyQuestion', position: { x: 0, y: 0 }, data: { key_question: data.key_question }, width: 300, height: 105, draggable: false },
+      { id: 'time', type: 'time', position: { x: 0, y: 0 }, data: { estimated_minutes: data.estimated_minutes }, width: 160, height: 88, draggable: false },
+      { id: 'outcome', type: 'outcome', position: { x: 0, y: 0 }, data: { so_what_preview: data.so_what_preview }, width: 300, height: 105, draggable: false },
     ]
     const edges: Edge[] = [
       { id: 'e-hero-q', source: 'hero', target: 'question', markerEnd: { type: MarkerType.ArrowClosed, color: '#7C3AED' }, style: { stroke: '#7C3AED60', strokeWidth: 2 } },

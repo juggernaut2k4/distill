@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   ArrowLeft, Loader2, AlertTriangle, RotateCcw,
   SendHorizonal, CheckCircle, Layers, ShieldCheck,
-  RefreshCw, RotateCw, ChevronDown,
+  RefreshCw, RotateCw, ChevronDown, Zap,
 } from 'lucide-react'
 import Link from 'next/link'
 import KBSessionPreview from '@/components/kb/KBSessionPreview'
@@ -75,6 +75,8 @@ export default function KBTopicClient({ topicId }: Props) {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [activeSectionIndex, setActiveSectionIndex] = useState(0)
   const [isPortrait, setIsPortrait] = useState(false)
+  const [isRegeneratingAll, setIsRegeneratingAll] = useState(false)
+  const [regenerateAllResult, setRegenerateAllResult] = useState<string | null>(null)
   const textareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({})
 
   // ── Portrait detection ────────────────────────────────────────────────────
@@ -211,6 +213,29 @@ export default function KBTopicClient({ topicId }: Props) {
     }
   }
 
+  // ── Regenerate all sections ───────────────────────────────────────────────
+  async function regenerateAll() {
+    setIsRegeneratingAll(true)
+    setRegenerateAllResult(null)
+    try {
+      const res = await fetch(
+        `/api/kb/topics/${encodeURIComponent(topicId)}/regenerate-all`,
+        { method: 'POST' }
+      )
+      const data = await res.json()
+      if (!res.ok) {
+        setRegenerateAllResult(`Failed: ${data.error ?? 'Unknown error'}`)
+      } else {
+        setRegenerateAllResult(`Done — ${data.succeeded}/${data.total} sections regenerated`)
+        await loadSections()
+      }
+    } catch {
+      setRegenerateAllResult('Request failed. Try again.')
+    } finally {
+      setIsRegeneratingAll(false)
+    }
+  }
+
   const handleSectionChange = useCallback((index: number) => {
     setActiveSectionIndex(index)
   }, [])
@@ -284,11 +309,27 @@ export default function KBTopicClient({ topicId }: Props) {
           <ArrowLeft className="w-4 h-4" />
           Knowledge Base
         </Link>
-        <div className="flex items-center gap-3">
-          <h1 className="text-white text-xl font-bold">{topicTitle}</h1>
-          <div className="flex items-center gap-1.5 text-[#475569] text-xs">
-            <Layers className="w-3.5 h-3.5" />
-            <span>{sections.length} {sections.length === 1 ? 'section' : 'sections'}</span>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <h1 className="text-white text-xl font-bold">{topicTitle}</h1>
+            <div className="flex items-center gap-1.5 text-[#475569] text-xs">
+              <Layers className="w-3.5 h-3.5" />
+              <span>{sections.length} {sections.length === 1 ? 'section' : 'sections'}</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {regenerateAllResult && (
+              <span className="text-xs text-[#94A3B8]">{regenerateAllResult}</span>
+            )}
+            <button
+              onClick={regenerateAll}
+              disabled={isRegeneratingAll}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#7C3AED]/15 border border-[#7C3AED]/40 hover:bg-[#7C3AED]/25 hover:border-[#7C3AED]/60 disabled:opacity-40 disabled:cursor-not-allowed text-[#A855F7] text-xs font-medium rounded-lg transition-colors"
+              title="Regenerate all sections with current word count constraints"
+            >
+              {isRegeneratingAll ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+              {isRegeneratingAll ? `Regenerating all…` : 'Regenerate All'}
+            </button>
           </div>
         </div>
       </div>
@@ -299,6 +340,7 @@ export default function KBTopicClient({ topicId }: Props) {
           sections={previewSections}
           activeSectionIndex={activeSectionIndex}
           onSectionChange={handleSectionChange}
+          topicId={topicId}
         />
       </div>
 

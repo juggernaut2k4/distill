@@ -127,11 +127,24 @@ export default function SessionDetailClient({ session }: Props) {
   const [contentGenStartedAt, setContentGenStartedAt] = useState<number | null>(null)
   const [isStuck, setIsStuck] = useState(false)
 
+  const isInitialLoadRef = useRef(true)
+
   const fetchContentStatus = useCallback(async () => {
     const res = await fetch(`/api/sessions/${session.id}/generate-content`)
     if (!res.ok) return
     const data = await res.json() as { content_status: string; subtopics: ContentSubtopic[] }
     const status = data.content_status as typeof contentStatus
+
+    // If page loads and DB already has 'generating' (stuck from a prior run),
+    // immediately show as failed so the user sees the Retry button.
+    if (isInitialLoadRef.current && status === 'generating') {
+      isInitialLoadRef.current = false
+      setContentStatus('failed')
+      setContentSubtopics(data.subtopics ?? [])
+      return
+    }
+    isInitialLoadRef.current = false
+
     setContentStatus(status)
     setContentSubtopics(data.subtopics ?? [])
     if (status === 'ready' || status === 'failed') {
@@ -152,13 +165,13 @@ export default function SessionDetailClient({ session }: Props) {
     return () => clearInterval(interval)
   }, [contentStatus, fetchContentStatus])
 
-  // Stuck detection: if still generating after 5 minutes with no topics ready, surface error
+  // Stuck detection: if still generating after 3 minutes with no topics ready, surface error
   useEffect(() => {
     if (!contentGenStartedAt || contentStatus !== 'generating') return
     const check = setInterval(() => {
       const elapsed = Date.now() - contentGenStartedAt
       const readyCount = contentSubtopics.filter((s) => s.pipeline_status === 'ready').length
-      if (elapsed > 5 * 60 * 1000 && readyCount === 0) {
+      if (elapsed > 3 * 60 * 1000 && readyCount === 0) {
         setIsStuck(true)
       }
     }, 15000)
@@ -177,11 +190,16 @@ export default function SessionDetailClient({ session }: Props) {
 
   const handleRetryContent = useCallback(() => {
     setIsStuck(false)
-    setContentStatus('pending')
     setIsGeneratingContent(false)
     setContentGenStartedAt(null)
-    // Reset DB status so the API won't skip re-generation
-    fetch(`/api/sessions/${session.id}/generate-content`, { method: 'DELETE' }).catch(() => {})
+    // Reset DB status then immediately kick off a fresh generation
+    fetch(`/api/sessions/${session.id}/generate-content`, { method: 'DELETE' })
+      .catch(() => {})
+      .finally(() => {
+        setContentStatus('generating')
+        setContentGenStartedAt(Date.now())
+        fetch(`/api/sessions/${session.id}/generate-content`, { method: 'POST' }).catch(() => {})
+      })
   }, [session.id])
 
   // Live session state — pre-fill from auto-generated Meet link if available
@@ -589,20 +607,20 @@ export default function SessionDetailClient({ session }: Props) {
           )
         })()}
 
-        {/* Failed state */}
+        {/* Failed / interrupted state */}
         {contentStatus === 'failed' && (
           <div className="mb-4 rounded-xl border border-[#EF4444]/30 bg-[#EF4444]/5 p-4 space-y-3">
             <div className="flex items-center gap-2 text-sm text-[#EF4444]">
               <AlertTriangle size={14} className="flex-shrink-0" />
-              Content generation failed. This is usually a temporary issue — click Retry to try again.
+              Content generation was interrupted. Click below to restart — it only takes 2–3 minutes.
             </div>
             <Button
-              variant="secondary"
+              variant="primary"
               className="gap-2 w-full justify-center"
               onClick={handleRetryContent}
             >
-              <Loader size={13} />
-              Retry
+              <Sparkles size={13} />
+              Generate Content &amp; Training Script
             </Button>
           </div>
         )}

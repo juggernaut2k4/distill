@@ -6,6 +6,7 @@ import {
   updateSentiment,
   addUnresolvedQuestion,
 } from '@/lib/user-context'
+import { inngest } from '@/inngest/client'
 
 /**
  * POST /api/recall/webhook
@@ -176,6 +177,10 @@ async function handleEvent(event: RecallWebhookEvent, userIdFromQuery?: string) 
 
     case 'bot.call_ended':
     case 'status.call_ended': {
+      // Snapshot topic info before clearing walkthrough_state
+      const topicTitle = (walkthroughRow.topic_title as string | null) ?? 'Unknown Session'
+      const topicId = (walkthroughRow.topic_id as string | null) ?? ''
+
       await supabase
         .from('walkthrough_state')
         .update({
@@ -199,6 +204,31 @@ async function handleEvent(event: RecallWebhookEvent, userIdFromQuery?: string) 
           .from('sessions')
           .update({ status: 'completed', ended_at: new Date().toISOString() })
           .eq('id', sessionId)
+      }
+
+      // Fetch session sentiment to pass to profile updater
+      const { data: ctxRow } = await supabase
+        .from('user_session_context')
+        .select('sentiment_history')
+        .eq('user_id', userId)
+        .maybeSingle()
+      const sentimentHistory = (ctxRow?.sentiment_history ?? []) as Array<{ sentiment: string; session: string }>
+      const sessionSentiment = sentimentHistory.find((h) => h.session === sessionId)?.sentiment ?? 'neutral'
+
+      // Fetch user's primary domain for the profile update
+      const { data: userRow } = await supabase
+        .from('users')
+        .select('primary_domain, domains')
+        .eq('id', userId)
+        .maybeSingle()
+      const domain = (userRow?.primary_domain as string | null) ?? 'ai-ml'
+
+      // Emit session.completed — Inngest job updates the learner profile asynchronously
+      if (sessionId) {
+        inngest.send({
+          name: 'distill/session.completed',
+          data: { userId, sessionId, domain, topicTitle, topicId, sessionSentiment },
+        }).catch((err) => console.error('[recall/webhook] Failed to emit session.completed:', err))
       }
 
       console.log('[recall/webhook] Call ended', { botId, userId })

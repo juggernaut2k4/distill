@@ -11,6 +11,7 @@ const OPT_W = 200
 const COL_GAP = 16
 const ROW_H = 80
 const ROW_GAP = 12
+const HEADER_H = 106
 
 function CriterionNode({ data }: NodeProps) {
   const d = data as { label: string; description?: string }
@@ -68,7 +69,7 @@ export default function ComparisonTable({ data, isActive, onReady }: ComparisonT
     const numOpts = data.options.length
     const numCrit = data.criteria.length
     const headerY = 0
-    const headerH = 90
+    const headerH = HEADER_H
     const gridStartY = headerY + headerH + 40
 
     const optHeaderNodes: Node[] = data.options.map((opt, i) => ({
@@ -116,7 +117,7 @@ export default function ComparisonTable({ data, isActive, onReady }: ComparisonT
       position: { x: verdictX, y: verdictY },
       data: { verdict: data.verdict },
       width: Math.min(verdictW, 700),
-      height: 70,
+      height: 85,
       draggable: false,
     }
 

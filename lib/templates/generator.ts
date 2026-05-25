@@ -54,6 +54,8 @@ interface UserContext {
   role: string
   industry: string
   maturity: string
+  domain?: string       // learning domain e.g. 'AI & Machine Learning', 'DevOps', 'React'
+  proficiency?: string  // 'beginner' | 'intermediate' | 'advanced' | 'expert'
 }
 
 interface AdjacentTopics {
@@ -745,15 +747,46 @@ export async function generateTemplateData(
     ? `\n\nQUALITY RULES (approved by the content team — follow strictly):\n${approvedRules.map((r, i) => `${i + 1}. ${r}`).join('\n')}`
     : ''
 
-  const systemPrompt = `You are a world-class executive educator creating content for senior business leaders.
-Your output will be displayed as a full-screen visual section in a premium coaching product.
+  const domainLabel = userContext.domain ?? 'the subject'
+  const proficiencyLabel = userContext.proficiency ?? userContext.maturity ?? 'intermediate'
+
+  const systemPrompt = `You are a world-class educator and subject matter expert in ${domainLabel}.
+You are creating content for a ${userContext.role} at ${proficiencyLabel} level.
+Your output will be displayed as a full-screen visual section in a premium learning platform.
 
 Rules:
 1. Return ONLY valid JSON matching the schema below. No markdown, no explanation.
-2. Every "so_what" or "so_what_for_you" field MUST be personalised to: Role="${userContext.role}", Industry="${userContext.industry}". Start with "As a ${userContext.role}," or "As a ${userContext.role} in ${userContext.industry},"
-3. All content must be immediately actionable or illuminating. No jargon. No fluff.
-4. Use real companies and real statistics where possible. If unsure of exact figures, use ranges.
-5. Write for someone who reads The Economist, not a technical paper.${rulesBlock}
+2. Every "so_what" or "so_what_for_you" field MUST be personalised to: Role="${userContext.role}", Domain="${domainLabel}". Start with "As a ${userContext.role},"
+3. All content must be immediately actionable or illuminating for someone at ${proficiencyLabel} level. No jargon beyond what a ${proficiencyLabel}-level learner would know.
+4. Use real companies, tools, and statistics where possible. If unsure of exact figures, use ranges.
+5. Write like a trusted senior colleague, not a textbook or a vendor pitch.
+
+LAYOUT CONSTRAINTS — CRITICAL: Content renders inside ReactFlow nodes with fixed pixel heights. Overflow causes visual clipping and overlapping. Strictly respect these word counts:
+
+GLOBAL (all templates):
+- "so_what" / "so_what_for_you": max 30 words, must start with "As a [role],"
+- "title" fields (section headline): max 8 words
+- "context" / subtitle fields: max 15 words
+
+PER TEMPLATE:
+ConceptDefinition — "plain_english": max 14 words | "one_line": max 10 words | "what_they_did": max 12 words | "result": max 8 words | "common_misconception": max 12 words
+StepFlow — each step "title": max 5 words | "description": max 15 words | "what_to_watch_for": max 12 words | max 4 steps | "outcome": max 15 words
+ComparisonTable — option "name": max 3 words | "tagline": max 8 words | "best_for": max 8 words | criterion "label": max 4 words | cell "value": max 6 words | max 3 options, 4 criteria | "verdict": max 25 words
+ProsCons — pro/con "title": max 5 words | "description": max 15 words | "evidence"/"mitigation": max 12 words | max 3 pros, 3 cons | "verdict": max 20 words
+KeyTakeaway — "insight": max 8 words | "implication": max 18 words | max 3 insights | "one_thing_to_remember": max 15 words | "action_for_you": max 20 words
+FrameworkCard — "framework_name": max 5 words | "purpose": max 5 words | component "description": max 8 words | "executive_question": max 12 words | "when_to_use"/"when_not_to_use": max 20 words | max 4 components
+TopicHero — "topic_name": max 5 words | "key_question": max 10 words | "so_what_preview": max 10 words
+CaseStudy — "challenge": max 12 words | "ai_solution": max 12 words | "what_they_got_right": max 10 words | "what_they_got_wrong": max 8 words | result "metric": max 4 words | "value": max 5 words
+StatCallout — "headline_stat": 1-3 characters (number only) | "unit": max 8 words | "context": max 15 words | "why_it_matters": max 30 words | supporting stat "label": max 5 words | max 3 supporting stats
+Timeline — event "title": max 6 words | "description": max 20 words | max 6 events | "where_we_are_now": max 25 words
+QuoteCallout — "quote": max 40 words | "context": max 20 words
+QuestionAnswer — "direct_answer": max 30 words | "analogy": max 25 words | "example": max 25 words | "important_nuance": max 20 words
+ActionPlan — takeaway "takeaway": max 8 words | "why_it_matters": max 15 words | max 3 takeaways | action "action": max 10 words | max 4 actions | question: max 10 words | max 4 questions | watch_out: max 15 words | max 3 watch_outs
+Funnel — stage "name": max 4 words | "description": max 8 words | "what_gets_filtered_out": max 7 words | "decision_criteria": max 7 words | max 4 stages
+Flowchart — start/end "label": max 4 words | decision "label": max 3 words (diamond shape, visible area is ~50% of node) | action "label": max 4 words | action "detail": max 5 words | set decision "detail" to null | max 8 nodes
+Hierarchy — any "label": max 5 words | any "detail": max 5 words
+TwoByTwoMatrix — quadrant "name": max 3 words | "description": max 20 words | "examples": max 2 items each max 5 words
+ConceptMap — "central_concept": max 4 words | node "label": max 5 words | node "description": max 10 words${rulesBlock}
 
 Template: ${templateType}
 Required JSON schema (data fields only):
@@ -761,9 +794,10 @@ ${schema}`
 
   const userPrompt = `Session: "${sessionTitle}"
 Subtopic: "${subtopicTitle}"
-User Role: ${userContext.role}
-User Industry: ${userContext.industry}
-AI Maturity: ${userContext.maturity}${adjacentContext}
+Learner Role: ${userContext.role}
+Domain: ${domainLabel}
+Proficiency: ${proficiencyLabel}
+Industry: ${userContext.industry}${adjacentContext}
 
 Generate the template data JSON for this subtopic.`
 
@@ -790,6 +824,137 @@ Generate the template data JSON for this subtopic.`
  * @param section - The current rendered section
  * @param feedback - Free-text feedback from the user describing desired changes
  */
+// ─── OVERFLOW NODE TYPE ───────────────────────────────────────────────────────
+
+export interface OverflowNode {
+  nodeId: string
+  nodeType: string
+  overflowPx: number
+}
+
+// ─── FIX OVERFLOWED SECTION ───────────────────────────────────────────────────
+
+/**
+ * Analyses a DOM overflow report and asks Claude to produce a version that fits
+ * within the canvas. Claude may shorten text, reduce item counts, or switch to a
+ * more compact template type — whichever preserves the most educational impact.
+ *
+ * Returns the fixed TemplateSection (potentially a different template type) plus
+ * metadata about the chosen strategy.
+ */
+export async function fixOverflowedSection(
+  section: TemplateSection,
+  overflowReport: OverflowNode[]
+): Promise<{ fixedSection: TemplateSection; strategy: string; reason: string }> {
+  if (isPlaceholder || !anthropic) {
+    console.log('[TEMPLATE-GENERATOR] Mock fixOverflowedSection — returning section unchanged')
+    return { fixedSection: section, strategy: 'no-op', reason: 'API key placeholder' }
+  }
+
+  const totalOverflow = overflowReport.reduce((s, n) => s + n.overflowPx, 0)
+  const overflowLines = overflowReport
+    .map((n) => `  - node "${n.nodeId}" (${n.nodeType}): +${n.overflowPx}px vertical overflow`)
+    .join('\n')
+
+  const currentSchema = getSchemaForTemplate(section.type as TemplateName)
+
+  // Compact alternatives to offer Claude when a template switch makes sense
+  const COMPACT_ALTERNATIVES: TemplateName[] = [
+    'TwoByTwoMatrix', 'ProsCons', 'StatCallout', 'QuoteCallout',
+    'KeyTakeaway', 'QuestionAnswer', 'ConceptDefinition',
+  ]
+  const alternatives = COMPACT_ALTERNATIVES.filter((t) => t !== section.type)
+  const altSchemas = alternatives
+    .map((t) => `### ${t}\n${getSchemaForTemplate(t)}`)
+    .join('\n\n')
+
+  const systemPrompt = `You are a visual content optimizer for an AI coaching platform. Content renders as interactive diagrams (ReactFlow) on a fixed landscape canvas — approximately 1400px wide × 700px tall.
+
+Each diagram node has a FIXED declared height. Content that overflows a node's height is clipped and not visible. You must ensure ALL content fits within node bounds.
+
+Your job: receive a template section with overflow problems and return a fixed version that fits — without compromising the educational impact or clarity of the content.
+
+## Fix strategies (apply in this order of preference)
+
+1. **SHORTEN_TEXT** — Keep same template type. Reduce word counts in overflowing nodes:
+   - Trim descriptions to their essential insight only
+   - Cut redundant phrases, examples, or clauses
+   - Prefer active, direct language over elaborate explanations
+   - This is the preferred strategy when overflow is ≤30px per node
+
+2. **REDUCE_ITEMS** — Keep same template type. Remove the least critical items:
+   - Reduce steps from 5→4, components from 5→4, insights from 4→3, etc.
+   - Keep items that carry the most decision-relevant insight for executives
+   - Use this when the node count itself is the source of the overflow
+
+3. **SWITCH_TEMPLATE** — Change to a more compact template that conveys the same lesson:
+   - Use this when the current template is fundamentally too tall for the content volume
+   - Choose a template from the compact alternatives below
+   - Rewrite content to fit the new template's schema
+   - Preserve the core educational goal: what should the executive understand?
+
+## Current section
+Template: ${section.type}
+Educational goal: "${section.meta?.subtopicTitle ?? 'unknown'}"
+Schema: ${currentSchema}
+
+Current data:
+${JSON.stringify(section.data, null, 2)}
+
+## Overflow report (${overflowReport.length} nodes, ${totalOverflow}px total)
+${overflowLines}
+
+## Compact template alternatives (use for SWITCH_TEMPLATE)
+${altSchemas}
+
+## Word count limits (always apply)
+- "so_what"/"so_what_for_you": max 30 words
+- "title"/"context"/"subtitle": max 15 words
+- Any node description: max 15 words
+- Any label: max 6 words
+- Max 4 steps/components/items per section
+
+## Response format
+Return ONLY valid JSON — no markdown, no explanation:
+{
+  "strategy": "SHORTEN_TEXT" | "REDUCE_ITEMS" | "SWITCH_TEMPLATE",
+  "reason": "one-sentence explanation of what you changed and why",
+  "type": "TemplateName",
+  "data": { ...template data matching the schema for the chosen type... }
+}`
+
+  const userPrompt = `Fix the overflow and return the corrected section JSON.`
+
+  try {
+    const response = await anthropic.messages.create({
+      model: MODEL,
+      max_tokens: 2000,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userPrompt }],
+    })
+
+    const rawText = response.content[0].type === 'text' ? response.content[0].text : '{}'
+    const cleaned = rawText.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim()
+    const parsed = JSON.parse(cleaned) as {
+      strategy: string
+      reason: string
+      type: TemplateName
+      data: TemplateSection['data']
+    }
+
+    const fixedSection = {
+      ...section,
+      type: parsed.type,
+      data: parsed.data,
+    } as TemplateSection
+
+    return { fixedSection, strategy: parsed.strategy, reason: parsed.reason }
+  } catch (err) {
+    console.error('[TEMPLATE-GENERATOR] fixOverflowedSection failed:', err)
+    throw new Error('Failed to fix overflow.')
+  }
+}
+
 export async function regenerateWithFeedback(
   section: TemplateSection,
   feedback: string
@@ -806,7 +971,26 @@ Rules:
 - Keep the exact same JSON structure and field names
 - Apply the feedback thoughtfully — improve content, not just rephrase
 - Keep language concise and executive-appropriate
-- If feedback asks for structural changes that can't fit the schema, do your best within the existing structure`
+- If feedback asks for structural changes that can't fit the schema, do your best within the existing structure
+
+LAYOUT CONSTRAINTS — content renders in fixed-height ReactFlow nodes. Stay within these limits:
+- "so_what"/"so_what_for_you": max 30 words
+- "title" fields: max 8 words | "context"/"subtitle": max 15 words
+- ConceptDefinition "plain_english": max 14w | "what_they_did": max 12w | "result": max 8w | "common_misconception": max 12w
+- StepFlow each step "description": max 15w | "what_to_watch_for": max 12w | max 4 steps
+- ComparisonTable cell "value": max 6w | "verdict": max 25w | max 3 options, 4 criteria
+- ProsCons "description": max 15w | max 3 pros/cons | "verdict": max 20w
+- KeyTakeaway "insight": max 8w | "implication": max 18w | max 3 insights
+- FrameworkCard "framework_name": max 5w | "purpose": max 5w | component "description": max 8w | "executive_question": max 12w | max 4 components
+- Flowchart decision "label": max 3w | action "label": max 4w | action "detail": max 5w | set decision "detail" to null
+- TopicHero "topic_name": max 5w | "key_question": max 10w | "so_what_preview": max 10w
+- CaseStudy "challenge": max 12w | "ai_solution": max 12w | "what_they_got_right": max 10w | "what_they_got_wrong": max 8w
+- StatCallout "context": max 15w | "headline_stat": number only 1-3 chars
+- ActionPlan takeaway "takeaway": max 8w | question: max 10w
+- Funnel "description": max 8w | "what_gets_filtered_out": max 7w | "decision_criteria": max 7w
+- TwoByTwoMatrix quadrant "description": max 20w
+- ConceptMap "central_concept": max 4w | node "label": max 5w
+- Hierarchy any "detail": max 5w`
 
   const userPrompt = `Current section type: ${section.type}
 

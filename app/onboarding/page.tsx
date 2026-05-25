@@ -1,243 +1,514 @@
 'use client'
 
-import { useState, Suspense } from 'react'
+import { useState, Suspense, useMemo } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useRouter } from 'next/navigation'
 import { useUser } from '@clerk/nextjs'
 import { ProgressBar } from '@/components/onboarding/ProgressBar'
-import { QuestionCard } from '@/components/onboarding/QuestionCard'
-import { Button } from '@/components/ui/Button'
-import { ArrowRight, ArrowLeft } from 'lucide-react'
+import { ArrowRight, ArrowLeft, Plus, X, Search } from 'lucide-react'
+import {
+  ROLES, ALL_DOMAINS, PROFICIENCY_LEVELS, LEARNING_GOALS,
+  getDomainsForRole, searchDomains,
+  type Domain, type Proficiency, type LearningGoal,
+} from '@/lib/learning/taxonomy'
 
-const QUESTIONS = [
-  {
-    id: 'role',
-    question: 'What is your role?',
-    options: [
-      'CEO / MD / President',
-      'VP / SVP / EVP',
-      'CU Lead / Practice Head',
-      'BU Lead / Functional Head',
-      'Product Sponsor / Owner',
-      'Director / Senior Manager',
-      'Other',
-    ],
-  },
-  {
-    id: 'industry',
-    question: 'What industry are you in?',
-    options: [
-      'Technology / SaaS',
-      'Financial Services / Banking',
-      'Healthcare / Life Sciences',
-      'Retail / E-commerce',
-      'Manufacturing / Supply Chain',
-      'Consulting / Professional Services',
-      'Other',
-    ],
-  },
-  {
-    id: 'aiMaturity',
-    question: 'How involved are you with AI today?',
-    options: [
-      'Just observing from a distance',
-      'Evaluating AI vendors / solutions',
-      'Running AI pilots in my team',
-      'Scaling AI across my organization',
-      'Other',
-    ],
-  },
-  {
-    id: 'worry',
-    question: 'What worries you most about AI?',
-    options: [
-      'My job relevance / security',
-      'Knowing if AI investments deliver ROI',
-      'How to evaluate AI vendors and technology',
-      'Upskilling my team for AI',
-      'Falling behind competitors',
-      'Other',
-    ],
-  },
-  {
-    id: 'deliveryPreference',
-    question: 'How should we reach you?',
-    options: [
-      'Email only',
-      'Both Email + SMS (Pro & Executive)',
-      'SMS only (Pro & Executive)',
-    ],
-  },
+// ─── Step definitions ─────────────────────────────────────────────────────────
+
+const TOTAL_STEPS = 5
+// 0: Role  1: Domains  2: Proficiency  3: Goal  4: Industry
+
+// ─── Industry options (kept for so_what personalisation) ─────────────────────
+
+const INDUSTRIES = [
+  'Technology / SaaS',
+  'Financial Services / Banking',
+  'Healthcare / Life Sciences',
+  'Retail / E-commerce',
+  'Manufacturing / Supply Chain',
+  'Consulting / Professional Services',
+  'Media / Entertainment',
+  'Education',
+  'Government / Public Sector',
+  'Other',
 ]
 
-const MATURITY_MAP: Record<string, string> = {
-  'Just observing from a distance': 'observer',
-  'Evaluating AI vendors / solutions': 'evaluator',
-  'Running AI pilots in my team': 'pilot',
-  'Scaling AI across my organization': 'scaler',
+// ─── Slide animation variants ─────────────────────────────────────────────────
+
+const slideVariants = {
+  enter: (dir: 'right' | 'left') => ({ x: dir === 'right' ? 60 : -60, opacity: 0 }),
+  center: { x: 0, opacity: 1 },
+  exit: (dir: 'right' | 'left') => ({ x: dir === 'right' ? -60 : 60, opacity: 0 }),
 }
 
-const DELIVERY_MAP: Record<string, string> = {
-  'Email only': 'email',
-  'Both Email + SMS (Pro & Executive)': 'both',
-  'SMS only (Pro & Executive)': 'sms',
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function StepHeading({ title, subtitle }: { title: string; subtitle?: string }) {
+  return (
+    <div className="text-center mb-8">
+      <h2 className="text-3xl md:text-4xl font-bold text-white mb-2 leading-tight">{title}</h2>
+      {subtitle && <p className="text-[#94A3B8] text-sm">{subtitle}</p>}
+    </div>
+  )
 }
+
+function SingleOptionButton({ label, selected, onClick }: { label: string; selected: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full min-h-[60px] px-4 py-3.5 rounded-xl border text-left text-sm font-medium transition-all ${
+        selected
+          ? 'border-[#7C3AED] bg-[#7C3AED]/15 text-white'
+          : 'border-[#222222] bg-[#111111] text-[#94A3B8] hover:border-[#444] hover:text-white'
+      }`}
+    >
+      {label}
+    </button>
+  )
+}
+
+function DomainCard({ domain, selected, onClick }: { domain: Domain; selected: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`relative flex flex-col gap-1.5 p-3 rounded-xl border text-left transition-all ${
+        selected
+          ? 'border-[#7C3AED] bg-[#7C3AED]/15'
+          : 'border-[#222222] bg-[#111111] hover:border-[#444]'
+      }`}
+    >
+      {selected && (
+        <div className="absolute top-2 right-2 w-4 h-4 rounded-full bg-[#7C3AED] flex items-center justify-center">
+          <span className="text-white text-[9px] font-bold">✓</span>
+        </div>
+      )}
+      <span className="text-xl leading-none">{domain.icon}</span>
+      <span className={`text-xs font-semibold leading-tight pr-4 ${selected ? 'text-white' : 'text-[#94A3B8]'}`}>
+        {domain.label}
+      </span>
+    </button>
+  )
+}
+
+// ─── Step 0: Role ─────────────────────────────────────────────────────────────
+
+function RoleStep({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="w-full max-w-sm mx-auto">
+      <StepHeading title="What's your role?" subtitle="We'll tailor your learning path to your perspective" />
+      <div className="flex flex-col gap-2">
+        {ROLES.map((r) => (
+          <SingleOptionButton key={r.id} label={r.label} selected={value === r.id} onClick={() => onChange(r.id)} />
+        ))}
+        <SingleOptionButton label="Other" selected={value === 'other'} onClick={() => onChange('other')} />
+      </div>
+    </div>
+  )
+}
+
+// ─── Step 1: Domain selection ─────────────────────────────────────────────────
+
+function DomainStep({
+  roleId,
+  selected,
+  customDomains,
+  onToggle,
+  onAddCustom,
+  onRemoveCustom,
+}: {
+  roleId: string
+  selected: string[]
+  customDomains: string[]
+  onToggle: (id: string) => void
+  onAddCustom: (label: string) => void
+  onRemoveCustom: (label: string) => void
+}) {
+  const [search, setSearch] = useState('')
+  const [customInput, setCustomInput] = useState('')
+  const [showAll, setShowAll] = useState(false)
+
+  const roleDomains = useMemo(() => getDomainsForRole(roleId), [roleId])
+  const primaryDomains = roleDomains.slice(0, 7)
+  const secondaryDomains = roleDomains.slice(7)
+
+  const searchResults = useMemo(
+    () => (search.trim().length > 1 ? searchDomains(search) : []),
+    [search]
+  )
+
+  const displayDomains = search.trim().length > 1
+    ? searchResults
+    : showAll
+    ? roleDomains
+    : primaryDomains
+
+  function handleAddCustom() {
+    const label = customInput.trim()
+    if (label && !customDomains.includes(label)) {
+      onAddCustom(label)
+      setCustomInput('')
+    }
+  }
+
+  return (
+    <div className="w-full max-w-2xl mx-auto">
+      <StepHeading
+        title="What do you want to learn?"
+        subtitle="Pick everything that interests you — we'll build paths for each"
+      />
+
+      {/* Search */}
+      <div className="relative mb-4">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#475569]" />
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search any domain or technology..."
+          className="w-full bg-[#111111] border border-[#222222] text-white text-sm rounded-xl pl-9 pr-4 py-2.5 focus:outline-none focus:border-[#7C3AED] placeholder-[#475569] transition-colors"
+        />
+      </div>
+
+      {/* Domain grid */}
+      <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-3">
+        {displayDomains.map((d) => (
+          <DomainCard
+            key={d.id}
+            domain={d}
+            selected={selected.includes(d.id)}
+            onClick={() => onToggle(d.id)}
+          />
+        ))}
+      </div>
+
+      {/* Show more */}
+      {!search && secondaryDomains.length > 0 && (
+        <button
+          onClick={() => setShowAll((v) => !v)}
+          className="text-xs text-[#475569] hover:text-[#94A3B8] transition-colors mb-4"
+        >
+          {showAll ? '↑ Show fewer' : `↓ Show ${secondaryDomains.length} more domains`}
+        </button>
+      )}
+
+      {/* Custom domain input */}
+      <div className="mt-2 flex gap-2">
+        <input
+          type="text"
+          value={customInput}
+          onChange={(e) => setCustomInput(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleAddCustom()}
+          placeholder="Don't see your topic? Type it here..."
+          className="flex-1 bg-[#111111] border border-[#222222] text-white text-sm rounded-xl px-4 py-2.5 focus:outline-none focus:border-[#7C3AED] placeholder-[#475569] transition-colors"
+        />
+        <button
+          onClick={handleAddCustom}
+          disabled={!customInput.trim()}
+          className="px-3 py-2.5 rounded-xl border border-[#333] text-[#94A3B8] hover:border-[#7C3AED] hover:text-white disabled:opacity-30 transition-colors"
+        >
+          <Plus size={16} />
+        </button>
+      </div>
+
+      {/* Custom domain chips */}
+      {customDomains.length > 0 && (
+        <div className="flex flex-wrap gap-2 mt-3">
+          {customDomains.map((label) => (
+            <div key={label} className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#7C3AED]/20 border border-[#7C3AED]/40 text-[#A855F7] text-xs">
+              {label}
+              <button onClick={() => onRemoveCustom(label)} className="hover:text-white transition-colors">
+                <X size={11} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Selection count */}
+      {(selected.length > 0 || customDomains.length > 0) && (
+        <p className="mt-4 text-xs text-[#475569] text-center">
+          {selected.length + customDomains.length} domain{selected.length + customDomains.length !== 1 ? 's' : ''} selected
+        </p>
+      )}
+    </div>
+  )
+}
+
+// ─── Step 2: Proficiency per domain ──────────────────────────────────────────
+
+function ProficiencyStep({
+  selectedDomainIds,
+  customDomains,
+  proficiencies,
+  onChange,
+}: {
+  selectedDomainIds: string[]
+  customDomains: string[]
+  proficiencies: Record<string, Proficiency>
+  onChange: (domainKey: string, level: Proficiency) => void
+}) {
+  const allDomains = useMemo(() => {
+    const fromTaxonomy = selectedDomainIds.map((id) => {
+      const d = ALL_DOMAINS.find((x) => x.id === id)
+      return d ? { key: d.id, label: d.label, icon: d.icon } : null
+    }).filter(Boolean) as { key: string; label: string; icon: string }[]
+
+    const fromCustom = customDomains.map((label) => ({ key: label, label, icon: '📌' }))
+    return [...fromTaxonomy, ...fromCustom]
+  }, [selectedDomainIds, customDomains])
+
+  return (
+    <div className="w-full max-w-lg mx-auto">
+      <StepHeading
+        title="What's your current level?"
+        subtitle="Be honest — we calibrate the depth of every session to match"
+      />
+      <div className="flex flex-col gap-4">
+        {allDomains.map(({ key, label, icon }) => (
+          <div key={key} className="bg-[#111111] border border-[#1A1A1A] rounded-xl p-4">
+            <p className="text-white text-sm font-medium mb-3">
+              <span className="mr-2">{icon}</span>{label}
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              {PROFICIENCY_LEVELS.map((p) => (
+                <button
+                  key={p.value}
+                  onClick={() => onChange(key, p.value)}
+                  className={`px-3 py-2.5 rounded-lg border text-left transition-all ${
+                    proficiencies[key] === p.value
+                      ? 'border-[#7C3AED] bg-[#7C3AED]/15 text-white'
+                      : 'border-[#222] text-[#475569] hover:border-[#444] hover:text-[#94A3B8]'
+                  }`}
+                >
+                  <div className="text-xs font-semibold leading-tight">{p.label}</div>
+                  <div className="text-[10px] text-[#475569] mt-0.5 leading-tight">{p.description}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── Step 3: Learning goal ────────────────────────────────────────────────────
+
+function GoalStep({ value, onChange }: { value: LearningGoal | ''; onChange: (v: LearningGoal) => void }) {
+  return (
+    <div className="w-full max-w-sm mx-auto">
+      <StepHeading
+        title="How much time can you commit?"
+        subtitle="We'll pace your sessions to match your schedule"
+      />
+      <div className="flex flex-col gap-3">
+        {LEARNING_GOALS.map((g) => (
+          <button
+            key={g.value}
+            onClick={() => onChange(g.value)}
+            className={`w-full p-4 rounded-xl border text-left transition-all ${
+              value === g.value
+                ? 'border-[#7C3AED] bg-[#7C3AED]/15'
+                : 'border-[#222222] bg-[#111111] hover:border-[#444]'
+            }`}
+          >
+            <div className={`text-sm font-semibold ${value === g.value ? 'text-white' : 'text-[#94A3B8]'}`}>
+              {g.label}
+            </div>
+            <div className="text-xs text-[#475569] mt-0.5">{g.description}</div>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── Step 4: Industry ─────────────────────────────────────────────────────────
+
+function IndustryStep({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="w-full max-w-sm mx-auto">
+      <StepHeading
+        title="What's your industry?"
+        subtitle="We use this to make every insight relevant to your world"
+      />
+      <div className="flex flex-col gap-2">
+        {INDUSTRIES.map((ind) => (
+          <SingleOptionButton key={ind} label={ind} selected={value === ind} onClick={() => onChange(ind)} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── Main onboarding flow ─────────────────────────────────────────────────────
 
 function OnboardingContent() {
   const router = useRouter()
   const { isLoaded, isSignedIn } = useUser()
+
   const [step, setStep] = useState(0)
-  const [answers, setAnswers] = useState<Record<string, string>>({})
-  const [selectedLabels, setSelectedLabels] = useState<Record<string, string>>({})
-  const [otherTexts, setOtherTexts] = useState<Record<string, string>>({})
   const [direction, setDirection] = useState<'right' | 'left'>('right')
   const [building, setBuilding] = useState(false)
 
-  // isSignedIn is read in submitOnboarding to decide where to go after Q5.
-  // We intentionally do NOT redirect mid-questions — let the user finish first.
+  // Step answers
+  const [role, setRole] = useState('')
+  const [selectedDomains, setSelectedDomains] = useState<string[]>([])
+  const [customDomains, setCustomDomains] = useState<string[]>([])
+  const [proficiencies, setProficiencies] = useState<Record<string, Proficiency>>({})
+  const [learningGoal, setLearningGoal] = useState<LearningGoal | ''>('')
+  const [industry, setIndustry] = useState('')
 
-  const current = QUESTIONS[step]
-  const selectedLabel = selectedLabels[current?.id] ?? null
-  const currentOtherText = otherTexts[current?.id] ?? ''
-  const isOtherSelected = selectedLabel === 'Other'
-  const hasOtherInOptions = current?.options.includes('Other') ?? false
-  const currentAnswer = answers[current?.id] ?? null
-  const canProceed = isOtherSelected
-    ? currentOtherText.trim().length > 0
-    : currentAnswer !== null && currentAnswer !== ''
+  // ── Can proceed from each step ──────────────────────────────────────────────
+  const canProceed = useMemo(() => {
+    if (step === 0) return role !== ''
+    if (step === 1) return selectedDomains.length > 0 || customDomains.length > 0
+    if (step === 2) {
+      const allKeys = [...selectedDomains, ...customDomains]
+      return allKeys.length > 0 && allKeys.every((k) => proficiencies[k])
+    }
+    if (step === 3) return learningGoal !== ''
+    if (step === 4) return industry !== ''
+    return false
+  }, [step, role, selectedDomains, customDomains, proficiencies, learningGoal, industry])
 
-  function handleSelect(option: string) {
-    setSelectedLabels((prev) => ({ ...prev, [current.id]: option }))
-    if (option !== 'Other') {
-      setAnswers((prev) => ({ ...prev, [current.id]: option }))
+  // ── Domain handlers ─────────────────────────────────────────────────────────
+  function toggleDomain(id: string) {
+    setSelectedDomains((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    )
+  }
+  function addCustomDomain(label: string) {
+    setCustomDomains((prev) => [...prev, label])
+  }
+  function removeCustomDomain(label: string) {
+    setCustomDomains((prev) => prev.filter((x) => x !== label))
+    setProficiencies((prev) => { const next = { ...prev }; delete next[label]; return next })
+  }
+
+  // ── Navigation ──────────────────────────────────────────────────────────────
+  function handleNext() {
+    if (!canProceed) return
+    if (step < TOTAL_STEPS - 1) {
+      setDirection('right')
+      setStep((s) => s + 1)
     } else {
-      const existingText = otherTexts[current.id] ?? ''
-      setAnswers((prev) => ({ ...prev, [current.id]: existingText || '' }))
+      setBuilding(true)
+      submitOnboarding()
     }
   }
-
-  function handleOtherTextChange(text: string) {
-    setOtherTexts((prev) => ({ ...prev, [current.id]: text }))
-    setAnswers((prev) => ({ ...prev, [current.id]: text }))
-  }
-
   function handleBack() {
     if (step === 0) return
     setDirection('left')
     setStep((s) => s - 1)
   }
 
-  function handleNext() {
-    if (!canProceed) return
-
-    if (step < QUESTIONS.length - 1) {
-      setDirection('right')
-      setStep((s) => s + 1)
-    } else {
-      // All questions answered — save answers and go to sign-up.
-      // Plan selection happens AFTER sign-up on the /plan page.
-      setBuilding(true)
-      submitOnboarding()
-    }
-  }
-
+  // ── Submit ──────────────────────────────────────────────────────────────────
   async function submitOnboarding() {
+    const primaryDomain = selectedDomains[0] ?? customDomains[0] ?? 'ai-ml'
+    const domainProficiency: Record<string, string> = {}
+    ;[...selectedDomains, ...customDomains].forEach((k) => {
+      domainProficiency[k] = proficiencies[k] ?? 'intermediate'
+    })
+
     const payload = {
-      role: answers.role,
-      industry: answers.industry,
-      aiMaturity: MATURITY_MAP[answers.aiMaturity] ?? 'observer',
-      worry: answers.worry,
-      deliveryPreference: DELIVERY_MAP[answers.deliveryPreference] ?? 'email',
+      role,
+      industry,
+      aiMaturity: proficiencies[primaryDomain] ?? 'intermediate',
+      worry: '',
+      deliveryPreference: 'email',
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      // new multi-domain fields
+      domains: selectedDomains,
+      customDomains,
+      primaryDomain,
+      domainProficiency,
+      learningGoal,
     }
     localStorage.setItem('clio_onboarding', JSON.stringify(payload))
 
     setTimeout(() => {
-      // Already signed in → skip sign-up, go straight to plan selection
-      if (isSignedIn) {
-        router.push('/plan')
-      } else {
-        router.push('/sign-up')
-      }
+      router.push(isSignedIn ? '/plan' : '/sign-up')
     }, 2000)
   }
 
-  if (building) {
-    return <BuildingScreen />
-  }
+  if (building) return <BuildingScreen />
 
   return (
     <div className="min-h-screen bg-[#080808] flex flex-col">
-      <ProgressBar current={step + 1} total={QUESTIONS.length} />
+      <ProgressBar current={step + 1} total={TOTAL_STEPS} />
 
-      <div className="flex-1 flex flex-col items-center justify-center px-6 py-16">
+      <div className="flex-1 flex flex-col items-center justify-center px-4 py-12 overflow-y-auto">
         <AnimatePresence mode="wait" custom={direction}>
-          <QuestionCard
+          <motion.div
             key={step}
-            question={current.question}
-            options={current.options}
-            selectedOption={selectedLabel}
-            onSelect={handleSelect}
-            direction={direction}
-          />
-        </AnimatePresence>
+            custom={direction}
+            variants={slideVariants}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            transition={{ duration: 0.3, ease: 'easeInOut' }}
+            className="w-full"
+          >
+            {step === 0 && <RoleStep value={role} onChange={setRole} />}
 
-        {/* "Other" text input */}
-        <AnimatePresence>
-          {isOtherSelected && hasOtherInOptions && (
-            <motion.div
-              key={`other-input-${step}`}
-              initial={{ opacity: 0, y: -8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.2 }}
-              className="w-full max-w-sm mt-3"
-            >
-              <input
-                type="text"
-                autoFocus
-                placeholder="Type your answer..."
-                value={currentOtherText}
-                onChange={(e) => handleOtherTextChange(e.target.value)}
-                className="w-full bg-[#111111] border border-[#7C3AED] text-white rounded-xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#A855F7] placeholder-[#475569] transition-colors"
+            {step === 1 && (
+              <DomainStep
+                roleId={role}
+                selected={selectedDomains}
+                customDomains={customDomains}
+                onToggle={toggleDomain}
+                onAddCustom={addCustomDomain}
+                onRemoveCustom={removeCustomDomain}
               />
-            </motion.div>
-          )}
+            )}
+
+            {step === 2 && (
+              <ProficiencyStep
+                selectedDomainIds={selectedDomains}
+                customDomains={customDomains}
+                proficiencies={proficiencies}
+                onChange={(key, level) => setProficiencies((p) => ({ ...p, [key]: level }))}
+              />
+            )}
+
+            {step === 3 && <GoalStep value={learningGoal} onChange={setLearningGoal} />}
+
+            {step === 4 && <IndustryStep value={industry} onChange={setIndustry} />}
+          </motion.div>
         </AnimatePresence>
 
+        {/* Navigation */}
         <motion.div
           initial={{ opacity: 0 }}
-          animate={{ opacity: canProceed ? 1 : 0 }}
-          transition={{ duration: 0.3 }}
+          animate={{ opacity: canProceed ? 1 : 0.35 }}
+          transition={{ duration: 0.2 }}
           className="mt-8 w-full max-w-sm flex items-center gap-3"
         >
           {step > 0 && (
             <button
               onClick={handleBack}
-              className="flex items-center justify-center w-12 h-12 rounded-xl border border-[#333333] text-[#94A3B8] hover:text-white hover:border-[#555555] transition-colors flex-shrink-0"
-              aria-label="Go back"
+              className="flex items-center justify-center w-12 h-12 rounded-xl border border-[#333333] text-[#94A3B8] hover:text-white hover:border-[#555] transition-colors shrink-0"
             >
               <ArrowLeft size={18} />
             </button>
           )}
-          <Button
+          <button
             onClick={handleNext}
             disabled={!canProceed}
-            size="lg"
-            className="flex-1 gap-2"
+            className="flex-1 flex items-center justify-center gap-2 h-12 rounded-xl bg-[#7C3AED] hover:bg-[#6D28D9] disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-sm transition-colors"
           >
-            {step === QUESTIONS.length - 1 ? 'Build my plan' : 'Next'}
-            <ArrowRight size={18} />
-          </Button>
+            {step === TOTAL_STEPS - 1 ? 'Build my learning plan' : 'Continue'}
+            <ArrowRight size={16} />
+          </button>
         </motion.div>
 
-        <p className="mt-6 text-sm text-[#475569]">
-          {step + 1} of {QUESTIONS.length}
-        </p>
+        <p className="mt-5 text-xs text-[#333333]">{step + 1} of {TOTAL_STEPS}</p>
       </div>
     </div>
   )
 }
+
+// ─── Exports ──────────────────────────────────────────────────────────────────
 
 export default function OnboardingPage() {
   return (
@@ -264,18 +535,15 @@ function BuildingScreen() {
           <span className="text-2xl font-extrabold text-white tracking-tight">C</span>
         </div>
       </div>
-
       <h2 className="text-3xl font-bold text-white mb-3">Got it.</h2>
-
       <motion.p
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.5 }}
         className="text-[#94A3B8] text-center"
       >
-        Creating your account to save your preferences...
+        Building your personalised learning paths…
       </motion.p>
-
       <div className="mt-8 flex gap-2">
         {[0, 1, 2].map((i) => (
           <motion.div

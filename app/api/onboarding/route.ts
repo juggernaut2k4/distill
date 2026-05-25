@@ -8,13 +8,19 @@ import { assignPhoneNumber } from '@/lib/delivery/sms'
 const OnboardingSchema = z.object({
   role: z.string().min(1, 'Role is required'),
   industry: z.string().min(1, 'Industry is required'),
-  aiMaturity: z.enum(['observer', 'evaluator', 'pilot', 'scaler']),
-  worry: z.string().min(1, 'Worry is required'),
-  deliveryPreference: z.enum(['email', 'sms', 'both']),
+  aiMaturity: z.string().default('intermediate'),
+  worry: z.string().default(''),
+  deliveryPreference: z.enum(['email', 'sms', 'both']).default('email'),
   timezone: z.string().default('America/New_York'),
   email: z.string().email().optional(),
   phone: z.string().optional(),
   plan: z.enum(['free', 'starter', 'pro', 'executive']).default('free'),
+  // Multi-domain fields
+  domains: z.array(z.string()).default([]),
+  customDomains: z.array(z.string()).default([]),
+  primaryDomain: z.string().default('ai-ml'),
+  domainProficiency: z.record(z.string(), z.string()).default({}),
+  learningGoal: z.string().default('steady_progress'),
 })
 
 /**
@@ -57,7 +63,7 @@ export async function POST(request: NextRequest) {
       role: data.role,
       industry: data.industry,
       ai_maturity: data.aiMaturity,
-      worry_tags: [data.worry],
+      worry_tags: data.worry ? [data.worry] : [],
       delivery_preference: data.deliveryPreference,
       timezone: data.timezone,
       plan_tier: data.plan,
@@ -66,6 +72,12 @@ export async function POST(request: NextRequest) {
       needs_recalibration: false,
       streak_days: 0,
       ai_readiness_score: 0,
+      // Multi-domain fields
+      domains: data.domains,
+      custom_domains: data.customDomains,
+      primary_domain: data.primaryDomain,
+      domain_proficiency: data.domainProficiency,
+      learning_goal: data.learningGoal,
     }
 
     const { error: upsertError } = await supabase

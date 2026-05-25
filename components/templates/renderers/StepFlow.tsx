@@ -11,8 +11,8 @@ function StepNode({ data }: NodeProps) {
   const d = data as { number: number; title: string; description: string; what_to_watch_for?: string; time_estimate?: string }
   return (
     <div className="rounded-xl border border-[#7C3AED]/40 bg-[#111111] p-4 min-w-[260px] max-w-[340px]">
-      <Handle type="target" position={Position.Top} style={{ background: '#7C3AED', border: 'none' }} />
-      <Handle type="source" position={Position.Bottom} style={{ background: '#7C3AED', border: 'none' }} />
+      <Handle type="target" position={Position.Left} style={{ background: '#7C3AED', border: 'none' }} />
+      <Handle type="source" position={Position.Right} style={{ background: '#7C3AED', border: 'none' }} />
       <div className="flex items-start gap-3">
         <div className="shrink-0 w-8 h-8 rounded-full bg-[#7C3AED] flex items-center justify-center text-white font-bold text-sm">{d.number}</div>
         <div className="flex-1">
@@ -36,7 +36,7 @@ function OutcomeNode({ data }: NodeProps) {
   const d = data as { outcome: string }
   return (
     <div className="rounded-xl border border-[#10B981]/40 bg-[#10B981]/5 p-4 text-center min-w-[260px] max-w-[340px]">
-      <Handle type="target" position={Position.Top} style={{ background: '#10B981', border: 'none' }} />
+      <Handle type="target" position={Position.Left} style={{ background: '#10B981', border: 'none' }} />
       <div className="text-xs font-semibold text-[#10B981] mb-2 tracking-wide uppercase">✓ Outcome</div>
       <p className="text-white text-sm">{d.outcome}</p>
     </div>
@@ -56,10 +56,10 @@ export default function StepFlow({ data, isActive, onReady }: StepFlowProps) {
         position: { x: 0, y: 0 },
         data: step,
         width: 300,
-        height: step.what_to_watch_for ? 130 : 100,
+        height: step.what_to_watch_for ? 150 : 120,
         draggable: false,
       })),
-      { id: 'outcome', type: 'outcome', position: { x: 0, y: 0 }, data: { outcome: data.outcome }, width: 300, height: 80, draggable: false },
+      { id: 'outcome', type: 'outcome', position: { x: 0, y: 0 }, data: { outcome: data.outcome }, width: 300, height: 92, draggable: false },
     ]
     const edges: Edge[] = [
       ...data.steps.slice(0, -1).map((step) => ({
@@ -82,7 +82,7 @@ export default function StepFlow({ data, isActive, onReady }: StepFlowProps) {
     return { rawNodes: nodes, rawEdges: edges }
   }, [data])
 
-  const { nodes: layoutNodes, edges: layoutEdges } = useFlowLayout(rawNodes, rawEdges, { direction: 'TB', rankSep: 60, nodeSep: 30 })
+  const { nodes: layoutNodes, edges: layoutEdges } = useFlowLayout(rawNodes, rawEdges, { direction: 'LR', rankSep: 60, nodeSep: 30 })
   const [nodes, , onNodesChange] = useNodesState(layoutNodes)
   const [edges, , onEdgesChange] = useEdgesState(layoutEdges)
   const onInit = useCallback(() => { if (isActive) onReady?.() }, [isActive, onReady])

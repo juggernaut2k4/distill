@@ -56,7 +56,7 @@ export default function FrameworkCard({ data, isActive, onReady }: FrameworkProp
     data.components.forEach((c, i) => {
       const col = i % cols
       const row = Math.floor(i / cols)
-      nodes.push({ id: `c${i}`, type: 'component', position: { x: startX + col * spacingX, y: 180 + row * 200 }, data: { ...c, color: COMPONENT_COLORS[i % COMPONENT_COLORS.length] }, width: 220, height: 160, draggable: false })
+      nodes.push({ id: `c${i}`, type: 'component', position: { x: startX + col * spacingX, y: 180 + row * 220 }, data: { ...c, color: COMPONENT_COLORS[i % COMPONENT_COLORS.length] }, width: 220, height: 185, draggable: false })
       edges.push({ id: `e${i}`, source: 'header', target: `c${i}`, style: { stroke: COMPONENT_COLORS[i % COMPONENT_COLORS.length] + '60', strokeWidth: 2 }, animated: false })
     })
     return { initialNodes: nodes, initialEdges: edges }
