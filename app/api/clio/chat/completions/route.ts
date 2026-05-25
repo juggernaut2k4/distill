@@ -4,6 +4,74 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
 
 export const maxDuration = 60
 
+// ── In-memory context cache ────────────────────────────────────────────────
+// Vercel Fluid Compute reuses function instances across requests, so this Map
+// persists within an instance. First turn of a session does a full DB fetch;
+// subsequent turns within the same 5-minute window skip Supabase entirely.
+// Every 5 minutes we do a lightweight bot_id check to detect session rollover.
+
+interface ContextCacheEntry {
+  botId: string | null
+  systemPrompt: string
+  cachedAt: number
+  lastValidated: number
+}
+
+const contextCache = new Map<string, ContextCacheEntry>()
+const CACHE_TTL_MS = 2 * 60 * 60 * 1000     // evict after 2 hours
+const VALIDATION_INTERVAL_MS = 5 * 60 * 1000 // re-check bot_id every 5 min
+
+async function getSystemPrompt(
+  userId: string,
+  supabase: ReturnType<typeof createSupabaseAdminClient>
+): Promise<{ prompt: string; cacheStatus: 'HIT' | 'VALIDATED' | 'MISS' | 'STALE_SESSION' }> {
+  const DEFAULT = 'You are Clio, an expert AI business coach running a live coaching session.'
+  const now = Date.now()
+  const cached = contextCache.get(userId)
+
+  if (cached && now - cached.cachedAt < CACHE_TTL_MS) {
+    if (now - cached.lastValidated < VALIDATION_INTERVAL_MS) {
+      // Within validation window — trust the cache fully, zero DB calls
+      return { prompt: cached.systemPrompt, cacheStatus: 'HIT' }
+    }
+
+    // Past validation window — lightweight bot_id check only
+    const { data: lightRow } = await supabase
+      .from('walkthrough_state')
+      .select('bot_id')
+      .eq('user_id', userId)
+      .single()
+
+    if (lightRow?.bot_id === cached.botId) {
+      cached.lastValidated = now
+      return { prompt: cached.systemPrompt, cacheStatus: 'VALIDATED' }
+    }
+
+    // bot_id changed → new session, fall through to full fetch
+  }
+
+  // Full fetch (cache miss or session rollover)
+  const { data } = await supabase
+    .from('walkthrough_state')
+    .select('bot_id, session_brief, topic_context, session_script, clio_session_context')
+    .eq('user_id', userId)
+    .single()
+
+  if (!data) return { prompt: DEFAULT, cacheStatus: 'MISS' }
+
+  const { bot_id, session_brief, topic_context, session_script, clio_session_context } = data
+  let systemPrompt = DEFAULT
+  if (session_brief || topic_context || session_script) {
+    systemPrompt = [session_brief, topic_context, session_script].filter(Boolean).join('\n\n---\n\n')
+  } else if (clio_session_context) {
+    systemPrompt = clio_session_context
+  }
+
+  const wasStale = !!cached
+  contextCache.set(userId, { botId: bot_id, systemPrompt, cachedAt: now, lastValidated: now })
+  return { prompt: systemPrompt, cacheStatus: wasStale ? 'STALE_SESSION' : 'MISS' }
+}
+
 // OpenAI-compatible message shapes that ElevenLabs sends to custom LLM endpoints
 interface OAIToolCall {
   id: string
@@ -144,37 +212,15 @@ export async function POST(request: NextRequest) {
   const userIdMatch = systemMsg?.content?.match(/DISTILL_USER_ID:\s*(\S+)/)
   const userId = userIdMatch?.[1] ?? null
 
-  // Fetch the full session context from walkthrough_state — no size limit here
+  // Resolve session context — cached after first turn, validated every 5 min
   let systemPrompt = 'You are Clio, an expert AI business coach running a live coaching session.'
 
   if (userId) {
     try {
       const supabase = createSupabaseAdminClient()
-      const { data } = await supabase
-        .from('walkthrough_state')
-        .select('session_brief, topic_context, session_script, clio_session_context')
-        .eq('user_id', userId)
-        .single()
-
-      if (data) {
-        const { session_brief, topic_context, session_script, clio_session_context } = data
-        if (session_brief || topic_context || session_script) {
-          systemPrompt = [session_brief, topic_context, session_script]
-            .filter(Boolean)
-            .join('\n\n---\n\n')
-          console.log(
-            `[clio/llm] user=${userId} context=${systemPrompt.length}chars ` +
-            `(brief=${session_brief?.length ?? 0}, ctx=${topic_context?.length ?? 0}, script=${session_script?.length ?? 0})`
-          )
-        } else if (clio_session_context) {
-          systemPrompt = clio_session_context
-          console.log(`[clio/llm] user=${userId} fallback context=${systemPrompt.length}chars`)
-        } else {
-          console.warn(`[clio/llm] user=${userId} — no context in walkthrough_state`)
-        }
-      } else {
-        console.warn(`[clio/llm] user=${userId} — no walkthrough_state row found`)
-      }
+      const { prompt, cacheStatus } = await getSystemPrompt(userId, supabase)
+      systemPrompt = prompt
+      console.log(`[clio/llm] user=${userId} cache=${cacheStatus} context=${systemPrompt.length}chars`)
     } catch (err) {
       console.error('[clio/llm] Failed to fetch context:', err)
     }
