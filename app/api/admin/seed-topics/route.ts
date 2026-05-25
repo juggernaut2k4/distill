@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { auth } from '@clerk/nextjs/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { ALL_DOMAINS, ROLES } from '@/lib/learning/taxonomy'
@@ -81,11 +82,8 @@ async function runBatch(
  * Pass body { replace: true } to clear existing non-custom topics first.
  */
 export async function POST(request: NextRequest) {
-  const secret = process.env.ADMIN_SECRET ?? process.env.ELEVENLABS_CUSTOM_LLM_SECRET
-  const provided = request.headers.get('x-admin-secret')
-  if (secret && provided !== secret) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const { userId } = auth()
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await request.json().catch(() => ({})) as { replace?: boolean }
 
