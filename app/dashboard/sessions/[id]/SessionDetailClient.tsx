@@ -7,7 +7,7 @@ import Link from 'next/link'
 import {
   ArrowLeft, CalendarDays, Clock, Download, Tag, CheckCircle,
   Circle, XCircle, Loader, Video, StopCircle, ExternalLink, Sparkles, EyeOff, Eye,
-  MessageSquare, BookmarkPlus, Copy, AlertTriangle, Timer, FileText, ChevronDown, ChevronRight,
+  MessageSquare, BookmarkPlus, Copy, AlertTriangle, Timer, ChevronDown, ChevronRight,
 } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -78,6 +78,16 @@ function formatTime(iso: string): string {
     minute: '2-digit',
     hour12: true,
   })
+}
+
+function StatusDot({ status }: { status: string }) {
+  if (status === 'ready')
+    return <div className="w-2.5 h-2.5 rounded-full bg-[#10B981] flex-shrink-0" title="Complete" />
+  if (status === 'generating')
+    return <div className="w-2.5 h-2.5 rounded-full bg-[#F59E0B] animate-pulse flex-shrink-0" title="In progress" />
+  if (status === 'failed')
+    return <div className="w-2.5 h-2.5 rounded-full bg-[#EF4444] flex-shrink-0" title="Error" />
+  return <div className="w-2.5 h-2.5 rounded-full border border-[#333333] flex-shrink-0" title="Not started" />
 }
 
 export default function SessionDetailClient({ session }: Props) {
@@ -201,6 +211,32 @@ export default function SessionDetailClient({ session }: Props) {
         fetch(`/api/sessions/${session.id}/generate-content`, { method: 'POST' }).catch(() => {})
       })
   }, [session.id])
+
+  // Auto-trigger content generation once all visual slots are settled
+  const allVisualsSettled = !!sessionPlan &&
+    sessionPlan.subtopics.length > 0 &&
+    sessionPlan.subtopics.every((s) => s.skipped || s.visual_status === 'ready' || s.visual_status === 'failed')
+
+  useEffect(() => {
+    if (allVisualsSettled && contentStatus === 'pending' && !isGeneratingContent) {
+      handleGenerateContent()
+    }
+  }, [allVisualsSettled, contentStatus, isGeneratingContent, handleGenerateContent])
+
+  // Merge visual-phase subtopics with script-phase subtopics into one list
+  const mergedSubtopics = (sessionPlan?.subtopics ?? []).map((sub) => {
+    const contentSub = contentSubtopics.find((c) => c.title === sub.title)
+    return {
+      id: sub.id,
+      title: sub.title,
+      skipped: sub.skipped,
+      visualStatus: sub.visual_status as string,
+      scriptStatus: contentSub?.pipeline_status ?? 'pending',
+      slug: contentSub?.slug ?? sub.id,
+      training_script: contentSub?.training_script ?? null,
+      content_outline: contentSub?.content_outline ?? null,
+    }
+  })
 
   // Live session state — pre-fill from auto-generated Meet link if available
   const [meetingUrl, setMeetingUrl] = useState(session.meeting_url ?? '')
@@ -513,24 +549,6 @@ export default function SessionDetailClient({ session }: Props) {
           )}
         </div>
 
-        {/* Generate Content button — shown when visual plan is ready */}
-        {sessionPlan?.plan_status === 'ready' && contentStatus === 'pending' && (
-          <div className="mb-3">
-            <Button
-              variant="primary"
-              className="gap-2 w-full justify-center"
-              onClick={handleGenerateContent}
-              disabled={isGeneratingContent}
-            >
-              {isGeneratingContent ? <Loader size={14} className="animate-spin" /> : <Sparkles size={14} />}
-              Generate Content &amp; Training Script
-            </Button>
-            <p className="text-xs text-[#475569] text-center mt-1.5">
-              Clio will analyse your session plan and build personalised content + coaching scripts
-            </p>
-          </div>
-        )}
-
         {/* Content generation progress */}
         {contentStatus === 'generating' && (() => {
           const total = contentSubtopics.length || topics.length || 1
@@ -650,97 +668,68 @@ export default function SessionDetailClient({ session }: Props) {
           </Card>
         ) : (
           <div className="space-y-2">
-            {sessionPlan.subtopics.map((sub, i) => (
+            {mergedSubtopics.map((sub, i) => (
               <div
                 key={sub.id}
-                className={`flex items-start gap-3 px-4 py-3 rounded-xl border transition-colors ${
-                  sub.skipped
-                    ? 'bg-[#0D0D0D] border-[#1A1A1A] opacity-50'
-                    : 'bg-[#111111] border-[#1A1A1A]'
+                className={`rounded-xl border overflow-hidden transition-colors ${
+                  sub.skipped ? 'border-[#1A1A1A] opacity-50' : 'border-[#1A1A1A]'
                 }`}
               >
-                <div className="w-5 h-5 rounded-full bg-purple-950/50 border border-purple-800/40 flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <span className="text-[9px] font-bold text-[#A855F7]">{i + 1}</span>
-                </div>
-                <p className={`text-sm flex-1 leading-snug ${sub.skipped ? 'line-through text-[#475569]' : 'text-[#94A3B8]'}`}>
-                  {sub.title}
-                </p>
-                <div className="flex items-center gap-2 flex-shrink-0 mt-0.5">
-                  {/* Visual status indicator */}
-                  {!sub.skipped && (
-                    sub.visual_status === 'ready' ? (
-                      <CheckCircle size={14} className="text-[#10B981]" />
-                    ) : sub.visual_status === 'failed' ? (
-                      <XCircle size={14} className="text-[#EF4444]" />
-                    ) : (
-                      <Loader size={14} className="text-[#475569] animate-spin" />
-                    )
-                  )}
-                  {/* Skip toggle */}
-                  <button
-                    onClick={async () => {
-                      const newSkipped = !sub.skipped
-                      setSessionPlan((prev) => prev ? {
-                        ...prev,
-                        subtopics: prev.subtopics.map((s) =>
-                          s.id === sub.id ? { ...s, skipped: newSkipped } : s
-                        ),
-                      } : prev)
-                      await fetch(`/api/sessions/${session.id}/generate-plan`, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ subtopicId: sub.id, skipped: newSkipped }),
-                      })
-                    }}
-                    title={sub.skipped ? 'Include this topic' : 'Skip this topic'}
-                    className="text-[#475569] hover:text-[#94A3B8] transition-colors"
-                  >
-                    {sub.skipped ? <Eye size={14} /> : <EyeOff size={14} />}
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </motion.div>
-
-      {/* ── TRAINING SCRIPTS ── */}
-      {contentStatus === 'ready' && contentSubtopics.length > 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.18 }}
-        >
-          <div className="flex items-center gap-2 mb-3">
-            <FileText size={14} className="text-[#A855F7]" />
-            <h2 className="text-sm font-semibold text-[#94A3B8] uppercase tracking-wider">Training Scripts</h2>
-            <span className="text-xs text-[#475569] px-2 py-0.5 rounded-full bg-[#1A1A1A] border border-[#2A2A2A]">
-              {contentSubtopics.filter((s) => s.training_script).length} ready
-            </span>
-          </div>
-          <div className="space-y-2">
-            {contentSubtopics.map((sub, i) => (
-              <div key={sub.slug} className="rounded-xl border border-[#1A1A1A] bg-[#111111] overflow-hidden">
-                <button
-                  onClick={() => setExpandedScript(expandedScript === sub.slug ? null : sub.slug)}
-                  className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[#1A1A1A] transition-colors"
-                >
+                {/* Row */}
+                <div className={`flex items-center gap-3 px-4 py-3 ${sub.skipped ? 'bg-[#0D0D0D]' : 'bg-[#111111]'}`}>
                   <div className="w-5 h-5 rounded-full bg-purple-950/50 border border-purple-800/40 flex items-center justify-center flex-shrink-0">
                     <span className="text-[9px] font-bold text-[#A855F7]">{i + 1}</span>
                   </div>
-                  <span className="text-sm text-[#94A3B8] flex-1 leading-snug">{sub.title}</span>
+                  <p className={`text-sm flex-1 leading-snug ${sub.skipped ? 'line-through text-[#475569]' : 'text-[#94A3B8]'}`}>
+                    {sub.title}
+                  </p>
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    {sub.pipeline_status === 'ready'
-                      ? <CheckCircle size={13} className="text-[#10B981]" />
-                      : <Loader size={13} className="text-[#475569] animate-spin" />}
-                    {expandedScript === sub.slug
-                      ? <ChevronDown size={14} className="text-[#475569]" />
-                      : <ChevronRight size={14} className="text-[#475569]" />}
+                    {/* Visual dot */}
+                    {!sub.skipped && (
+                      <div className="flex items-center gap-1">
+                        <StatusDot status={sub.visualStatus} />
+                        <StatusDot status={sub.scriptStatus} />
+                      </div>
+                    )}
+                    {/* Expand script (only when script ready) */}
+                    {sub.training_script && !sub.skipped && (
+                      <button
+                        onClick={() => setExpandedScript(expandedScript === sub.slug ? null : sub.slug)}
+                        className="text-[#475569] hover:text-[#94A3B8] transition-colors"
+                        title="View training script"
+                      >
+                        {expandedScript === sub.slug
+                          ? <ChevronDown size={14} />
+                          : <ChevronRight size={14} />}
+                      </button>
+                    )}
+                    {/* Skip toggle */}
+                    <button
+                      onClick={async () => {
+                        const newSkipped = !sub.skipped
+                        setSessionPlan((prev) => prev ? {
+                          ...prev,
+                          subtopics: prev.subtopics.map((s) =>
+                            s.id === sub.id ? { ...s, skipped: newSkipped } : s
+                          ),
+                        } : prev)
+                        await fetch(`/api/sessions/${session.id}/generate-plan`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ subtopicId: sub.id, skipped: newSkipped }),
+                        })
+                      }}
+                      title={sub.skipped ? 'Include this topic' : 'Skip this topic'}
+                      className="text-[#475569] hover:text-[#94A3B8] transition-colors"
+                    >
+                      {sub.skipped ? <Eye size={14} /> : <EyeOff size={14} />}
+                    </button>
                   </div>
-                </button>
+                </div>
 
+                {/* Expanded training script */}
                 {expandedScript === sub.slug && sub.training_script && (
-                  <div className="px-4 pb-4 space-y-3 border-t border-[#1A1A1A] pt-3">
+                  <div className="px-4 pb-4 space-y-3 border-t border-[#1A1A1A] pt-3 bg-[#0D0D0D]">
                     {sub.content_outline?.key_concepts && (
                       <div>
                         <p className="text-xs font-semibold text-[#06B6D4] mb-1.5 uppercase tracking-wide">Key Concepts</p>
@@ -780,8 +769,8 @@ export default function SessionDetailClient({ session }: Props) {
               </div>
             ))}
           </div>
-        </motion.div>
-      )}
+        )}
+      </motion.div>
 
       {/* Actions */}
       <motion.div

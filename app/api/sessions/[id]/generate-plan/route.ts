@@ -175,33 +175,31 @@ function findSubtopicsFromCatalog(topicId: string, sessionTitle: string): string
     ],
   }
 
-  // Direct lookup by topicId first
-  if (topicId && catalogSubtopics[topicId]) return catalogSubtopics[topicId]
-
-  // Keyword-based title matching — maps significant words to catalog keys
+  // Keyword-based title matching — always check the title first; topicId may be stale
+  // (sessions created before the curriculum fix may have wrong topicIds like 'ai-fundamentals')
   const titleKeywordMap: Array<{ keywords: string[]; key: string }> = [
     { keywords: ['large language model', 'llm', 'language model'], key: 'llm-basics' },
     { keywords: ['machine learning', 'ml basics', 'supervised', 'unsupervised'], key: 'ml-basics' },
-    { keywords: ['generative ai', 'gen ai', 'foundation model', 'gpt', 'claude', 'gemini'], key: 'ai-fundamentals' },
+    { keywords: ['generative ai', 'gen ai', 'foundation model', 'gpt', 'claude', 'gemini', 'ai fundamentals', 'ai basics'], key: 'ai-fundamentals' },
     { keywords: ['ai strategy', 'ai roadmap', 'ai ambition', 'ai posture'], key: 'ai-strategy-intro' },
     { keywords: ['ai culture', 'ai mindset', 'psychological safety', 'ai champion'], key: 'ai-culture' },
     { keywords: ['ai roi', 'return on investment', 'ai value', 'ai kpi'], key: 'ai-roi' },
     { keywords: ['vendor eval', 'vendor assessment', 'ai vendor', 'build vs buy', 'procurement'], key: 'ai-vendor-eval' },
-    { keywords: ['ai governance', 'ai oversight', 'accountability', 'ai committee'], key: 'ai-governance' },
+    { keywords: ['ai governance', 'ai oversight', 'ai committee'], key: 'ai-governance' },
     { keywords: ['data strategy', 'data readiness', 'data lake', 'data warehouse', 'data governance'], key: 'data-strategy' },
     { keywords: ['ai operations', 'ai ops', 'operational ai', 'supply chain ai', 'process ai'], key: 'ai-ops' },
     { keywords: ['customer experience', 'ai cx', 'personalization', 'ai chatbot', 'customer service ai'], key: 'ai-cx' },
     { keywords: ['process automation', 'rpa', 'intelligent automation', 'workflow automation'], key: 'process-automation' },
     { keywords: ['upskilling', 'ai training', 'ai literacy', 'ai learning', 'workforce ai'], key: 'upskilling' },
-    { keywords: ['change management', 'change mgmt', 'ai adoption', 'digital transformation', 'ai resistance'], key: 'change-mgmt' },
+    { keywords: ['change management', 'change mgmt', 'ai adoption', 'ai resistance'], key: 'change-mgmt' },
     { keywords: ['ai security', 'prompt injection', 'data poisoning', 'model theft', 'ai risk'], key: 'ai-security' },
-    { keywords: ['competitive', 'competitive intelligence', 'market disruption', 'first mover', 'fast follower'], key: 'ai-competitive' },
-    { keywords: ['ai product', 'product management', 'intelligence roadmap', 'ai product ethics'], key: 'ai-product' },
-    { keywords: ['ai teams', 'ai talent', 'center of excellence', 'ai recruit', 'interdisciplinary'], key: 'ai-teams' },
-    { keywords: ['ai finance', 'financial forecasting', 'fraud detection', 'cfo', 'finance ai'], key: 'ai-finance' },
-    { keywords: ['ai ethics', 'bias', 'fairness', 'transparency', 'responsible ai'], key: 'ai-ethics' },
-    { keywords: ['ai regulation', 'eu ai act', 'regulatory', 'compliance ai', 'ai policy'], key: 'ai-regulation' },
-    { keywords: ['ai trends', 'future of ai', 'agentic ai', 'multi-modal', 'multimodal', 'ai 2025', 'ai 2026'], key: 'ai-trends' },
+    { keywords: ['competitive intelligence', 'market disruption', 'first mover', 'fast follower'], key: 'ai-competitive' },
+    { keywords: ['ai product', 'intelligence roadmap', 'ai product ethics'], key: 'ai-product' },
+    { keywords: ['ai teams', 'ai talent', 'center of excellence', 'ai recruit'], key: 'ai-teams' },
+    { keywords: ['ai finance', 'financial forecasting', 'fraud detection', 'finance ai'], key: 'ai-finance' },
+    { keywords: ['ai ethics', 'responsible ai'], key: 'ai-ethics' },
+    { keywords: ['ai regulation', 'eu ai act', 'compliance ai', 'ai policy'], key: 'ai-regulation' },
+    { keywords: ['ai trends', 'future of ai', 'agentic ai', 'multi-modal', 'multimodal'], key: 'ai-trends' },
   ]
 
   const titleLower = sessionTitle.toLowerCase()
@@ -211,8 +209,14 @@ function findSubtopicsFromCatalog(topicId: string, sessionTitle: string): string
     }
   }
 
-  // Last-resort: return ai-fundamentals as a sensible default rather than failing
-  return catalogSubtopics['ai-fundamentals']
+  // Generate subtopics from the session title — never default to an unrelated AI catalog entry
+  return [
+    `Core concepts and frameworks underlying ${sessionTitle.toLowerCase()}`,
+    `How leading organisations approach this effectively`,
+    `Common challenges, risks, and how to navigate them`,
+    `Key metrics, decision points, and success indicators`,
+    `Your immediate action plan: priorities for the next 90 days`,
+  ]
 }
 
 /**
