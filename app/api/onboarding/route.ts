@@ -7,7 +7,7 @@ import { assignPhoneNumber } from '@/lib/delivery/sms'
 
 const OnboardingSchema = z.object({
   role: z.string().min(1, 'Role is required'),
-  industry: z.string().min(1, 'Industry is required'),
+  industry: z.string().default(''),
   aiMaturity: z.string().default('intermediate'),
   worry: z.string().default(''),
   deliveryPreference: z.enum(['email', 'sms', 'both']).default('email'),

@@ -14,8 +14,8 @@ import {
 
 // ─── Step definitions ─────────────────────────────────────────────────────────
 
-const TOTAL_STEPS = 6
-// 0: Level  1: Department → resolves roleId  2: Domains  3: Proficiency  4: Goal  5: Industry
+const TOTAL_STEPS = 5
+// 0: Level  1: Department → resolves roleId  2: Domains  3: Proficiency  4: Goal
 
 // ─── Role level + department mapping ─────────────────────────────────────────
 
@@ -65,21 +65,6 @@ const DEPARTMENTS: Record<string, { label: string; roleId: string }[]> = {
     { label: 'Product Manager',               roleId: 'product-manager' },
   ],
 }
-
-// ─── Industry options (kept for so_what personalisation) ─────────────────────
-
-const INDUSTRIES = [
-  'Technology / SaaS',
-  'Financial Services / Banking',
-  'Healthcare / Life Sciences',
-  'Retail / E-commerce',
-  'Manufacturing / Supply Chain',
-  'Consulting / Professional Services',
-  'Media / Entertainment',
-  'Education',
-  'Government / Public Sector',
-  'Other',
-]
 
 // ─── Slide animation variants ─────────────────────────────────────────────────
 
@@ -397,24 +382,6 @@ function GoalStep({ value, onChange }: { value: LearningGoal | ''; onChange: (v:
   )
 }
 
-// ─── Step 4: Industry ─────────────────────────────────────────────────────────
-
-function IndustryStep({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  return (
-    <div className="w-full max-w-sm mx-auto">
-      <StepHeading
-        title="What's your industry?"
-        subtitle="We use this to make every insight relevant to your world"
-      />
-      <div className="flex flex-col gap-2">
-        {INDUSTRIES.map((ind) => (
-          <SingleOptionButton key={ind} label={ind} selected={value === ind} onClick={() => onChange(ind)} />
-        ))}
-      </div>
-    </div>
-  )
-}
-
 // ─── Main onboarding flow ─────────────────────────────────────────────────────
 
 function OnboardingContent() {
@@ -432,7 +399,6 @@ function OnboardingContent() {
   const [customDomains, setCustomDomains] = useState<string[]>([])
   const [proficiencies, setProficiencies] = useState<Record<string, Proficiency>>({})
   const [learningGoal, setLearningGoal] = useState<LearningGoal | ''>('')
-  const [industry, setIndustry] = useState('')
 
   // ── Can proceed from each step ──────────────────────────────────────────────
   const canProceed = useMemo(() => {
@@ -444,9 +410,8 @@ function OnboardingContent() {
       return allKeys.length > 0 && allKeys.every((k) => proficiencies[k])
     }
     if (step === 4) return learningGoal !== ''
-    if (step === 5) return industry !== ''
     return false
-  }, [step, roleLevel, role, selectedDomains, customDomains, proficiencies, learningGoal, industry])
+  }, [step, roleLevel, role, selectedDomains, customDomains, proficiencies, learningGoal])
 
   // ── Domain handlers ─────────────────────────────────────────────────────────
   function toggleDomain(id: string) {
@@ -489,7 +454,7 @@ function OnboardingContent() {
 
     const payload = {
       role,
-      industry,
+      industry: '',
       aiMaturity: proficiencies[primaryDomain] ?? 'intermediate',
       worry: '',
       deliveryPreference: 'email',
@@ -555,8 +520,6 @@ function OnboardingContent() {
             )}
 
             {step === 4 && <GoalStep value={learningGoal} onChange={setLearningGoal} />}
-
-            {step === 5 && <IndustryStep value={industry} onChange={setIndustry} />}
           </motion.div>
         </AnimatePresence>
 
