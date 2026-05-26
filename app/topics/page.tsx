@@ -1,12 +1,13 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  ArrowRight, Check, Plus, X, RefreshCw, Sparkles, PenLine, CheckSquare, Square,
+  ArrowRight, Check, Plus, X, RefreshCw, Sparkles, PenLine, CheckSquare, Square, ChevronDown, ChevronUp,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { ALL_DOMAINS } from '@/lib/learning/taxonomy'
 
 type View = 'loading' | 'selection' | 'input' | 'generating' | 'manual'
 
@@ -93,58 +94,132 @@ function categorizeTopics(topics: string[]): TopicCategory[] {
     .filter((g) => g.topics.length > 0)
 }
 
+interface StoredProfile {
+  role?: string
+  domains?: string[]
+  primaryDomain?: string
+}
+
+interface ExploreGroup {
+  domainId: string
+  label: string
+  icon: string
+  topics: CatalogTopic[]
+}
+
 export default function TopicsPage() {
   const router = useRouter()
   const [view, setView] = useState<View>('loading')
   const [objectives, setObjectives] = useState('')
   const [generateError, setGenerateError] = useState<string | null>(null)
   const [topicGroups, setTopicGroups] = useState<TopicCategory[]>([])
+  const [exploreCatalog, setExploreCatalog] = useState<CatalogTopic[]>([])
+  const [exploreOpen, setExploreOpen] = useState(false)
   const [manualTopics, setManualTopics] = useState<string[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [customInput, setCustomInput] = useState('')
   const [saving, setSaving] = useState(false)
+  const [storedProfile, setStoredProfile] = useState<StoredProfile | null>(null)
   const customInputRef = useRef<HTMLInputElement>(null)
 
   const allGeneratedTopics = topicGroups.flatMap((g) => g.topics)
   const allTopics = [...allGeneratedTopics, ...manualTopics]
   const allSelected = allTopics.length > 0 && selected.size === allTopics.length
 
-  // Load topics on mount: catalog (DB) first, fall back to profile-based Claude generation
+  // Group explore catalog topics by domain
+  const exploreByDomain = useMemo<ExploreGroup[]>(() => {
+    const map = new Map<string, CatalogTopic[]>()
+    for (const t of exploreCatalog) {
+      const bucket = map.get(t.domain_id) ?? []
+      bucket.push(t)
+      map.set(t.domain_id, bucket)
+    }
+    return Array.from(map.entries()).map(([domainId, topics]) => {
+      const domainDef = ALL_DOMAINS.find((d) => d.id === domainId)
+      return {
+        domainId,
+        label: domainDef?.label ?? domainId.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+        icon: domainDef?.icon ?? '📚',
+        topics,
+      }
+    })
+  }, [exploreCatalog])
+
+  // Load topics on mount
   useEffect(() => {
+    // Read onboarding profile from localStorage — covers brand-new users before DB profile is saved
+    let profile: StoredProfile | null = null
+    try {
+      const raw = localStorage.getItem('clio_onboarding')
+      if (raw) profile = JSON.parse(raw) as StoredProfile
+    } catch { /* ignore */ }
+    setStoredProfile(profile)
+
     async function loadTopics() {
-      // 1. Try catalog (pre-seeded, role/domain-filtered)
+      // 1. Try catalog — pass localStorage profile as query params so new users get the right results
       try {
-        const catalogRes = await fetch('/api/topics/catalog')
+        const params = new URLSearchParams()
+        if (profile?.role) params.set('role', profile.role)
+        if (profile?.domains?.length) params.set('domains', profile.domains.join(','))
+
+        const catalogRes = await fetch(`/api/topics/catalog?${params}`)
         const catalogData = await catalogRes.json() as {
           topics?: CatalogTopic[]
+          domains?: string[]
           seeded?: boolean
           error?: string
         }
+
         if (catalogData.topics && catalogData.topics.length > 0) {
-          const titles = catalogData.topics.map((t) => t.title)
-          setTopicGroups(categorizeTopics(titles))
-          setSelected(new Set(titles))
-          setView('selection')
-          return
+          const userDomains: string[] = catalogData.domains ?? profile?.domains ?? []
+
+          // Curated = topics from the user's explicitly selected domains
+          const curated = userDomains.length > 0
+            ? catalogData.topics.filter((t) => userDomains.includes(t.domain_id))
+            : catalogData.topics.slice(0, 14)
+
+          // Explore = the rest, de-duped from curated
+          const curatedIds = new Set(curated.map((t) => t.id))
+          const explore = catalogData.topics.filter((t) => !curatedIds.has(t.id))
+
+          if (curated.length > 0) {
+            const titles = curated.map((t) => t.title)
+            setTopicGroups(categorizeTopics(titles))
+            setSelected(new Set(titles))
+            setExploreCatalog(explore)
+            setView('selection')
+            return
+          }
         }
       } catch {
-        // catalog failed or empty — fall through
+        // catalog failed — fall through
       }
 
-      // 2. Fall back to Claude profile-based generation
+      // 2. Fallback: generate using actual domain names from localStorage (not the static AI curriculum)
       try {
-        const genRes = await fetch('/api/topics/generate')
+        const domainLabels = (profile?.domains ?? [])
+          .map((id) => ALL_DOMAINS.find((d) => d.id === id)?.label ?? id)
+          .join(', ')
+
+        const objectivesText = domainLabels
+          ? `I am a ${profile?.role ?? 'professional'} focused on ${domainLabels}. Generate practical learning topics for these domains.`
+          : `I am a ${profile?.role ?? 'business professional'}. Generate practical learning topics relevant to my role.`
+
+        const genRes = await fetch('/api/topics/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ objectives: objectivesText }),
+        })
         const genData = await genRes.json() as { topics?: string[]; error?: string }
         if (genData.topics && genData.topics.length > 0) {
           setTopicGroups(categorizeTopics(genData.topics))
           setSelected(new Set(genData.topics))
           setView('selection')
-        } else {
-          setView('input')
+          return
         }
-      } catch {
-        setView('input')
-      }
+      } catch { /* ignore */ }
+
+      setView('input')
     }
 
     loadTopics()
@@ -223,6 +298,26 @@ export default function TopicsPage() {
     setSelected((prev) => new Set(Array.from(prev).concat(trimmed)))
     setCustomInput('')
     customInputRef.current?.focus()
+
+    // Fire-and-forget: persist custom topic to catalog for future users
+    fetch('/api/topics/catalog/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: trimmed,
+        role: storedProfile?.role,
+        domains: storedProfile?.domains,
+      }),
+    }).catch(() => { /* non-fatal */ })
+  }
+
+  function addExploreTopic(title: string) {
+    if (manualTopics.includes(title)) {
+      removeManualTopic(title)
+      return
+    }
+    setManualTopics((prev) => [...prev, title])
+    setSelected((prev) => new Set(Array.from(prev).concat(title)))
   }
 
   function removeManualTopic(topic: string) {
@@ -448,6 +543,70 @@ export default function TopicsPage() {
                   </div>
                 )}
               </div>
+
+              {/* Explore more topics */}
+              {exploreByDomain.length > 0 && (
+                <div className="border border-[#222222] rounded-2xl overflow-hidden">
+                  <button
+                    onClick={() => setExploreOpen((o) => !o)}
+                    className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-[#1A1A1A] transition-colors"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-sm font-bold text-white">Explore more topics</span>
+                      <span className="text-xs text-[#475569] ml-2">{exploreCatalog.length} available</span>
+                    </div>
+                    {exploreOpen
+                      ? <ChevronUp size={16} className="text-[#475569]" />
+                      : <ChevronDown size={16} className="text-[#475569]" />}
+                  </button>
+                  <AnimatePresence>
+                    {exploreOpen && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.25 }}
+                        className="overflow-hidden border-t border-[#222222]"
+                      >
+                        <div className="p-4 space-y-5">
+                          {exploreByDomain.map((group) => (
+                            <div key={group.domainId}>
+                              <p className="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-2">
+                                {group.icon} {group.label}
+                              </p>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                {group.topics.map((topic) => {
+                                  const isSelected = selected.has(topic.title)
+                                  return (
+                                    <button
+                                      key={topic.id}
+                                      onClick={() => addExploreTopic(topic.title)}
+                                      className={`flex items-center gap-3 px-4 py-3 rounded-xl border text-left text-sm font-medium transition-all duration-150 ${
+                                        isSelected
+                                          ? 'bg-purple-950/30 border-[#7C3AED] text-white'
+                                          : 'bg-[#1A1A1A] border-[#2A2A2A] text-[#94A3B8] hover:border-[#333] hover:text-white'
+                                      }`}
+                                    >
+                                      <div
+                                        className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 border transition-all ${
+                                          isSelected ? 'bg-[#7C3AED] border-[#7C3AED]' : 'border-[#444] bg-transparent'
+                                        }`}
+                                      >
+                                        {isSelected && <Check size={9} className="text-white" strokeWidth={3} />}
+                                      </div>
+                                      <span className="leading-snug">{topic.title}</span>
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              )}
 
               {/* Add custom topic */}
               <div>

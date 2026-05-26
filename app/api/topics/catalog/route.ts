@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/clerk'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { ROLES } from '@/lib/learning/taxonomy'
@@ -21,9 +21,14 @@ interface TopicRow {
  *
  * Response: { topics: TopicRow[], role: string, domains: string[] }
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   const { userId, error } = requireAuth()
   if (error) return error
+
+  // Query params are a fallback for brand-new users whose DB profile isn't saved yet
+  const url = new URL(request.url)
+  const paramRole = url.searchParams.get('role') ?? null
+  const paramDomains = url.searchParams.get('domains')?.split(',').filter(Boolean) ?? []
 
   const supabase = createSupabaseAdminClient()
 
@@ -34,10 +39,10 @@ export async function GET() {
     .eq('id', userId!)
     .single()
 
-  const userRole = user?.role ?? null
+  const userRole = user?.role ?? paramRole ?? null
   const userDomains: string[] = Array.isArray(user?.domains) && user.domains.length > 0
     ? user.domains
-    : []
+    : paramDomains
   const primaryDomain = user?.primary_domain ?? userDomains[0] ?? null
 
   // If we have nothing to filter on, expand the role-based fallback
