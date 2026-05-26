@@ -63,7 +63,10 @@ export async function createBot(
         transcript: {
           provider: {
             recallai_streaming: {
-              mode: 'prioritize_low_latency',
+              // default mode fires on natural speech boundaries — 1-2 events per utterance.
+              // prioritize_low_latency fires every 100-300ms causing cascade (8+ LLM calls
+              // per sentence, 6+ second response delay). Default mode + client debounce
+              // achieves the same <3s round-trip without the cascade.
               language_code: 'en',
             },
           },

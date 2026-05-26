@@ -143,6 +143,10 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
   const lastSentTranscriptRef = useRef<string | null>(null)
   const lastActivityRef = useRef<number>(Date.now())
   const hasConnectedRef = useRef(false)
+  // Debounce: buffer the latest transcript and wait 500ms after the last update
+  // before sending to ElevenLabs. Prevents cascade from partial transcript events.
+  const pendingTranscriptRef = useRef<string | null>(null)
+  const sendTranscriptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const sessionEndedRef = useRef(false)
   const topicRef = useRef<string | null | undefined>(initialState.topic_title)
   const skippedTopicsRef = useRef<string[]>(initialState.skipped_topics ?? [])
@@ -442,15 +446,40 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
 
         const conv = conversationRef.current
 
-        // Feed participant transcript to agent if new
+        // Feed participant transcript to agent — debounced to prevent cascade.
+        // Recall.ai fires transcript.data events every 100-300ms while someone speaks.
+        // Without debouncing, each partial fires a separate LLM call → 6+ second cascade.
+        // We buffer the latest transcript and only send after 500ms of no new updates,
+        // ensuring one LLM call per utterance rather than one per partial word chunk.
         const transcript = data.pending_transcript
         if (transcript && transcript !== lastSentTranscriptRef.current && conv) {
-          lastSentTranscriptRef.current = transcript
-          lastActivityRef.current = Date.now()
-          conv.sendUserMessage(transcript)
-          console.log('[Walkthrough] Sent to agent:', transcript.slice(0, 80))
-          fetch(`/api/walkthrough-state/${userId}`, { method: 'PATCH' }).catch(() => {})
-          setTimeout(poll, 0)
+          // Skip very short transcripts while Clio is speaking — filler words ("mm", "ok",
+          // "yeah") picked up during TTS should not interrupt or queue a new LLM call.
+          const wordCount = transcript.trim().split(/\s+/).length
+          const currentMode = agentStatus
+          if (wordCount < 3 && (currentMode === 'speaking')) {
+            // Too short to act on while Clio is talking — clear it from DB and skip
+            if (transcript !== lastSentTranscriptRef.current) {
+              fetch(`/api/walkthrough-state/${userId}`, { method: 'PATCH' }).catch(() => {})
+            }
+          } else {
+            // Always buffer the latest (may be longer than the previous partial)
+            pendingTranscriptRef.current = transcript
+
+            // Reset debounce timer — fires 500ms after the last transcript update
+            if (sendTranscriptTimerRef.current) clearTimeout(sendTranscriptTimerRef.current)
+            sendTranscriptTimerRef.current = setTimeout(() => {
+              const toSend = pendingTranscriptRef.current
+              const convNow = conversationRef.current
+              if (!toSend || !convNow || toSend === lastSentTranscriptRef.current) return
+              lastSentTranscriptRef.current = toSend
+              pendingTranscriptRef.current = null
+              lastActivityRef.current = Date.now()
+              convNow.sendUserMessage(toSend)
+              console.log('[Walkthrough] Sent to agent (debounced):', toSend.slice(0, 80))
+              fetch(`/api/walkthrough-state/${userId}`, { method: 'PATCH' }).catch(() => {})
+            }, 500)
+          }
         }
 
         // Keep-alive: prevent ElevenLabs inactivity disconnect when user is silent
