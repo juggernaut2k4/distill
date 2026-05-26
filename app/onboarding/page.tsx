@@ -170,7 +170,7 @@ function DepartmentStep({ levelId, value, onChange }: { levelId: string; value: 
   const options = DEPARTMENTS[levelId] ?? []
   return (
     <div className="w-full max-w-sm mx-auto">
-      <StepHeading title="Which area?" subtitle="Pick the function that best describes your work" />
+      <StepHeading title="Select your functional area" subtitle="This shapes the framing, depth, and examples in every session" />
       <div className="flex flex-col gap-2">
         {options.map((o) => (
           <SingleOptionButton key={o.label} label={o.label} selected={value === o.roleId} onClick={() => onChange(o.roleId)} />
@@ -561,12 +561,7 @@ function OnboardingContent() {
         </AnimatePresence>
 
         {/* Navigation */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: canProceed ? 1 : 0.35 }}
-          transition={{ duration: 0.2 }}
-          className="mt-8 w-full max-w-sm flex items-center gap-3"
-        >
+        <div className="mt-8 w-full max-w-sm flex items-center gap-3">
           {step > 0 && (
             <button
               onClick={handleBack}
@@ -583,7 +578,7 @@ function OnboardingContent() {
             {step === TOTAL_STEPS - 1 ? 'Build my learning plan' : 'Continue'}
             <ArrowRight size={16} />
           </button>
-        </motion.div>
+        </div>
 
         <p className="mt-5 text-xs text-[#333333]">{step + 1} of {TOTAL_STEPS}</p>
       </div>
