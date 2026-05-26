@@ -393,8 +393,8 @@ export function buildCurriculum(
 ): CurriculumPlan {
   const maxDifficulty = MATURITY_MAX_DIFFICULTY[aiMaturity] ?? 'intermediate'
 
-  // Map titles to catalog entries (fuzzy match by tag category)
-  const selectedCatalogTopics = matchTopicsToCatalog(selectedTopicTitles)
+  // Map titles to catalog entries — exact match only, otherwise synthesize from title
+  const selectedCatalogTopics = matchTopicsToCatalog(selectedTopicTitles, aiMaturity)
 
   // Inject prerequisites for any advanced topics beyond user's maturity
   const enrichedTopics = injectPrerequisites(selectedCatalogTopics, maxDifficulty)
@@ -415,25 +415,28 @@ export function buildCurriculum(
   }
 }
 
-const STOP_WORDS = new Set(['the', 'a', 'an', 'and', 'for', 'in', 'of', 'to', 'with', 'by', 'on', 'at', 'from', 'as', 'is', 'are', 'your', 'how', 'why', 'what'])
-
-function significantWords(text: string): Set<string> {
-  return new Set(
-    text.toLowerCase()
-      .replace(/[^a-z0-9\s]/g, ' ')
-      .split(/\s+/)
-      .filter((w) => w.length > 2 && !STOP_WORDS.has(w))
-  )
+function generateSubtopicsForTitle(title: string): string[] {
+  return [
+    `Core concepts and frameworks underlying ${title.toLowerCase()}`,
+    `How leading organizations approach this effectively`,
+    `Common pitfalls, risks, and how to navigate them`,
+    `Key decision points, metrics, and success indicators`,
+    `Your immediate action plan: priorities for the next 90 days`,
+  ]
 }
 
-function matchTopicsToCatalog(titles: string[]): CurriculumTopic[] {
+function matchTopicsToCatalog(
+  titles: string[],
+  maturity: string,
+): CurriculumTopic[] {
   const result: CurriculumTopic[] = []
   const addedIds = new Set<string>()
 
-  for (const title of titles) {
-    const titleWords = significantWords(title)
+  const difficulty: 'beginner' | 'intermediate' | 'advanced' =
+    MATURITY_MAX_DIFFICULTY[maturity] ?? 'intermediate'
 
-    // 1. Exact title match
+  for (const title of titles) {
+    // 1. Exact title match — only accept catalog entries that truly match
     const exact = TOPIC_CATALOG.find((t) => t.title.toLowerCase() === title.toLowerCase())
     if (exact && !addedIds.has(exact.id)) {
       result.push(exact)
@@ -441,44 +444,24 @@ function matchTopicsToCatalog(titles: string[]): CurriculumTopic[] {
       continue
     }
 
-    // 2. Best keyword overlap against catalog titles (score = shared significant words)
-    let bestScore = 0
-    let bestMatch: CurriculumTopic | null = null
-    for (const t of TOPIC_CATALOG) {
-      if (addedIds.has(t.id)) continue
-      const catalogWords = significantWords(t.title)
-      let score = 0
-      titleWords.forEach((w) => { if (catalogWords.has(w)) score++ })
-      // Also check against subtopic titles for richer signal
-      for (const sub of t.subtopics) {
-        const subWords = significantWords(sub)
-        titleWords.forEach((w) => { if (subWords.has(w)) score += 0.3 })
-      }
-      if (score > bestScore) { bestScore = score; bestMatch = t }
-    }
-
-    // Require at least 1 meaningful word overlap to accept a keyword match
-    if (bestMatch && bestScore >= 1) {
-      result.push(bestMatch)
-      addedIds.add(bestMatch.id)
-      continue
-    }
-
-    // 3. Tag category fallback (first catalog entry whose tag includes a word from the title)
-    const titleWordsArr = Array.from(titleWords)
-    const tagMatch = TOPIC_CATALOG.find(
-      (t) => t.tags.some((tag) => {
-        const tagWords = significantWords(tag)
-        return titleWordsArr.some((w) => tagWords.has(w))
-      }) && !addedIds.has(t.id)
-    )
-    if (tagMatch) {
-      result.push(tagMatch)
-      addedIds.add(tagMatch.id)
+    // 2. Synthesize a topic from the user's actual title — never fuzzy-map to a
+    //    wrong AI catalog entry just because a common word like "strategy" overlaps
+    const syntheticId = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 64)
+    if (!addedIds.has(syntheticId)) {
+      result.push({
+        id: syntheticId,
+        title,
+        estimatedMinutes: difficulty === 'beginner' ? 20 : difficulty === 'advanced' ? 30 : 25,
+        difficulty,
+        prerequisites: [],
+        tags: [],
+        subtopics: generateSubtopicsForTitle(title),
+      })
+      addedIds.add(syntheticId)
     }
   }
 
-  // If nothing matched, return default starter curriculum
+  // Only fall back to default AI starter curriculum if no topics at all
   if (result.length === 0) {
     return TOPIC_CATALOG.filter((t) => t.difficulty === 'beginner').slice(0, 4)
   }
