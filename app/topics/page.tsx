@@ -54,6 +54,34 @@ const CATEGORIES: Array<{ name: string; color: string; keywords: string[] }> = [
   },
 ]
 
+const DOMAIN_COLORS = ['#7C3AED', '#06B6D4', '#10B981', '#F59E0B', '#A855F7', '#EF4444', '#3B82F6', '#EC4899']
+
+function catalogTopicsToGroups(topics: CatalogTopic[], userDomains: string[]): TopicCategory[] {
+  const map = new Map<string, CatalogTopic[]>()
+  for (const t of topics) {
+    const bucket = map.get(t.domain_id) ?? []
+    bucket.push(t)
+    map.set(t.domain_id, bucket)
+  }
+
+  const orderedIds: string[] = [...userDomains]
+  for (const id of Array.from(map.keys())) {
+    if (!orderedIds.includes(id)) orderedIds.push(id)
+  }
+
+  return orderedIds
+    .filter((id) => map.has(id))
+    .map((domainId, idx) => {
+      const domainDef = ALL_DOMAINS.find((d) => d.id === domainId)
+      const label = domainDef?.label ?? domainId.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+      return {
+        category: label,
+        color: DOMAIN_COLORS[idx % DOMAIN_COLORS.length],
+        topics: (map.get(domainId) ?? []).map((t) => t.title),
+      }
+    })
+}
+
 function categorizeTopics(topics: string[]): TopicCategory[] {
   const buckets: Record<string, string[]> = {}
   const uncategorized: string[] = []
@@ -126,6 +154,19 @@ export default function TopicsPage() {
   const allTopics = [...allGeneratedTopics, ...manualTopics]
   const allSelected = allTopics.length > 0 && selected.size === allTopics.length
 
+  const curriculumTitle = useMemo(() => {
+    const domains = storedProfile?.domains ?? []
+    if (domains.length === 1) {
+      const label = ALL_DOMAINS.find((d) => d.id === domains[0])?.label
+        ?? domains[0].replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+      return `Your ${label} curriculum`
+    }
+    if (domains.length > 1) {
+      return 'Your personalised curriculum'
+    }
+    return 'Your learning curriculum'
+  }, [storedProfile])
+
   // Group explore catalog topics by domain
   const exploreByDomain = useMemo<ExploreGroup[]>(() => {
     const map = new Map<string, CatalogTopic[]>()
@@ -183,9 +224,8 @@ export default function TopicsPage() {
           const explore = catalogData.topics.filter((t) => !curatedIds.has(t.id))
 
           if (curated.length > 0) {
-            const titles = curated.map((t) => t.title)
-            setTopicGroups(categorizeTopics(titles))
-            setSelected(new Set(titles))
+            setTopicGroups(catalogTopicsToGroups(curated, userDomains))
+            setSelected(new Set(curated.map((t) => t.title)))
             setExploreCatalog(explore)
             setView('selection')
             return
@@ -423,7 +463,7 @@ export default function TopicsPage() {
                 </div>
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <h1 className="text-3xl font-extrabold text-white">Your AI curriculum</h1>
+                    <h1 className="text-3xl font-extrabold text-white">{curriculumTitle}</h1>
                     <p className="text-[#94A3B8] mt-1 text-sm">
                       {selected.size} of {allTopics.length} topics selected — deselect any you&apos;d like to skip
                     </p>
