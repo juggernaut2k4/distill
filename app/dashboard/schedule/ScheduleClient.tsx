@@ -5,7 +5,7 @@ import { motion } from 'framer-motion'
 import { useRouter } from 'next/navigation'
 import {
   CalendarDays, Clock, CheckCircle, ArrowRight, Zap, FlaskConical, Loader,
-  Crown, Sparkles, Building2,
+  Crown, Sparkles, Building2, ChevronUp, ChevronDown,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
@@ -40,21 +40,19 @@ interface ScheduleClientProps {
   minutesBalance?: number
 }
 
-const FREQUENCY_OPTIONS = [
-  { value: 1, label: 'Daily',        description: 'One session every day' },
-  { value: 2, label: 'Every 2 days', description: 'Moderate pace' },
-  { value: 7, label: 'Weekly',       description: 'One session per week' },
+const DAYS = [
+  { label: 'Sun', value: 0 },
+  { label: 'Mon', value: 1 },
+  { label: 'Tue', value: 2 },
+  { label: 'Wed', value: 3 },
+  { label: 'Thu', value: 4 },
+  { label: 'Fri', value: 5 },
+  { label: 'Sat', value: 6 },
 ]
 
 const DURATION_OPTIONS = [
   { value: 15, label: '15 min', description: 'Quick focused sessions' },
   { value: 30, label: '30 min', description: 'Deep dives' },
-]
-
-const TIME_OPTIONS = [
-  { value: 9,  label: 'Morning',   description: '9:00 am' },
-  { value: 13, label: 'Afternoon', description: '1:00 pm' },
-  { value: 18, label: 'Evening',   description: '6:00 pm' },
 ]
 
 const PLANS = [
@@ -139,9 +137,10 @@ export default function ScheduleClient({ user, existingSessions, subscribedSucce
   const tomorrowStr = tomorrow.toISOString().split('T')[0]
 
   const [firstDate, setFirstDate] = useState(tomorrowStr)
-  const [frequencyDays, setFrequencyDays] = useState(2)
+  const [selectedDays, setSelectedDays] = useState<number[]>([1, 2, 3, 4, 5]) // Mon–Fri
   const [maxDuration, setMaxDuration] = useState(30)
   const [preferredHour, setPreferredHour] = useState(9)
+  const [preferredMinute, setPreferredMinute] = useState(0)
   const [saving, setSaving] = useState(false)
   const [checkoutError, setCheckoutError] = useState<string | null>(null)
   const [showPlans, setShowPlans] = useState(false)
@@ -156,9 +155,32 @@ export default function ScheduleClient({ user, existingSessions, subscribedSucce
   ), [user.topic_interests, user.ai_maturity])
 
   const scheduledSessions = useMemo(() =>
-    scheduleSessions(plan, { firstSessionDate: firstDate, frequencyDays, maxDurationMins: maxDuration, preferredHour }),
-    [plan, firstDate, frequencyDays, maxDuration, preferredHour]
+    scheduleSessions(plan, {
+      firstSessionDate: firstDate,
+      frequencyDays: 1,
+      selectedDays,
+      maxDurationMins: maxDuration,
+      preferredHour,
+      preferredMinute,
+    }),
+    [plan, firstDate, selectedDays, maxDuration, preferredHour, preferredMinute]
   )
+
+  // Display helpers for the time dialer
+  const displayHour = preferredHour === 0 ? 12 : preferredHour > 12 ? preferredHour - 12 : preferredHour
+  const isAm = preferredHour < 12
+
+  function toggleDay(day: number) {
+    setSelectedDays((prev) =>
+      prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort((a, b) => a - b)
+    )
+  }
+  function incHour() { setPreferredHour((h) => (h + 1) % 24) }
+  function decHour() { setPreferredHour((h) => (h - 1 + 24) % 24) }
+  function incMinute() { setPreferredMinute((m) => (m + 15) % 60) }
+  function decMinute() { setPreferredMinute((m) => (m - 15 + 60) % 60) }
+  function setAm() { if (!isAm) setPreferredHour((h) => h - 12) }
+  function setPm() { if (isAm) setPreferredHour((h) => h + 12) }
 
   const totalNeeded = totalMinutesNeeded(scheduledSessions)
 
@@ -498,45 +520,85 @@ export default function ScheduleClient({ user, existingSessions, subscribedSucce
           />
         </div>
 
-        {/* Frequency */}
+        {/* Frequency — day picker */}
         <div>
           <label className="text-sm font-semibold text-white mb-3 block">Frequency</label>
-          <div className="grid grid-cols-3 gap-3">
-            {FREQUENCY_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
-                onClick={() => setFrequencyDays(opt.value)}
-                className={`p-3 rounded-xl border text-left transition-all ${
-                  frequencyDays === opt.value
-                    ? 'bg-purple-950/40 border-[#7C3AED] text-white'
-                    : 'bg-[#111111] border-[#222222] text-[#94A3B8] hover:border-[#333] hover:text-white'
-                }`}
-              >
-                <p className="text-sm font-semibold">{opt.label}</p>
-                <p className="text-xs text-[#475569] mt-0.5">{opt.description}</p>
-              </button>
-            ))}
+          <div className="flex gap-2">
+            {DAYS.map((day) => {
+              const isSelected = selectedDays.includes(day.value)
+              return (
+                <button
+                  key={day.value}
+                  onClick={() => toggleDay(day.value)}
+                  className={`flex-1 h-10 rounded-xl text-xs font-bold transition-all ${
+                    isSelected
+                      ? 'bg-[#7C3AED] text-white border border-[#7C3AED]'
+                      : 'bg-[#111111] border border-[#222222] text-[#475569] hover:border-[#444] hover:text-white'
+                  }`}
+                >
+                  {day.label}
+                </button>
+              )
+            })}
           </div>
+          <p className="text-xs text-[#475569] mt-2">
+            {selectedDays.length === 0
+              ? 'Select at least one day'
+              : `${selectedDays.length} day${selectedDays.length !== 1 ? 's' : ''} per week`}
+          </p>
         </div>
 
-        {/* Preferred time */}
+        {/* Preferred time — dialer */}
         <div>
           <label className="text-sm font-semibold text-white mb-3 block">Preferred time</label>
-          <div className="grid grid-cols-3 gap-3">
-            {TIME_OPTIONS.map((opt) => (
+          <div className="inline-flex items-center gap-3 bg-[#111111] border border-[#222222] rounded-2xl px-6 py-4">
+            {/* Hour */}
+            <div className="flex flex-col items-center gap-0.5">
+              <button onClick={incHour} className="p-1 text-[#475569] hover:text-white transition-colors">
+                <ChevronUp size={16} />
+              </button>
+              <span className="text-3xl font-bold text-white w-10 text-center tabular-nums leading-none">
+                {displayHour.toString().padStart(2, '0')}
+              </span>
+              <button onClick={decHour} className="p-1 text-[#475569] hover:text-white transition-colors">
+                <ChevronDown size={16} />
+              </button>
+            </div>
+
+            <span className="text-3xl font-bold text-[#333] select-none pb-0.5">:</span>
+
+            {/* Minute */}
+            <div className="flex flex-col items-center gap-0.5">
+              <button onClick={incMinute} className="p-1 text-[#475569] hover:text-white transition-colors">
+                <ChevronUp size={16} />
+              </button>
+              <span className="text-3xl font-bold text-white w-10 text-center tabular-nums leading-none">
+                {preferredMinute.toString().padStart(2, '0')}
+              </span>
+              <button onClick={decMinute} className="p-1 text-[#475569] hover:text-white transition-colors">
+                <ChevronDown size={16} />
+              </button>
+            </div>
+
+            {/* AM / PM */}
+            <div className="flex flex-col gap-1 ml-2">
               <button
-                key={opt.value}
-                onClick={() => setPreferredHour(opt.value)}
-                className={`p-3 rounded-xl border text-left transition-all ${
-                  preferredHour === opt.value
-                    ? 'bg-purple-950/40 border-[#7C3AED] text-white'
-                    : 'bg-[#111111] border-[#222222] text-[#94A3B8] hover:border-[#333] hover:text-white'
+                onClick={setAm}
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                  isAm ? 'bg-[#7C3AED] text-white' : 'text-[#475569] hover:text-white'
                 }`}
               >
-                <p className="text-sm font-semibold">{opt.label}</p>
-                <p className="text-xs text-[#475569] mt-0.5">{opt.description}</p>
+                AM
               </button>
-            ))}
+              <button
+                onClick={setPm}
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                  !isAm ? 'bg-[#7C3AED] text-white' : 'text-[#475569] hover:text-white'
+                }`}
+              >
+                PM
+              </button>
+            </div>
           </div>
         </div>
 

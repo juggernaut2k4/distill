@@ -1,10 +1,12 @@
 import type { CurriculumPlan, CurriculumSession } from '@/lib/content/curriculum'
 
 export interface SchedulePreferences {
-  firstSessionDate: string  // ISO date string
-  frequencyDays: number     // 1 = daily, 2 = every 2 days, 7 = weekly
-  maxDurationMins: number   // 15 or 30
-  preferredHour?: number    // Hour of day: 9 (Morning), 13 (Afternoon), 18 (Evening). Defaults to 9.
+  firstSessionDate: string   // ISO date string
+  frequencyDays: number      // fallback when selectedDays not provided
+  selectedDays?: number[]    // 0=Sun, 1=Mon, ..., 6=Sat; when set, overrides frequencyDays
+  maxDurationMins: number    // 15 or 30
+  preferredHour?: number     // 0–23. Defaults to 9.
+  preferredMinute?: number   // 0, 15, 30, or 45. Defaults to 0.
 }
 
 export interface ScheduledSession {
@@ -17,6 +19,32 @@ export interface ScheduledSession {
   estimatedMinutes: number
 }
 
+function getSessionDatesForWeekDays(firstDate: Date, selectedDays: number[], count: number): Date[] {
+  const sorted = [...selectedDays].sort((a, b) => a - b)
+  if (sorted.length === 0) return []
+  const dates: Date[] = []
+  let current = new Date(firstDate)
+
+  while (dates.length < count) {
+    const dayOfWeek = current.getDay()
+    const nextDay = sorted.find((d) => d >= dayOfWeek)
+
+    if (nextDay !== undefined) {
+      const d = new Date(current)
+      d.setDate(current.getDate() + (nextDay - dayOfWeek))
+      dates.push(d)
+      current = new Date(d)
+      current.setDate(d.getDate() + 1)
+    } else {
+      // No selected day remaining this week — jump to first selected day of next week
+      const daysToNext = 7 - dayOfWeek + sorted[0]
+      current.setDate(current.getDate() + daysToNext)
+    }
+  }
+
+  return dates
+}
+
 /**
  * Generates a scheduled session list from a curriculum plan and preferences.
  */
@@ -26,19 +54,27 @@ export function scheduleSessions(
 ): ScheduledSession[] {
   const scheduled: ScheduledSession[] = []
   const startDate = new Date(`${prefs.firstSessionDate}T00:00:00`)
+  const hour = prefs.preferredHour ?? 9
+  const minute = prefs.preferredMinute ?? 0
+
+  // Compute session dates — day-of-week mode or legacy frequency mode
+  const sessionDates: Date[] =
+    prefs.selectedDays && prefs.selectedDays.length > 0
+      ? getSessionDatesForWeekDays(startDate, prefs.selectedDays, plan.sessions.length)
+      : Array.from({ length: plan.sessions.length }, (_, i) => {
+          const d = new Date(startDate)
+          d.setDate(startDate.getDate() + i * prefs.frequencyDays)
+          return d
+        })
 
   for (let i = 0; i < plan.sessions.length; i++) {
     const session: CurriculumSession = plan.sessions[i]
-    const sessionDate = new Date(startDate)
-    sessionDate.setDate(startDate.getDate() + i * prefs.frequencyDays)
-
-    // Set to preferred hour (defaults to 9am)
-    const hour = prefs.preferredHour ?? 9
-    sessionDate.setHours(hour, 0, 0, 0)
+    const sessionDate = sessionDates[i] ?? new Date(startDate)
+    sessionDate.setHours(hour, minute, 0, 0)
 
     const cappedMinutes = Math.min(session.estimatedMinutes, prefs.maxDurationMins)
-
     const primaryTopic = session.topics[0]
+
     scheduled.push({
       sessionIndex: i + 1,
       title: session.title,
