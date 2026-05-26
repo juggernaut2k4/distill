@@ -2,6 +2,14 @@
  * Recall.ai API client for creating and managing meeting bots.
  * Mock mode activates automatically when RECALL_AI_API_KEY is a PLACEHOLDER.
  * Audio output uses ElevenLabs TTS → base64 MP3 → Recall.ai output_audio endpoint.
+ *
+ * Transcript provider:
+ *   RECALL_TRANSCRIPT_PROVIDER=recall   (default) — Recall.ai streaming ASR
+ *   RECALL_TRANSCRIPT_PROVIDER=deepgram — Deepgram Nova-2 via Recall.ai native integration.
+ *     Recall.ai routes audio to Deepgram on our behalf; transcripts still arrive via
+ *     the same transcript.data webhook — nothing downstream changes.
+ *     Requires DEEPGRAM_API_KEY env var.
+ *     Revert: set RECALL_TRANSCRIPT_PROVIDER=recall in Vercel dashboard (no deploy needed).
  */
 import { textToMp3Base64 } from './tts'
 
@@ -11,6 +19,8 @@ const RECALL_BASE = `https://${RECALL_REGION}.recall.ai/api/v1`
 const isPlaceholder =
   !process.env.RECALL_AI_API_KEY ||
   process.env.RECALL_AI_API_KEY.startsWith('PLACEHOLDER')
+
+const transcriptProvider = process.env.RECALL_TRANSCRIPT_PROVIDER ?? 'recall'
 
 function recallHeaders(): Record<string, string> {
   return {
@@ -61,15 +71,27 @@ export async function createBot(
       },
       recording_config: {
         transcript: {
-          provider: {
-            recallai_streaming: {
-              // default mode fires on natural speech boundaries — 1-2 events per utterance.
-              // prioritize_low_latency fires every 100-300ms causing cascade (8+ LLM calls
-              // per sentence, 6+ second response delay). Default mode + client debounce
-              // achieves the same <3s round-trip without the cascade.
-              language_code: 'en',
-            },
-          },
+          provider: transcriptProvider === 'deepgram'
+            ? {
+                // Deepgram Nova-2 via Recall.ai native integration.
+                // Recall.ai handles audio routing — transcripts arrive via the same
+                // transcript.data webhook, nothing downstream changes.
+                deepgram: {
+                  api_key: process.env.DEEPGRAM_API_KEY ?? '',
+                  language: 'en',
+                  model: 'nova-2',
+                },
+              }
+            : {
+                // Default: Recall.ai built-in streaming ASR.
+                // Default mode fires on natural speech boundaries — 1-2 events per utterance.
+                // prioritize_low_latency fires every 100-300ms causing cascade (8+ LLM calls
+                // per sentence, 6+ second response delay). Default mode + client debounce
+                // achieves the same <3s round-trip without the cascade.
+                recallai_streaming: {
+                  language_code: 'en',
+                },
+              },
         },
         realtime_endpoints: [
           {
