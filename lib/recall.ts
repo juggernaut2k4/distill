@@ -74,10 +74,10 @@ export async function createBot(
           provider: transcriptProvider === 'deepgram'
             ? {
                 // Deepgram Nova-2 via Recall.ai native integration.
-                // Recall.ai handles audio routing — transcripts arrive via the same
-                // transcript.data webhook, nothing downstream changes.
+                // API key is configured in Recall.ai dashboard (Settings → Integrations → Deepgram),
+                // NOT passed inline — Recall.ai rejects requests with api_key in this field.
+                // Transcripts still arrive via the same transcript.data webhook.
                 deepgram: {
-                  api_key: process.env.DEEPGRAM_API_KEY ?? '',
                   language: 'en',
                   model: 'nova-2',
                 },
