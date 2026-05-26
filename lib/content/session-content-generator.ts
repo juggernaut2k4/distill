@@ -17,6 +17,14 @@ export interface SubtopicOutline {
   key_concepts: string[]
   builds_on: string[]           // titles of previously taught concepts being extended
   new_to_user: boolean          // false = topic was covered before at introductory level
+  coaching_narrative: string    // full spoken explanation Clio delivers (~300 words)
+  visual_spec: {
+    headline: string            // max 8 words — visual section title
+    items: string[]             // 3–5 named items shown on screen (steps, quadrants, etc.)
+    template_hint: string       // suggested template type for the visual
+    so_what: string             // max 30 words personalised to role/industry
+  }
+  checkpoint_question: string   // single question Clio asks to verify understanding
 }
 
 export interface SessionContentOutline {
@@ -147,6 +155,18 @@ export async function generateSessionContentOutline(
       ],
       builds_on: i > 0 ? [subtopicTitles[i - 1]] : [],
       new_to_user: true,
+      coaching_narrative: `Let me walk you through ${title}. This is one of the most important concepts for ${userContext.role}s in ${userContext.industry} to understand right now. The executives who get this right aren't the ones who understand the technology deepest — they're the ones who ask the right questions. Here's what you need to know: first, the fundamentals matter more than the vendor pitch. Second, implementation always takes longer than the demo suggests. Third, governance must come before scale. Keep those three things in mind and you'll avoid the most common and costly mistakes.`,
+      visual_spec: {
+        headline: `${title.split(' ').slice(0, 5).join(' ')}`,
+        items: [
+          `What ${title.split(' ').slice(0, 3).join(' ')} means for your org`,
+          'Common pitfalls and how to avoid them',
+          'The decisions you must make this quarter',
+        ],
+        template_hint: 'KeyTakeaway',
+        so_what: `As a ${userContext.role}, focus on governance first and technology second.`,
+      },
+      checkpoint_question: `Before we move on — where do you see the biggest gap between where your organisation is today and where it needs to be on ${title.split(' ').slice(0, 3).join(' ')}?`,
     }))
     return {
       session_id: sessionId,
@@ -175,11 +195,16 @@ ${previousContext}
 ${existingContent ? `EXISTING CONTENT FOR THIS TOPIC\n${existingContent}\n` : ''}
 
 TASK
-For each subtopic, generate a focused content outline. Each subtopic should:
-- BUILD ON what was previously covered (reference it briefly, don't repeat it)
-- Be calibrated to this user's role and industry
-- Stay actionable and concrete — no academic explanations
-- Identify the 2-3 core concepts the executive must leave knowing
+For each subtopic, generate a complete content document that serves as the single source of truth for both the visual slide and the voice coaching script.
+
+Each subtopic must include:
+1. A content_summary (what and why)
+2. key_concepts (2-3 core ideas)
+3. coaching_narrative (the full spoken explanation Clio delivers — 250-350 words in natural spoken language)
+4. visual_spec (defines EXACTLY what will appear on screen — the script MUST reference these items by name)
+5. checkpoint_question (one focused question to verify understanding)
+
+The coaching_narrative and visual_spec must be in sync: visual_spec.items are the exact items Clio names while teaching.
 
 Return ONLY valid JSON matching this exact schema (no markdown, no commentary):
 {
@@ -189,7 +214,15 @@ Return ONLY valid JSON matching this exact schema (no markdown, no commentary):
       "content_summary": "2-3 sentences: what this section covers and why it matters to this executive",
       "key_concepts": ["concept 1", "concept 2", "concept 3"],
       "builds_on": ["title of previous subtopic or session topic this connects to"],
-      "new_to_user": true
+      "new_to_user": true,
+      "coaching_narrative": "Full 250-350 word spoken narrative Clio delivers. Natural spoken language — contractions, short sentences, confident peer tone. Must explicitly name and explain every item in visual_spec.items. Must end with a clear takeaway.",
+      "visual_spec": {
+        "headline": "max 8 words — what appears as the visual section title",
+        "items": ["Item 1 shown on screen", "Item 2 shown on screen", "Item 3 shown on screen"],
+        "template_hint": "one of: StepFlow | FrameworkCard | TwoByTwoMatrix | ComparisonTable | CaseStudy | StatCallout | ProsCons | Timeline | KeyTakeaway | ConceptDefinition",
+        "so_what": "max 30 words personalised insight starting with As a [role],"
+      },
+      "checkpoint_question": "Single focused question to verify the executive understood and can apply the concept"
     }
   ],
   "previous_sessions_summarized": "1 sentence summary of what this user already knows"
@@ -211,6 +244,14 @@ Return ONLY valid JSON matching this exact schema (no markdown, no commentary):
       key_concepts: string[]
       builds_on: string[]
       new_to_user: boolean
+      coaching_narrative: string
+      visual_spec: {
+        headline: string
+        items: string[]
+        template_hint: string
+        so_what: string
+      }
+      checkpoint_question: string
     }>
     previous_sessions_summarized: string
   }
@@ -219,6 +260,15 @@ Return ONLY valid JSON matching this exact schema (no markdown, no commentary):
     ...s,
     subtopic_slug: slugify(s.subtopic_title),
     position: i === 0 ? 'first' : i === subtopicTitles.length - 1 ? 'last' : 'middle',
+    // Guard against Claude omitting new fields
+    coaching_narrative: s.coaching_narrative ?? s.content_summary,
+    visual_spec: s.visual_spec ?? {
+      headline: s.subtopic_title,
+      items: s.key_concepts ?? [],
+      template_hint: 'KeyTakeaway',
+      so_what: '',
+    },
+    checkpoint_question: s.checkpoint_question ?? `How does this apply in your context?`,
   }))
 
   return {

@@ -19,6 +19,7 @@ import { generateTemplateData } from '@/lib/templates/generator'
 import { getCachedSection, setCachedSection } from '@/lib/topic-cache'
 import type { TemplateSection, TemplateMeta } from '@/lib/templates/types'
 import type { SessionPlan } from '@/lib/session-plan'
+import type { SubtopicOutline } from '@/lib/content/session-content-generator'
 
 export const maxDuration = 300
 
@@ -152,7 +153,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
     // Each subtopic writes its own cache row incrementally so the GET poll can track progress.
     const BATCH_SIZE = 3
 
-    const processSubtopic = async (subtopicOutline: (typeof outline.subtopics)[number]) => {
+    const processSubtopic = async (subtopicOutline: SubtopicOutline) => {
       const subtopicTitle = subtopicOutline.subtopic_title
       const subtopicSlug = subtopicOutline.subtopic_slug
 
@@ -164,28 +165,44 @@ export async function POST(_req: NextRequest, { params }: Params) {
           { onConflict: 'topic_id,subtopic_slug' }
         )
 
-      // Run script + template selection in parallel; template data needs type first
-      const [script, templateType] = await Promise.all([
-        generateTrainingScript(subtopicOutline, userContext),
-        Promise.resolve(selectTemplate(subtopicTitle, subtopicOutline.position)),
-      ])
+      const templateType = selectTemplate(subtopicTitle, subtopicOutline.position)
 
-      let section: TemplateSection | null = await getCachedSection(topicId, subtopicSlug, {
+      // Build contentSpec from Step 1 visual_spec — the single source of truth for both Step 2 and Step 3
+      const contentSpec = subtopicOutline.visual_spec
+        ? {
+            headline: subtopicOutline.visual_spec.headline,
+            items: subtopicOutline.visual_spec.items,
+            so_what: subtopicOutline.visual_spec.so_what,
+            summary: subtopicOutline.content_summary,
+          }
+        : undefined
+
+      // Check cache before generating
+      const cachedSection = await getCachedSection(topicId, subtopicSlug, {
         role: userContext.role,
         industry: userContext.industry,
       })
 
-      if (!section) {
-        const meta: TemplateMeta = {
-          subtopicTitle,
-          sessionTitle: topicTitle,
-          userRole: userContext.role,
-          userIndustry: userContext.industry,
-        }
-        const data = await generateTemplateData(templateType, subtopicTitle, topicTitle, userContext)
-        section = { id: subtopicSlug, type: templateType, data, meta, status: 'pending' } as TemplateSection
-        setCachedSection(topicId, subtopicSlug, subtopicTitle, section).catch(() => {})
+      const meta: TemplateMeta = {
+        subtopicTitle,
+        sessionTitle: topicTitle,
+        userRole: userContext.role,
+        userIndustry: userContext.industry,
       }
+
+      // Step 2 (visual) and Step 3 (script) run in PARALLEL, both derived from Step 1 outline.
+      // contentSpec ensures the visual renders exactly the items Clio will name in the script.
+      const [section, script] = await Promise.all([
+        cachedSection
+          ? Promise.resolve(cachedSection)
+          : generateTemplateData(templateType, subtopicTitle, topicTitle, userContext, undefined, contentSpec)
+              .then((data) => {
+                const newSection = { id: subtopicSlug, type: templateType, data, meta, status: 'pending' } as TemplateSection
+                setCachedSection(topicId, subtopicSlug, subtopicTitle, newSection).catch(() => {})
+                return newSection
+              }),
+        generateTrainingScript(subtopicOutline, userContext),
+      ])
 
       const expiresAt = new Date()
       expiresAt.setDate(expiresAt.getDate() + 60)

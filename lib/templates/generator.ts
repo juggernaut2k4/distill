@@ -753,11 +753,12 @@ function getRoleDepthInstruction(role: string): string {
 /**
  * Generates structured template data using Claude or falls back to mock data.
  *
- * @param templateType - The template variant to generate data for
- * @param subtopicTitle - The subtopic title (used in prompts)
- * @param sessionTitle - The session title for context
- * @param userContext - User role, industry, and AI maturity level
+ * @param templateType   - The template variant to generate data for
+ * @param subtopicTitle  - The subtopic title (used in prompts)
+ * @param sessionTitle   - The session title for context
+ * @param userContext    - User role, industry, and AI maturity level
  * @param adjacentTopics - Optional previous/next topic titles for continuity
+ * @param contentSpec    - Step 1 visual_spec: constrains visual items to match the coaching script
  * @returns Typed data object matching the template's data interface
  */
 export async function generateTemplateData(
@@ -765,7 +766,8 @@ export async function generateTemplateData(
   subtopicTitle: string,
   sessionTitle: string,
   userContext: UserContext,
-  adjacentTopics?: AdjacentTopics
+  adjacentTopics?: AdjacentTopics,
+  contentSpec?: { headline: string; items: string[]; so_what: string; summary: string }
 ): Promise<TemplateSection['data']> {
   if (isPlaceholder || !anthropic) {
     console.log('[MOCK TEMPLATE-GENERATOR]', templateType, subtopicTitle)
@@ -835,12 +837,26 @@ Template: ${templateType}
 Required JSON schema (data fields only):
 ${schema}`
 
+  // When contentSpec is provided, constrain the visual to match the coaching script exactly.
+  // This is the key alignment mechanism: Step 1 defines items → Step 2 renders them → Step 3 names them.
+  const contentSpecBlock = contentSpec && contentSpec.items.length > 0
+    ? `\n\nCONTENT SPECIFICATION — USE THESE EXACT ITEMS (the voice coach will name them on screen)
+Headline: "${contentSpec.headline}"
+Items to display (use as your steps/components/quadrants/pros/cons — do not substitute):
+${contentSpec.items.map((it, i) => `  ${i + 1}. ${it}`).join('\n')}
+So what (use verbatim or very close): "${contentSpec.so_what}"
+Summary: "${contentSpec.summary}"
+
+CRITICAL: The items above are EXACTLY what Clio will say while the executive looks at this visual.
+Map them faithfully into the template structure — do not invent alternative items.`
+    : ''
+
   const userPrompt = `Session: "${sessionTitle}"
 Subtopic: "${subtopicTitle}"
 Learner Role: ${userContext.role}
 Domain: ${domainLabel}
 Proficiency: ${proficiencyLabel}
-Industry: ${userContext.industry}${adjacentContext}
+Industry: ${userContext.industry}${adjacentContext}${contentSpecBlock}
 
 Generate the template data JSON for this subtopic.`
 

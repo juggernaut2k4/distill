@@ -1,14 +1,16 @@
 /**
- * Step 2 of the content pipeline — generates a training script per subtopic.
+ * Step 3 of the content pipeline — generates a training script per subtopic.
  *
  * Script format: TEACH → CHECKPOINT → PROBE → CONTINUE
- * - TEACH: 2-3 minutes of clear, jargon-free explanation
+ * - TEACH: 2-3 minutes of spoken coaching aligned to the visual on screen
  * - CHECKPOINT: a question to verify understanding before proceeding
  * - PROBE: a follow-up if the executive seems uncertain
  * - CONTINUE: a bridge statement that connects to the next concept
  *
- * Clio reads this script verbatim during live sessions, adapting tone based
- * on the executive's responses.
+ * Both this script (Step 3) and the visual template (Step 2) are derived from
+ * the enriched SubtopicOutline produced in Step 1. They share coaching_narrative
+ * and visual_spec as the single source of truth, ensuring Clio's words always
+ * align with what appears on screen.
  */
 
 import Anthropic from '@anthropic-ai/sdk'
@@ -43,19 +45,20 @@ const MODEL = 'claude-sonnet-4-6'
 // ─── MOCK DATA ────────────────────────────────────────────────────────────────
 
 function buildMockScript(outline: SubtopicOutline): TrainingScript {
-  const concepts = outline.key_concepts.slice(0, 2).join(' and ')
+  const items = outline.visual_spec?.items ?? outline.key_concepts.slice(0, 2)
+  const itemList = items.slice(0, 3).join(', ')
   return {
     subtopic_title: outline.subtopic_title,
     subtopic_slug: outline.subtopic_slug,
     segments: [
       {
         type: 'TEACH',
-        content: `Let me walk you through ${outline.subtopic_title}. ${outline.content_summary} The key thing to understand here is ${concepts}. Think of it this way — the executives who get this right aren't the ones who understand the technology deepest, they're the ones who ask the right questions and set the right conditions for their teams to succeed.`,
+        content: outline.coaching_narrative ?? `Let me walk you through ${outline.subtopic_title}. ${outline.content_summary} On your screen you can see ${itemList}. Let's work through each of these. The executives who get this right aren't the ones who understand the technology deepest — they're the ones who ask the right questions and set the right conditions for their teams to succeed.`,
         duration_seconds: 120,
       },
       {
         type: 'CHECKPOINT',
-        content: `Before we go further — how does this land for you? Can you see where ${outline.key_concepts[0] ?? 'this concept'} would apply in your current situation?`,
+        content: outline.checkpoint_question ?? `Before we go further — how does this land for you? Can you see where ${items[0] ?? 'this concept'} would apply in your current situation?`,
         duration_seconds: 20,
       },
       {
@@ -65,7 +68,7 @@ function buildMockScript(outline: SubtopicOutline): TrainingScript {
       },
       {
         type: 'CONTINUE',
-        content: `Good. Let's hold that — we'll come back to it when it becomes concrete. What I want you to take from this section is simple: ${outline.key_concepts[0] ?? outline.content_summary.split('.')[0]}. Keep that in mind as we move on.`,
+        content: `Good. Let's hold that — we'll come back to it when it becomes concrete. What I want you to take from this section is simple: ${outline.visual_spec?.so_what ?? outline.content_summary.split('.')[0]}. Keep that in mind as we move on.`,
         duration_seconds: 20,
       },
     ],
@@ -77,11 +80,10 @@ function buildMockScript(outline: SubtopicOutline): TrainingScript {
 
 /**
  * Generates a training script for a single subtopic.
- * The script is structured as TEACH → CHECKPOINT → PROBE → CONTINUE
- * so Clio can pace the session and verify understanding at each step.
  *
- * @param outline     - Content outline from Step 1 (session-content-generator)
- * @param userContext - Role, industry, maturity for tone calibration
+ * Uses coaching_narrative and visual_spec from the enriched SubtopicOutline
+ * produced in Step 1 — the same source that drives the visual template.
+ * This guarantees Clio's words always align with what appears on screen.
  */
 export async function generateTrainingScript(
   outline: SubtopicOutline,
@@ -98,6 +100,9 @@ export async function generateTrainingScript(
     ? 'Assume familiarity with AI concepts. Focus on strategic application over explanation.'
     : 'Skip introductory definitions. Focus on nuance, edge cases, and board-level implications.'
 
+  const visualItems = outline.visual_spec?.items ?? outline.key_concepts
+  const visualItemList = visualItems.map((item, i) => `  ${i + 1}. ${item}`).join('\n')
+
   const prompt = `You are Clio — an AI executive coach. You are scripting a 2-3 minute coaching segment for a live session.
 
 EXECUTIVE PROFILE
@@ -108,25 +113,36 @@ Calibration: ${maturityNote}
 
 SUBTOPIC: ${outline.subtopic_title}
 SUMMARY: ${outline.content_summary}
-KEY CONCEPTS TO COVER: ${outline.key_concepts.join(', ')}
-${outline.builds_on.length > 0 ? `BUILDS ON: ${outline.builds_on.join(', ')}` : ''}
+
+WHAT IS SHOWN ON SCREEN (your script MUST reference these items by name)
+Visual headline: "${outline.visual_spec?.headline ?? outline.subtopic_title}"
+Items displayed on screen:
+${visualItemList}
+So what shown on screen: "${outline.visual_spec?.so_what ?? ''}"
+
+COACHING NARRATIVE (your source of truth — expand on this, do not invent new content)
+${outline.coaching_narrative ?? outline.content_summary}
+${outline.builds_on.length > 0 ? `\nBUILDS ON: ${outline.builds_on.join(', ')}` : ''}
 
 SCRIPT REQUIREMENTS
-Write the script in first-person as Clio speaking directly to the executive.
-Use natural spoken language — contractions, short sentences, confident tone.
-Sound like a trusted peer, not a teacher or consultant.
-No jargon without immediate plain-English translation.
+Write in first-person as Clio speaking directly to the executive.
+Use natural spoken language — contractions, short sentences, confident peer tone.
+Sound like a trusted colleague, not a teacher or consultant.
+
+CRITICAL ALIGNMENT RULE: Your TEACH segment must walk through each item shown on screen by name.
+The executive is looking at: ${visualItems.join(' | ')}
+Reference them explicitly as you explain — Clio speaks to what is visible on screen.
 
 Write exactly 4 segments in this order:
 
 1. TEACH (90-150 seconds of spoken content)
    - Open with why this matters to them specifically
-   - Explain the concept with a concrete example from their industry
+   - Walk through each visual item on screen by name — explain it, don't skip any
+   - Use a concrete example from their industry where possible
    - End with the one thing they must remember
 
-2. CHECKPOINT (15-25 seconds — one focused question)
-   - Check understanding, not just recall
-   - The question should reveal whether they can apply the concept
+2. CHECKPOINT (15-25 seconds — use this exact question or a close variant)
+   ${outline.checkpoint_question ?? 'Check understanding, not just recall — ask a question that reveals whether they can apply the concept'}
 
 3. PROBE (20-35 seconds — follow-up if they're uncertain)
    - A different angle or simpler reframe
@@ -134,6 +150,7 @@ Write exactly 4 segments in this order:
 
 4. CONTINUE (15-25 seconds — bridge to next concept)
    - Summarise the one key insight they should hold
+   - Reference the so_what: "${outline.visual_spec?.so_what ?? ''}"
    - Create anticipation for what comes next
 
 Return ONLY valid JSON (no markdown, no commentary):
@@ -174,7 +191,6 @@ export async function generateAllTrainingScripts(
   outlines: SubtopicOutline[],
   userContext: { role: string; industry: string; maturity: string }
 ): Promise<TrainingScript[]> {
-  // Run in batches of 3 to stay within API rate limits
   const results: TrainingScript[] = []
   const BATCH_SIZE = 3
 
