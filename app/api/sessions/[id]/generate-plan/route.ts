@@ -178,7 +178,8 @@ function findSubtopicsFromCatalog(topicId: string, sessionTitle: string): string
   // Keyword-based title matching — always check the title first; topicId may be stale
   // (sessions created before the curriculum fix may have wrong topicIds like 'ai-fundamentals')
   const titleKeywordMap: Array<{ keywords: string[]; key: string }> = [
-    { keywords: ['large language model', 'llm', 'language model'], key: 'llm-basics' },
+    // Longer/more specific phrases first so they match before shorter overlapping keywords
+    { keywords: ['claude code', 'claude chat', 'claude cowork', 'claude feature', 'how to use claude', 'large language model', 'llm', 'language model'], key: 'llm-basics' },
     { keywords: ['machine learning', 'ml basics', 'supervised', 'unsupervised'], key: 'ml-basics' },
     { keywords: ['generative ai', 'gen ai', 'foundation model', 'gpt', 'claude', 'gemini', 'ai fundamentals', 'ai basics'], key: 'ai-fundamentals' },
     { keywords: ['ai strategy', 'ai roadmap', 'ai ambition', 'ai posture'], key: 'ai-strategy-intro' },
@@ -209,13 +210,15 @@ function findSubtopicsFromCatalog(topicId: string, sessionTitle: string): string
     }
   }
 
-  // Generate subtopics from the session title — never default to an unrelated AI catalog entry
+  // Fallback: synthesize subtopics from the session title — all bullets reference the
+  // actual topic so they remain distinct across multiple unmatched sessions in a plan
+  const t = sessionTitle.toLowerCase()
   return [
-    `Core concepts and frameworks underlying ${sessionTitle.toLowerCase()}`,
-    `How leading organisations approach this effectively`,
-    `Common challenges, risks, and how to navigate them`,
-    `Key metrics, decision points, and success indicators`,
-    `Your immediate action plan: priorities for the next 90 days`,
+    `Core concepts and frameworks underlying ${t}`,
+    `How leading organizations are applying ${t} today`,
+    `Common pitfalls and risks when adopting ${t}`,
+    `Key metrics and decision points for ${t}`,
+    `Your immediate action plan: first steps with ${t}`,
   ]
 }
 

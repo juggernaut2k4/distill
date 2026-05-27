@@ -416,14 +416,42 @@ export function buildCurriculum(
 }
 
 function generateSubtopicsForTitle(title: string): string[] {
+  const t = title.toLowerCase()
   return [
-    `Core concepts and frameworks underlying ${title.toLowerCase()}`,
-    `How leading organizations approach this effectively`,
-    `Common pitfalls, risks, and how to navigate them`,
-    `Key decision points, metrics, and success indicators`,
-    `Your immediate action plan: priorities for the next 90 days`,
+    `Core concepts and frameworks underlying ${t}`,
+    `How leading organizations are applying ${t} today`,
+    `Common pitfalls and risks when adopting ${t}`,
+    `Key metrics and decision points for ${t}`,
+    `Your immediate action plan: first steps with ${t}`,
   ]
 }
+
+// Keyword → catalog ID map. Longer/more specific phrases must come first so they
+// take priority over shorter overlapping keywords (e.g. "claude code" before "claude").
+const TITLE_KEYWORD_MAP: Array<{ keywords: string[]; id: string }> = [
+  { keywords: ['claude code', 'claude chat', 'claude cowork', 'claude feature', 'how to use claude', 'large language model', 'llm', 'language model'], id: 'llm-basics' },
+  { keywords: ['generative ai', 'gen ai', 'ai fundamentals', 'ai basics', 'foundation model', 'gpt', 'claude', 'gemini'], id: 'ai-fundamentals' },
+  { keywords: ['ai strategy', 'ai roadmap', 'ai ambition', 'ai posture'], id: 'ai-strategy-intro' },
+  { keywords: ['machine learning', 'ml basics', 'supervised', 'unsupervised'], id: 'ml-basics' },
+  { keywords: ['ai culture', 'ai mindset', 'psychological safety', 'ai champion'], id: 'ai-culture' },
+  { keywords: ['ai roi', 'return on investment', 'ai value', 'ai kpi'], id: 'ai-roi' },
+  { keywords: ['vendor eval', 'vendor assessment', 'ai vendor', 'build vs buy', 'procurement'], id: 'ai-vendor-eval' },
+  { keywords: ['ai governance', 'ai oversight', 'ai committee'], id: 'ai-governance' },
+  { keywords: ['data strategy', 'data readiness', 'data lake', 'data warehouse', 'data governance'], id: 'data-strategy' },
+  { keywords: ['ai operations', 'ai ops', 'operational ai', 'supply chain ai'], id: 'ai-ops' },
+  { keywords: ['customer experience', 'ai cx', 'personalization', 'ai chatbot'], id: 'ai-cx' },
+  { keywords: ['process automation', 'rpa', 'intelligent automation', 'workflow automation'], id: 'process-automation' },
+  { keywords: ['upskilling', 'ai training', 'ai literacy', 'ai learning', 'workforce ai'], id: 'upskilling' },
+  { keywords: ['change management', 'change mgmt', 'ai adoption', 'ai resistance'], id: 'change-mgmt' },
+  { keywords: ['ai security', 'prompt injection', 'data poisoning'], id: 'ai-security' },
+  { keywords: ['competitive intelligence', 'market disruption', 'first mover', 'fast follower'], id: 'ai-competitive' },
+  { keywords: ['ai product', 'intelligence roadmap'], id: 'ai-product' },
+  { keywords: ['ai teams', 'ai talent', 'center of excellence'], id: 'ai-teams' },
+  { keywords: ['ai finance', 'financial forecasting', 'fraud detection'], id: 'ai-finance' },
+  { keywords: ['ai ethics', 'responsible ai'], id: 'ai-ethics' },
+  { keywords: ['ai regulation', 'eu ai act', 'compliance ai', 'ai policy'], id: 'ai-regulation' },
+  { keywords: ['ai trends', 'future of ai', 'agentic ai', 'multi-modal', 'multimodal'], id: 'ai-trends' },
+]
 
 function matchTopicsToCatalog(
   titles: string[],
@@ -436,7 +464,7 @@ function matchTopicsToCatalog(
     MATURITY_MAX_DIFFICULTY[maturity] ?? 'intermediate'
 
   for (const title of titles) {
-    // 1. Exact title match — only accept catalog entries that truly match
+    // 1. Exact title match
     const exact = TOPIC_CATALOG.find((t) => t.title.toLowerCase() === title.toLowerCase())
     if (exact && !addedIds.has(exact.id)) {
       result.push(exact)
@@ -444,8 +472,22 @@ function matchTopicsToCatalog(
       continue
     }
 
-    // 2. Synthesize a topic from the user's actual title — never fuzzy-map to a
-    //    wrong AI catalog entry just because a common word like "strategy" overlaps
+    // 2. Keyword-based fuzzy match — maps tool/product titles to relevant catalog entries
+    const titleLower = title.toLowerCase()
+    const keywordMatch = TITLE_KEYWORD_MAP.find(({ keywords }) =>
+      keywords.some((kw) => titleLower.includes(kw))
+    )
+    if (keywordMatch) {
+      const catalogEntry = TOPIC_CATALOG.find((t) => t.id === keywordMatch.id)
+      if (catalogEntry && !addedIds.has(catalogEntry.id)) {
+        result.push(catalogEntry)
+        addedIds.add(catalogEntry.id)
+        continue
+      }
+    }
+
+    // 3. Synthesize from title — all 5 bullets reference the actual topic so they
+    //    remain distinct even when multiple unmatched topics appear in the same plan
     const syntheticId = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 64)
     if (!addedIds.has(syntheticId)) {
       result.push({
