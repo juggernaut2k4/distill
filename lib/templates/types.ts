@@ -275,6 +275,70 @@ export interface HierarchyData {
   so_what: string
 }
 
+// ─── NEW TEMPLATE DATA TYPES ──────────────────────────────────────────────────
+
+export interface ChevronProcessData {
+  title: string
+  context: string
+  stages: Array<{
+    name: string        // max 3 words
+    description: string // 1-2 sentences
+    key_action: string  // what the exec does here, 1 sentence
+  }>                    // max 4 stages
+  outcome: string       // what emerges at the end
+  so_what: string
+}
+
+export interface NarrativeCardData {
+  company: string
+  industry: string
+  challenge: string   // 1-2 sentences
+  approach: string    // 1-2 sentences
+  impact: string      // 1-2 sentences
+  metrics: Array<{
+    value: string     // e.g. "40%"
+    label: string     // e.g. "cost reduction"
+  }>                  // max 3
+  lesson: string      // key takeaway 1 sentence
+  so_what: string
+}
+
+export interface DefinitionTriptychData {
+  term: string
+  category: string
+  what_it_is: string      // 2-3 sentences, plain English
+  real_example: {
+    company: string
+    what: string          // 1-2 sentences
+    result: string        // 1 sentence
+  }
+  common_myth: string     // "People think X. Actually Y." 1-2 sentences
+  so_what: string
+}
+
+export interface HorizontalDecisionData {
+  title: string
+  context: string
+  nodes: Array<{
+    id: string
+    label: string                        // max 6 words
+    detail?: string | null               // 1 sentence
+    type: 'start' | 'decision' | 'action' | 'end'
+    branch_label?: string | null         // shown on arrow going down for decision nodes
+    branch_outcome?: string | null       // text in the branch box below decision node
+  }>                                     // max 4 nodes
+  so_what: string
+}
+
+export interface AnswerSpotlightData {
+  question: string
+  direct_answer: string   // 2-3 sentences
+  analogy?: string | null
+  example?: string | null
+  important_nuance?: string | null
+  so_what: string
+}
+
 // ─── SECTION STATUS ───────────────────────────────────────────────────────────
 
 export type SectionStatus = 'pending' | 'ready' | 'active' | 'completed' | 'skipped' | 'inserted'
@@ -300,6 +364,11 @@ export type TemplateName =
   | 'Hierarchy'
   | 'ActionPlan'
   | 'Funnel'
+  | 'ChevronProcess'
+  | 'NarrativeCard'
+  | 'DefinitionTriptych'
+  | 'HorizontalDecision'
+  | 'AnswerSpotlight'
 
 // ─── DISCRIMINATED UNION ──────────────────────────────────────────────────────
 
@@ -322,3 +391,8 @@ export type TemplateSection =
   | { id: string; type: 'Funnel'; data: FunnelData; meta: TemplateMeta; status: SectionStatus }
   | { id: string; type: 'Flowchart'; data: FlowchartData; meta: TemplateMeta; status: SectionStatus }
   | { id: string; type: 'Hierarchy'; data: HierarchyData; meta: TemplateMeta; status: SectionStatus }
+  | { id: string; type: 'ChevronProcess'; data: ChevronProcessData; meta: TemplateMeta; status: SectionStatus }
+  | { id: string; type: 'NarrativeCard'; data: NarrativeCardData; meta: TemplateMeta; status: SectionStatus }
+  | { id: string; type: 'DefinitionTriptych'; data: DefinitionTriptychData; meta: TemplateMeta; status: SectionStatus }
+  | { id: string; type: 'HorizontalDecision'; data: HorizontalDecisionData; meta: TemplateMeta; status: SectionStatus }
+  | { id: string; type: 'AnswerSpotlight'; data: AnswerSpotlightData; meta: TemplateMeta; status: SectionStatus }

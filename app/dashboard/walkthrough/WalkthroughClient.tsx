@@ -133,6 +133,7 @@ function PulsingRing() {
 
 export default function WalkthroughClient({ userId, initialState }: Props) {
   const [state, setState] = useState<WalkthroughState>(initialState)
+  const [showLandscapePrompt, setShowLandscapePrompt] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const [dimensions, setDimensions] = useState({ width: 1280, height: 720 })
   const [agentStatus, setAgentStatus] = useState<AgentStatus>('disconnected')
@@ -174,6 +175,22 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
     observer.observe(el)
     setDimensions({ width: el.clientWidth, height: el.clientHeight })
     return () => observer.disconnect()
+  }, [])
+
+  // Detect portrait orientation on mobile and prompt user to rotate
+  useEffect(() => {
+    const check = () => {
+      const isMobile = window.innerWidth < 768
+      const isPortrait = window.innerHeight > window.innerWidth
+      setShowLandscapePrompt(isMobile && isPortrait)
+    }
+    check()
+    window.addEventListener('resize', check)
+    window.addEventListener('orientationchange', check)
+    return () => {
+      window.removeEventListener('resize', check)
+      window.removeEventListener('orientationchange', check)
+    }
   }, [])
 
   // Track graceful session end — set true when Clio says goodbye or calls end_session
@@ -515,6 +532,23 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
       className="min-h-screen w-full bg-[#080808] overflow-hidden relative"
       style={{ position: 'fixed', inset: 0 }}
     >
+      {/* Mobile landscape prompt — shown when device is in portrait orientation */}
+      {showLandscapePrompt && (
+        <div className="fixed inset-0 z-50 bg-[#080808] flex flex-col items-center justify-center gap-6 p-8">
+          <div className="text-6xl">↻</div>
+          <h2 className="text-2xl font-bold text-white text-center">Rotate to landscape</h2>
+          <p className="text-[#94A3B8] text-center text-base">
+            Turn your phone sideways for the best session experience.
+          </p>
+          <button
+            onClick={() => setShowLandscapePrompt(false)}
+            className="mt-4 px-6 py-3 rounded-xl border border-[#333333] text-[#94A3B8] text-sm hover:text-white hover:border-[#555555] transition-colors"
+          >
+            Continue anyway
+          </button>
+        </div>
+      )}
+
       {/* Template-based session stack — shown when sections are pre-generated */}
       {hasSections && state.sections && (
         <SessionStack

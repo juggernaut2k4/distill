@@ -61,22 +61,24 @@ export default function ActionPlan({ data, isActive, onReady }: ActionPlanProps)
       nodes.push({ id: `tk${i}`, type: 'takeaway', position: { x: tkStart + i * tkSpacing, y: 0 }, data: tk, width: 220, height: 100, draggable: false })
     })
 
-    // Row 2: Actions
+    // Row 2: Actions — cap at 3
+    const immediateActions = data.immediate_actions.slice(0, 3)
     const actSpacing = 250
-    const actStart = -((data.immediate_actions.length - 1) * actSpacing) / 2
-    data.immediate_actions.forEach((a, i) => {
+    const actStart = -((immediateActions.length - 1) * actSpacing) / 2
+    immediateActions.forEach((a, i) => {
       nodes.push({ id: `act${i}`, type: 'action', position: { x: actStart + i * actSpacing, y: 180 }, data: a, width: 220, height: 110, draggable: false })
       // Connect nearest takeaway to each action
       const tkIdx = Math.min(i, data.key_takeaways.length - 1)
       edges.push({ id: `e-ta${i}`, source: `tk${tkIdx}`, target: `act${i}`, style: { stroke: '#7C3AED40', strokeWidth: 1.5, strokeDasharray: '4 3' } })
     })
+    const actCount = immediateActions.length
 
     // Row 3: Questions to ask
     const qSpacing = 230
     const qStart = -((data.questions_to_ask_your_team.length - 1) * qSpacing) / 2
     data.questions_to_ask_your_team.slice(0, 4).forEach((q, i) => {
       nodes.push({ id: `q${i}`, type: 'question', position: { x: qStart + i * qSpacing, y: 380 }, data: { question: q, index: i }, width: 200, height: 90, draggable: false })
-      edges.push({ id: `e-qa${i}`, source: `act${Math.min(i, data.immediate_actions.length - 1)}`, target: `q${i}`, style: { stroke: '#06B6D430', strokeWidth: 1 } })
+      edges.push({ id: `e-qa${i}`, source: `act${Math.min(i, actCount - 1)}`, target: `q${i}`, style: { stroke: '#06B6D430', strokeWidth: 1 } })
     })
 
     return { initialNodes: nodes, initialEdges: edges }

@@ -19,6 +19,12 @@ import Funnel from './renderers/Funnel'
 import FlowchartRenderer from './renderers/Flowchart'
 import Hierarchy from './renderers/Hierarchy'
 import GenericTemplate from './renderers/GenericTemplate'
+import ChevronProcess from './renderers/ChevronProcess'
+import NarrativeCard from './renderers/NarrativeCard'
+import DefinitionTriptych from './renderers/DefinitionTriptych'
+import HorizontalDecision from './renderers/HorizontalDecision'
+import AnswerSpotlight from './renderers/AnswerSpotlight'
+import HorizontalTree from './renderers/HorizontalTree'
 
 export interface TemplateRendererProps {
   section: TemplateSection
@@ -61,8 +67,18 @@ export default function TemplateRenderer({ section, isActive, onReady }: Templat
     case 'Flowchart':
       return <FlowchartRenderer data={section.data} isActive={isActive} onReady={onReady} />
     case 'Hierarchy':
-      return <Hierarchy data={section.data} isActive={isActive} onReady={onReady} />
+      return <HorizontalTree data={section.data} isActive={isActive} onReady={onReady} />
     case 'QuoteCallout':
       return <GenericTemplate section={section} isActive={isActive} onReady={onReady} />
+    case 'ChevronProcess':
+      return <ChevronProcess data={section.data} isActive={isActive} onReady={onReady} />
+    case 'NarrativeCard':
+      return <NarrativeCard data={section.data} isActive={isActive} onReady={onReady} />
+    case 'DefinitionTriptych':
+      return <DefinitionTriptych data={section.data} isActive={isActive} onReady={onReady} />
+    case 'HorizontalDecision':
+      return <HorizontalDecision data={section.data} isActive={isActive} onReady={onReady} />
+    case 'AnswerSpotlight':
+      return <AnswerSpotlight data={section.data} isActive={isActive} onReady={onReady} />
   }
 }

@@ -65,7 +65,9 @@ interface KeyTakeawayProps { data: KeyTakeawayData; isActive: boolean; onReady?:
 
 export default function KeyTakeaway({ data, isActive, onReady }: KeyTakeawayProps) {
   const { nodes: initialNodes, edges: initialEdges } = useMemo<{ nodes: Node[]; edges: Edge[] }>(() => {
-    const insightCount = data.insights.length
+    // Cap insights at 6 to prevent visual overflow
+    const insights = data.insights.slice(0, 6)
+    const insightCount = insights.length
     const cols = Math.min(3, insightCount)
     const rows = Math.ceil(insightCount / cols)
     const gridW = cols * INSIGHT_W + (cols - 1) * GAP
@@ -82,7 +84,7 @@ export default function KeyTakeaway({ data, isActive, onReady }: KeyTakeawayProp
     }
 
     const insightGridY = 200
-    const insightNodes: Node[] = data.insights.map((ins, i) => {
+    const insightNodes: Node[] = insights.map((ins, i) => {
       const col = i % cols
       const row = Math.floor(i / cols)
       return {
@@ -109,7 +111,7 @@ export default function KeyTakeaway({ data, isActive, onReady }: KeyTakeawayProp
 
     const nodes: Node[] = [topicNode, ...insightNodes, actionNode]
     const edges: Edge[] = [
-      ...data.insights.map((_, i) => ({
+      ...insights.map((_, i) => ({
         id: `e-topic-ins-${i}`,
         source: 'topic',
         target: `insight-${i}`,

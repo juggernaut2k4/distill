@@ -23,7 +23,7 @@ export function selectTemplate(
 
   // Definition / overview
   if (/what is|introduction to|understanding|overview of/.test(t)) {
-    return 'ConceptDefinition'
+    return 'DefinitionTriptych'
   }
 
   // Comparison / tool landscape
@@ -48,7 +48,7 @@ export function selectTemplate(
 
   // Case study
   if (/case study|example|how [a-z]+ (used|built|deployed|scaled|implemented)/.test(t)) {
-    return 'CaseStudy'
+    return 'NarrativeCard'
   }
 
   // Statistics / data
@@ -73,7 +73,12 @@ export function selectTemplate(
 
   // Flowchart / decision / branching logic
   if (/flow|decision|if.*then|branch|route|path|workflow/.test(t)) {
-    return 'Flowchart'
+    return 'HorizontalDecision'
+  }
+
+  // Question / FAQ / answer
+  if (/\?$|^why |^what |^how does|^when should|^is it|faq|question/.test(t)) {
+    return 'AnswerSpotlight'
   }
 
   // Hierarchy / taxonomy / tree / structure
@@ -83,11 +88,11 @@ export function selectTemplate(
 
   // Funnel / pipeline / selection
   if (/funnel|pipeline|filter|select|screen/.test(t)) {
-    return 'Funnel'
+    return 'ChevronProcess'
   }
 
   // Default
-  return 'ConceptDefinition'
+  return 'DefinitionTriptych'
 }
 
 /**

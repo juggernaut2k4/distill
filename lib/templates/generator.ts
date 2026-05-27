@@ -279,6 +279,66 @@ function getSchemaForTemplate(type: TemplateName): string {
   },
   "so_what": string
 }`,
+    ChevronProcess: `{
+  "title": string,
+  "context": string,
+  "stages": [                          // exactly 3-4 stages, NO MORE than 4
+    {
+      "name": string,                  // max 3 words
+      "description": string,           // 1-2 sentences
+      "key_action": string             // what the executive does here
+    }
+  ],
+  "outcome": string,                   // what emerges at the end
+  "so_what": string
+}`,
+    NarrativeCard: `{
+  "company": string,
+  "industry": string,
+  "challenge": string,                 // 1-2 sentences
+  "approach": string,                  // 1-2 sentences
+  "impact": string,                    // 1-2 sentences
+  "metrics": [                         // exactly 2-3 metrics, NO MORE than 3
+    { "value": string, "label": string }
+  ],
+  "lesson": string,
+  "so_what": string
+}`,
+    DefinitionTriptych: `{
+  "term": string,
+  "category": string,
+  "what_it_is": string,               // 2-3 sentences, plain English, no jargon
+  "real_example": {
+    "company": string,
+    "what": string,                   // 1-2 sentences
+    "result": string                  // 1 sentence with a number if possible
+  },
+  "common_myth": string,              // "People think X. Actually Y." 1-2 sentences
+  "so_what": string
+}`,
+    HorizontalDecision: `{
+  "title": string,
+  "context": string,
+  "nodes": [                          // exactly 3-4 nodes, NO MORE than 4
+    {
+      "id": string,
+      "label": string,                // max 6 words
+      "detail": string | null,        // 1 sentence or null
+      "type": "start" | "decision" | "action" | "end",
+      "branch_label": string | null,  // only for decision nodes, e.g. "If No"
+      "branch_outcome": string | null // only for decision nodes, 1 sentence
+    }
+  ],
+  "so_what": string
+}`,
+    AnswerSpotlight: `{
+  "question": string,
+  "direct_answer": string,            // 2-3 sentences
+  "analogy": string | null,
+  "example": string | null,
+  "important_nuance": string | null,
+  "so_what": string
+}`,
   }
 
   return schemas[type]
@@ -665,6 +725,107 @@ export function getMockData(type: TemplateName, subtopicTitle: string): Template
       ],
       so_what: 'Most AI opportunities fail at the first decision gate. Use this flow to filter fast — every rejected idea saves 6 months of wasted effort.',
     },
+    ChevronProcess: {
+      title: `${subtopicTitle} — Process Flow`,
+      context: 'A stage-by-stage view of how this plays out in practice.',
+      stages: [
+        {
+          name: 'Define the Goal',
+          description: 'Articulate the business outcome this initiative must deliver, in one sentence.',
+          key_action: 'Write the success metric before touching a vendor or tool.',
+        },
+        {
+          name: 'Assess Readiness',
+          description: 'Audit your data, talent, and systems for gaps that would block progress.',
+          key_action: 'Commission a two-week readiness report from your CTO.',
+        },
+        {
+          name: 'Run a Pilot',
+          description: 'Test on a real use case with limited scope. Validate value before scale.',
+          key_action: 'Define pass/fail criteria before the pilot starts — not after.',
+        },
+        {
+          name: 'Scale & Govern',
+          description: 'Expand with a named owner, risk framework, and review cycle in place.',
+          key_action: 'Assign an executive sponsor who is accountable for business outcomes.',
+        },
+      ],
+      outcome: 'A live, governed capability with measurable ROI and clear ownership.',
+      so_what: 'As a CEO, your leverage point is Stage 1. If the goal is vague, everything downstream will drift.',
+    },
+    NarrativeCard: {
+      company: 'DHL',
+      industry: 'Logistics',
+      challenge: 'Manual customs documentation was causing 2-day delays per shipment, costing millions in demurrage fees annually.',
+      approach: 'Deployed an AI document intelligence layer to extract, validate, and route freight paperwork automatically across 40 countries.',
+      impact: 'Shipment clearance dropped from 48 hours to under 6 hours in the first six months of rollout.',
+      metrics: [
+        { value: '87%', label: 'faster clearance time' },
+        { value: '$34M', label: 'annual savings' },
+        { value: '1,400', label: 'staff redeployed' },
+      ],
+      lesson: 'Start with the highest-frequency, highest-cost document type — not the most technically interesting one.',
+      so_what: 'As a CEO, find your equivalent of their customs form. One high-volume pain point, solved well, funds everything else.',
+    },
+    DefinitionTriptych: {
+      term: subtopicTitle,
+      category: 'AI Fundamentals',
+      what_it_is: 'A system that uses patterns from training data to generate outputs — text, decisions, or predictions — without being explicitly programmed for each case. It learns by example, not by rule.',
+      real_example: {
+        company: 'American Express',
+        what: 'Uses ML models to approve or decline transactions in under 2 milliseconds, analysing 115 variables per transaction.',
+        result: 'Reduced false fraud declines by 60%, saving $1.2B in lost revenue annually.',
+      },
+      common_myth: 'People think AI "thinks" like a human. Actually it finds statistical patterns — impressive at scale, brittle outside its training distribution.',
+      so_what: 'As a CEO, the key question is not "can AI do this?" but "what data do we have to train it, and how often will it face cases outside that data?"',
+    },
+    HorizontalDecision: {
+      title: `${subtopicTitle} — Decision Flow`,
+      context: 'How to navigate this decision as an executive.',
+      nodes: [
+        {
+          id: 'start',
+          label: 'AI Opportunity Arrives',
+          detail: null,
+          type: 'start' as const,
+          branch_label: null,
+          branch_outcome: null,
+        },
+        {
+          id: 'd1',
+          label: 'Strategic fit?',
+          detail: 'Maps to a top-3 priority?',
+          type: 'decision' as const,
+          branch_label: 'If No',
+          branch_outcome: 'Park or reject. Add to future consideration list.',
+        },
+        {
+          id: 'a1',
+          label: 'Fund the pilot',
+          detail: 'Assign owner + define success metric.',
+          type: 'action' as const,
+          branch_label: null,
+          branch_outcome: null,
+        },
+        {
+          id: 'end',
+          label: 'Launch & govern',
+          detail: null,
+          type: 'end' as const,
+          branch_label: null,
+          branch_outcome: null,
+        },
+      ],
+      so_what: 'As a CEO, most AI opportunities fail at the first gate. Use this flow to filter fast — rejected ideas save 6 months of wasted effort.',
+    },
+    AnswerSpotlight: {
+      question: subtopicTitle,
+      direct_answer: 'The honest answer is: it depends on how sensitive your data is and how fast you need results. For most organisations, the safest starting point is a proven vendor platform — then build proprietary layers on top as you learn the problem.',
+      analogy: 'Think of it like a kitchen. You can rent a commercial kitchen (vendor platform) to start, then build your own once you know exactly what you cook.',
+      example: 'A regional insurer used Salesforce Einstein to automate claim routing in 90 days. A hedge fund built its own signal detection engine because it could not share trading data with any vendor.',
+      important_nuance: 'The build vs. buy decision is not permanent. Most organisations start vendor, then build proprietary components over 18-24 months as they accumulate domain data.',
+      so_what: 'As a CEO, your job is to set the strategic intent — "we need speed" or "we need differentiation" — and let your team translate that into a build/buy path.',
+    },
     Hierarchy: {
       title: `${subtopicTitle} — Structure Breakdown`,
       context: 'Understanding the layered structure of modern AI systems.',
@@ -831,7 +992,12 @@ Funnel — stage "name": max 4 words | "description": max 8 words | "what_gets_f
 Flowchart — start/end "label": max 4 words | decision "label": max 3 words (diamond shape, visible area is ~50% of node) | action "label": max 4 words | action "detail": max 5 words | set decision "detail" to null | max 8 nodes
 Hierarchy — any "label": max 5 words | any "detail": max 5 words
 TwoByTwoMatrix — quadrant "name": max 3 words | "description": max 20 words | "examples": max 2 items each max 5 words
-ConceptMap — "central_concept": max 4 words | node "label": max 5 words | node "description": max 10 words${rulesBlock}
+ConceptMap — "central_concept": max 4 words | node "label": max 5 words | node "description": max 10 words
+ChevronProcess — stage "name": max 3 words | "description": max 15 words | "key_action": max 10 words | max 4 stages | "outcome": max 15 words
+NarrativeCard — "challenge"/"approach"/"impact": max 20 words each | metric "value": max 5 chars | metric "label": max 4 words | max 3 metrics | "lesson": max 15 words
+DefinitionTriptych — "what_it_is": max 30 words | "real_example.what": max 20 words | "real_example.result": max 12 words | "common_myth": max 20 words
+HorizontalDecision — node "label": max 6 words | node "detail": max 8 words or null | "branch_outcome": max 10 words or null | max 4 nodes
+AnswerSpotlight — "direct_answer": max 35 words | "analogy": max 25 words or null | "example": max 25 words or null | "important_nuance": max 20 words or null${rulesBlock}
 
 Template: ${templateType}
 Required JSON schema (data fields only):
@@ -1049,7 +1215,12 @@ LAYOUT CONSTRAINTS — content renders in fixed-height ReactFlow nodes. Stay wit
 - Funnel "description": max 8w | "what_gets_filtered_out": max 7w | "decision_criteria": max 7w
 - TwoByTwoMatrix quadrant "description": max 20w
 - ConceptMap "central_concept": max 4w | node "label": max 5w
-- Hierarchy any "detail": max 5w`
+- Hierarchy any "detail": max 5w
+- ChevronProcess stage "name": max 3w | "description": max 15w | "key_action": max 10w | max 4 stages
+- NarrativeCard "challenge"/"approach"/"impact": max 20w | max 3 metrics
+- DefinitionTriptych "what_it_is": max 30w | "real_example.what": max 20w | "common_myth": max 20w
+- HorizontalDecision node "label": max 6w | "detail": max 8w or null | max 4 nodes
+- AnswerSpotlight "direct_answer": max 35w | "analogy"/"example"/"important_nuance": max 25w or null`
 
   const userPrompt = `Current section type: ${section.type}
 

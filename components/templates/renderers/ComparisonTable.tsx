@@ -66,13 +66,16 @@ interface ComparisonTableProps { data: ComparisonTableData; isActive: boolean; o
 
 export default function ComparisonTable({ data, isActive, onReady }: ComparisonTableProps) {
   const { nodes: initialNodes, edges: initialEdges } = useMemo<{ nodes: Node[]; edges: Edge[] }>(() => {
-    const numOpts = data.options.length
-    const numCrit = data.criteria.length
+    // Cap options at 4, criteria at 3
+    const options = data.options.slice(0, 4)
+    const criteria = data.criteria.slice(0, 3)
+    const numOpts = options.length
+    const numCrit = criteria.length
     const headerY = 0
     const headerH = HEADER_H
     const gridStartY = headerY + headerH + 40
 
-    const optHeaderNodes: Node[] = data.options.map((opt, i) => ({
+    const optHeaderNodes: Node[] = options.map((opt, i) => ({
       id: `opt-${i}`,
       type: 'optionHeader',
       position: { x: CRIT_W + COL_GAP + i * (OPT_W + COL_GAP), y: headerY },
@@ -82,7 +85,7 @@ export default function ComparisonTable({ data, isActive, onReady }: ComparisonT
       draggable: false,
     }))
 
-    const critNodes: Node[] = data.criteria.map((crit, ri) => ({
+    const critNodes: Node[] = criteria.map((crit, ri) => ({
       id: `crit-${ri}`,
       type: 'criterion',
       position: { x: 0, y: gridStartY + ri * (ROW_H + ROW_GAP) },
@@ -93,8 +96,8 @@ export default function ComparisonTable({ data, isActive, onReady }: ComparisonT
     }))
 
     const valueNodes: Node[] = []
-    data.criteria.forEach((crit, ri) => {
-      crit.values.forEach((val, ci) => {
+    criteria.forEach((crit, ri) => {
+      crit.values.slice(0, numOpts).forEach((val, ci) => {
         valueNodes.push({
           id: `val-${ri}-${ci}`,
           type: 'value',
@@ -124,14 +127,14 @@ export default function ComparisonTable({ data, isActive, onReady }: ComparisonT
     const nodes = [...optHeaderNodes, ...critNodes, ...valueNodes, verdictNode]
 
     const edges: Edge[] = [
-      ...data.options.map((_, i) => ({
+      ...options.map((_, i) => ({
         id: `e-opt-${i}-val-0-${i}`,
         source: `opt-${i}`,
         target: `val-0-${i}`,
         markerEnd: { type: MarkerType.ArrowClosed, color: '#7C3AED' },
         style: { stroke: '#7C3AED40', strokeWidth: 1.5 },
       })),
-      ...data.criteria.flatMap((_, ri) => data.options.map((__, ci) => ({
+      ...criteria.flatMap((_, ri) => options.map((__, ci) => ({
         id: `e-crit-${ri}-val-${ri}-${ci}`,
         source: `crit-${ri}`,
         target: `val-${ri}-${ci}`,

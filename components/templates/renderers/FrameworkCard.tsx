@@ -49,11 +49,13 @@ export default function FrameworkCard({ data, isActive, onReady }: FrameworkProp
   const { initialNodes, initialEdges } = useMemo(() => {
     const nodes: Node[] = [{ id: 'header', type: 'header', position: { x: 0, y: 0 }, data: { name: data.framework_name, coined_by: data.coined_by, purpose: data.purpose }, width: 400, height: 120, draggable: false }]
     const edges: Edge[] = []
-    const cols = Math.min(data.components.length, 4)
+    // Cap components at 8 (4 columns × 2 rows)
+    const components = data.components.slice(0, 8)
+    const cols = Math.min(components.length, 4)
     const spacingX = 250
     const startX = -((cols - 1) * spacingX) / 2
 
-    data.components.forEach((c, i) => {
+    components.forEach((c, i) => {
       const col = i % cols
       const row = Math.floor(i / cols)
       nodes.push({ id: `c${i}`, type: 'component', position: { x: startX + col * spacingX, y: 180 + row * 220 }, data: { ...c, color: COMPONENT_COLORS[i % COMPONENT_COLORS.length] }, width: 220, height: 185, draggable: false })

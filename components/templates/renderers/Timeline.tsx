@@ -30,7 +30,10 @@ const nodeTypes = { timeline: TimelineNode }
 interface TimelineProps { data: TimelineData; isActive: boolean; onReady?: () => void }
 
 export default function Timeline({ data, isActive, onReady }: TimelineProps) {
-  const initialNodes: Node[] = useMemo(() => data.events.map((e, i) => ({
+  const initialNodes: Node[] = useMemo(() => {
+    // Cap events at 4 to prevent visual overflow
+    const events = data.events.slice(0, 4)
+    return events.map((e, i) => ({
     id: `e${i}`,
     type: 'timeline',
     position: { x: i * 280, y: 0 },
@@ -38,15 +41,20 @@ export default function Timeline({ data, isActive, onReady }: TimelineProps) {
     draggable: false,
     width: 220,
     height: 110,
-  })), [data.events])
+  }))
+  }, [data.events])
 
-  const initialEdges: Edge[] = useMemo(() => data.events.slice(1).map((_, i) => ({
+  const initialEdges: Edge[] = useMemo(() => {
+    // Cap events at 4 to match initialNodes
+    const events = data.events.slice(0, 4)
+    return events.slice(1).map((_, i) => ({
     id: `edge-${i}`,
     source: `e${i}`,
     target: `e${i + 1}`,
     animated: true,
     style: { stroke: '#333333', strokeWidth: 2 },
-  })), [data.events])
+  }))
+  }, [data.events])
 
   const [nodes, , onNodesChange] = useNodesState(initialNodes)
   const [edges, , onEdgesChange] = useEdgesState(initialEdges)

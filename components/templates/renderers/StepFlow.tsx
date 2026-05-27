@@ -49,8 +49,10 @@ interface StepFlowProps { data: StepFlowData; isActive: boolean; onReady?: () =>
 
 export default function StepFlow({ data, isActive, onReady }: StepFlowProps) {
   const { rawNodes, rawEdges } = useMemo<{ rawNodes: Node[]; rawEdges: Edge[] }>(() => {
+    // Cap steps at 4 to prevent visual overflow
+    const steps = data.steps.slice(0, 4)
     const nodes: Node[] = [
-      ...data.steps.map((step) => ({
+      ...steps.map((step) => ({
         id: `step-${step.number}`,
         type: 'step',
         position: { x: 0, y: 0 },
@@ -62,7 +64,7 @@ export default function StepFlow({ data, isActive, onReady }: StepFlowProps) {
       { id: 'outcome', type: 'outcome', position: { x: 0, y: 0 }, data: { outcome: data.outcome }, width: 300, height: 92, draggable: false },
     ]
     const edges: Edge[] = [
-      ...data.steps.slice(0, -1).map((step) => ({
+      ...steps.slice(0, -1).map((step) => ({
         id: `e-${step.number}-${step.number + 1}`,
         source: `step-${step.number}`,
         target: `step-${step.number + 1}`,
@@ -72,7 +74,7 @@ export default function StepFlow({ data, isActive, onReady }: StepFlowProps) {
       })),
       {
         id: 'e-last-outcome',
-        source: `step-${data.steps[data.steps.length - 1].number}`,
+        source: `step-${steps[steps.length - 1].number}`,
         target: 'outcome',
         animated: true,
         markerEnd: { type: MarkerType.ArrowClosed, color: '#10B981' },
