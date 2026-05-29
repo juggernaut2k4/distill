@@ -5,12 +5,17 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { useRouter } from 'next/navigation'
 import { useUser } from '@clerk/nextjs'
 import { ProgressBar } from '@/components/onboarding/ProgressBar'
-import { ArrowRight, ArrowLeft, Plus, X, Search } from 'lucide-react'
+import { ArrowRight, ArrowLeft, Plus, X, Search, Mail, Sparkles } from 'lucide-react'
 import {
   ALL_DOMAINS, PROFICIENCY_LEVELS, LEARNING_GOALS,
   getDomainsForRole, searchDomains,
   type Domain, type Proficiency, type LearningGoal,
 } from '@/lib/learning/taxonomy'
+// Type mirrored from /app/api/onboarding/preview/route.ts
+interface PreviewResponse {
+  bodyText: string
+  type: 'tip' | 'signal' | 'decoder'
+}
 
 // ─── Step definitions ─────────────────────────────────────────────────────────
 
@@ -229,7 +234,7 @@ function DomainStep({
       </div>
 
       {/* Domain grid */}
-      <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 mb-3">
         {displayDomains.map((d) => (
           <DomainCard
             key={d.id}
@@ -391,6 +396,8 @@ function OnboardingContent() {
   const [step, setStep] = useState(0)
   const [direction, setDirection] = useState<'right' | 'left'>('right')
   const [building, setBuilding] = useState(false)
+  const [preview, setPreview] = useState<PreviewResponse | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
 
   // Step answers
   const [roleLevel, setRoleLevel] = useState('')          // step 0: level bucket
@@ -468,12 +475,45 @@ function OnboardingContent() {
     }
     localStorage.setItem('clio_onboarding', JSON.stringify(payload))
 
-    setTimeout(() => {
-      router.push(isSignedIn ? '/plan' : '/sign-up')
+    // After 2s building animation, fetch preview then show it
+    setTimeout(async () => {
+      setPreviewLoading(true)
+      try {
+        const res = await fetch('/api/onboarding/preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            role,
+            industry: '',
+            aiMaturity: proficiencies[primaryDomain] ?? 'intermediate',
+            worry: '',
+          }),
+        })
+        if (res.ok) {
+          const data = (await res.json()) as PreviewResponse
+          setPreview(data)
+        } else {
+          // On any error, skip preview and go straight to plan
+          router.push(isSignedIn ? '/plan' : '/sign-up')
+        }
+      } catch {
+        router.push(isSignedIn ? '/plan' : '/sign-up')
+      } finally {
+        setPreviewLoading(false)
+      }
     }, 2000)
   }
 
-  if (building) return <BuildingScreen />
+  if (building && preview) {
+    return (
+      <PreviewScreen
+        preview={preview}
+        onContinue={() => router.push(isSignedIn ? '/plan' : '/sign-up')}
+      />
+    )
+  }
+
+  if (building) return <BuildingScreen loading={previewLoading} />
 
   return (
     <div className="min-h-screen bg-[#080808] flex flex-col">
@@ -559,7 +599,7 @@ export default function OnboardingPage() {
   )
 }
 
-function BuildingScreen() {
+function BuildingScreen({ loading = false }: { loading?: boolean }) {
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -583,7 +623,7 @@ function BuildingScreen() {
         transition={{ delay: 0.5 }}
         className="text-[#94A3B8] text-center"
       >
-        Building your personalised learning paths…
+        {loading ? 'Crafting your first insight…' : 'Building your personalised learning paths…'}
       </motion.p>
       <div className="mt-8 flex gap-2">
         {[0, 1, 2].map((i) => (
@@ -595,6 +635,104 @@ function BuildingScreen() {
           />
         ))}
       </div>
+    </motion.div>
+  )
+}
+
+// ─── Preview Screen ────────────────────────────────────────────────────────────
+
+const TYPE_LABELS: Record<string, string> = {
+  tip: 'DAILY TIP',
+  signal: 'MARKET SIGNAL',
+  decoder: 'AI DECODED',
+}
+
+function PreviewScreen({
+  preview,
+  onContinue,
+}: {
+  preview: PreviewResponse
+  onContinue: () => void
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.4 }}
+      className="min-h-screen bg-[#080808] flex flex-col items-center justify-center px-4 py-16"
+    >
+      {/* Label */}
+      <motion.p
+        initial={{ opacity: 0, y: -8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.15 }}
+        className="text-xs tracking-widest text-[#7C3AED] uppercase font-semibold mb-8"
+      >
+        Here&apos;s your first insight
+      </motion.p>
+
+      {/* Message card */}
+      <motion.div
+        initial={{ opacity: 0, y: 32 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.25, duration: 0.5, ease: 'easeOut' }}
+        className="w-full max-w-lg bg-[#111111] border border-[#222222] rounded-2xl overflow-hidden shadow-2xl"
+      >
+        {/* Card header */}
+        <div className="flex items-center gap-2.5 px-5 py-3.5 border-b border-[#1A1A1A]">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#06B6D4]/10 border border-[#06B6D4]/25 text-[#06B6D4] text-[10px] font-bold tracking-wider uppercase">
+            <Mail size={10} />
+            Email
+          </span>
+          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-[#7C3AED]/10 border border-[#7C3AED]/25 text-[#A855F7] text-[10px] font-semibold tracking-wide uppercase">
+            <Sparkles size={9} />
+            {TYPE_LABELS[preview.type] ?? 'INSIGHT'}
+          </span>
+          <span className="ml-auto text-[#475569] text-xs">Tomorrow, 7 AM</span>
+        </div>
+
+        {/* Card body */}
+        <div className="px-5 py-5">
+          <p className="text-white text-sm leading-relaxed">{preview.bodyText}</p>
+        </div>
+
+        {/* SMS footer simulation */}
+        <div className="px-5 py-3 border-t border-[#1A1A1A] bg-[#0D0D0D]">
+          <p className="text-[#475569] text-xs">
+            Reply <span className="text-[#10B981] font-semibold">Y</span> if useful&nbsp;&nbsp;·&nbsp;&nbsp;
+            Reply <span className="text-[#EF4444] font-semibold">N</span> if not — we&apos;ll adjust
+          </p>
+        </div>
+      </motion.div>
+
+      {/* Subtext */}
+      <motion.p
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.55 }}
+        className="mt-6 text-[#94A3B8] text-sm text-center max-w-sm"
+      >
+        This is what lands in your inbox tomorrow morning.
+      </motion.p>
+
+      {/* CTA */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.7 }}
+        className="mt-8 flex flex-col items-center gap-3"
+      >
+        <button
+          onClick={onContinue}
+          className="flex items-center gap-2 bg-[#7C3AED] hover:bg-[#A855F7] text-white px-8 py-4 rounded-xl text-base font-semibold transition-colors"
+        >
+          Start my free trial
+          <ArrowRight size={18} />
+        </button>
+        <p className="text-[#475569] text-xs text-center">
+          7-day free trial&nbsp;&nbsp;·&nbsp;&nbsp;No card needed&nbsp;&nbsp;·&nbsp;&nbsp;Cancel anytime
+        </p>
+      </motion.div>
     </motion.div>
   )
 }

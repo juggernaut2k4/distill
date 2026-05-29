@@ -309,15 +309,15 @@ export default function KBTopicClient({ topicId }: Props) {
           <ArrowLeft className="w-4 h-4" />
           Knowledge Base
         </Link>
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center gap-3">
             <h1 className="text-white text-xl font-bold">{topicTitle}</h1>
-            <div className="flex items-center gap-1.5 text-[#475569] text-xs">
+            <div className="flex items-center gap-1.5 text-[#475569] text-xs shrink-0">
               <Layers className="w-3.5 h-3.5" />
               <span>{sections.length} {sections.length === 1 ? 'section' : 'sections'}</span>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             {regenerateAllResult && (
               <span className="text-xs text-[#94A3B8]">{regenerateAllResult}</span>
             )}
@@ -427,7 +427,7 @@ export default function KBTopicClient({ topicId }: Props) {
             {/* Feedback textarea + actions */}
             <div>
               <p className="text-[#475569] text-xs font-medium mb-2">Suggest specific changes</p>
-              <div className="flex gap-2">
+              <div className="flex flex-col sm:flex-row gap-2">
                 <textarea
                   ref={(el) => { textareaRefs.current[activeSection.row.subtopic_slug] = el }}
                   value={activeSection.feedback}
@@ -438,7 +438,7 @@ export default function KBTopicClient({ topicId }: Props) {
                   className="flex-1 bg-[#0d0d0d] border border-[#333333] focus:border-[#7C3AED] outline-none rounded-lg px-3 py-2.5 text-white text-sm placeholder:text-[#475569] resize-none transition-colors disabled:opacity-40"
                   onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) applyFeedback(activeSection) }}
                 />
-                <div className="flex flex-col gap-2">
+                <div className="flex sm:flex-col gap-2">
                   <button
                     onClick={() => applyFeedback(activeSection)}
                     disabled={!activeSection.feedback.trim() || !!isBusy}

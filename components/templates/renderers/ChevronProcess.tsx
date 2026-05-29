@@ -25,12 +25,11 @@ export default function ChevronProcess({ data, isActive, onReady }: ChevronProce
         <p className="text-[#94A3B8] text-sm">{data.context}</p>
       </div>
 
-      {/* Chevron row */}
-      <div className="flex items-stretch gap-0 flex-1 min-h-0 max-h-[220px]">
+      {/* Chevron row — horizontal on md+, stacked vertically on mobile */}
+      <div className="hidden md:flex items-stretch gap-0 flex-1 min-h-0 max-h-[220px]">
         {stages.map((stage, i) => {
           const color = CHEVRON_COLORS[i % CHEVRON_COLORS.length]
           const isFirst = i === 0
-          // First chevron has no left indent; rest have the notch on the left
           const clipPath = isFirst
             ? `polygon(0 0, calc(100% - 20px) 0, 100% 50%, calc(100% - 20px) 100%, 0 100%)`
             : `polygon(0 0, calc(100% - 20px) 0, 100% 50%, calc(100% - 20px) 100%, 0 100%, 20px 50%)`
@@ -52,6 +51,29 @@ export default function ChevronProcess({ data, isActive, onReady }: ChevronProce
               <p className="font-bold text-sm leading-tight mb-2">{stage.name}</p>
               <p className="text-white/80 text-xs leading-relaxed line-clamp-3">{stage.description}</p>
               <p className="text-white/60 text-xs mt-2 italic line-clamp-2">{stage.key_action}</p>
+            </motion.div>
+          )
+        })}
+      </div>
+
+      {/* Mobile stacked stages */}
+      <div className="flex md:hidden flex-col gap-2 flex-1">
+        {stages.map((stage, i) => {
+          const color = CHEVRON_COLORS[i % CHEVRON_COLORS.length]
+          return (
+            <motion.div
+              key={i}
+              className="flex items-start gap-3 rounded-xl px-4 py-3 text-white"
+              style={{ backgroundColor: color }}
+              initial={{ opacity: 0, y: 12 }}
+              animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 12 }}
+              transition={{ delay: 0.1 + i * 0.1, duration: 0.4 }}
+            >
+              <span className="shrink-0 w-6 h-6 rounded-full bg-white/20 flex items-center justify-center text-xs font-bold">{i + 1}</span>
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-sm leading-tight mb-1">{stage.name}</p>
+                <p className="text-white/80 text-xs leading-relaxed">{stage.description}</p>
+              </div>
             </motion.div>
           )
         })}

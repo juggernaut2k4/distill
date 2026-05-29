@@ -1,6 +1,6 @@
-# CLAUDE.md — Distill: Orchestrator Instructions
+# CLAUDE.md — Clio: Orchestrator Instructions
 
-You are the **Orchestrator** for building Distill — a personalized AI micro-learning platform for executives.
+You are the **Orchestrator** for building Clio — a personalized AI micro-learning platform for executives.
 
 Your first action is always to read `brief.md` in full. It is the single source of truth for everything you build.
 
@@ -87,6 +87,10 @@ Only use packages that are:
 - `framer-motion` — animations (5M+ weekly downloads, actively maintained)
 - `lucide-react` — icons (official, actively maintained)
 - `vitest`, `@playwright/test` — testing
+- `@11labs/client`, `elevenlabs` — ElevenLabs voice SDK (official, for Clio voice AI coach)
+- `googleapis` — Google Calendar integration for session scheduling (official Google SDK)
+- `@dagrejs/dagre`, `@xyflow/react` — flow diagram layout and rendering (used in template system)
+- `svix` — Clerk webhook signature verification (official Svix SDK, used by Clerk)
 
 ### Do NOT use:
 - Any package not on the approved list without explicit justification written in a code comment
@@ -238,7 +242,7 @@ TWILIO_WEBHOOK_URL=https://hello-clio.com/api/webhooks/twilio
 # Resend
 RESEND_API_KEY=PLACEHOLDER_RESEND_API_KEY
 RESEND_FROM_EMAIL=hello@hello-clio.com
-RESEND_FROM_NAME=Distill
+RESEND_FROM_NAME=Clio
 
 # Anthropic
 ANTHROPIC_API_KEY=PLACEHOLDER_ANTHROPIC_API_KEY
@@ -342,7 +346,7 @@ Text muted:           #475569
 - Selected state: `#7C3AED` border (2px), subtle purple background tint
 - Progress bar at top: thin (4px), purple fill, smooth animation between steps
 - Slide animation between questions: smooth horizontal slide (Framer Motion)
-- "Building your plan..." screen: animated pulsing Distill logo on black with subtle particle effect
+- "Building your plan..." screen: animated pulsing Clio logo on black with subtle particle effect
 
 ### Dashboard
 - Sidebar navigation on left (dark `#111111`), main content area `#080808`
@@ -361,7 +365,7 @@ Text muted:           #475569
 **Branch:** `agent/research`
 **Prompt:**
 ```
-You are the Research Agent for Distill. Read brief.md carefully.
+You are the Research Agent for Clio. Read brief.md carefully.
 
 Research and document everything needed before writing code.
 
@@ -390,7 +394,7 @@ Output: research-findings.md
 **Inputs:** `brief.md`, `research-findings.md`
 **Prompt:**
 ```
-You are the Architecture Agent for Distill. Read brief.md and research-findings.md.
+You are the Architecture Agent for Clio. Read brief.md and research-findings.md.
 
 Produce two files:
 
@@ -420,7 +424,7 @@ Be precise. All subsequent agents depend on this.
 **Inputs:** `brief.md`, `architecture.md`, `research-findings.md`
 **Prompt:**
 ```
-You are the Backend Agent for Distill. Read brief.md, architecture.md, and research-findings.md.
+You are the Backend Agent for Clio. Read brief.md, architecture.md, and research-findings.md.
 
 Build all server-side code. Use TypeScript strict mode. Validate all inputs with Zod. Handle errors gracefully with typed error responses. Add JSDoc on every exported function. Never log sensitive data.
 
@@ -520,7 +524,7 @@ If an integration requires a real API key to test, create a mock stub that:
 **Inputs:** `brief.md`, `architecture.md`, `research-findings.md`
 **Prompt:**
 ```
-You are the Content Agent for Distill. Read brief.md, architecture.md, and research-findings.md.
+You are the Content Agent for Clio. Read brief.md, architecture.md, and research-findings.md.
 
 Build the entire content engine:
 
@@ -575,7 +579,7 @@ Seed file: supabase/seed.sql
 **Inputs:** `brief.md`, `architecture.md`, `research-findings.md`
 **Prompt:**
 ```
-You are the Frontend Agent for Distill. Read brief.md and architecture.md carefully.
+You are the Frontend Agent for Clio. Read brief.md and architecture.md carefully.
 
 Build all user-facing pages and components using Next.js 14 App Router, TypeScript, Tailwind CSS, Framer Motion, and Lucide React.
 
@@ -607,7 +611,7 @@ Hero section:
 - Subheadline: "15 seconds a day. Zero jargon. Total confidence." — text-2xl text-secondary
 - Primary CTA: large purple button "Start free — no card needed" with ArrowRight icon, Framer Motion hover scale
 - Below CTA: 3 trust signals in a row (icons): "5-question onboarding", "Daily in your inbox", "Cancel anytime"
-- Right side: floating phone mockup (styled div showing an example SMS message from Distill)
+- Right side: floating phone mockup (styled div showing an example SMS message from Clio)
 - Framer Motion: hero content fades and slides up on load
 
 Problem section "The executive AI trap":
@@ -656,7 +660,7 @@ PAGE 2 — app/onboarding/page.tsx — 5-Question Tap UI
 - Selected option: border-accent-purple bg-purple-950/30 text-white
 - Framer Motion AnimatePresence: slide current question out left, new question in from right
 - After Q5: show "Building your plan..." screen
-  - Centered Distill logo (text, styled)
+  - Centered Clio logo (text, styled)
   - Animated pulsing purple ring (CSS animation)
   - Tagline: "Calibrating your AI learning path..." fades in after 0.5s
   - After 2s: redirect to /dashboard or /pricing
@@ -708,14 +712,14 @@ All components: typed props, no any types, Framer Motion for transitions.
 **Inputs:** `brief.md`, `architecture.md`, `research-findings.md`
 **Prompt:**
 ```
-You are the Payment Agent for Distill. Read brief.md and architecture.md.
+You are the Payment Agent for Clio. Read brief.md and architecture.md.
 
 Build the complete Stripe subscription system. If STRIPE_SECRET_KEY is a placeholder, implement with full real logic but add mock guards that return success responses without calling Stripe — so the build never breaks.
 
 1. Document Stripe product structure in architecture.md:
-   Product: Distill Starter — prices: $12/mo, $99/yr (with 7-day trial)
-   Product: Distill Pro — prices: $25/mo, $199/yr (with 7-day trial)
-   Product: Distill Executive — prices: $49/mo, $399/yr (with 7-day trial)
+   Product: Clio Starter — prices: $12/mo, $99/yr (with 7-day trial)
+   Product: Clio Pro — prices: $25/mo, $199/yr (with 7-day trial)
+   Product: Clio Executive — prices: $49/mo, $399/yr (with 7-day trial)
 
 2. app/api/checkout/route.ts
    - Auth required (Clerk)
@@ -754,7 +758,7 @@ Build the complete Stripe subscription system. If STRIPE_SECRET_KEY is a placeho
 **Inputs:** All Phase 2 outputs
 **Prompt:**
 ```
-You are the Scheduler Agent for Distill. Read brief.md, architecture.md, and all lib/ files.
+You are the Scheduler Agent for Clio. Read brief.md, architecture.md, and all lib/ files.
 
 Build the Inngest job system. If INNGEST_EVENT_KEY is a placeholder, all functions should still register and log what they would do — never throw on missing keys.
 
@@ -802,7 +806,7 @@ app/api/inngest/route.ts
 **Inputs:** All previous agent outputs
 **Prompt:**
 ```
-You are the Testing Agent for Distill. Verify the entire application.
+You are the Testing Agent for Clio. Verify the entire application.
 
 UNIT TESTS (tests/unit/) — use Vitest:
 
@@ -889,7 +893,7 @@ Before marking the build complete, verify ALL of these:
 - [ ] All webhook handlers verify signatures before processing
 - [ ] All agent branches merged into `dev`
 - [ ] `dev` passes full test suite
-- [ ] `dev` merged into `main` with commit: `feat: complete initial Distill build`
+- [ ] `dev` merged into `main` with commit: `feat: complete initial Clio build`
 - [ ] `README.md` created with local setup instructions
 
 ---
@@ -931,7 +935,7 @@ Then paste this prompt:
 ```
 Read CLAUDE.md and brief.md completely before doing anything.
 
-You are the Orchestrator for Distill. Your mission: build the complete application fully autonomously.
+You are the Orchestrator for Clio. Your mission: build the complete application fully autonomously.
 
 Begin by creating TASKS.md — a full prioritized backlog of every task across all 8 agents and 4 phases.
 
@@ -944,9 +948,33 @@ Then execute the build:
 - Only use approved libraries from the security list in CLAUDE.md
 - Think before any external network call — is this vendor approved? Is this endpoint safe?
 
-When complete, say: "Distill build complete. All tests passing. See test-report.md."
+When complete, say: "Clio build complete. All tests passing. See test-report.md."
 ```
 
 ---
 
-*CLAUDE.md version: 2.0 | Project: Distill | Owner: Arun | Created: May 2026*
+*CLAUDE.md version: 2.1 | Project: Clio | Owner: Arun | Created: May 2026*
+
+---
+
+## Skill routing
+
+When the user's request matches an available skill, invoke it via the Skill tool. When in doubt, invoke the skill.
+
+Key routing rules:
+- Product ideas/brainstorming → invoke /office-hours
+- Strategy/scope → invoke /plan-ceo-review
+- Architecture → invoke /plan-eng-review
+- Design system/plan review → invoke /design-consultation or /plan-design-review
+- Full review pipeline → invoke /autoplan
+- Bugs/errors → invoke /investigate
+- QA/testing site behavior → invoke /qa or /qa-only
+- Code review/diff check → invoke /review
+- Visual polish → invoke /design-review
+- Ship/deploy/PR → invoke /ship or /land-and-deploy
+- Save progress → invoke /context-save
+- Resume context → invoke /context-restore
+- Author a backlog-ready spec/issue → invoke /spec
+- Security review → invoke /cso
+- Performance benchmarks → invoke /benchmark
+- Health/code quality dashboard → invoke /health

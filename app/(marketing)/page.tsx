@@ -35,7 +35,7 @@ function Hero() {
         }}
       />
 
-      <div className="relative max-w-7xl mx-auto px-6 py-32 w-full">
+      <div className="relative max-w-7xl mx-auto px-4 md:px-6 py-16 md:py-32 w-full">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
           {/* Left: copy */}
           <motion.div
@@ -47,14 +47,14 @@ function Hero() {
               <Badge variant="purple">AI Readiness Platform</Badge>
             </div>
 
-            <h1 className="text-7xl lg:text-8xl font-extrabold tracking-tight text-white leading-[0.9] mb-6">
+            <h1 className="text-5xl md:text-7xl lg:text-8xl font-extrabold tracking-tight text-white leading-[0.9] mb-6">
               Meet{' '}
               <span className="bg-gradient-to-r from-[#7C3AED] to-[#06B6D4] bg-clip-text text-transparent">
                 Clio.
               </span>
             </h1>
 
-            <p className="text-2xl text-[#94A3B8] mb-10 leading-relaxed">
+            <p className="text-lg md:text-2xl text-[#94A3B8] mb-10 leading-relaxed">
               15 seconds a day. Zero jargon. Total confidence.
             </p>
 
@@ -178,16 +178,16 @@ function ProblemSection() {
   ]
 
   return (
-    <section className="py-28 bg-[#080808]" ref={ref}>
-      <div className="max-w-7xl mx-auto px-6">
+    <section className="py-16 md:py-28 bg-[#080808]" ref={ref}>
+      <div className="max-w-7xl mx-auto px-4 md:px-6">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={inView ? { opacity: 1, y: 0 } : {}}
           transition={{ duration: 0.6 }}
-          className="text-center mb-16"
+          className="text-center mb-10 md:mb-16"
         >
-          <h2 className="text-5xl font-bold text-white mb-4">Sound familiar?</h2>
-          <p className="text-xl text-[#475569]">
+          <h2 className="text-3xl md:text-5xl font-bold text-white mb-4">Sound familiar?</h2>
+          <p className="text-base md:text-xl text-[#475569]">
             You didn&apos;t become a senior leader to be confused by technology.
           </p>
         </motion.div>
@@ -245,18 +245,18 @@ function HowItWorks() {
   ]
 
   return (
-    <section id="how-it-works" className="py-32 bg-[#080808]" ref={ref}>
-      <div className="max-w-7xl mx-auto px-6">
+    <section id="how-it-works" className="py-16 md:py-32 bg-[#080808]" ref={ref}>
+      <div className="max-w-7xl mx-auto px-4 md:px-6">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={inView ? { opacity: 1, y: 0 } : {}}
           transition={{ duration: 0.6 }}
-          className="text-center mb-20"
+          className="text-center mb-12 md:mb-20"
         >
-          <h2 className="text-5xl font-bold text-white mb-4">
+          <h2 className="text-3xl md:text-5xl font-bold text-white mb-4">
             Three steps to AI confidence
           </h2>
-          <p className="text-xl text-[#475569]">
+          <p className="text-base md:text-xl text-[#475569]">
             No courses. No commitment. Just one signal, every morning.
           </p>
         </motion.div>
@@ -315,13 +315,13 @@ function Testimonials() {
   ]
 
   return (
-    <section className="py-28 bg-[#080808]" ref={ref}>
-      <div className="max-w-7xl mx-auto px-6">
+    <section className="py-16 md:py-28 bg-[#080808]" ref={ref}>
+      <div className="max-w-7xl mx-auto px-4 md:px-6">
         <motion.h2
           initial={{ opacity: 0, y: 20 }}
           animate={inView ? { opacity: 1, y: 0 } : {}}
           transition={{ duration: 0.6 }}
-          className="text-5xl font-bold text-white text-center mb-16"
+          className="text-3xl md:text-5xl font-bold text-white text-center mb-10 md:mb-16"
         >
           Trusted by leaders who move fast
         </motion.h2>
@@ -415,18 +415,18 @@ function Pricing() {
   ]
 
   return (
-    <section id="pricing" className="py-32 bg-[#080808]" ref={ref}>
-      <div className="max-w-7xl mx-auto px-6">
+    <section id="pricing" className="py-16 md:py-32 bg-[#080808]" ref={ref}>
+      <div className="max-w-7xl mx-auto px-4 md:px-6">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={inView ? { opacity: 1, y: 0 } : {}}
           transition={{ duration: 0.6 }}
           className="text-center mb-12"
         >
-          <h2 className="text-5xl font-bold text-white mb-4">
+          <h2 className="text-3xl md:text-5xl font-bold text-white mb-4">
             Simple, transparent pricing
           </h2>
-          <p className="text-xl text-[#475569] mb-8">
+          <p className="text-base md:text-xl text-[#475569] mb-8">
             Start free. Upgrade when you see the value.
           </p>
 
@@ -531,23 +531,23 @@ function Pricing() {
 function BottomCTA() {
   return (
     <section
-      className="py-32"
+      className="py-16 md:py-32"
       style={{
         background:
           'linear-gradient(135deg, rgba(124,58,237,0.3) 0%, rgba(6,182,212,0.1) 100%), #080808',
       }}
     >
-      <div className="max-w-4xl mx-auto px-6 text-center">
+      <div className="max-w-4xl mx-auto px-4 md:px-6 text-center">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
           transition={{ duration: 0.7 }}
         >
-          <h2 className="text-5xl lg:text-6xl font-bold text-white mb-6">
+          <h2 className="text-3xl md:text-5xl lg:text-6xl font-bold text-white mb-6">
             Your competitors are already learning.
           </h2>
-          <p className="text-xl text-[#94A3B8] mb-10">
+          <p className="text-base md:text-xl text-[#94A3B8] mb-10">
             Are you?
           </p>
           <Link href="/onboarding">

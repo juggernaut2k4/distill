@@ -17,6 +17,8 @@ import { generateTrainingScript } from '@/lib/content/script-generator'
 import { selectTemplate } from '@/lib/templates/selector'
 import { generateTemplateData } from '@/lib/templates/generator'
 import { getCachedSection } from '@/lib/topic-cache'
+import { sendAdminAlert } from '@/lib/delivery/email'
+import { runAutomatedQA } from '@/lib/kb-qa-agent'
 import type { TemplateSection, TemplateMeta } from '@/lib/templates/types'
 
 // Re-use the same catalog lookup as generate-plan to get subtopics
@@ -40,6 +42,25 @@ export const sessionContentPipeline = inngest.createFunction(
     id: 'session-content-pipeline',
     retries: 2,
     triggers: [{ event: 'distill/session.content.generate' }],
+    onFailure: async ({
+      error,
+      event,
+    }: {
+      error: Error
+      event: { data: { sessionId?: string; userId?: string } }
+    }) => {
+      try {
+        const { sessionId, userId } = event.data
+        await sendAdminAlert({
+          subject: `session-content-pipeline failed — session ${sessionId ?? 'unknown'}`,
+          body: `The session content pipeline Inngest job has exhausted all retries and failed.\n\nSession ID: ${sessionId ?? 'unknown'}\nError: ${error.message}`,
+          context: { sessionId, userId, errorStack: error.stack },
+        })
+      } catch (alertErr) {
+        // Never let alert failure mask the original error
+        console.error('[session-content-pipeline:onFailure] Failed to send admin alert:', alertErr)
+      }
+    },
   },
   async ({
     event,
@@ -138,6 +159,36 @@ export const sessionContentPipeline = inngest.createFunction(
           section = { id: subtopicSlug, type: templateType, data, meta, status: 'pending' } as TemplateSection
         }
 
+        // Step 4.5: Run automated QA rules (word count, So what?, jargon, sentence count)
+        // Logs issues but does NOT block the pipeline — content still saves.
+        const sectionData = section.data as unknown as Record<string, unknown>
+        const textToQA: string =
+          (typeof sectionData?.body === 'string' ? sectionData.body : '') ||
+          (typeof sectionData?.bodyText === 'string' ? sectionData.bodyText : '') ||
+          (typeof sectionData?.summary === 'string' ? sectionData.summary : '') ||
+          (typeof sectionData?.description === 'string' ? sectionData.description : '') ||
+          ''
+
+        const qaResult = runAutomatedQA(textToQA)
+        if (!qaResult.passed) {
+          console.warn(
+            '[session-content-pipeline][QA] Content quality issues detected:',
+            JSON.stringify({
+              subtopic: subtopicSlug,
+              wordCount: qaResult.wordCount,
+              sentenceCount: qaResult.sentenceCount,
+              hasSoWhat: qaResult.hasSoWhat,
+              errors: qaResult.errors,
+              warnings: qaResult.warnings,
+            })
+          )
+        } else if (qaResult.warnings.length > 0) {
+          console.warn(
+            '[session-content-pipeline][QA] Content warnings:',
+            JSON.stringify({ subtopic: subtopicSlug, warnings: qaResult.warnings })
+          )
+        }
+
         // Step 5: Save script + outline + template data to topic_content_cache
         const ttlDays = 60
         const expiresAt = new Date()
@@ -155,6 +206,9 @@ export const sessionContentPipeline = inngest.createFunction(
               content_outline: subtopicOutline,
               training_script: script,
               pipeline_status: 'ready',
+              // Automated QA: store pass/fail flag alongside content.
+              // qa_passed=false means the content saved but has quality issues to fix.
+              qa_passed: qaResult.passed,
               generated_at: new Date().toISOString(),
               expires_at: expiresAt.toISOString(),
               use_count: 1,

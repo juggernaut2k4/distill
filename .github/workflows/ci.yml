@@ -1,0 +1,182 @@
+# CI Pipeline for Distill (hello-clio.com)
+#
+# Branch protection requirement: BOTH jobs must pass before a PR can be merged.
+# Configure in GitHub → Settings → Branches → Branch protection rules:
+#   - Require status checks: "unit-and-integration" and "e2e"
+#   - Require branches to be up to date before merging
+#
+# Tests use mock stubs for all third-party APIs, so no real credentials are needed.
+
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  unit-and-integration:
+    name: Unit & Integration Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            node-modules-
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit and integration tests
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: placeholder-service-key
+          CLERK_SECRET_KEY: placeholder-clerk-key
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_placeholder
+          NEXT_PUBLIC_CLERK_SIGN_IN_URL: /sign-in
+          NEXT_PUBLIC_CLERK_SIGN_UP_URL: /sign-up
+          NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL: /dashboard
+          NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL: /onboarding
+          ANTHROPIC_API_KEY: PLACEHOLDER_ANTHROPIC_API_KEY
+          STRIPE_SECRET_KEY: PLACEHOLDER_STRIPE_SECRET_KEY
+          STRIPE_WEBHOOK_SECRET: PLACEHOLDER_STRIPE_WEBHOOK_SECRET
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_placeholder
+          TWILIO_ACCOUNT_SID: PLACEHOLDER_TWILIO_ACCOUNT_SID
+          TWILIO_AUTH_TOKEN: PLACEHOLDER_TWILIO_AUTH_TOKEN
+          TWILIO_PHONE_POOL: "+15550000001,+15550000002"
+          RESEND_API_KEY: PLACEHOLDER_RESEND_API_KEY
+          RESEND_FROM_EMAIL: hello@hello-clio.com
+          RESEND_FROM_NAME: Distill
+          INNGEST_EVENT_KEY: PLACEHOLDER_INNGEST_EVENT_KEY
+          INNGEST_SIGNING_KEY: PLACEHOLDER_INNGEST_SIGNING_KEY
+          NEWS_API_KEY: PLACEHOLDER_NEWS_API_KEY
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
+          NODE_ENV: test
+        run: npm test
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  e2e:
+    name: E2E Tests (Playwright)
+    runs-on: ubuntu-latest
+    needs: unit-and-integration
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            node-modules-
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Build Next.js application
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: placeholder-service-key
+          CLERK_SECRET_KEY: placeholder-clerk-key
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_placeholder
+          NEXT_PUBLIC_CLERK_SIGN_IN_URL: /sign-in
+          NEXT_PUBLIC_CLERK_SIGN_UP_URL: /sign-up
+          NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL: /dashboard
+          NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL: /onboarding
+          ANTHROPIC_API_KEY: PLACEHOLDER_ANTHROPIC_API_KEY
+          STRIPE_SECRET_KEY: PLACEHOLDER_STRIPE_SECRET_KEY
+          STRIPE_WEBHOOK_SECRET: PLACEHOLDER_STRIPE_WEBHOOK_SECRET
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_placeholder
+          TWILIO_ACCOUNT_SID: PLACEHOLDER_TWILIO_ACCOUNT_SID
+          TWILIO_AUTH_TOKEN: PLACEHOLDER_TWILIO_AUTH_TOKEN
+          TWILIO_PHONE_POOL: "+15550000001,+15550000002"
+          RESEND_API_KEY: PLACEHOLDER_RESEND_API_KEY
+          RESEND_FROM_EMAIL: hello@hello-clio.com
+          RESEND_FROM_NAME: Distill
+          INNGEST_EVENT_KEY: PLACEHOLDER_INNGEST_EVENT_KEY
+          INNGEST_SIGNING_KEY: PLACEHOLDER_INNGEST_SIGNING_KEY
+          NEWS_API_KEY: PLACEHOLDER_NEWS_API_KEY
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
+          NODE_ENV: production
+        run: npm run build
+
+      - name: Start production server
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: placeholder-service-key
+          CLERK_SECRET_KEY: placeholder-clerk-key
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_placeholder
+          NEXT_PUBLIC_CLERK_SIGN_IN_URL: /sign-in
+          NEXT_PUBLIC_CLERK_SIGN_UP_URL: /sign-up
+          NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL: /dashboard
+          NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL: /onboarding
+          ANTHROPIC_API_KEY: PLACEHOLDER_ANTHROPIC_API_KEY
+          STRIPE_SECRET_KEY: PLACEHOLDER_STRIPE_SECRET_KEY
+          STRIPE_WEBHOOK_SECRET: PLACEHOLDER_STRIPE_WEBHOOK_SECRET
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_placeholder
+          TWILIO_ACCOUNT_SID: PLACEHOLDER_TWILIO_ACCOUNT_SID
+          TWILIO_AUTH_TOKEN: PLACEHOLDER_TWILIO_AUTH_TOKEN
+          TWILIO_PHONE_POOL: "+15550000001,+15550000002"
+          RESEND_API_KEY: PLACEHOLDER_RESEND_API_KEY
+          RESEND_FROM_EMAIL: hello@hello-clio.com
+          RESEND_FROM_NAME: Distill
+          INNGEST_EVENT_KEY: PLACEHOLDER_INNGEST_EVENT_KEY
+          INNGEST_SIGNING_KEY: PLACEHOLDER_INNGEST_SIGNING_KEY
+          NEWS_API_KEY: PLACEHOLDER_NEWS_API_KEY
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
+          PORT: 3000
+        run: npm start &
+
+      - name: Wait for server to be ready
+        run: npx wait-on http://localhost:3000 --timeout 30000
+
+      - name: Run E2E tests
+        env:
+          CI: true
+          TEST_BASE_URL: http://localhost:3000
+        run: npm run test:e2e
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          if-no-files-found: ignore
+          retention-days: 7

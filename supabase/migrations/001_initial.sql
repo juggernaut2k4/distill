@@ -249,3 +249,19 @@ BEGIN
                 updated_at = NOW();
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ─── HELPER FUNCTION: INCREMENT STREAK DAYS ──────────────────────────────────
+-- Called by the daily delivery job each time a user receives a delivery.
+-- Atomically increments streak_days to avoid read-modify-write race conditions.
+
+CREATE OR REPLACE FUNCTION increment_streak_days(
+  p_user_id TEXT
+)
+RETURNS VOID AS $$
+BEGIN
+  UPDATE users
+  SET streak_days = COALESCE(streak_days, 0) + 1,
+      updated_at = NOW()
+  WHERE id = p_user_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;

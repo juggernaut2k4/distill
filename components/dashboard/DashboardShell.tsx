@@ -27,13 +27,16 @@ const NAV_ITEMS = [
   { href: '/dashboard/settings', icon: Settings, label: 'Settings' },
 ]
 
+// Primary nav items shown in mobile bottom bar (most important 5)
+const MOBILE_NAV_ITEMS = NAV_ITEMS.slice(0, 5)
+
 export default function DashboardShell({ user, activeNav, children }: DashboardShellProps) {
   const planPending = !user.plan_approved && user.plan_tier && user.plan_tier !== 'free'
 
   return (
     <div className="min-h-screen bg-[#080808] flex">
-      {/* Sidebar */}
-      <aside className="w-60 flex-shrink-0 bg-[#111111] border-r border-[#222222] flex flex-col">
+      {/* Sidebar — hidden on mobile, visible on md+ */}
+      <aside className="hidden md:flex md:flex-col w-60 flex-shrink-0 bg-[#111111] border-r border-[#222222]">
         {/* Logo */}
         <div className="px-6 py-6 border-b border-[#222222]">
           <span className="text-xl font-extrabold tracking-tight text-white">Clio</span>
@@ -79,11 +82,42 @@ export default function DashboardShell({ user, activeNav, children }: DashboardS
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-auto">
-        <div className="p-8">
+      <main className="flex-1 overflow-auto min-w-0">
+        {/* Mobile top bar */}
+        <div className="md:hidden flex items-center justify-between px-4 py-3 border-b border-[#222222] bg-[#111111]">
+          <span className="text-lg font-extrabold tracking-tight text-white">
+            Clio <span className="text-xs text-[#7C3AED] font-semibold uppercase tracking-widest">AI</span>
+          </span>
+          <UserButton afterSignOutUrl="/" />
+        </div>
+
+        <div className="p-4 md:p-8 pb-24 md:pb-8">
           {children}
         </div>
       </main>
+
+      {/* Mobile bottom nav */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-[#111111] border-t border-[#222222] flex">
+        {MOBILE_NAV_ITEMS.map(({ href, icon: Icon, label }) => {
+          const isActive = activeNav === href
+          const hasBadge = href === '/dashboard/plan' && planPending
+          return (
+            <Link
+              key={href}
+              href={href}
+              className={`relative flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-[10px] transition-colors ${
+                isActive ? 'text-white' : 'text-[#475569]'
+              }`}
+            >
+              <Icon size={20} />
+              <span className="leading-tight truncate max-w-[52px] text-center">{label}</span>
+              {hasBadge && (
+                <span className="absolute top-1.5 right-1/4 w-1.5 h-1.5 rounded-full bg-[#F59E0B]" />
+              )}
+            </Link>
+          )
+        })}
+      </nav>
     </div>
   )
 }

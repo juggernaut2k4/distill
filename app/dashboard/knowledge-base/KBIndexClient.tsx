@@ -118,7 +118,7 @@ export default function KBIndexClient() {
   return (
     <div className="max-w-5xl mx-auto">
       {/* Header */}
-      <div className="flex items-start justify-between mb-8 gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between mb-8 gap-4">
         <div>
           <div className="flex items-center gap-3 mb-1">
             <Library className="w-6 h-6 text-[#7C3AED]" />
@@ -131,7 +131,7 @@ export default function KBIndexClient() {
 
         <Link
           href="/dashboard/knowledge-base/rules"
-          className="relative flex items-center gap-2 px-4 py-2 bg-[#111111] border border-[#333333] hover:border-[#7C3AED]/50 rounded-xl text-sm text-[#94A3B8] hover:text-white transition-colors shrink-0"
+          className="relative flex items-center gap-2 px-4 py-2 bg-[#111111] border border-[#333333] hover:border-[#7C3AED]/50 rounded-xl text-sm text-[#94A3B8] hover:text-white transition-colors shrink-0 self-start"
         >
           <ShieldCheck className="w-4 h-4 text-[#7C3AED]" />
           Generation Rules

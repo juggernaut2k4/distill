@@ -1,6 +1,10 @@
-# Distill
+# Clio
+
+![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg)
 
 Personalized AI micro-learning for executives. 15 seconds a day. Zero jargon. Total confidence.
+
+> **Note:** Replace `OWNER/REPO` in the badge URL above with your GitHub username and repository name (e.g. `arunprakash/hello-clio`).
 
 ## Tech Stack
 
@@ -98,15 +102,25 @@ You can run the full application locally with all `PLACEHOLDER_` values and it w
 ## Running Tests
 
 ```bash
-# Unit + integration tests
+# Unit + integration tests (Vitest)
 npm test
 
-# With coverage
-npm run test:coverage
-
-# E2E (requires running dev server on port 3000)
-npx playwright test
+# E2E tests (Playwright — requires the app to be running on port 3000)
+# Terminal 1: start the server
+npm run dev
+# Terminal 2: run E2E tests
+npm run test:e2e
 ```
+
+### CI
+
+Every push and pull request to `main` runs the full test suite via GitHub Actions (`.github/workflows/ci.yml`):
+
+- **unit-and-integration** — Vitest unit and integration tests. Runs first.
+- **e2e** — Playwright E2E tests against a built production server. Runs only after unit-and-integration passes.
+
+To enforce these as required checks on `main`, go to:  
+GitHub → Settings → Branches → Add branch protection rule → Require status checks → add `unit-and-integration` and `e2e`.
 
 ## Project Structure
 

@@ -836,6 +836,98 @@ export async function sendSessionAgendaEmail(
   }
 }
 
+// ─── Admin Alert Email ────────────────────────────────────────────────────────
+
+/**
+ * Sends a system alert email to the admin when a critical Inngest job fails.
+ * Recipient: ADMIN_ALERT_EMAIL env var, falling back to RESEND_FROM_EMAIL.
+ * @param params.subject - Alert subject line
+ * @param params.body - Human-readable description of the failure
+ * @param params.context - Optional structured context (rendered as <pre> block)
+ * @returns Success/failure result
+ */
+export async function sendAdminAlert(params: {
+  subject: string
+  body: string
+  context?: Record<string, unknown>
+}): Promise<EmailResult> {
+  const { subject, body, context } = params
+  const recipient =
+    process.env.ADMIN_ALERT_EMAIL ?? process.env.RESEND_FROM_EMAIL ?? 'hello@hello-clio.com'
+
+  if (isPlaceholder || !resend) {
+    console.log('[MOCK] sendAdminAlert', { subject, recipient, context })
+    return { success: true, messageId: 'mock-admin-alert-id' }
+  }
+
+  const timestamp = new Date().toISOString()
+  const contextBlock =
+    context !== undefined
+      ? `<div style="background:#0A0A0A;border:1px solid #333333;border-radius:8px;padding:16px;margin-top:16px;">
+           <p style="color:#94A3B8;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin:0 0 8px;">Context</p>
+           <pre style="color:#94A3B8;font-size:12px;margin:0;white-space:pre-wrap;word-break:break-all;">${JSON.stringify(context, null, 2)}</pre>
+         </div>`
+      : ''
+
+  const html = `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="background:#080808;color:#ffffff;font-family:Inter,system-ui,sans-serif;margin:0;padding:0;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;padding:40px 24px;">
+    <tr><td>
+      <!-- Red alert header -->
+      <div style="background:#EF4444;border-radius:8px 8px 0 0;padding:16px 24px;">
+        <p style="color:#ffffff;font-size:14px;font-weight:700;margin:0;">&#9888;&#65039; Clio System Alert</p>
+      </div>
+      <!-- Alert body -->
+      <div style="background:#111111;border:1px solid #333333;border-top:none;border-radius:0 0 8px 8px;padding:32px;">
+        <h2 style="color:#ffffff;font-size:20px;font-weight:700;margin:0 0 16px;">${subject}</h2>
+        <p style="color:#94A3B8;font-size:15px;line-height:1.7;margin:0 0 8px;white-space:pre-wrap;">${body}</p>
+        ${contextBlock}
+        <p style="color:#475569;font-size:12px;margin-top:24px;border-top:1px solid #222222;padding-top:16px;">
+          Sent: ${timestamp}
+        </p>
+      </div>
+    </td></tr>
+  </table>
+</body>
+</html>`
+
+  const text = [
+    `[Clio System Alert] ${subject}`,
+    '',
+    body,
+    '',
+    context !== undefined ? JSON.stringify(context, null, 2) : '',
+    '',
+    `Timestamp: ${timestamp}`,
+  ]
+    .filter((line) => line !== undefined)
+    .join('\n')
+
+  try {
+    const result = await resend.emails.send({
+      from: FROM,
+      to: recipient,
+      subject: `[Clio Alert] ${subject}`,
+      html,
+      text,
+    })
+
+    if (result.error) {
+      console.error(`[email:sendAdminAlert] FAILED subject="${subject}" error=${result.error.message}`)
+      return { success: false, error: result.error.message }
+    }
+
+    console.log(`[email:sendAdminAlert] SENT to=${recipient} subject="${subject}" id=${result.data?.id}`)
+    return { success: true, messageId: result.data?.id }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error(`[email:sendAdminAlert] EXCEPTION subject="${subject}":`, message)
+    return { success: false, error: message }
+  }
+}
+
 function buildAgendaEmailHtml(
   session: SessionSummary,
   subtopics: AgendaEmailSubtopic[],

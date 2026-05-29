@@ -1,7 +1,7 @@
 import { inngest } from './client'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { getUserContentPlan } from '@/lib/content/personalizer'
-import { sendDailyEmail } from '@/lib/delivery/email'
+import { sendDailyEmail, sendAdminAlert } from '@/lib/delivery/email'
 import { sendSMS } from '@/lib/delivery/sms'
 
 /**
@@ -15,6 +15,18 @@ export const dailyDelivery = inngest.createFunction(
     name: 'Daily Content Delivery',
     retries: 3,
     triggers: [{ cron: '0 7 * * *' }],
+    onFailure: async ({ error, event }: { error: Error; event: { data: unknown } }) => {
+      try {
+        await sendAdminAlert({
+          subject: 'daily-delivery job failed after all retries',
+          body: `The daily delivery Inngest job has exhausted all retries and failed.\n\nError: ${error.message}`,
+          context: { errorStack: error.stack, eventData: event.data },
+        })
+      } catch (alertErr) {
+        // Never let alert failure mask the original error
+        console.error('[daily-delivery:onFailure] Failed to send admin alert:', alertErr)
+      }
+    },
   },
   async ({ step }) => {
     const supabase = createSupabaseAdminClient()
@@ -127,6 +139,10 @@ export const dailyDelivery = inngest.createFunction(
             if (deliveryLogEntries.length > 0) {
               const supabaseInner = createSupabaseAdminClient()
               await supabaseInner.from('delivery_log').insert(deliveryLogEntries)
+
+              // Increment streak_days for this user — a delivery counts as an active day.
+              // We use a raw RPC-style increment to avoid a race condition with a read-modify-write.
+              await supabaseInner.rpc('increment_streak_days', { p_user_id: user.id })
             }
           } catch (err) {
             console.error(`[daily-delivery] Error for user ${user.id}:`, err)

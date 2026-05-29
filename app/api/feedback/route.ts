@@ -3,6 +3,62 @@ import { verifyTwilioSignature, parseInboundSMS } from '@/lib/delivery/sms'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 
 /**
+ * GET /api/feedback?v=1&id=<delivery_log_id>
+ * Handles one-click email feedback links (thumbs up/down in email body).
+ * v=1 → positive, v=0 → negative. The delivery_log UUID is the access token.
+ * Redirects to dashboard after recording — no auth required (UUID is the secret).
+ */
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url)
+  const v = searchParams.get('v')
+  const id = searchParams.get('id')
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
+
+  if (!id || (v !== '0' && v !== '1')) {
+    return NextResponse.redirect(`${appUrl}/dashboard`)
+  }
+
+  const feedbackValue = v === '1' ? 'positive' : 'negative'
+  const supabase = createSupabaseAdminClient()
+
+  try {
+    // Fetch the delivery log row to get user_id and content_item_id
+    const { data: delivery } = await supabase
+      .from('delivery_log')
+      .select('id, user_id, content_item_id')
+      .eq('id', id)
+      .single()
+
+    if (delivery) {
+      await supabase
+        .from('delivery_log')
+        .update({ feedback: feedbackValue })
+        .eq('id', id)
+
+      try {
+        const { inngest } = await import('@/inngest/client')
+        await inngest.send({
+          name: 'clio/feedback.received',
+          data: {
+            userId: delivery.user_id,
+            contentItemId: delivery.content_item_id,
+            deliveryLogId: delivery.id,
+            feedback: feedbackValue,
+          },
+        })
+      } catch {
+        // Mock mode — event not sent
+      }
+    }
+  } catch (err) {
+    console.error('[feedback GET] Error:', err)
+  }
+
+  // Redirect to dashboard messages page regardless of outcome
+  return NextResponse.redirect(`${appUrl}/dashboard/messages`)
+}
+
+/**
  * POST /api/feedback
  * Handles Twilio inbound SMS webhook for Y/N feedback responses.
  * Verifies Twilio signature, logs feedback, emits Inngest event.
@@ -46,9 +102,10 @@ export async function POST(request: NextRequest) {
 
     if (user) {
       // Find most recent delivery log entry that hasn't received feedback
+      // Select content_item_id too so it can be included in the Inngest event payload
       const { data: latestDelivery } = await supabase
         .from('delivery_log')
-        .select('id')
+        .select('id, content_item_id')
         .eq('user_id', user.id)
         .is('feedback', null)
         .order('sent_at', { ascending: false })
@@ -56,9 +113,11 @@ export async function POST(request: NextRequest) {
         .single()
 
       if (latestDelivery) {
+        const feedbackValue = intent === 'feedback_yes' ? 'positive' : 'negative'
+
         await supabase
           .from('delivery_log')
-          .update({ feedback: intent === 'feedback_yes' ? 'positive' : 'negative' })
+          .update({ feedback: feedbackValue })
           .eq('id', latestDelivery.id)
 
         // Emit Inngest event for feedback processor
@@ -69,8 +128,9 @@ export async function POST(request: NextRequest) {
             name: 'clio/feedback.received',
             data: {
               userId: user.id,
+              contentItemId: latestDelivery.content_item_id,
               deliveryLogId: latestDelivery.id,
-              feedback: intent === 'feedback_yes' ? 'positive' : 'negative',
+              feedback: feedbackValue,
             },
           })
         } catch {

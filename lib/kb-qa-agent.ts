@@ -8,6 +8,10 @@
  *
  * After reviewing a topic's sections, synthesizes recurring patterns into
  * candidate rules that can be approved and injected into the generation prompt.
+ *
+ * Also exports runAutomatedQA() — a pure string-based rule engine that checks
+ * word count, "So what?" presence, jargon, and sentence count. Runs before
+ * content is marked ready; never throws.
  */
 
 import Anthropic from '@anthropic-ai/sdk'
@@ -16,6 +20,163 @@ import path from 'path'
 import type { TemplateSection } from './templates/types'
 
 const MODEL = 'claude-sonnet-4-6'
+
+// ─── AUTOMATED QA — PURE STRING RULES ────────────────────────────────────────
+// These run on every content save, before the AI-powered review, and never throw.
+
+/**
+ * Result shape returned by runAutomatedQA.
+ * errors   — severity "error", block content from being marked ready
+ * warnings — severity "warning", logged but do not block
+ */
+export interface AutomatedQAResult {
+  passed: boolean
+  errors: string[]
+  warnings: string[]
+  wordCount: number
+  sentenceCount: number
+  hasSoWhat: boolean
+}
+
+/** Forbidden phrases for jargon detection (Rule 3). */
+const JARGON_PHRASES: string[] = [
+  'utilize',
+  'synergy',
+  'paradigm shift',
+  'best-in-class',
+  'game-changer',
+  'game changer',
+  'cutting-edge',
+  'cutting edge',
+  'state-of-the-art',
+  'state of the art',
+  'holistic approach',
+]
+
+/**
+ * "leverage" is jargon only when used as a verb (e.g. "leverage AI").
+ * As a noun ("use leverage") it is fine. We detect the verb form by looking
+ * for the word in contexts that suggest verb usage: "leverage [a/the/our/your/AI/...]".
+ */
+function detectLeverageVerb(text: string): boolean {
+  // Matches "leverage" followed by a determiner, pronoun, or typical direct-object starter
+  return /\bleverages?\s+(?:a|an|the|our|your|their|its|this|that|these|those|[A-Z])/i.test(text)
+}
+
+/**
+ * Count words by splitting on whitespace sequences.
+ * Returns 0 for empty/whitespace-only strings.
+ */
+function countWords(text: string): number {
+  const trimmed = text.trim()
+  if (!trimmed) return 0
+  return trimmed.split(/\s+/).length
+}
+
+/**
+ * Count sentences by splitting on sentence-ending punctuation followed by whitespace
+ * or end-of-string. Handles `. `, `! `, `? `, and trailing punctuation.
+ */
+function countSentences(text: string): number {
+  const trimmed = text.trim()
+  if (!trimmed) return 0
+  // Split on sentence boundary: punctuation + space(s), or punctuation at end
+  const parts = trimmed.split(/[.!?]+(?:\s+|$)/).filter((s) => s.trim().length > 0)
+  return parts.length
+}
+
+/**
+ * Check for a "So what?" sentence.
+ * Accepts:
+ *   - A sentence starting with "So what?" (any casing)
+ *   - A sentence containing "so what" as a clause (e.g. "Here's the so what:")
+ */
+function hasSoWhatSentence(text: string): boolean {
+  const lower = text.toLowerCase()
+  // Direct "so what?" at the start of a sentence
+  if (/(?:^|[.!?]\s+)so what\?/i.test(text)) return true
+  // "so what" used as a distinct clause or introduced phrase
+  if (/\bso what\b/i.test(lower)) return true
+  return false
+}
+
+/**
+ * Runs the 4 automated quality rules against a text string.
+ * Never throws — all errors are caught and returned as a failure result.
+ *
+ * Rule 1: word count ≤ 80 (error)
+ * Rule 2: "So what?" sentence present (error)
+ * Rule 3: no jargon (warning)
+ * Rule 4: ≥ 3 sentences (error)
+ */
+export function runAutomatedQA(text: string): AutomatedQAResult {
+  try {
+    const errors: string[] = []
+    const warnings: string[] = []
+
+    const wordCount = countWords(text)
+    const sentenceCount = countSentences(text)
+    const hasSoWhat = hasSoWhatSentence(text)
+
+    // Rule 1 — Word count ≤ 80
+    if (wordCount > 80) {
+      errors.push(
+        `Content is ${wordCount} words — must be 80 or fewer. Trim to the most impactful sentences.`
+      )
+    }
+
+    // Rule 2 — "So what?" sentence
+    if (!hasSoWhat) {
+      errors.push(
+        `Missing 'So what?' sentence. Every insight must end with one sentence explaining what this means for the reader's specific role.`
+      )
+    }
+
+    // Rule 3 — Jargon check (warning only)
+    const foundJargon: string[] = []
+    const lowerText = text.toLowerCase()
+    for (const phrase of JARGON_PHRASES) {
+      if (lowerText.includes(phrase)) {
+        foundJargon.push(phrase)
+      }
+    }
+    if (detectLeverageVerb(text)) {
+      foundJargon.push('leverage (verb)')
+    }
+    if (foundJargon.length > 0) {
+      warnings.push(
+        `Jargon detected: ${foundJargon.join(', ')}. Rewrite in plain business English.`
+      )
+    }
+
+    // Rule 4 — Minimum substance (≥ 3 sentences)
+    if (sentenceCount < 3) {
+      errors.push(
+        `Content has only ${sentenceCount} sentence(s). An insight needs setup, evidence, and a So what? — at least 3 sentences.`
+      )
+    }
+
+    return {
+      passed: errors.length === 0,
+      errors,
+      warnings,
+      wordCount,
+      sentenceCount,
+      hasSoWhat,
+    }
+  } catch (err) {
+    // Safety net — QA must never crash the caller
+    console.error('[runAutomatedQA] Unexpected error:', err)
+    return {
+      passed: false,
+      errors: ['QA check failed to run due to an internal error.'],
+      warnings: [],
+      wordCount: 0,
+      sentenceCount: 0,
+      hasSoWhat: false,
+    }
+  }
+}
 
 // ─── RENDERER FILE MAP ────────────────────────────────────────────────────────
 

@@ -1,6 +1,7 @@
 import { inngest } from './client'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { sendSMS } from '@/lib/delivery/sms'
+import { sendAdminAlert } from '@/lib/delivery/email'
 
 /**
  * Feedback processor — triggered by 'clio/feedback.received' event.
@@ -12,6 +13,26 @@ export const feedbackProcessor = inngest.createFunction(
     name: 'Process User Feedback',
     retries: 3,
     triggers: [{ event: 'clio/feedback.received' }],
+    onFailure: async ({
+      error,
+      event,
+    }: {
+      error: Error
+      event: { data: { userId?: string; deliveryLogId?: string; feedback?: string } }
+    }) => {
+      try {
+        const { userId, deliveryLogId, feedback } = event.data
+        await sendAdminAlert({
+          subject: `feedback-processor failed — user ${userId ?? 'unknown'}`,
+          body: `The feedback processor Inngest job has exhausted all retries and failed.\n\nError: ${error.message}`,
+          // deliveryLogId and feedback are non-PII identifiers safe to log
+          context: { userId, deliveryLogId, feedback, errorStack: error.stack },
+        })
+      } catch (alertErr) {
+        // Never let alert failure mask the original error
+        console.error('[feedback-processor:onFailure] Failed to send admin alert:', alertErr)
+      }
+    },
   },
   async ({ event, step }) => {
     const { userId, deliveryLogId, feedback } = event.data as {
@@ -60,19 +81,9 @@ export const feedbackProcessor = inngest.createFunction(
       const weightDelta = feedback === 'positive' ? 1.0 : -0.5
 
       for (const tag of allTags) {
-        // Upsert feedback weight for each tag
-        await supabase.from('feedback_weights').upsert(
-          {
-            user_id: userId,
-            tag,
-            weight: weightDelta,
-          },
-          {
-            onConflict: 'user_id,tag',
-          }
-        )
-
-        // Increment/decrement the weight
+        // Use the DB RPC which does a proper INSERT ... ON CONFLICT DO UPDATE SET weight += delta
+        // This is the only write — do NOT also upsert() with weight: weightDelta which
+        // would reset weight to the delta value on conflict instead of accumulating it.
         await supabase.rpc('increment_feedback_weight', {
           p_user_id: userId,
           p_tag: tag,

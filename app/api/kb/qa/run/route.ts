@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { requireAuth } from '@/lib/clerk'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { canAccessKB } from '@/lib/kb-access'
-import { runQAOnTopic } from '@/lib/kb-qa-agent'
+import { runQAOnTopic, runAutomatedQA } from '@/lib/kb-qa-agent'
 import type { TemplateSection } from '@/lib/templates/types'
 
 export const maxDuration = 120
@@ -62,7 +62,24 @@ export async function POST(request: NextRequest) {
 
   const existingRuleTexts = (allRuleRows ?? []).map((r: { rule_text: string }) => r.rule_text)
 
-  // Run QA
+  // Run automated QA rules (pure string checks — no AI required)
+  const automatedQABySlug: Record<string, ReturnType<typeof runAutomatedQA>> = {}
+  for (const row of rows) {
+    // Extract the primary text body from the section data for automated checks.
+    // section_data is a TemplateSection — reach into the most likely text fields.
+    const sectionData = row.section_data as TemplateSection & {
+      data?: { body?: string; bodyText?: string; summary?: string; description?: string }
+    }
+    const textToCheck: string =
+      sectionData?.data?.body ??
+      sectionData?.data?.bodyText ??
+      sectionData?.data?.summary ??
+      sectionData?.data?.description ??
+      ''
+    automatedQABySlug[row.subtopic_slug] = runAutomatedQA(textToCheck)
+  }
+
+  // Run AI-powered QA
   const sections = rows.map((r) => ({
     subtopic_slug: r.subtopic_slug,
     subtopic_title: r.subtopic_title ?? r.subtopic_slug,
@@ -76,16 +93,20 @@ export async function POST(request: NextRequest) {
     existingRuleTexts
   )
 
-  // Save QA results back to cache rows
+  // Save QA results back to cache rows, merging automated + AI results
   await Promise.all(
     results.map((result) => {
       const row = rows.find((r) => r.subtopic_slug === result.subtopic_slug)
       if (!row) return Promise.resolve()
+      const autoQA = automatedQABySlug[result.subtopic_slug]
       return supabase
         .from('topic_content_cache')
         .update({
           qa_score: result.overall_score,
-          qa_result: result,
+          qa_result: {
+            ...result,
+            automated_qa: autoQA ?? null,
+          },
           qa_run_at: new Date().toISOString(),
         })
         .eq('id', row.id)
@@ -112,11 +133,23 @@ export async function POST(request: NextRequest) {
     ? Math.round(results.reduce((sum, r) => sum + r.overall_score, 0) / results.length)
     : 0
 
+  // Summarise automated QA across all sections
+  const automatedQASummary = Object.entries(automatedQABySlug).map(([slug, qa]) => ({
+    subtopic_slug: slug,
+    passed: qa.passed,
+    word_count: qa.wordCount,
+    sentence_count: qa.sentenceCount,
+    has_so_what: qa.hasSoWhat,
+    errors: qa.errors,
+    warnings: qa.warnings,
+  }))
+
   return NextResponse.json({
     ok: true,
     sections_reviewed: results.length,
     avg_score: avgScore,
     candidates_added: savedCandidates,
     results,
+    automated_qa: automatedQASummary,
   })
 }

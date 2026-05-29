@@ -159,12 +159,12 @@ export default function ProsCons({ data, isActive, onReady }: ProsConsProps) {
   return (
     <div className="h-full w-full flex flex-col bg-[#080808] px-8 md:px-16 py-12">
       <motion.div className="flex-1 flex flex-col pb-20" initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ duration: 0.5 }} onAnimationComplete={() => { if (isActive) onReady?.() }}>
-        <div className="mb-4 flex items-center gap-6">
-          <div>
+        <div className="mb-4 flex flex-wrap items-start gap-3">
+          <div className="flex-1 min-w-0">
             <h2 className="text-3xl font-bold text-white mb-1">{data.title}</h2>
             <p className="text-[#94A3B8] text-sm">{data.context}</p>
           </div>
-          <div className="flex items-center gap-4 ml-auto">
+          <div className="flex items-center gap-4 shrink-0">
             {[['#10B981', 'Advantages'], ['#EF4444', 'Risks']].map(([color, label]) => (
               <div key={label} className="flex items-center gap-1.5">
                 <div className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />

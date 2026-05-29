@@ -18,7 +18,7 @@ export default async function DashboardPage() {
 
   if (!user) redirect('/onboarding')
 
-  // Fetch recent 7 delivery log entries
+  // Fetch recent 5 delivery log entries (shown in "Recent Insights" section)
   const { data: recentDeliveries } = await supabase
     .from('delivery_log')
     .select(`
@@ -33,8 +33,51 @@ export default async function DashboardPage() {
     `)
     .eq('user_id', userId)
     .order('sent_at', { ascending: false })
-    .limit(7)
+    .limit(5)
 
+  // Fetch today's insight (most recent delivery sent today)
+  const todayStart = new Date()
+  todayStart.setHours(0, 0, 0, 0)
+  const { data: todayDeliveries } = await supabase
+    .from('delivery_log')
+    .select(`
+      id,
+      content_item_id,
+      channel,
+      sent_at,
+      feedback,
+      content_items (
+        id, type, body_text
+      )
+    `)
+    .eq('user_id', userId)
+    .gte('sent_at', todayStart.toISOString())
+    .order('sent_at', { ascending: false })
+    .limit(1)
+
+  const todayDelivery = todayDeliveries && todayDeliveries.length > 0
+    ? {
+        ...todayDeliveries[0],
+        content_items: Array.isArray(todayDeliveries[0].content_items)
+          ? (todayDeliveries[0].content_items[0] ?? null)
+          : (todayDeliveries[0].content_items ?? null),
+      }
+    : null
+
+  // Fetch next upcoming session
+  const { data: upcomingSessions } = await supabase
+    .from('sessions')
+    .select('id, session_index, session_title, scheduled_at, status, topics, duration_mins')
+    .eq('user_id', userId)
+    .gt('scheduled_at', new Date().toISOString())
+    .not('status', 'eq', 'completed')
+    .not('status', 'eq', 'cancelled')
+    .order('scheduled_at', { ascending: true })
+    .limit(1)
+
+  const nextSession = upcomingSessions && upcomingSessions.length > 0 ? upcomingSessions[0] : null
+
+  // Monthly insight count
   const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1)
   const { count: monthlyCount } = await supabase
     .from('delivery_log')
@@ -59,6 +102,8 @@ export default async function DashboardPage() {
             : (d.content_items ?? null),
         }))}
         monthlyCount={monthlyCount ?? 0}
+        todayDelivery={todayDelivery}
+        nextSession={nextSession ?? null}
       />
     </DashboardShell>
   )
