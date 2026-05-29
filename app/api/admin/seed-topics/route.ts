@@ -24,27 +24,48 @@ interface GeneratedTopic {
 
 async function generateTopicsForDomain(
   anthropic: Anthropic,
-  domain: { id: string; label: string; description: string; tags: string[] }
+  domain: { id: string; label: string; description: string; tags: string[] },
+  relevantRoles: string[] = []
 ): Promise<GeneratedTopic[]> {
+  const executiveRoles = new Set(['ceo', 'coo', 'cfo', 'chro', 'cmo', 'hr', 'marketing', 'product-manager'])
+  const technicalRoles = new Set(['cto', 'developer', 'data-engineer', 'data-scientist', 'ml-engineer', 'designer'])
+  const hasExec = relevantRoles.some((r) => executiveRoles.has(r))
+  const hasTech = relevantRoles.some((r) => technicalRoles.has(r))
+  const audience = hasExec && !hasTech ? 'executive' : hasTech && !hasExec ? 'technical' : 'mixed'
+
+  const audienceNote =
+    audience === 'executive'
+      ? `AUDIENCE: Senior business executives (CEO, COO, CFO etc). They do NOT write code or build systems.
+Frame every topic as strategic intelligence: decisions, vendor evaluation, risk, ROI, governance, team enablement.
+GOOD titles: "Evaluating AI Vendors Without Being Fooled", "AI Risk Frameworks Your Board Expects"
+BAD titles: "Building Your First LLM App", "Coding Agents with Tool Use", "Fine-Tuning at Scale"
+Make titles feel like something a CEO would forward to their EA and say "book this session".`
+      : audience === 'technical'
+        ? `AUDIENCE: Technical practitioners (engineers, developers, data scientists). Frame topics as hands-on skills they apply directly in their work.`
+        : `AUDIENCE: Mixed — include both strategic/decision-maker topics AND hands-on practitioner topics, roughly 50/50.`
+
   const prompt = `Domain: ${domain.label}
 Domain description: ${domain.description}
 Related keywords: ${domain.tags.join(', ')}
+Relevant roles: ${relevantRoles.join(', ')}
 
-Generate exactly 7 practical learning topics for professionals in this domain.
+${audienceNote}
+
+Generate exactly 7 practical learning topics for this domain.
 
 Requirements:
-- Each topic title: 4–8 words, specific and outcome-focused
-- Each description: one sentence, 12–18 words, states the concrete skill gained
-- Maturity: which proficiency levels apply? Choose from: beginner, intermediate, advanced, expert
-- Cover a range: include 1–2 beginner topics, 2–3 intermediate, 1–2 advanced/expert
-- Tags: 3–5 lowercase searchable keywords specific to this topic
-- Topics must be practical and job-applicable, not academic theory
+- Each topic title: 4–9 words, specific and outcome-focused
+- Each description: one sentence, 12–18 words, states the concrete skill or decision gained
+- Maturity: which levels apply? Choose from: beginner, intermediate, advanced, expert
+- Cover a range: 1–2 beginner, 2–3 intermediate, 1–2 advanced/expert
+- Tags: 3–5 lowercase searchable keywords
+- Topics must be immediately applicable to real work
 
-IMPORTANT: One of the 7 topics must be a "Tools & Platforms" comparison topic that:
-- Compares 3–4 leading real tools or platforms in this domain
-- Uses "vs" in the title (e.g. "Tool A vs Tool B vs Tool C — When to Use Each")
-- Covers key differentiators, pricing model, and best-fit scenarios
-- Is appropriate for a business professional evaluating or buying tools, not a developer installing them
+IMPORTANT: One of the 7 must be a "Tools & Platforms" comparison topic:
+- Compares 3–4 real tools/platforms in this domain (e.g. "Claude vs GPT-4o vs Gemini — Which AI for Your Team")
+- Uses "vs" in the title
+- Covers differentiators, pricing, best-fit scenarios
+- Framed for someone evaluating options, not installing them
 
 Return ONLY valid JSON with no extra text:
 {"topics":[{"title":"...","description":"...","maturity":["beginner","intermediate"],"tags":["tag1","tag2"]},...]}`
@@ -74,7 +95,8 @@ async function runBatch(
 ): Promise<Array<{ domainId: string; topics: GeneratedTopic[] }>> {
   return Promise.all(
     batch.map(async (domain) => {
-      const topics = await generateTopicsForDomain(anthropic, domain)
+      const roles = getRolesForDomain(domain.id)
+      const topics = await generateTopicsForDomain(anthropic, domain, roles)
       return { domainId: domain.id, topics }
     })
   )
