@@ -18,7 +18,7 @@ const ScheduledSessionSchema = z.object({
 })
 
 const ScheduleRequestSchema = z.object({
-  sessions: z.array(ScheduledSessionSchema).min(1).max(20),
+  sessions: z.array(ScheduledSessionSchema).min(1).max(200),
 })
 
 /**

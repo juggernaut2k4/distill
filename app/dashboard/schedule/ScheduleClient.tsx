@@ -217,11 +217,17 @@ export default function ScheduleClient({ user, existingSessions, subscribedSucce
   async function submitSessions(sessions: ScheduledSession[]) {
     setSaving(true)
     try {
-      await fetch('/api/sessions/schedule', {
+      const res = await fetch('/api/sessions/schedule', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessions }),
       })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        console.error('[schedule] Failed to save sessions:', data)
+        setSaving(false)
+        return
+      }
       router.push('/dashboard/sessions')
     } catch {
       setSaving(false)
