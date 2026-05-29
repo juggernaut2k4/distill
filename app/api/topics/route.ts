@@ -5,8 +5,17 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
 import { sendPlanReadyEmail, type User as EmailUser } from '@/lib/delivery/email'
 import { sendSMS } from '@/lib/delivery/sms'
 
+const ProfileSchema = z.object({
+  role: z.string().optional(),
+  domains: z.array(z.string()).optional(),
+  primaryDomain: z.string().optional(),
+  domainProficiency: z.record(z.string(), z.string()).optional(),
+  learningGoal: z.string().optional(),
+}).optional()
+
 const TopicsSchema = z.object({
   topics: z.array(z.string().min(1).max(200)).min(0).max(50),
+  profile: ProfileSchema,
 })
 
 /**
@@ -30,12 +39,23 @@ export async function POST(request: NextRequest) {
 
   const supabase = createSupabaseAdminClient()
 
+  const profileUpdate = parsed.data.profile
+    ? {
+        role: parsed.data.profile.role,
+        domains: parsed.data.profile.domains,
+        primary_domain: parsed.data.profile.primaryDomain,
+        domain_proficiency: parsed.data.profile.domainProficiency,
+        learning_goal: parsed.data.profile.learningGoal,
+      }
+    : {}
+
   const { error: updateError } = await supabase
     .from('users')
     .update({
       topic_interests: parsed.data.topics,
       needs_recalibration: false,
       plan_approved: false,
+      ...profileUpdate,
     })
     .eq('id', userId!)
 

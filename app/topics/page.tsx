@@ -126,6 +126,8 @@ interface StoredProfile {
   role?: string
   domains?: string[]
   primaryDomain?: string
+  domainProficiency?: Record<string, string>
+  learningGoal?: string
 }
 
 interface ExploreGroup {
@@ -381,7 +383,18 @@ export default function TopicsPage() {
       await fetch('/api/topics', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topics: Array.from(selected) }),
+        body: JSON.stringify({
+          topics: Array.from(selected),
+          profile: storedProfile
+            ? {
+                role: storedProfile.role,
+                domains: storedProfile.domains,
+                primaryDomain: storedProfile.primaryDomain,
+                domainProficiency: storedProfile.domainProficiency,
+                learningGoal: storedProfile.learningGoal,
+              }
+            : undefined,
+        }),
       })
     } catch {
       // non-fatal
