@@ -13,7 +13,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/clerk'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { generateSessionContentOutline } from '@/lib/content/session-content-generator'
-import { generateTrainingScript } from '@/lib/content/script-generator'
+import { generateTrainingScript, adaptScriptToDuration } from '@/lib/content/script-generator'
 import { selectTemplate } from '@/lib/templates/selector'
 import { generateTemplateData } from '@/lib/templates/generator'
 import { getCachedSection, setCachedSection } from '@/lib/topic-cache'
@@ -106,7 +106,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
   const [{ data: session }, { data: userRow }] = await Promise.all([
     supabase
       .from('sessions')
-      .select('id, session_title, topic_id, topics, content_status, session_plan')
+      .select('id, session_title, topic_id, topics, content_status, session_plan, duration_mins')
       .eq('id', params.id)
       .eq('user_id', userId!)
       .single(),
@@ -122,6 +122,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
 
   const topicId = session.topic_id ?? 'ai-fundamentals'
   const topicTitle = session.session_title ?? 'AI Strategy Session'
+  const sessionDurationMins: number = (session as { duration_mins?: number }).duration_mins ?? 30
   const planSubtopics = (session.session_plan as SessionPlan | null)?.subtopics
     ?.filter((s: { skipped?: boolean }) => !s.skipped)
     ?.map((s: { title: string }) => s.title) ?? []
@@ -202,6 +203,10 @@ export async function POST(_req: NextRequest, { params }: Params) {
 
       // Step 2 (visual) and Step 3 (script) run in PARALLEL, both derived from Step 1 outline.
       // contentSpec ensures the visual renders exactly the items Clio will name in the script.
+      const sessionCtx = {
+        allSubtopics: subtopicTitles,
+        nextSessionTopic: undefined as string | undefined, // TODO: pass next session topic when available
+      }
       const [section, script] = await Promise.all([
         cachedSection
           ? Promise.resolve(cachedSection)
@@ -211,12 +216,21 @@ export async function POST(_req: NextRequest, { params }: Params) {
                 setCachedSection(topicId, subtopicSlug, subtopicTitle, newSection).catch(() => {})
                 return newSection
               }),
-        generateTrainingScript(subtopicOutline, userContext),
+        generateTrainingScript(subtopicOutline, userContext, sessionCtx),
       ])
+
+      // Adapt the canonical script to this user's session duration
+      const adaptedScript = await adaptScriptToDuration(
+        script,
+        sessionDurationMins,
+        subtopicTitles.length
+      )
 
       const expiresAt = new Date()
       expiresAt.setDate(expiresAt.getDate() + 60)
 
+      // KB stores the CANONICAL script (for reuse by other users).
+      // adapted_script (duration-condensed) is stored separately in session_plan JSONB.
       await supabase
         .from('topic_content_cache')
         .upsert(
@@ -227,7 +241,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
             template_type: templateType,
             section_data: section,
             content_outline: subtopicOutline,
-            training_script: script,
+            training_script: script,       // canonical 1-hr version
             pipeline_status: 'ready',
             generated_at: new Date().toISOString(),
             expires_at: expiresAt.toISOString(),
@@ -235,6 +249,23 @@ export async function POST(_req: NextRequest, { params }: Params) {
           },
           { onConflict: 'topic_id,subtopic_slug' }
         )
+
+      // Persist the duration-adapted script into the session_plan for this subtopic
+      const { data: currentSession } = await supabase
+        .from('sessions')
+        .select('session_plan')
+        .eq('id', params.id)
+        .single()
+      if (currentSession?.session_plan) {
+        const plan = currentSession.session_plan as SessionPlan
+        const updatedSubtopics = plan.subtopics?.map((sub: { title: string; adapted_script?: unknown }) =>
+          sub.title === subtopicTitle ? { ...sub, adapted_script: adaptedScript } : sub
+        )
+        await supabase
+          .from('sessions')
+          .update({ session_plan: { ...plan, subtopics: updatedSubtopics } })
+          .eq('id', params.id)
+      }
     }
 
     for (let i = 0; i < outline.subtopics.length; i += BATCH_SIZE) {

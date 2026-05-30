@@ -121,6 +121,26 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  // Immediately trigger full content generation for Session 1 (user is waiting)
+  const firstSessionId = indexToId.get(1)
+  const firstSession = parsed.data.sessions.find((s) => s.sessionIndex === 1)
+  if (firstSessionId && firstSession) {
+    inngest
+      .send({
+        name: 'distill/session.content.generate' as const,
+        data: {
+          sessionId: firstSessionId,
+          topicId: firstSession.topicId || 'ai-fundamentals',
+          topicTitle: firstSession.title,
+          subtopics: firstSession.subtopics,
+          userId: userId!,
+          priority: 'immediate',
+        },
+      })
+      .catch((err) => console.error('[schedule] Failed to emit content.generate for session 1:', err))
+    console.log(`[schedule] Triggered content generation for Session 1: ${firstSessionId}`)
+  }
+
   // Fire-and-forget confirmation email + SMS
   const { data: userRow } = await supabase
     .from('users')
