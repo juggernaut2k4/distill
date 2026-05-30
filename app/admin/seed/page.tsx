@@ -77,10 +77,41 @@ export default function SeedAdminPage() {
     finally { setRunning(false) }
   }
 
+  async function handleSetCeoProfile() {
+    setRunning(true)
+    try {
+      addLog('Setting CEO profile (role + domains)…')
+      const res = await fetch('/api/topics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          topics: [],
+          profile: {
+            role: 'ceo',
+            domains: ['ai-ml', 'leadership', 'digital-transformation', 'finance', 'data-decisions', 'innovation', 'risk'],
+            primaryDomain: 'ai-ml',
+          },
+        }),
+      })
+      const data = await res.json()
+      addLog(res.ok ? 'Profile set — role=ceo, domains=[ai-ml, leadership, …]' : `Profile update failed: ${JSON.stringify(data)}`)
+    } finally {
+      setRunning(false)
+    }
+  }
+
   return (
     <div style={{ padding: 32, background: '#080808', minHeight: '100vh', color: '#fff', fontFamily: 'monospace' }}>
       <h1 style={{ fontSize: 24, marginBottom: 8 }}>Topic Catalog Admin</h1>
       <p style={{ color: '#475569', marginBottom: 24, fontSize: 14 }}>Seeds role-aware topics into the topic_catalog table via Claude API</p>
+
+      <div style={{ marginBottom: 24, padding: 16, background: '#111', border: '1px solid #333', borderRadius: 8 }}>
+        <p style={{ color: '#94A3B8', marginBottom: 12, fontSize: 14 }}>Test profile setup — sets your DB profile to CEO so the catalog shows relevant topics</p>
+        <button onClick={handleSetCeoProfile} disabled={running}
+          style={{ padding: '10px 20px', background: '#06B6D4', color: '#fff', border: 'none', borderRadius: 8, cursor: running ? 'not-allowed' : 'pointer', fontSize: 14 }}>
+          Set My Profile → CEO + AI domains
+        </button>
+      </div>
 
       <div style={{ display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap' }}>
         <button onClick={handleSeedAll} disabled={running}
