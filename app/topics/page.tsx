@@ -4,19 +4,17 @@ import { useState, useRef, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  ArrowRight, Check, Plus, X, RefreshCw, Sparkles, PenLine, CheckSquare, Square, ChevronDown, ChevronUp,
+  ArrowRight, Check, Plus, X, RefreshCw, Sparkles, PenLine,
+  ChevronDown, ChevronUp, TrendingUp,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { ALL_DOMAINS } from '@/lib/learning/taxonomy'
 
+// ── Types ──────────────────────────────────────────────────────────────────────
+
 type View = 'loading' | 'selection' | 'input' | 'generating' | 'manual'
 
-interface TopicCategory {
-  category: string
-  color: string
-  topics: string[]
-}
-
+/** Topic shape returned by the current catalog API format */
 interface CatalogTopic {
   id: string
   title: string
@@ -26,100 +24,41 @@ interface CatalogTopic {
   tags: string[]
 }
 
-const CATEGORIES: Array<{ name: string; color: string; keywords: string[] }> = [
-  {
-    name: 'AI Strategy & Leadership',
-    color: '#7C3AED',
-    keywords: ['strategy', 'leadership', 'governance', 'roi', 'vendor', 'culture', 'risk', 'executive', 'board', 'roadmap', 'ambition', 'posture', 'framework', 'maturity', 'invest', 'decision', 'oversight', 'committee'],
-  },
-  {
-    name: 'Technology Foundations',
-    color: '#06B6D4',
-    keywords: ['language model', 'llm', 'generative', 'machine learning', 'foundation model', 'neural', 'gpt', 'claude', 'gemini', 'data strateg', 'data infrastructure', 'data readiness', 'security', 'privacy', 'technical', 'how ai', 'what ai', 'token', 'training', 'model'],
-  },
-  {
-    name: 'Operational AI',
-    color: '#10B981',
-    keywords: ['operation', 'supply chain', 'customer experience', 'cx', 'process automation', 'finance', 'forecast', 'hr ', 'talent', 'marketing', 'sales', 'revenue', 'automation', 'workflow', 'procurement', 'logistics', 'demand'],
-  },
-  {
-    name: 'Team & Organisation',
-    color: '#F59E0B',
-    keywords: ['team', 'upskill', 'change management', 'people', 'hiring', 'recruit', 'organisation', 'organization', 'culture', 'mindset', 'adoption', 'champion', 'ethics', 'responsible', 'bias', 'fairness', 'interdisciplinary', 'center of excellence'],
-  },
-  {
-    name: 'Competitive Edge',
-    color: '#A855F7',
-    keywords: ['competitive', 'intelligence', 'industry', 'product development', 'emerging', 'trend', 'regulation', 'compliance', 'future', 'disruption', 'market', 'first mover', 'agentic', 'multi-modal', 'frontier'],
-  },
-]
-
-const DOMAIN_COLORS = ['#7C3AED', '#06B6D4', '#10B981', '#F59E0B', '#A855F7', '#EF4444', '#3B82F6', '#EC4899']
-
-function catalogTopicsToGroups(topics: CatalogTopic[], userDomains: string[]): TopicCategory[] {
-  const map = new Map<string, CatalogTopic[]>()
-  for (const t of topics) {
-    const bucket = map.get(t.domain_id) ?? []
-    bucket.push(t)
-    map.set(t.domain_id, bucket)
-  }
-
-  const orderedIds: string[] = [...userDomains]
-  for (const id of Array.from(map.keys())) {
-    if (!orderedIds.includes(id)) orderedIds.push(id)
-  }
-
-  return orderedIds
-    .filter((id) => map.has(id))
-    .map((domainId, idx) => {
-      const domainDef = ALL_DOMAINS.find((d) => d.id === domainId)
-      const label = domainDef?.label ?? domainId.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-      return {
-        category: label,
-        color: DOMAIN_COLORS[idx % DOMAIN_COLORS.length],
-        topics: (map.get(domainId) ?? []).map((t) => t.title),
-      }
-    })
+/** Extended topic shape returned by the new catalog API format */
+interface FeaturedTopic extends CatalogTopic {
+  trending_score?: number
+  popularity_rank?: number
+  is_trending?: boolean
 }
 
-function categorizeTopics(topics: string[]): TopicCategory[] {
-  const buckets: Record<string, string[]> = {}
-  const uncategorized: string[] = []
+/** Old catalog API response: { topics, role, domains } */
+interface OldCatalogResponse {
+  topics: CatalogTopic[]
+  domains?: string[]
+  role?: string | null
+  seeded?: boolean
+  error?: string
+}
 
-  for (const cat of CATEGORIES) buckets[cat.name] = []
+/** New catalog API response: { featured, other, role, industry, maturity, from_cache } */
+interface NewCatalogResponse {
+  featured: FeaturedTopic[]
+  other: FeaturedTopic[]
+  role?: string | null
+  industry?: string | null
+  maturity?: string | null
+  from_cache?: boolean
+  error?: string
+}
 
-  for (const topic of topics) {
-    const lower = topic.toLowerCase()
-    let bestCategory: string | null = null
-    let bestScore = 0
+type CatalogResponse = OldCatalogResponse | NewCatalogResponse
 
-    for (const cat of CATEGORIES) {
-      const score = cat.keywords.filter((kw) => lower.includes(kw)).length
-      if (score > bestScore) {
-        bestScore = score
-        bestCategory = cat.name
-      }
-    }
-
-    if (bestCategory) {
-      buckets[bestCategory].push(topic)
-    } else {
-      uncategorized.push(topic)
-    }
-  }
-
-  // Distribute uncategorized round-robin across non-empty categories first,
-  // then fill any empty category, then fallback to first category
-  const order = CATEGORIES.map((c) => c.name)
-  let idx = 0
-  for (const topic of uncategorized) {
-    buckets[order[idx % order.length]].push(topic)
-    idx++
-  }
-
-  return CATEGORIES
-    .map((cat) => ({ category: cat.name, color: cat.color, topics: buckets[cat.name] }))
-    .filter((g) => g.topics.length > 0)
+/** Group for the "Other topics" collapsed section */
+interface ExploreGroup {
+  domainId: string
+  label: string
+  icon: string
+  topics: FeaturedTopic[]
 }
 
 interface StoredProfile {
@@ -130,67 +69,168 @@ interface StoredProfile {
   learningGoal?: string
 }
 
-interface ExploreGroup {
-  domainId: string
-  label: string
-  icon: string
-  topics: CatalogTopic[]
+// ── Constants ──────────────────────────────────────────────────────────────────
+
+const DOMAIN_COLORS = ['#7C3AED', '#06B6D4', '#10B981', '#F59E0B', '#A855F7', '#EF4444', '#3B82F6', '#EC4899']
+const MAX_SELECTIONS = 10
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+function isNewFormat(data: CatalogResponse): data is NewCatalogResponse {
+  return 'featured' in data
 }
+
+function domainLabel(domainId: string): string {
+  const d = ALL_DOMAINS.find((d) => d.id === domainId)
+  return d?.label ?? domainId.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+function domainIcon(domainId: string): string {
+  return ALL_DOMAINS.find((d) => d.id === domainId)?.icon ?? '📚'
+}
+
+function groupByDomain(topics: FeaturedTopic[]): ExploreGroup[] {
+  const map = new Map<string, FeaturedTopic[]>()
+  for (const t of topics) {
+    const bucket = map.get(t.domain_id) ?? []
+    bucket.push(t)
+    map.set(t.domain_id, bucket)
+  }
+  return Array.from(map.entries()).map(([domainId, items]) => ({
+    domainId,
+    label: domainLabel(domainId),
+    icon: domainIcon(domainId),
+    topics: items,
+  }))
+}
+
+/** Convert old-format catalog topics to FeaturedTopic (no extra fields) */
+function toFeaturedTopics(topics: CatalogTopic[]): FeaturedTopic[] {
+  return topics.map((t) => ({ ...t }))
+}
+
+/** Friendly role title for the section heading */
+function roleTitle(role: string | null | undefined): string {
+  if (!role) return 'You'
+  const r = role.toLowerCase()
+  if (r === 'ceo' || r === 'cto' || r === 'coo' || r === 'cfo' || r === 'cso') return `${role.toUpperCase()}s`
+  return role.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) + 's'
+}
+
+// ── Skeleton card ─────────────────────────────────────────────────────────────
+
+function SkeletonCard() {
+  return (
+    <div className="bg-[#111111] border border-[#222222] rounded-2xl p-5 animate-pulse">
+      <div className="h-4 bg-[#1A1A1A] rounded w-3/4 mb-3" />
+      <div className="h-3 bg-[#1A1A1A] rounded w-full mb-1.5" />
+      <div className="h-3 bg-[#1A1A1A] rounded w-2/3" />
+    </div>
+  )
+}
+
+// ── Featured topic card ────────────────────────────────────────────────────────
+
+interface FeaturedCardProps {
+  topic: FeaturedTopic
+  isSelected: boolean
+  onToggle: (title: string) => void
+  atMax: boolean
+  colorIdx: number
+}
+
+function FeaturedCard({ topic, isSelected, onToggle, atMax, colorIdx }: FeaturedCardProps) {
+  const color = DOMAIN_COLORS[colorIdx % DOMAIN_COLORS.length]
+
+  return (
+    <motion.button
+      onClick={() => onToggle(topic.title)}
+      disabled={!isSelected && atMax}
+      whileHover={!isSelected && !atMax ? { scale: 1.02, y: -2 } : {}}
+      whileTap={{ scale: 0.98 }}
+      transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+      className={`relative w-full text-left rounded-2xl border p-5 transition-all duration-150 focus:outline-none
+        ${isSelected
+          ? 'border-[#7C3AED] bg-[#1a0f2e]'
+          : atMax
+            ? 'border-[#222222] bg-[#111111] opacity-50 cursor-not-allowed'
+            : 'border-[#222222] bg-[#111111] hover:border-[#333333]'
+        }`}
+    >
+      {/* Selected checkmark */}
+      {isSelected && (
+        <div className="absolute top-3.5 right-3.5 w-5 h-5 rounded-full bg-[#7C3AED] flex items-center justify-center">
+          <Check size={11} className="text-white" strokeWidth={3} />
+        </div>
+      )}
+
+      {/* Trending badge */}
+      {topic.is_trending && (
+        <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#7C3AED] text-white text-[10px] font-semibold uppercase tracking-wide mb-2.5">
+          <TrendingUp size={9} />
+          Trending
+        </div>
+      )}
+
+      {/* Domain colour dot + title */}
+      <div className="flex items-start gap-2.5 mb-2">
+        <div className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0" style={{ backgroundColor: color }} />
+        <p className="text-sm font-bold text-white leading-snug pr-5">{topic.title}</p>
+      </div>
+
+      {/* Description */}
+      {topic.description && (
+        <p className="text-xs text-[#94A3B8] leading-relaxed line-clamp-2 ml-4.5 pl-0.5">
+          {topic.description}
+        </p>
+      )}
+    </motion.button>
+  )
+}
+
+// ── Main page component ────────────────────────────────────────────────────────
 
 export default function TopicsPage() {
   const router = useRouter()
   const [view, setView] = useState<View>('loading')
   const [objectives, setObjectives] = useState('')
   const [generateError, setGenerateError] = useState<string | null>(null)
-  const [topicGroups, setTopicGroups] = useState<TopicCategory[]>([])
-  const [exploreCatalog, setExploreCatalog] = useState<CatalogTopic[]>([])
-  const [exploreOpen, setExploreOpen] = useState(false)
+
+  // Featured = role-curated topics shown prominently
+  const [featuredTopics, setFeaturedTopics] = useState<FeaturedTopic[]>([])
+  // Other = remaining catalog topics, collapsed by default
+  const [otherTopics, setOtherTopics] = useState<FeaturedTopic[]>([])
+  const [otherOpen, setOtherOpen] = useState(false)
+
+  // Manual / custom topics
   const [manualTopics, setManualTopics] = useState<string[]>([])
-  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [customOpen, setCustomOpen] = useState(false)
   const [customInput, setCustomInput] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [storedProfile, setStoredProfile] = useState<StoredProfile | null>(null)
   const customInputRef = useRef<HTMLInputElement>(null)
 
-  const allGeneratedTopics = topicGroups.flatMap((g) => g.topics)
-  const allTopics = [...allGeneratedTopics, ...manualTopics]
-  const allSelected = allTopics.length > 0 && selected.size === allTopics.length
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [saving, setSaving] = useState(false)
+  const [storedProfile, setStoredProfile] = useState<StoredProfile | null>(null)
+  const [catalogRole, setCatalogRole] = useState<string | null>(null)
 
-  const curriculumTitle = useMemo(() => {
-    const domains = storedProfile?.domains ?? []
-    if (domains.length === 1) {
-      const label = ALL_DOMAINS.find((d) => d.id === domains[0])?.label
-        ?? domains[0].replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-      return `Your ${label} curriculum`
-    }
-    if (domains.length > 1) {
-      return 'Your personalised curriculum'
-    }
-    return 'Your learning curriculum'
-  }, [storedProfile])
+  // Group "other" topics by domain for the collapsed section
+  const otherByDomain = useMemo<ExploreGroup[]>(() => groupByDomain(otherTopics), [otherTopics])
 
-  // Group explore catalog topics by domain
-  const exploreByDomain = useMemo<ExploreGroup[]>(() => {
-    const map = new Map<string, CatalogTopic[]>()
-    for (const t of exploreCatalog) {
-      const bucket = map.get(t.domain_id) ?? []
-      bucket.push(t)
-      map.set(t.domain_id, bucket)
+  // Domain colour index lookup for featured cards (stable across re-renders)
+  const domainColorMap = useMemo<Map<string, number>>(() => {
+    const map = new Map<string, number>()
+    let idx = 0
+    for (const t of featuredTopics) {
+      if (!map.has(t.domain_id)) map.set(t.domain_id, idx++)
     }
-    return Array.from(map.entries()).map(([domainId, topics]) => {
-      const domainDef = ALL_DOMAINS.find((d) => d.id === domainId)
-      return {
-        domainId,
-        label: domainDef?.label ?? domainId.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
-        icon: domainDef?.icon ?? '📚',
-        topics,
-      }
-    })
-  }, [exploreCatalog])
+    return map
+  }, [featuredTopics])
 
-  // Load topics on mount
+  const atMax = selected.size >= MAX_SELECTIONS
+
+  // ── Load topics on mount ───────────────────────────────────────────────────
+
   useEffect(() => {
-    // Read onboarding profile from localStorage — covers brand-new users before DB profile is saved
     let profile: StoredProfile | null = null
     try {
       const raw = localStorage.getItem('clio_onboarding')
@@ -199,45 +239,59 @@ export default function TopicsPage() {
     setStoredProfile(profile)
 
     async function loadTopics() {
-      // 1. Try catalog — pass localStorage profile as query params so new users get the right results
+      // 1. Try catalog API (handles both old and new response shapes)
       try {
         const params = new URLSearchParams()
         if (profile?.role) params.set('role', profile.role)
         if (profile?.domains?.length) params.set('domains', profile.domains.join(','))
 
-        const catalogRes = await fetch(`/api/topics/catalog?${params}`)
-        const catalogData = await catalogRes.json() as {
-          topics?: CatalogTopic[]
-          domains?: string[]
-          seeded?: boolean
-          error?: string
-        }
+        const res = await fetch(`/api/topics/catalog?${params}`)
+        const data = await res.json() as CatalogResponse
 
-        if (catalogData.topics && catalogData.topics.length > 0) {
-          const userDomains: string[] = catalogData.domains ?? profile?.domains ?? []
+        if (isNewFormat(data)) {
+          // New API format: { featured, other }
+          const featured = data.featured ?? []
+          const other = data.other ?? []
 
-          // Curated = topics from the user's explicitly selected domains
-          const curated = userDomains.length > 0
-            ? catalogData.topics.filter((t) => userDomains.includes(t.domain_id))
-            : catalogData.topics.slice(0, 14)
+          if (featured.length > 0 || other.length > 0) {
+            setCatalogRole(data.role ?? null)
+            setFeaturedTopics(featured)
+            setOtherTopics(other)
+            // Pre-select all featured topics
+            setSelected(new Set(featured.map((t) => t.title)))
+            setView('selection')
+            return
+          }
+        } else {
+          // Old API format: { topics, domains }
+          const topics = data.topics ?? []
+          const userDomains: string[] = data.domains ?? profile?.domains ?? []
 
-          // Explore = the rest, de-duped from curated
-          const curatedIds = new Set(curated.map((t) => t.id))
-          const explore = catalogData.topics.filter((t) => !curatedIds.has(t.id))
+          if (topics.length > 0) {
+            setCatalogRole(data.role ?? null)
 
-          if (curated.length > 0) {
-            setTopicGroups(catalogTopicsToGroups(curated, userDomains))
-            setSelected(new Set(curated.map((t) => t.title)))
-            setExploreCatalog(explore)
+            // Simulate featured/other split from old format:
+            //   featured = topics from user's selected domains (up to 18)
+            //   other    = the rest
+            const featured: FeaturedTopic[] = userDomains.length > 0
+              ? toFeaturedTopics(topics.filter((t) => userDomains.includes(t.domain_id))).slice(0, 18)
+              : toFeaturedTopics(topics.slice(0, 14))
+
+            const featuredIds = new Set(featured.map((t) => t.id))
+            const other = toFeaturedTopics(topics.filter((t) => !featuredIds.has(t.id)))
+
+            setFeaturedTopics(featured)
+            setOtherTopics(other)
+            setSelected(new Set(featured.map((t) => t.title)))
             setView('selection')
             return
           }
         }
       } catch {
-        // catalog failed — fall through
+        // catalog failed — fall through to generate
       }
 
-      // 2. Fallback: generate using actual domain names from localStorage (not the static AI curriculum)
+      // 2. Fallback: AI-generated topics
       try {
         const domainLabels = (profile?.domains ?? [])
           .map((id) => ALL_DOMAINS.find((d) => d.id === id)?.label ?? id)
@@ -254,7 +308,17 @@ export default function TopicsPage() {
         })
         const genData = await genRes.json() as { topics?: string[]; error?: string }
         if (genData.topics && genData.topics.length > 0) {
-          setTopicGroups(categorizeTopics(genData.topics))
+          // Wrap plain strings as minimal FeaturedTopic objects
+          const wrapped: FeaturedTopic[] = genData.topics.map((title, i) => ({
+            id: `generated-${i}`,
+            title,
+            description: '',
+            domain_id: 'generated',
+            relevant_maturity: [],
+            tags: [],
+          }))
+          setFeaturedTopics(wrapped)
+          setOtherTopics([])
           setSelected(new Set(genData.topics))
           setView('selection')
           return
@@ -289,7 +353,16 @@ export default function TopicsPage() {
         return
       }
 
-      setTopicGroups(categorizeTopics(data.topics))
+      const wrapped: FeaturedTopic[] = data.topics.map((title, i) => ({
+        id: `generated-${i}`,
+        title,
+        description: '',
+        domain_id: 'generated',
+        relevant_maturity: [],
+        tags: [],
+      }))
+      setFeaturedTopics(wrapped)
+      setOtherTopics([])
       setManualTopics([])
       setSelected(new Set(data.topics))
       setView('selection')
@@ -299,45 +372,31 @@ export default function TopicsPage() {
     }
   }
 
-  function toggleTopic(topic: string) {
+  function toggleTopic(title: string) {
     setSelected((prev) => {
       const next = new Set(prev)
-      if (next.has(topic)) next.delete(topic)
-      else next.add(topic)
-      return next
-    })
-  }
-
-  function toggleCategory(topics: string[]) {
-    const allIn = topics.every((t) => selected.has(t))
-    setSelected((prev) => {
-      const next = new Set(prev)
-      if (allIn) {
-        topics.forEach((t) => next.delete(t))
+      if (next.has(title)) {
+        next.delete(title)
       } else {
-        topics.forEach((t) => next.add(t))
+        if (next.size < MAX_SELECTIONS) next.add(title)
       }
       return next
     })
   }
 
-  function toggleAll() {
-    if (allSelected) {
-      setSelected(new Set())
-    } else {
-      setSelected(new Set(allTopics))
-    }
-  }
-
   function addCustomTopic() {
     const trimmed = customInput.trim()
     if (!trimmed) return
-    if (allTopics.some((t) => t.toLowerCase() === trimmed.toLowerCase())) {
+    const allTitles = [...featuredTopics.map((t) => t.title), ...otherTopics.map((t) => t.title), ...manualTopics]
+    if (allTitles.some((t) => t.toLowerCase() === trimmed.toLowerCase())) {
       setCustomInput('')
       return
     }
     setManualTopics((prev) => [...prev, trimmed])
-    setSelected((prev) => new Set(Array.from(prev).concat(trimmed)))
+    setSelected((prev) => {
+      if (prev.size >= MAX_SELECTIONS) return prev
+      return new Set(Array.from(prev).concat(trimmed))
+    })
     setCustomInput('')
     customInputRef.current?.focus()
 
@@ -351,15 +410,6 @@ export default function TopicsPage() {
         domains: storedProfile?.domains,
       }),
     }).catch(() => { /* non-fatal */ })
-  }
-
-  function addExploreTopic(title: string) {
-    if (manualTopics.includes(title)) {
-      removeManualTopic(title)
-      return
-    }
-    setManualTopics((prev) => [...prev, title])
-    setSelected((prev) => new Set(Array.from(prev).concat(title)))
   }
 
   function removeManualTopic(topic: string) {
@@ -420,7 +470,7 @@ export default function TopicsPage() {
         </button>
       </div>
 
-      <div className="max-w-3xl mx-auto px-6 py-12">
+      <div className="max-w-3xl mx-auto px-6 py-12 pb-32">
         <AnimatePresence mode="wait">
 
           {/* ── LOADING ─────────────────────────────────────────────────── */}
@@ -431,34 +481,26 @@ export default function TopicsPage() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.3 }}
-              className="flex flex-col items-center justify-center py-24 text-center"
+              className="space-y-8"
             >
-              <div className="relative w-20 h-20 mb-8">
-                <motion.div
-                  animate={{ scale: [1, 1.35, 1], opacity: [0.5, 0, 0.5] }}
-                  transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
-                  className="absolute inset-0 rounded-full bg-[#7C3AED]"
-                />
-                <div className="relative w-20 h-20 rounded-full bg-[#7C3AED] flex items-center justify-center">
-                  <Sparkles size={28} className="text-white" />
-                </div>
+              {/* Header skeleton */}
+              <div className="animate-pulse space-y-3">
+                <div className="h-3 bg-[#1A1A1A] rounded w-40" />
+                <div className="h-8 bg-[#1A1A1A] rounded w-72" />
+                <div className="h-4 bg-[#1A1A1A] rounded w-52" />
               </div>
-              <h2 className="text-2xl font-bold text-white mb-2">Building your topic list...</h2>
-              <p className="text-[#475569] text-sm">Personalising based on your profile</p>
-              <div className="mt-6 flex gap-2">
-                {[0, 1, 2].map((i) => (
-                  <motion.div
-                    key={i}
-                    animate={{ opacity: [0.2, 1, 0.2] }}
-                    transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.2 }}
-                    className="w-2 h-2 rounded-full bg-[#7C3AED]"
-                  />
-                ))}
+
+              {/* Skeleton cards */}
+              <div>
+                <div className="h-4 bg-[#1A1A1A] rounded w-48 mb-4 animate-pulse" />
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {Array.from({ length: 9 }).map((_, i) => <SkeletonCard key={i} />)}
+                </div>
               </div>
             </motion.div>
           )}
 
-          {/* ── SELECTION (categorized) ──────────────────────────────────── */}
+          {/* ── SELECTION ───────────────────────────────────────────────── */}
           {view === 'selection' && (
             <motion.div
               key="selection"
@@ -466,154 +508,122 @@ export default function TopicsPage() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -16 }}
               transition={{ duration: 0.35 }}
-              className="space-y-8"
+              className="space-y-10"
             >
-              {/* Header */}
+              {/* Page header */}
               <div>
                 <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-purple-950/40 border border-purple-800/30 text-[#A855F7] text-sm font-medium mb-4">
                   <Sparkles size={14} />
                   Personalised for your profile
                 </div>
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h1 className="text-3xl font-extrabold text-white">{curriculumTitle}</h1>
-                    <p className="text-[#94A3B8] mt-1 text-sm">
-                      {selected.size} of {allTopics.length} topics selected — deselect any you&apos;d like to skip
-                    </p>
-                  </div>
-                  <button
-                    onClick={toggleAll}
-                    className="flex items-center gap-2 text-sm font-medium text-[#475569] hover:text-[#94A3B8] transition-colors mt-1 whitespace-nowrap"
-                  >
-                    {allSelected
-                      ? <CheckSquare size={15} className="text-[#7C3AED]" />
-                      : <Square size={15} />}
-                    {allSelected ? 'Deselect all' : 'Select all'}
-                  </button>
-                </div>
+                <h1 className="text-3xl font-extrabold text-white">What do you want to focus on?</h1>
+                <p className="text-[#94A3B8] mt-1.5 text-sm">
+                  Select the topics you want to learn. You can change these later.
+                </p>
               </div>
 
-              {/* Category groups */}
-              <div className="space-y-6">
-                {topicGroups.map((group, gi) => {
-                  const groupSelected = group.topics.filter((t) => selected.has(t)).length
-                  const allGroupSelected = groupSelected === group.topics.length
-                  return (
+              {/* ── Featured section ──────────────────────────────────── */}
+              <section>
+                <div className="mb-4">
+                  <h2 className="text-base font-bold text-white">
+                    Recommended for {roleTitle(catalogRole)}
+                  </h2>
+                  <p className="text-xs text-[#475569] mt-0.5">
+                    {featuredTopics.length} topic{featuredTopics.length !== 1 ? 's' : ''} curated for your role and industry
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {featuredTopics.map((topic, i) => (
                     <motion.div
-                      key={group.category}
+                      key={topic.id}
                       initial={{ opacity: 0, y: 12 }}
                       animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: gi * 0.07 }}
-                      className="bg-[#111111] border border-[#222222] rounded-2xl overflow-hidden"
+                      transition={{ delay: i * 0.04, duration: 0.25 }}
                     >
-                      {/* Category header */}
-                      <div
-                        className="flex items-center justify-between px-5 py-3.5 border-b border-[#222222]"
-                        style={{ borderLeftWidth: 3, borderLeftColor: group.color }}
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: group.color }} />
-                          <span className="text-sm font-bold text-white tracking-tight">{group.category}</span>
-                          <span className="text-xs text-[#475569]">{groupSelected}/{group.topics.length}</span>
-                        </div>
-                        <button
-                          onClick={() => toggleCategory(group.topics)}
-                          className="text-xs text-[#475569] hover:text-[#94A3B8] transition-colors flex items-center gap-1"
-                        >
-                          {allGroupSelected
-                            ? <><CheckSquare size={12} style={{ color: group.color }} /> Deselect all</>
-                            : <><Square size={12} /> Select all</>}
-                        </button>
-                      </div>
-
-                      {/* Topics in this category */}
-                      <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {group.topics.map((topic) => {
-                          const isSelected = selected.has(topic)
-                          return (
-                            <button
-                              key={topic}
-                              onClick={() => toggleTopic(topic)}
-                              className={`flex items-center gap-3 px-4 py-3 rounded-xl border text-left text-sm font-medium transition-all duration-150 ${
-                                isSelected
-                                  ? 'border-[#7C3AED] text-white'
-                                  : 'bg-[#1A1A1A] border-[#2A2A2A] text-[#94A3B8] hover:border-[#333] hover:text-white'
-                              }`}
-                              style={isSelected ? { backgroundColor: `${group.color}18`, borderColor: group.color } : {}}
-                            >
-                              <div
-                                className="w-4 h-4 rounded flex items-center justify-center flex-shrink-0 border transition-all"
-                                style={isSelected
-                                  ? { backgroundColor: group.color, borderColor: group.color }
-                                  : { borderColor: '#444', backgroundColor: 'transparent' }}
-                              >
-                                {isSelected && <Check size={9} className="text-white" strokeWidth={3} />}
-                              </div>
-                              <span className="leading-snug">{topic}</span>
-                            </button>
-                          )
-                        })}
-                      </div>
+                      <FeaturedCard
+                        topic={topic}
+                        isSelected={selected.has(topic.title)}
+                        onToggle={toggleTopic}
+                        atMax={atMax}
+                        colorIdx={domainColorMap.get(topic.domain_id) ?? i}
+                      />
                     </motion.div>
-                  )
-                })}
+                  ))}
+                </div>
+              </section>
 
-                {/* Custom / manually added topics */}
-                {manualTopics.length > 0 && (
-                  <div className="bg-[#111111] border border-[#222222] rounded-2xl overflow-hidden">
-                    <div className="flex items-center gap-2.5 px-5 py-3.5 border-b border-[#222222]" style={{ borderLeftWidth: 3, borderLeftColor: '#475569' }}>
-                      <div className="w-2 h-2 rounded-full bg-[#475569]" />
-                      <span className="text-sm font-bold text-white tracking-tight">Your Custom Topics</span>
-                    </div>
-                    <div className="p-3 space-y-2">
-                      {manualTopics.map((topic) => {
-                        const isSelected = selected.has(topic)
-                        return (
-                          <div key={topic} className="flex items-center gap-2">
-                            <button
-                              onClick={() => toggleTopic(topic)}
-                              className={`flex-1 flex items-center gap-3 px-4 py-3 rounded-xl border text-left text-sm font-medium transition-all duration-150 ${
-                                isSelected
-                                  ? 'bg-purple-950/30 border-[#7C3AED] text-white'
-                                  : 'bg-[#1A1A1A] border-[#2A2A2A] text-[#94A3B8] hover:border-[#333] hover:text-white'
-                              }`}
-                            >
-                              <div className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 border transition-all ${isSelected ? 'bg-[#7C3AED] border-[#7C3AED]' : 'border-[#444] bg-transparent'}`}>
-                                {isSelected && <Check size={9} className="text-white" strokeWidth={3} />}
-                              </div>
-                              {topic}
-                            </button>
-                            <button
-                              onClick={() => removeManualTopic(topic)}
-                              className="w-9 h-9 flex items-center justify-center rounded-xl border border-[#222] text-[#475569] hover:text-red-400 hover:border-red-900/50 transition-colors flex-shrink-0"
-                            >
-                              <X size={13} />
-                            </button>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
+              {/* Max selections warning */}
+              <AnimatePresence>
+                {atMax && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0 }}
+                    className="flex items-center gap-2 px-4 py-3 rounded-xl bg-amber-950/30 border border-amber-800/40 text-amber-400 text-sm"
+                  >
+                    <span className="font-semibold">Maximum {MAX_SELECTIONS} topics selected.</span>
+                    <span className="text-amber-500/80">Deselect one to add another.</span>
+                  </motion.div>
                 )}
-              </div>
+              </AnimatePresence>
 
-              {/* Explore more topics */}
-              {exploreByDomain.length > 0 && (
+              {/* Custom / manually added topics */}
+              {manualTopics.length > 0 && (
+                <div className="bg-[#111111] border border-[#222222] rounded-2xl overflow-hidden">
+                  <div className="flex items-center gap-2.5 px-5 py-3.5 border-b border-[#222222]" style={{ borderLeftWidth: 3, borderLeftColor: '#475569' }}>
+                    <div className="w-2 h-2 rounded-full bg-[#475569]" />
+                    <span className="text-sm font-bold text-white tracking-tight">Your Custom Topics</span>
+                  </div>
+                  <div className="p-3 space-y-2">
+                    {manualTopics.map((topic) => {
+                      const isSelected = selected.has(topic)
+                      return (
+                        <div key={topic} className="flex items-center gap-2">
+                          <button
+                            onClick={() => toggleTopic(topic)}
+                            className={`flex-1 flex items-center gap-3 px-4 py-3 rounded-xl border text-left text-sm font-medium transition-all duration-150 ${
+                              isSelected
+                                ? 'bg-purple-950/30 border-[#7C3AED] text-white'
+                                : 'bg-[#1A1A1A] border-[#2A2A2A] text-[#94A3B8] hover:border-[#333] hover:text-white'
+                            }`}
+                          >
+                            <div className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 border transition-all ${isSelected ? 'bg-[#7C3AED] border-[#7C3AED]' : 'border-[#444] bg-transparent'}`}>
+                              {isSelected && <Check size={9} className="text-white" strokeWidth={3} />}
+                            </div>
+                            {topic}
+                          </button>
+                          <button
+                            onClick={() => removeManualTopic(topic)}
+                            className="w-9 h-9 flex items-center justify-center rounded-xl border border-[#222] text-[#475569] hover:text-red-400 hover:border-red-900/50 transition-colors flex-shrink-0"
+                          >
+                            <X size={13} />
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Other topics (collapsed) ──────────────────────────── */}
+              {otherByDomain.length > 0 && (
                 <div className="border border-[#222222] rounded-2xl overflow-hidden">
                   <button
-                    onClick={() => setExploreOpen((o) => !o)}
+                    onClick={() => setOtherOpen((o) => !o)}
                     className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-[#1A1A1A] transition-colors"
                   >
                     <div className="flex items-center gap-2.5">
-                      <span className="text-sm font-bold text-white">Explore more topics</span>
-                      <span className="text-xs text-[#475569] ml-2">{exploreCatalog.length} available</span>
+                      <span className="text-sm font-bold text-white">More topics</span>
+                      <span className="text-xs text-[#475569]">{otherTopics.length} available</span>
                     </div>
-                    {exploreOpen
+                    {otherOpen
                       ? <ChevronUp size={16} className="text-[#475569]" />
                       : <ChevronDown size={16} className="text-[#475569]" />}
                   </button>
+
                   <AnimatePresence>
-                    {exploreOpen && (
+                    {otherOpen && (
                       <motion.div
                         initial={{ height: 0, opacity: 0 }}
                         animate={{ height: 'auto', opacity: 1 }}
@@ -622,7 +632,7 @@ export default function TopicsPage() {
                         className="overflow-hidden border-t border-[#222222]"
                       >
                         <div className="p-4 space-y-5">
-                          {exploreByDomain.map((group) => (
+                          {otherByDomain.map((group) => (
                             <div key={group.domainId}>
                               <p className="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-2">
                                 {group.icon} {group.label}
@@ -633,18 +643,17 @@ export default function TopicsPage() {
                                   return (
                                     <button
                                       key={topic.id}
-                                      onClick={() => addExploreTopic(topic.title)}
+                                      onClick={() => toggleTopic(topic.title)}
+                                      disabled={!isSelected && atMax}
                                       className={`flex items-center gap-3 px-4 py-3 rounded-xl border text-left text-sm font-medium transition-all duration-150 ${
                                         isSelected
                                           ? 'bg-purple-950/30 border-[#7C3AED] text-white'
-                                          : 'bg-[#1A1A1A] border-[#2A2A2A] text-[#94A3B8] hover:border-[#333] hover:text-white'
+                                          : atMax
+                                            ? 'bg-[#1A1A1A] border-[#2A2A2A] text-[#475569] opacity-50 cursor-not-allowed'
+                                            : 'bg-[#1A1A1A] border-[#2A2A2A] text-[#94A3B8] hover:border-[#333] hover:text-white'
                                       }`}
                                     >
-                                      <div
-                                        className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 border transition-all ${
-                                          isSelected ? 'bg-[#7C3AED] border-[#7C3AED]' : 'border-[#444] bg-transparent'
-                                        }`}
-                                      >
+                                      <div className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 border transition-all ${isSelected ? 'bg-[#7C3AED] border-[#7C3AED]' : 'border-[#444] bg-transparent'}`}>
                                         {isSelected && <Check size={9} className="text-white" strokeWidth={3} />}
                                       </div>
                                       <span className="leading-snug">{topic.title}</span>
@@ -661,64 +670,69 @@ export default function TopicsPage() {
                 </div>
               )}
 
-              {/* Add custom topic */}
+              {/* ── Custom topic (last resort) ────────────────────────── */}
               <div>
-                <p className="text-xs text-[#475569] mb-2 uppercase tracking-wider font-semibold">Add a topic</p>
-                <div className="flex gap-2">
-                  <input
-                    ref={customInputRef}
-                    type="text"
-                    value={customInput}
-                    onChange={(e) => setCustomInput(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && addCustomTopic()}
-                    placeholder="Type a topic and press Enter..."
-                    className="flex-1 bg-[#111111] border border-[#222222] focus:border-[#7C3AED] text-white rounded-xl px-4 py-2.5 text-sm placeholder-[#333] focus:outline-none transition-colors"
-                  />
+                <p className="text-xs text-[#475569] text-center mb-2">Don&apos;t see what you&apos;re looking for?</p>
+                {!customOpen ? (
                   <button
-                    onClick={addCustomTopic}
-                    disabled={!customInput.trim()}
-                    className="w-10 h-10 flex items-center justify-center rounded-xl border border-[#333] text-[#475569] hover:text-white hover:border-[#7C3AED] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                  >
-                    <Plus size={16} />
-                  </button>
-                </div>
-              </div>
-
-              {/* Continue + escape hatch */}
-              <div className="space-y-4">
-                <div className="flex items-center gap-4 flex-wrap">
-                  <Button
-                    onClick={handleContinue}
-                    disabled={saving || selected.size === 0}
-                    size="lg"
-                    className="gap-2"
-                  >
-                    {saving
-                      ? 'Building your plan...'
-                      : `Continue with ${selected.size} topic${selected.size !== 1 ? 's' : ''}`}
-                    <ArrowRight size={16} />
-                  </Button>
-                  {selected.size === 0 && (
-                    <p className="text-xs text-[#475569]">Select at least one topic to continue</p>
-                  )}
-                </div>
-                <div className="flex items-center gap-5">
-                  <button
-                    onClick={() => setView('input')}
-                    className="inline-flex items-center gap-1.5 text-sm text-[#475569] hover:text-[#94A3B8] transition-colors"
-                  >
-                    <RefreshCw size={13} />
-                    These don&apos;t match — describe what I want
-                  </button>
-                  <span className="text-[#333] text-xs">·</span>
-                  <button
-                    onClick={handleEnterManual}
-                    className="inline-flex items-center gap-1.5 text-sm text-[#475569] hover:text-[#94A3B8] transition-colors"
+                    onClick={() => {
+                      setCustomOpen(true)
+                      setTimeout(() => customInputRef.current?.focus(), 50)
+                    }}
+                    className="w-full text-center text-sm text-[#475569] hover:text-[#94A3B8] transition-colors py-2 flex items-center justify-center gap-1.5"
                   >
                     <PenLine size={13} />
-                    Enter topics manually
+                    Add a custom topic →
                   </button>
-                </div>
+                ) : (
+                  <motion.div
+                    initial={{ opacity: 0, y: -6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex gap-2"
+                  >
+                    <input
+                      ref={customInputRef}
+                      type="text"
+                      value={customInput}
+                      onChange={(e) => setCustomInput(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && addCustomTopic()}
+                      placeholder="Type a topic and press Enter..."
+                      className="flex-1 bg-[#111111] border border-[#222222] focus:border-[#7C3AED] text-white rounded-xl px-4 py-2.5 text-sm placeholder-[#333] focus:outline-none transition-colors"
+                    />
+                    <button
+                      onClick={addCustomTopic}
+                      disabled={!customInput.trim() || atMax}
+                      className="w-10 h-10 flex items-center justify-center rounded-xl border border-[#333] text-[#475569] hover:text-white hover:border-[#7C3AED] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <Plus size={16} />
+                    </button>
+                    <button
+                      onClick={() => { setCustomOpen(false); setCustomInput('') }}
+                      className="w-10 h-10 flex items-center justify-center rounded-xl border border-[#333] text-[#475569] hover:text-[#94A3B8] transition-colors"
+                    >
+                      <X size={14} />
+                    </button>
+                  </motion.div>
+                )}
+              </div>
+
+              {/* Escape hatches */}
+              <div className="flex items-center gap-5 pt-2">
+                <button
+                  onClick={() => setView('input')}
+                  className="inline-flex items-center gap-1.5 text-sm text-[#475569] hover:text-[#94A3B8] transition-colors"
+                >
+                  <RefreshCw size={13} />
+                  These don&apos;t match — describe what I want
+                </button>
+                <span className="text-[#333] text-xs">·</span>
+                <button
+                  onClick={handleEnterManual}
+                  className="inline-flex items-center gap-1.5 text-sm text-[#475569] hover:text-[#94A3B8] transition-colors"
+                >
+                  <PenLine size={13} />
+                  Enter topics manually
+                </button>
               </div>
             </motion.div>
           )}
@@ -734,7 +748,7 @@ export default function TopicsPage() {
               className="space-y-8"
             >
               <div>
-                {topicGroups.length > 0 && (
+                {featuredTopics.length > 0 && (
                   <button
                     onClick={() => setView('selection')}
                     className="text-xs text-[#475569] hover:text-[#94A3B8] transition-colors mb-4 block"
@@ -838,7 +852,7 @@ export default function TopicsPage() {
             >
               <div>
                 <button
-                  onClick={() => topicGroups.length > 0 ? setView('selection') : setView('input')}
+                  onClick={() => featuredTopics.length > 0 ? setView('selection') : setView('input')}
                   className="text-xs text-[#475569] hover:text-[#94A3B8] transition-colors mb-4 block"
                 >
                   ← Back
@@ -862,7 +876,7 @@ export default function TopicsPage() {
                 />
                 <button
                   onClick={addCustomTopic}
-                  disabled={!customInput.trim()}
+                  disabled={!customInput.trim() || atMax}
                   className="w-11 h-11 flex items-center justify-center rounded-xl border border-[#333] text-[#475569] hover:text-white hover:border-[#7C3AED] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                 >
                   <Plus size={16} />
@@ -924,6 +938,42 @@ export default function TopicsPage() {
 
         </AnimatePresence>
       </div>
+
+      {/* ── Sticky bottom bar (selection view only) ───────────────────────── */}
+      <AnimatePresence>
+        {view === 'selection' && (
+          <motion.div
+            initial={{ y: 80, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 80, opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+            className="fixed bottom-0 left-0 right-0 border-t border-[#222222] bg-[#080808]/95 backdrop-blur-sm px-6 py-4"
+          >
+            <div className="max-w-3xl mx-auto flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold text-white">
+                  {selected.size} topic{selected.size !== 1 ? 's' : ''} selected
+                  {selected.size >= MAX_SELECTIONS && (
+                    <span className="ml-2 text-xs text-amber-400 font-normal">(maximum reached)</span>
+                  )}
+                </p>
+                {selected.size === 0 && (
+                  <p className="text-xs text-[#475569]">Select at least one topic to continue</p>
+                )}
+              </div>
+              <Button
+                onClick={handleContinue}
+                disabled={saving || selected.size === 0}
+                size="lg"
+                className="gap-2 flex-shrink-0"
+              >
+                {saving ? 'Building your plan...' : 'Continue'}
+                <ArrowRight size={16} />
+              </Button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
