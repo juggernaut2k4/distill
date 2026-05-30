@@ -42,7 +42,7 @@ export default function SeedAdminPage() {
     setFailedDomains([])
     try {
       const f1 = await seedBatch(BATCH1, true, 'Batch 1')
-      const f2 = await seedBatch(BATCH2, false, 'Batch 2')
+      const f2 = await seedBatch(BATCH2, true, 'Batch 2')
       const allFailed = [...f1, ...f2]
       setFailedDomains(allFailed)
       addLog(allFailed.length > 0 ? `All done — ${allFailed.length} domains need retry` : 'All done!')
@@ -73,7 +73,7 @@ export default function SeedAdminPage() {
 
   async function handleSeedBatch2() {
     setRunning(true)
-    try { const f = await seedBatch(BATCH2, false, 'Batch 2'); setFailedDomains((p) => [...p, ...f]) }
+    try { const f = await seedBatch(BATCH2, true, 'Batch 2'); setFailedDomains((p) => [...p, ...f]) }
     finally { setRunning(false) }
   }
 
