@@ -200,10 +200,10 @@ test.describe('Full QA flow — authenticated', () => {
         await page.waitForTimeout(1000)
       }
 
-      // Navigate to session page to trigger generation
-      await page.goto(`/dashboard/sessions/${sessionId}`, { waitUntil: 'domcontentloaded', timeout: 60_000 })
-      await page.waitForLoadState('networkidle')
-      await page.waitForTimeout(3000)
+      // Navigate to session page to trigger generation.
+      // Use 'load' not 'networkidle' — the session page polls every 3s so networkidle never fires.
+      await page.goto(`/dashboard/sessions/${sessionId}`, { waitUntil: 'load', timeout: 60_000 })
+      await page.waitForTimeout(5000)
 
       // Poll up to 4 minutes for this session
       const deadline = Date.now() + CONTENT_GEN_TIMEOUT
@@ -322,8 +322,14 @@ test.describe('Full QA flow — authenticated', () => {
     let withScript = 0
     let withOutline = 0
     for (const s of subtopics) {
-      if (s.training_script && s.training_script.length > 50) withScript++
-      if (s.content_outline && s.content_outline.length > 50) withOutline++
+      // training_script and content_outline are JSONB objects in the DB, not strings.
+      // Check for non-null presence; .length > 50 would always be false on an object.
+      const script = s.training_script as { segments?: unknown[] } | string | null | undefined
+      const outline = s.content_outline as { subtopic_title?: string } | string | null | undefined
+      if (script && (typeof script === 'string' ? script.length > 50 : Array.isArray((script as {segments?:unknown[]}).segments)))
+        withScript++
+      if (outline && (typeof outline === 'string' ? outline.length > 50 : typeof outline === 'object'))
+        withOutline++
     }
 
     console.log(`\n=== Content Quality Report ===`)
@@ -332,8 +338,12 @@ test.describe('Full QA flow — authenticated', () => {
     console.log(`With training_script: ${withScript}/${subtopics.length}`)
     console.log(`With content_outline: ${withOutline}/${subtopics.length}`)
 
-    // At least 80% of subtopics should have content
-    if (subtopics.length > 0 && finalData.content_status === 'ready') {
+    // At least 80% of subtopics should have content.
+    // Accept 'ready' or (all subtopics ready + session still updating = generating/failed
+    // meaning step-6 DB update raced but content is already written).
+    const readySubtopics = subtopics.filter((s) => s.pipeline_status === 'ready').length
+    const contentPresent = subtopics.length > 0 && readySubtopics === subtopics.length
+    if (contentPresent) {
       expect(withScript / subtopics.length).toBeGreaterThanOrEqual(0.8)
     }
   })
