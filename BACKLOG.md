@@ -1,5 +1,30 @@
 # Clio — Complete Product Backlog
-_Last updated: 2026-05-13 | Source of truth for all sprints_
+_Last updated: 2026-05-30 | Source of truth for all sprints_
+
+---
+
+## SPRINT 5 — Content Generation Architecture + Template Quality
+_Priority: P0 first, then P1 in order. Approved 2026-05-30._
+
+### Architecture decisions (locked)
+- KB = `topic_content_cache` (already exists, keyed by `topic_id + subtopic_slug`)
+- Canonical depth = always 1 hour; condense to user's `session.duration_mins` per-user
+- Visuals = same for all users (from KB); script + outline condensed per user
+- Session 1 = generate immediately on schedule confirmation (server-side)
+- Sessions 2+ = Inngest cron hourly, one session per user
+- Every script ends with a mandatory 2-min CLOSE segment (summary + encouragement + next-topic teaser)
+- Screen sharing templates: only critical keywords; full content visible; no partial display; voice script must align exactly with what is on screen
+
+| ID | Story | Status | Priority | Size |
+|---|---|---|---|---|
+| CG-01 | **Fix pipeline error logging** — add step-level logging so Vercel shows exactly which step fails; expose error detail in response during non-production | ✅ Done | P0 | S |
+| CG-02 | **Trigger Session 1 on schedule confirm** — move generation trigger from page-open to `POST /api/sessions/schedule` server-side for the first session | ⬜ Pending | P1 | S |
+| CG-03 | **Hourly cron for Sessions 2+** — new `inngest/session-content-cron.ts` that processes one pending session per user every hour | ⬜ Pending | P1 | M |
+| CG-04 | **1-hour canonical depth in prompts** — update `generateSessionContentOutline` and `generateTrainingScript` prompts to explicitly target 60-min full-coverage depth | ⬜ Pending | P1 | S |
+| CG-05 | **Duration adaptation** — add `adaptScriptToDuration(script, targetMins, nextTopic)` in `script-generator.ts`; wire into pipeline after KB hit or generation | ⬜ Pending | P1 | M |
+| CG-06 | **Enforce CLOSE segment** — add `CLOSE` segment type to `ScriptSegment`; prompt must always produce it as the final segment (~2 min / ~300 words) | ⬜ Pending | P1 | S |
+| TQ-01 | **Screen sharing template quality** — templates show only critical keywords, key terms essential to the topic; all content displays in full (no truncation/overflow); LLM selects words that are necessary to teach the concept | ⬜ Pending | P1 | M |
+| TQ-02 | **Voice script ↔ screen alignment** — every script segment that references on-screen content must match exactly what the template displays; strengthen `contentSpec` enforcement in prompts | ⬜ Pending | P1 | S |
 
 ---
 

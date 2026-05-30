@@ -230,7 +230,7 @@ Return ONLY valid JSON matching this exact schema (no markdown, no commentary):
 
   const message = await anthropic.messages.create({
     model: MODEL,
-    max_tokens: 2000,
+    max_tokens: 8000,
     messages: [{ role: 'user', content: prompt }],
   })
 

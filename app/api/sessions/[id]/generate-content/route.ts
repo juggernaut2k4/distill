@@ -140,14 +140,23 @@ export async function POST(_req: NextRequest, { params }: Params) {
 
   try {
     // Step 1: Generate content outlines for all subtopics in one Claude call
-    const outline = await generateSessionContentOutline(
-      params.id,
-      topicId,
-      topicTitle,
-      subtopicTitles,
-      userId!,
-      userContext
-    )
+    console.log(`[generate-content][${params.id}] Step 1 start — topic: ${topicId}, subtopics: ${subtopicTitles.length}`)
+    let outline
+    try {
+      outline = await generateSessionContentOutline(
+        params.id,
+        topicId,
+        topicTitle,
+        subtopicTitles,
+        userId!,
+        userContext
+      )
+    } catch (step1Err) {
+      const msg = step1Err instanceof Error ? step1Err.message : String(step1Err)
+      console.error(`[generate-content][${params.id}] Step 1 FAILED: ${msg}`)
+      throw new Error(`Step 1 (outline generation) failed: ${msg}`)
+    }
+    console.log(`[generate-content][${params.id}] Step 1 done — ${outline.subtopics.length} subtopics`)
 
     // Steps 2–5: Process subtopics in parallel batches of 3 to stay within rate limits.
     // Each subtopic writes its own cache row incrementally so the GET poll can track progress.
@@ -156,6 +165,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
     const processSubtopic = async (subtopicOutline: SubtopicOutline) => {
       const subtopicTitle = subtopicOutline.subtopic_title
       const subtopicSlug = subtopicOutline.subtopic_slug
+      console.log(`[generate-content][${params.id}] Processing subtopic: ${subtopicSlug}`)
 
       // Stamp as generating so polling sees it immediately
       await supabase
@@ -239,12 +249,13 @@ export async function POST(_req: NextRequest, { params }: Params) {
 
     return NextResponse.json({ ok: true, status: 'ready', subtopicsGenerated: outline.subtopics.length })
   } catch (err) {
-    console.error('[generate-content] Pipeline failed:', err)
+    const detail = err instanceof Error ? err.message : String(err)
+    console.error(`[generate-content][${params.id}] Pipeline failed: ${detail}`)
     await supabase
       .from('sessions')
       .update({ content_status: 'failed' })
       .eq('id', params.id)
-    return NextResponse.json({ error: 'Content pipeline failed' }, { status: 500 })
+    return NextResponse.json({ error: 'Content pipeline failed', detail }, { status: 500 })
   }
 }
 
