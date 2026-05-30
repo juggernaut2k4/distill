@@ -25,16 +25,15 @@ test.describe('Full QA flow — authenticated', () => {
 
   test('1. session is active — dashboard loads without redirect to sign-in', async ({ page }) => {
     // session loaded via storageState
-    await page.goto('/dashboard')
-    await page.waitForLoadState('networkidle')
+    await page.goto('/dashboard', { waitUntil: 'domcontentloaded', timeout: 60_000 })
     await expect(page).not.toHaveURL(/\/sign-in/)
     console.log(`Landed on: ${page.url()}`)
   })
 
   test('2. topics page loads with seeded catalog', async ({ page }) => {
     // session loaded via storageState
-    await page.goto('/topics')
-    await page.waitForLoadState('networkidle')
+    await page.goto('/topics', { waitUntil: 'domcontentloaded', timeout: 60_000 })
+    await page.waitForLoadState('networkidle', { timeout: 60_000 })
 
     // Should show domain cards or topic tiles
     const topicCount = await page.locator('[data-testid="topic-card"], [class*="topic"], [class*="domain"]').count()
@@ -47,8 +46,8 @@ test.describe('Full QA flow — authenticated', () => {
 
   test('3. can select topics and continue to plan', async ({ page }) => {
     // session loaded via storageState
-    await page.goto('/topics')
-    await page.waitForLoadState('networkidle')
+    await page.goto('/topics', { waitUntil: 'domcontentloaded', timeout: 60_000 })
+    await page.waitForLoadState('networkidle', { timeout: 60_000 })
     await page.waitForTimeout(2000) // let catalog load
 
     // Click first 3 available topic buttons/checkboxes
@@ -164,16 +163,14 @@ test.describe('Full QA flow — authenticated', () => {
     await page.waitForLoadState('networkidle')
     await page.waitForTimeout(2000)
 
-    // Navigate to first session
+    // Navigate to first session — extract ID from href before clicking
     const firstSession = page.locator('a[href*="/dashboard/sessions/"]').first()
     await expect(firstSession).toBeVisible({ timeout: 10_000 })
+    const href = await firstSession.getAttribute('href') ?? ''
+    const sessionId = href.split('/dashboard/sessions/')[1]?.split('?')[0]
+    console.log(`Session ID from href: ${sessionId}`)
     await firstSession.click()
-    await page.waitForLoadState('networkidle')
-
-    // Extract session ID from URL
-    const sessionUrl = page.url()
-    const sessionId = sessionUrl.split('/dashboard/sessions/')[1]?.split('?')[0]
-    console.log(`Session ID: ${sessionId}`)
+    await page.waitForURL(/\/dashboard\/sessions\//, { timeout: 15_000 })
 
     if (!sessionId) {
       console.log('Could not extract session ID — skipping content poll')
@@ -216,11 +213,10 @@ test.describe('Full QA flow — authenticated', () => {
 
     const firstSession = page.locator('a[href*="/dashboard/sessions/"]').first()
     await expect(firstSession).toBeVisible({ timeout: 10_000 })
+    const href9 = await firstSession.getAttribute('href') ?? ''
+    const sessionId = href9.split('/dashboard/sessions/')[1]?.split('?')[0]
     await firstSession.click()
-    await page.waitForLoadState('networkidle')
-
-    const sessionUrl = page.url()
-    const sessionId = sessionUrl.split('/dashboard/sessions/')[1]?.split('?')[0]
+    await page.waitForURL(/\/dashboard\/sessions\//, { timeout: 15_000 })
 
     if (!sessionId) return
 
