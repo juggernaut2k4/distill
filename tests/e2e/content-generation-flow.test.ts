@@ -8,52 +8,31 @@
  * The account must have already completed onboarding (role/domains set in DB).
  */
 
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect } from '@playwright/test'
+import path from 'path'
 
-const TEST_EMAIL = 'arunprakash.s2000@gmail.com'
-const TEST_PASSWORD = 'Clio2026#QA'
 const CONTENT_GEN_TIMEOUT = 240_000 // 4 minutes for content generation
+const SESSION_FILE = path.join(__dirname, '.auth', 'session.json')
 
-// ── Auth helper ───────────────────────────────────────────────────────────────
-
-async function signIn(page: Page) {
-  await page.goto('/sign-in')
-  await page.waitForLoadState('networkidle')
-
-  // Clerk renders an email input first
-  const emailInput = page.locator('input[type="email"], input[name="identifier"], input[id*="email"]').first()
-  await emailInput.waitFor({ timeout: 10_000 })
-  await emailInput.fill(TEST_EMAIL)
-
-  // Click Continue
-  await page.locator('button').filter({ hasText: /continue/i }).first().click()
-  await page.waitForTimeout(1000)
-
-  // Password input appears after email step
-  const passwordInput = page.locator('input[type="password"]').first()
-  await passwordInput.waitFor({ timeout: 10_000 })
-  await passwordInput.fill(TEST_PASSWORD)
-
-  await page.locator('button').filter({ hasText: /continue|sign in/i }).first().click()
-
-  // Wait for redirect away from sign-in
-  await page.waitForURL((url) => !url.pathname.includes('/sign-in'), { timeout: 15_000 })
-}
+// All tests use the saved session from auth.setup.ts
+// Run setup first: TEST_BASE_URL=https://distill-peach.vercel.app npx playwright test tests/e2e/auth.setup.ts --headed
+test.use({ storageState: SESSION_FILE })
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 test.describe('Full QA flow — authenticated', () => {
   test.setTimeout(CONTENT_GEN_TIMEOUT + 60_000)
 
-  test('1. sign-in redirects to app', async ({ page }) => {
-    await signIn(page)
-    const url = page.url()
-    expect(url).not.toContain('/sign-in')
-    console.log(`Landed on: ${url}`)
+  test('1. session is active — dashboard loads without redirect to sign-in', async ({ page }) => {
+    // session loaded via storageState
+    await page.goto('/dashboard')
+    await page.waitForLoadState('networkidle')
+    await expect(page).not.toHaveURL(/\/sign-in/)
+    console.log(`Landed on: ${page.url()}`)
   })
 
   test('2. topics page loads with seeded catalog', async ({ page }) => {
-    await signIn(page)
+    // session loaded via storageState
     await page.goto('/topics')
     await page.waitForLoadState('networkidle')
 
@@ -67,7 +46,7 @@ test.describe('Full QA flow — authenticated', () => {
   })
 
   test('3. can select topics and continue to plan', async ({ page }) => {
-    await signIn(page)
+    // session loaded via storageState
     await page.goto('/topics')
     await page.waitForLoadState('networkidle')
     await page.waitForTimeout(2000) // let catalog load
@@ -93,7 +72,7 @@ test.describe('Full QA flow — authenticated', () => {
   })
 
   test('4. plan page shows generated plan and approve button', async ({ page }) => {
-    await signIn(page)
+    // session loaded via storageState
     await page.goto('/dashboard/plan')
     await page.waitForLoadState('networkidle')
     await page.waitForTimeout(3000)
@@ -114,7 +93,7 @@ test.describe('Full QA flow — authenticated', () => {
   })
 
   test('5. schedule page confirms sessions and redirects', async ({ page }) => {
-    await signIn(page)
+    // session loaded via storageState
     await page.goto('/dashboard/schedule')
     await page.waitForLoadState('networkidle')
     await page.waitForTimeout(2000)
@@ -139,7 +118,7 @@ test.describe('Full QA flow — authenticated', () => {
   })
 
   test('6. sessions page lists upcoming sessions', async ({ page }) => {
-    await signIn(page)
+    // session loaded via storageState
     await page.goto('/dashboard/sessions')
     await page.waitForLoadState('networkidle')
     await page.waitForTimeout(2000)
@@ -154,7 +133,7 @@ test.describe('Full QA flow — authenticated', () => {
   })
 
   test('7. opening a session triggers content generation', async ({ page }) => {
-    await signIn(page)
+    // session loaded via storageState
     await page.goto('/dashboard/sessions')
     await page.waitForLoadState('networkidle')
     await page.waitForTimeout(2000)
@@ -180,7 +159,7 @@ test.describe('Full QA flow — authenticated', () => {
 
   test('8. content generation completes within 4 minutes', async ({ page }) => {
     test.setTimeout(CONTENT_GEN_TIMEOUT + 30_000)
-    await signIn(page)
+    // session loaded via storageState
     await page.goto('/dashboard/sessions')
     await page.waitForLoadState('networkidle')
     await page.waitForTimeout(2000)
@@ -230,7 +209,7 @@ test.describe('Full QA flow — authenticated', () => {
 
   test('9. content quality — subtopics have training scripts', async ({ page }) => {
     test.setTimeout(60_000)
-    await signIn(page)
+    // session loaded via storageState
     await page.goto('/dashboard/sessions')
     await page.waitForLoadState('networkidle')
     await page.waitForTimeout(2000)
