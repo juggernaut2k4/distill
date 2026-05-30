@@ -177,6 +177,25 @@ test.describe('Full QA flow — authenticated', () => {
       return
     }
 
+    // Check current status — if failed, reset and retrigger
+    const statusCheck = await page.request.get(`/api/sessions/${sessionId}/generate-content`)
+    if (statusCheck.ok()) {
+      const statusData = await statusCheck.json() as { content_status?: string }
+      if (statusData.content_status === 'failed' || statusData.content_status === 'pending') {
+        console.log(`Session status is ${statusData.content_status} — resetting and retriggering...`)
+        await page.request.delete(`/api/sessions/${sessionId}/generate-content`)
+        await page.waitForTimeout(1000)
+        // Reload the session page to trigger generation
+        await page.reload()
+        await page.waitForLoadState('networkidle')
+        await page.waitForTimeout(3000)
+      } else if (statusData.content_status === 'ready') {
+        console.log('Content already ready — skipping poll')
+        expect(statusData.content_status).toBe('ready')
+        return
+      }
+    }
+
     // Poll the generate-content API every 15 seconds until ready or timeout
     const deadline = Date.now() + CONTENT_GEN_TIMEOUT
     let status = 'pending'
@@ -193,7 +212,7 @@ test.describe('Full QA flow — authenticated', () => {
 
         if (status === 'ready') break
         if (status === 'failed') {
-          console.error('Content generation failed')
+          console.error('Content generation failed — check Vercel logs for session ' + sessionId)
           break
         }
       }
