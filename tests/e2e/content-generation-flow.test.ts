@@ -287,20 +287,36 @@ test.describe('Full QA flow — authenticated', () => {
     // If no good session found yet, pick the first candidate
     if (!sessionId) sessionId = candidateIds[0]
 
-    // Directly POST to trigger content generation (don't rely on the session page
-    // auto-trigger which requires allVisualsSettled to be true).
-    console.log(`Triggering fresh generation for session ${sessionId}...`)
-    const postResp = await page.request.post(`/api/sessions/${sessionId}/generate-content`, {
-      timeout: CONTENT_GEN_TIMEOUT + 60_000,
-    })
-    const postBody = await postResp.json() as { ok?: boolean; status?: string; error?: string }
-    console.log(`Generation result: status=${postBody.status ?? postBody.error}`)
+    // Navigate to the session page (loads the page context we need for evaluate)
+    await page.goto(`/dashboard/sessions/${sessionId}`, { waitUntil: 'domcontentloaded', timeout: 60_000 })
 
-    // Fetch final quality data
-    const getResp = await page.request.get(`/api/sessions/${sessionId}/generate-content`)
-    const finalData = getResp.ok()
-      ? await getResp.json() as { content_status?: string; subtopics?: Array<{ pipeline_status: string; training_script?: string; content_outline?: string }> }
-      : {}
+    // Fire-and-forget the POST via browser fetch so we don't hold the HTTP connection open.
+    // Awaiting the POST directly causes ETIMEDOUT: the pipeline takes 2+ minutes with no
+    // streaming, so the TCP socket drops before the response arrives.
+    console.log(`Triggering fresh generation for session ${sessionId}...`)
+    await page.evaluate((sid) => {
+      fetch(`/api/sessions/${sid}/generate-content`, { method: 'POST' }).catch(() => {})
+    }, sessionId)
+
+    // Give the server a moment to mark status as 'generating'
+    await page.waitForTimeout(5000)
+
+    // Poll GET until the pipeline completes
+    const deadline = Date.now() + CONTENT_GEN_TIMEOUT
+    let finalData: { content_status?: string; subtopics?: Array<{ pipeline_status: string; training_script?: string; content_outline?: string }> } = {}
+
+    while (Date.now() < deadline) {
+      const pollResp = await page.request.get(`/api/sessions/${sessionId}/generate-content`)
+      if (pollResp.ok()) {
+        finalData = await pollResp.json() as typeof finalData
+        const status = finalData.content_status ?? 'unknown'
+        const ready = (finalData.subtopics ?? []).filter((s) => s.pipeline_status === 'ready').length
+        const total = (finalData.subtopics ?? []).length
+        console.log(`[quality-poll] status: ${status} | subtopics: ${ready}/${total}`)
+        if (status === 'ready' || status === 'failed') break
+      }
+      await page.waitForTimeout(15_000)
+    }
 
     const subtopics = finalData.subtopics ?? []
     let withScript = 0
