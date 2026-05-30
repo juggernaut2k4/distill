@@ -258,7 +258,10 @@ Return ONLY valid JSON matching this exact schema (no markdown, no commentary):
 
   const subtopics: SubtopicOutline[] = json.subtopics.map((s, i) => ({
     ...s,
-    subtopic_slug: slugify(s.subtopic_title),
+    // Use the original input title for slug so GET endpoint lookups always match.
+    // Claude may paraphrase the title slightly; anchoring on the input prevents slug drift.
+    subtopic_title: subtopicTitles[i] ?? s.subtopic_title,
+    subtopic_slug: slugify(subtopicTitles[i] ?? s.subtopic_title),
     position: i === 0 ? 'first' : i === subtopicTitles.length - 1 ? 'last' : 'middle',
     // Guard against Claude omitting new fields
     coaching_narrative: s.coaching_narrative ?? s.content_summary,

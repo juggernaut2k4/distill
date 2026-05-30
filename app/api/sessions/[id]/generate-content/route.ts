@@ -67,17 +67,26 @@ export async function GET(_req: NextRequest, { params }: Params) {
     ?.map((s: { title: string }) => s.title) ?? []
   const subtopicTitles = planSubtopics.length > 0 ? planSubtopics : getSubtopics(topicId, session.topics as string[] | null)
 
-  // Fetch per-subtopic pipeline state from cache
+  // Fetch per-subtopic pipeline state from cache.
+  // Query by topic_id only; match in memory by both stored slug AND title-derived slug
+  // so that sessions generated before the slug-anchoring fix still resolve correctly.
   const { data: cacheRows } = await supabase
     .from('topic_content_cache')
     .select('subtopic_slug, subtopic_title, pipeline_status, training_script, content_outline, template_type')
     .eq('topic_id', topicId)
-    .in('subtopic_slug', subtopicTitles.map((t) => t.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/, '').slice(0, 60)))
 
-  const subtopicMap = new Map((cacheRows ?? []).map((r) => [r.subtopic_slug, r]))
+  const slugify = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/, '').slice(0, 60)
+
+  const subtopicMap = new Map<string, NonNullable<typeof cacheRows>[number]>()
+  for (const row of cacheRows ?? []) {
+    subtopicMap.set(row.subtopic_slug, row)
+    // Secondary index: slug derived from the stored title catches drift between Claude's
+    // returned title and the session_plan title.
+    if (row.subtopic_title) subtopicMap.set(slugify(row.subtopic_title), row)
+  }
 
   const subtopics = subtopicTitles.map((title) => {
-    const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/, '').slice(0, 60)
+    const slug = slugify(title)
     const row = subtopicMap.get(slug)
     return {
       title,
