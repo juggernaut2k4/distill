@@ -4,7 +4,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { ALL_DOMAINS, ROLES } from '@/lib/learning/taxonomy'
 
-export const maxDuration = 120
+export const maxDuration = 300
 
 // Pre-compute which roles care about each domain (derived from taxonomy, not Claude)
 function getRolesForDomain(domainId: string): string[] {
@@ -146,7 +146,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const BATCH_SIZE = 5
+  const BATCH_SIZE = 3
   const results: Array<{ domainId: string; inserted: number; error?: string }> = []
 
   for (let i = 0; i < domainsToSeed.length; i += BATCH_SIZE) {
