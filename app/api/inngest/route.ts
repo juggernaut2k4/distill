@@ -11,6 +11,7 @@ import { trialExpiryJob } from '@/inngest/trial-expiry'
 import { sessionContentPipeline } from '@/inngest/session-content-pipeline'
 import { sessionContentCron } from '@/inngest/session-content-cron'
 import { updateLearningProfile } from '@/inngest/update-learning-profile'
+import { catalogRefresh } from '@/inngest/catalog-refresh'
 
 /**
  * POST /api/inngest
@@ -19,5 +20,5 @@ import { updateLearningProfile } from '@/inngest/update-learning-profile'
  */
 export const { GET, POST, PUT } = serve({
   client: inngest,
-  functions: [dailyDelivery, weeklyDigest, feedbackProcessor, sessionReminder, sessionMeetingSetup, sessionPlanGenerator, sessionAgendaEmail, trialExpiryJob, sessionContentPipeline, sessionContentCron, updateLearningProfile],
+  functions: [dailyDelivery, weeklyDigest, feedbackProcessor, sessionReminder, sessionMeetingSetup, sessionPlanGenerator, sessionAgendaEmail, trialExpiryJob, sessionContentPipeline, sessionContentCron, updateLearningProfile, catalogRefresh],
 })
