@@ -2,54 +2,23 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { requireAuth } from '@/lib/clerk'
 import { createSupabaseAdminClient } from '@/lib/supabase'
-import Anthropic from '@anthropic-ai/sdk'
+import { buildCurriculum } from '@/lib/curriculum'
+import type { UserProfile, Maturity } from '@/lib/curriculum'
 
-const GenerateSchema = z.object({
+// ── Schema helpers ────────────────────────────────────────────────────────────
+
+const NewSchema = z.object({
+  role: z.string().optional(),
+  industry: z.string().optional(),
+  maturity: z.enum(['beginner', 'intermediate', 'advanced', 'expert']).optional(),
+  interest: z.string().optional(),
+})
+
+const LegacySchema = z.object({
   objectives: z.string().min(5).max(2000),
 })
 
-const isPlaceholder =
-  !process.env.ANTHROPIC_API_KEY ||
-  process.env.ANTHROPIC_API_KEY.startsWith('PLACEHOLDER_')
-
-const SYSTEM_PROMPT = `You are a curriculum designer for AI education targeted at senior business executives (CEOs, VPs, Directors, Heads of function).
-
-Given the user's learning objectives or interests, generate a focused list of 10–14 AI topics they should cover.
-
-Rules:
-- Every topic must be directly relevant to what they described
-- Topics should be practical and business-focused, not academic
-- Each topic title must be concise: 4–8 words
-- Mix strategic, operational, and awareness topics
-- Avoid generic filler topics that don't address what they asked
-
-Return ONLY valid JSON in this exact format with no extra text:
-{"topics": ["Topic title 1", "Topic title 2", ...]}`
-
-function mockTopics(objectives: string): string[] {
-  const lower = objectives.toLowerCase()
-  const base = [
-    'AI Strategy for Senior Leaders',
-    'Understanding Large Language Models',
-    'AI ROI Measurement & Business Cases',
-    'Evaluating AI Vendors & Solutions',
-    'AI Governance & Risk Frameworks',
-    'Building an AI-Ready Organisation',
-    'Process Automation with AI',
-    'AI Ethics & Responsible Deployment',
-    'Competitive Intelligence with AI',
-    'Data Strategy for AI Initiatives',
-  ]
-
-  if (lower.includes('customer') || lower.includes('cx')) base.push('AI for Customer Experience & Personalisation')
-  if (lower.includes('finance') || lower.includes('forecast') || lower.includes('roi')) base.push('AI in Finance & Forecasting')
-  if (lower.includes('team') || lower.includes('people') || lower.includes('hr')) base.push('Upskilling Teams for the AI Era')
-  if (lower.includes('product') || lower.includes('develop')) base.push('AI in Product Development')
-  if (lower.includes('security') || lower.includes('privacy') || lower.includes('compliance')) base.push('AI Security, Privacy & Compliance')
-  if (lower.includes('sales') || lower.includes('marketing') || lower.includes('revenue')) base.push('AI for Sales & Revenue Growth')
-
-  return base.slice(0, 14)
-}
+// ── Profile builder (kept for GET handler) ────────────────────────────────────
 
 function buildObjectivesFromProfile(profile: {
   role?: string | null
@@ -66,32 +35,7 @@ function buildObjectivesFromProfile(profile: {
   return parts.join(', ')
 }
 
-async function generateFromObjectives(objectives: string): Promise<string[]> {
-  if (isPlaceholder) {
-    await new Promise((r) => setTimeout(r, 800))
-    return mockTopics(objectives)
-  }
-
-  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-  const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 1024,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: `My learning objectives: ${objectives}` }],
-  })
-
-  const text = response.content[0]?.type === 'text' ? response.content[0].text.trim() : ''
-  const clean = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
-  const data = JSON.parse(clean) as { topics?: unknown }
-
-  if (Array.isArray(data.topics) && data.topics.length > 0) {
-    return (data.topics as unknown[])
-      .filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
-      .slice(0, 14)
-  }
-
-  throw new Error('Empty topics response from Claude')
-}
+// ── GET — unchanged from original ────────────────────────────────────────────
 
 /**
  * GET /api/topics/generate
@@ -120,8 +64,17 @@ export async function GET() {
 
   const objectives = buildObjectivesFromProfile(user ?? {})
 
+  // Build a profile for the curriculum engine
+  const profile: UserProfile = {
+    role: user?.role ?? 'executive',
+    industry: user?.industry ?? 'general',
+    maturity: (user?.ai_maturity ?? 'beginner') as Maturity,
+    interest: objectives,
+  }
+
   try {
-    const topics = await generateFromObjectives(objectives)
+    const curriculum = await buildCurriculum(profile)
+    const topics = curriculum.sessions.map((s) => s.title)
     return NextResponse.json({ topics, source: 'profile' })
   } catch (err) {
     console.error('[topics/generate GET] Failed:', err)
@@ -132,34 +85,56 @@ export async function GET() {
   }
 }
 
+// ── POST — replaced with curriculum engine ────────────────────────────────────
+
 /**
  * POST /api/topics/generate
- * Generates a personalised topic list from user-provided objectives text.
+ * Generates a structured 10-session curriculum from user profile + optional overrides.
+ *
+ * Accepts either:
+ *   - New format: { role?, industry?, maturity?, interest? }
+ *   - Legacy format: { objectives: string }
+ *
+ * Always returns: { topics: string[], curriculum: CurriculumResult, source: 'curriculum-engine' }
  */
 export async function POST(request: NextRequest) {
   const { userId, error } = requireAuth()
   if (error) return error
 
-  const body = await request.json() as unknown
-  const parsed = GenerateSchema.safeParse(body)
+  const body = (await request.json()) as unknown
 
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: 'Please describe what you want to learn (at least 5 characters).' },
-      { status: 400 }
-    )
+  const newParsed = NewSchema.safeParse(body)
+  const legacyParsed = LegacySchema.safeParse(body)
+
+  if (!newParsed.success && !legacyParsed.success) {
+    return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
   }
 
-  const { objectives } = parsed.data
-  console.log('[topics/generate POST] user', userId, '| objectives:', objectives.slice(0, 80))
+  const supabase = createSupabaseAdminClient()
+  const { data: user } = await supabase
+    .from('users')
+    .select('role, industry, ai_maturity')
+    .eq('id', userId!)
+    .single()
+
+  const profile: UserProfile = {
+    role: newParsed.data?.role ?? user?.role ?? 'executive',
+    industry: newParsed.data?.industry ?? user?.industry ?? 'general',
+    maturity: (newParsed.data?.maturity ?? user?.ai_maturity ?? 'beginner') as Maturity,
+    interest: newParsed.data?.interest ?? legacyParsed.data?.objectives ?? '',
+  }
+
+  console.log('[topics/generate POST] user', userId, '| profile:', JSON.stringify(profile))
 
   try {
-    const topics = await generateFromObjectives(objectives)
-    return NextResponse.json({ topics })
+    const curriculum = await buildCurriculum(profile)
+    // Return flat topics list for backwards compatibility with existing UI
+    const topics = curriculum.sessions.map((s) => s.title)
+    return NextResponse.json({ topics, curriculum, source: 'curriculum-engine' })
   } catch (err) {
-    console.error('[topics/generate POST] Claude error:', err)
+    console.error('[topics/generate POST] Curriculum engine error:', err)
     return NextResponse.json(
-      { error: 'Could not generate topics. Please try again or enter topics manually.' },
+      { error: 'Could not generate curriculum. Please try again.' },
       { status: 500 }
     )
   }
