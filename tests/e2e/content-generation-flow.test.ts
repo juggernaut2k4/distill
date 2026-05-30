@@ -287,27 +287,20 @@ test.describe('Full QA flow — authenticated', () => {
     // If no good session found yet, pick the first candidate
     if (!sessionId) sessionId = candidateIds[0]
 
-    // Navigate to session page to trigger content generation
-    await page.goto(`/dashboard/sessions/${sessionId}`, { waitUntil: 'domcontentloaded', timeout: 60_000 })
-    await page.waitForLoadState('networkidle')
-    await page.waitForTimeout(3000)
+    // Directly POST to trigger content generation (don't rely on the session page
+    // auto-trigger which requires allVisualsSettled to be true).
+    console.log(`Triggering fresh generation for session ${sessionId}...`)
+    const postResp = await page.request.post(`/api/sessions/${sessionId}/generate-content`, {
+      timeout: CONTENT_GEN_TIMEOUT + 60_000,
+    })
+    const postBody = await postResp.json() as { ok?: boolean; status?: string; error?: string }
+    console.log(`Generation result: status=${postBody.status ?? postBody.error}`)
 
-    // Poll until ready (up to CONTENT_GEN_TIMEOUT)
-    const deadline = Date.now() + CONTENT_GEN_TIMEOUT
-    let finalData: { content_status?: string; subtopics?: Array<{ pipeline_status: string; training_script?: string; content_outline?: string }> } = {}
-
-    while (Date.now() < deadline) {
-      const response = await page.request.get(`/api/sessions/${sessionId}/generate-content`)
-      if (response.ok()) {
-        finalData = await response.json() as typeof finalData
-        const status = finalData.content_status ?? 'unknown'
-        const ready = (finalData.subtopics ?? []).filter((s) => s.pipeline_status === 'ready').length
-        const total = (finalData.subtopics ?? []).length
-        console.log(`[quality-poll] status: ${status} | subtopics: ${ready}/${total}`)
-        if (status === 'ready' || status === 'failed') break
-      }
-      await page.waitForTimeout(15_000)
-    }
+    // Fetch final quality data
+    const getResp = await page.request.get(`/api/sessions/${sessionId}/generate-content`)
+    const finalData = getResp.ok()
+      ? await getResp.json() as { content_status?: string; subtopics?: Array<{ pipeline_status: string; training_script?: string; content_outline?: string }> }
+      : {}
 
     const subtopics = finalData.subtopics ?? []
     let withScript = 0

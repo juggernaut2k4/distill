@@ -98,7 +98,13 @@ export const sessionContentPipeline = inngest.createFunction(
 
     const topicId = session.topic_id ?? 'ai-fundamentals'
     const topicTitle = session.session_title ?? 'AI Strategy Session'
-    const subtopicTitles = getSubtopicsForSession(topicId, session.topics)
+    // Prefer session_plan subtopics (actual agenda) over the high-level topics column —
+    // must match what generate-content GET uses so KB lookups resolve correctly.
+    const planSubtopics = (session.session_plan as { subtopics?: Array<{ title: string; skipped?: boolean }> } | null)
+      ?.subtopics?.filter((s) => !s.skipped)?.map((s) => s.title) ?? []
+    const subtopicTitles = planSubtopics.length > 0
+      ? planSubtopics
+      : getSubtopicsForSession(topicId, session.topics)
     const userContext = {
       role: userProfile?.role ?? 'executive',
       industry: userProfile?.industry ?? 'business',
