@@ -1,16 +1,17 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { motion } from 'framer-motion'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useRouter } from 'next/navigation'
-import { CheckCircle, ArrowRight, Sparkles, Clock, BookOpen, LayoutList } from 'lucide-react'
+import { CheckCircle, ArrowRight, Sparkles, BookOpen, LayoutList, Lock } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
-import { TopUpModal } from '@/components/ui/TopUpModal'
-import { LearningPathView } from '@/components/plan/LearningPathView'
 import { TopicTree } from '@/components/plan/TopicTree'
-import { buildCurriculum, type CurriculumPlan } from '@/lib/content/curriculum'
+import { PlanSkeleton } from '@/components/plan/PlanSkeleton'
+import { ArcSection } from '@/components/plan/ArcSection'
+import { RecommendationCard, type RecommendationData } from '@/components/plan/RecommendationCard'
 import { buildCurriculumFromSelection } from '@/lib/content/curriculum-from-selection'
+import { buildCurriculum, type CurriculumPlan } from '@/lib/content/curriculum'
 
 interface User {
   id: string
@@ -24,24 +25,74 @@ interface User {
   minutes_included: number | null
 }
 
+interface CurriculumSession {
+  session_id: string
+  title: string
+  focus: string
+  arc_position: number
+  arc_length: number
+  depth_level: 'beginner' | 'intermediate' | 'advanced'
+  estimated_minutes: number
+  arc_name: string
+  arc_type: 'domain' | 'integrated' | 'singleton'
+  is_visible?: boolean
+  queue_rationale?: string | null
+}
+
+type ViewState = 'loading' | 'generating' | 'approval' | 'active' | 'fallback'
 type Tab = 'ai-plan' | 'browse'
+
+const RECOMMENDATION_LIMIT: Record<string, number> = {
+  executive: 2,
+  pro: 2,
+  starter: 1,
+}
 
 export default function PlanClient({ user }: { user: User }) {
   const router = useRouter()
   const [tab, setTab] = useState<Tab>('ai-plan')
-  const [plan, setPlan] = useState<CurriculumPlan | null>(null)
+  const [viewState, setViewState] = useState<ViewState>('loading')
+
+  // Intelligent curriculum state
+  const [planId, setPlanId] = useState<string | null>(null)
+  const [visibleSessions, setVisibleSessions] = useState<CurriculumSession[]>([])
+  const [completedIds, setCompletedIds] = useState<Set<string>>(new Set())
+  const [recommendations, setRecommendations] = useState<RecommendationData[]>([])
+  const [isPlanApproved, setIsPlanApproved] = useState(user.plan_approved ?? false)
+  const [approving, setApproving] = useState(false)
+  const [isFallback, setIsFallback] = useState(false)
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Browse tab state
   const [customPlan, setCustomPlan] = useState<CurriculumPlan | null>(null)
   const [building, setBuilding] = useState(false)
-  const [approving, setApproving] = useState(false)
-  const [approved, setApproved] = useState(user.plan_approved ?? false)
-  const [topUpOpen, setTopUpOpen] = useState(false)
+
+  const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
+    { id: 'ai-plan', label: 'AI Plan', icon: <Sparkles size={14} /> },
+    { id: 'browse', label: 'Browse Catalog', icon: <BookOpen size={14} /> },
+  ]
+
+  const recLimit = RECOMMENDATION_LIMIT[user.plan_tier ?? 'free'] ?? 0
+
+  // ─── Fetch current plan ───────────────────────────────────────────────────
+
+  const fetchPlan = useCallback(async () => {
+    const res = await fetch('/api/curriculum/plan?check_generating=true')
+    if (!res.ok) return null
+    return res.json() as Promise<{
+      plan: { id: string; visible_sessions: CurriculumSession[]; is_approved: boolean; generated_at: string } | null
+      completions: string[]
+      recommendations: RecommendationData[]
+      is_generating: boolean
+    }>
+  }, [])
+
+  // ─── Bootstrap: ensure topics saved, then generate or load plan ──────────
 
   useEffect(() => {
-    async function buildPlan() {
+    async function bootstrap() {
       let topics = user.topic_interests ?? []
 
-      // If Supabase has no saved topics (user came from sign-up without prior profile),
-      // read selectedTopics from localStorage and persist them before building the plan.
       if (topics.length === 0) {
         try {
           const raw = localStorage.getItem('clio_onboarding')
@@ -50,9 +101,7 @@ export default function PlanClient({ user }: { user: User }) {
             const localTopics = Array.isArray(onboarding.selectedTopics)
               ? (onboarding.selectedTopics as string[]).filter((t) => typeof t === 'string' && t.length > 0)
               : []
-
             if (localTopics.length > 0) {
-              // Persist to Supabase so future loads don't need localStorage
               await fetch('/api/topics', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -61,18 +110,163 @@ export default function PlanClient({ user }: { user: User }) {
               topics = localTopics
             }
           }
-        } catch {
-          // localStorage read or API call failed — continue with empty topics
-        }
+        } catch { /* ignore */ }
       }
 
-      const maturity = user.ai_maturity ?? 'intermediate'
-      const curriculum = buildCurriculum(topics, maturity)
-      setPlan(curriculum)
+      if (topics.length === 0) {
+        // No topics at all — redirect to topic selection
+        router.push('/topics')
+        return
+      }
+
+      // Check if we already have a plan
+      const existing = await fetchPlan()
+      if (existing?.plan && Array.isArray(existing.plan.visible_sessions) && existing.plan.visible_sessions.length > 0) {
+        setPlanId(existing.plan.id)
+        setVisibleSessions(existing.plan.visible_sessions)
+        setCompletedIds(new Set(existing.completions))
+        setRecommendations((existing.recommendations ?? []).slice(0, recLimit))
+        setIsPlanApproved(existing.plan.is_approved)
+        setViewState(existing.plan.is_approved ? 'active' : 'approval')
+        return
+      }
+
+      // Generate a new plan
+      setViewState('generating')
+      const genRes = await fetch('/api/curriculum/generate', { method: 'POST' })
+      if (!genRes.ok) {
+        // Fallback to simple curriculum
+        const maturity = user.ai_maturity ?? 'intermediate'
+        const simplePlan = buildCurriculum(topics, maturity)
+        const fakeSessions: CurriculumSession[] = simplePlan.sessions.flatMap((s, si) =>
+          s.topics.map((l, li) => ({
+            session_id: `fallback-${si}-${li}`,
+            title: l.title,
+            focus: l.subtopics?.[0] ?? l.title,
+            arc_position: li + 1,
+            arc_length: s.topics.length,
+            depth_level: l.difficulty,
+            estimated_minutes: ([15, 20, 25, 30].includes(l.estimatedMinutes) ? l.estimatedMinutes : 20) as 15 | 20 | 25 | 30,
+            arc_name: 'Your Learning Path',
+            arc_type: 'singleton' as const,
+          }))
+        )
+        setVisibleSessions(fakeSessions)
+        setIsFallback(true)
+        setViewState('fallback')
+        return
+      }
+
+      const genData = await genRes.json() as {
+        plan_id: string
+        visible_sessions: CurriculumSession[]
+        is_approved: boolean
+        is_fallback?: boolean
+      }
+
+      setPlanId(genData.plan_id)
+      setVisibleSessions(genData.visible_sessions ?? [])
+      setIsFallback(genData.is_fallback ?? false)
+      setIsPlanApproved(genData.is_approved)
+      setViewState(genData.is_approved ? 'active' : 'approval')
+
+      // Also fetch recommendations
+      const refreshed = await fetchPlan()
+      if (refreshed?.recommendations) {
+        setRecommendations(refreshed.recommendations.slice(0, recLimit))
+      }
     }
 
-    buildPlan()
-  }, [user.topic_interests, user.ai_maturity])
+    bootstrap()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // ─── Polling for recommendation generation completion ─────────────────────
+
+  function startPolling() {
+    if (pollingRef.current) return
+    pollingRef.current = setInterval(async () => {
+      const data = await fetchPlan()
+      if (!data) return
+      setVisibleSessions(data.plan?.visible_sessions ?? [])
+      setCompletedIds(new Set(data.completions))
+      setRecommendations((data.recommendations ?? []).slice(0, recLimit))
+      if (!data.is_generating && pollingRef.current) {
+        clearInterval(pollingRef.current)
+        pollingRef.current = null
+      }
+    }, 5000)
+  }
+
+  useEffect(() => {
+    return () => { if (pollingRef.current) clearInterval(pollingRef.current) }
+  }, [])
+
+  // ─── Approve plan ─────────────────────────────────────────────────────────
+
+  async function handleApprove() {
+    setApproving(true)
+    try {
+      const res = await fetch('/api/plan/approve', { method: 'POST' })
+      if (!res.ok) throw new Error('API error')
+
+      if (planId) {
+        // Mark plan as approved in curriculum_plans too
+        const supaRes = await fetch('/api/curriculum/generate', { method: 'POST' })
+        void supaRes // fire-and-forget to refresh; approve endpoint handles users table
+      }
+
+      setIsPlanApproved(true)
+      setViewState('active')
+      setApproving(false)
+    } catch {
+      alert('Something went wrong. Please try again.')
+      setApproving(false)
+    }
+  }
+
+  // ─── Session complete ─────────────────────────────────────────────────────
+
+  async function handleSessionComplete(sessionId: string, method: 'explicit' | 'time_threshold' = 'explicit') {
+    const res = await fetch('/api/curriculum/complete-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId, time_spent_seconds: 0, method }),
+    })
+    if (res.ok) {
+      const data = await res.json() as { promoted_sessions: unknown[] }
+      setCompletedIds((prev) => new Set([...Array.from(prev), sessionId]))
+      if (data.promoted_sessions?.length > 0) {
+        const refreshed = await fetchPlan()
+        if (refreshed?.plan) setVisibleSessions(refreshed.plan.visible_sessions)
+      }
+    }
+  }
+
+  // ─── Recommendation actions ───────────────────────────────────────────────
+
+  async function handleAcceptRecommendation(sessionId: string) {
+    const res = await fetch('/api/curriculum/accept-recommendation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId }),
+    })
+    if (res.ok) {
+      setRecommendations((prev) => prev.filter((r) => r.session_id !== sessionId))
+      startPolling()
+    }
+  }
+
+  async function handleDismissRecommendation(sessionId: string) {
+    await fetch('/api/curriculum/dismiss-recommendation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId }),
+    })
+    setRecommendations((prev) => prev.filter((r) => r.session_id !== sessionId))
+  }
+
+  // ─── Browse tab ───────────────────────────────────────────────────────────
 
   function handleBuildFromSelection(selectedLessonIds: string[]) {
     setBuilding(true)
@@ -84,43 +278,37 @@ export default function PlanClient({ user }: { user: User }) {
     }
   }
 
-  async function handleApprove() {
-    setApproving(true)
-    try {
-      const res = await fetch('/api/plan/approve', { method: 'POST' })
-      if (!res.ok) throw new Error('API error')
-      setApproved(true)
-      setTimeout(() => router.push('/dashboard/schedule'), 800)
-    } catch {
-      alert('Something went wrong. Please try again.')
-      setApproving(false)
-    }
-  }
+  // ─── Group sessions by arc ────────────────────────────────────────────────
 
-  const activePlan = tab === 'browse' ? customPlan : plan
-  const balance = user.minutes_balance ?? 0
-  const totalMins = activePlan?.totalMinutes ?? 0
-  const hasEnoughMinutes = balance >= totalMins
+  const arcGroups = visibleSessions.reduce<Map<string, { sessions: CurriculumSession[]; arcType: 'domain' | 'integrated' | 'singleton' }>>(
+    (map, s) => {
+      const key = s.arc_name ?? 'Your Learning Path'
+      if (!map.has(key)) map.set(key, { sessions: [], arcType: s.arc_type ?? 'singleton' })
+      map.get(key)!.sessions.push(s)
+      return map
+    },
+    new Map()
+  )
 
-  const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    { id: 'ai-plan', label: 'AI Plan', icon: <Sparkles size={14} /> },
-    { id: 'browse', label: 'Browse Catalog', icon: <BookOpen size={14} /> },
-  ]
+  const completedCount = visibleSessions.filter((s) => completedIds.has(s.session_id)).length
+  const totalVisible = visibleSessions.length
+  const totalMins = visibleSessions.reduce((sum, s) => sum + s.estimated_minutes, 0)
 
-  if (!plan) {
+  const firstIncomplete = visibleSessions.find((s) => !completedIds.has(s.session_id))
+
+  const isFreeOrTrial = !user.plan_tier || user.plan_tier === 'free' || user.plan_tier === 'trial'
+
+  // ─── States ───────────────────────────────────────────────────────────────
+
+  if (viewState === 'loading' || viewState === 'generating') {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex gap-2">
-          {[0, 1, 2].map((i) => (
-            <motion.div
-              key={i}
-              animate={{ opacity: [0.2, 1, 0.2] }}
-              transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.2 }}
-              className="w-2 h-2 rounded-full bg-[#7C3AED]"
-            />
-          ))}
-        </div>
-      </div>
+      <PlanSkeleton
+        message={
+          viewState === 'generating'
+            ? 'Analysing your topic selection and role to create an intelligent learning path.'
+            : 'Loading your plan…'
+        }
+      />
     )
   }
 
@@ -136,40 +324,47 @@ export default function PlanClient({ user }: { user: User }) {
                 Your Learning Plan
               </span>
             </div>
-            <h1 className="text-3xl font-bold text-white mb-1">
-              {activePlan
-                ? `${activePlan.totalTopics} topics across ${activePlan.sessions.length} sessions`
-                : 'Build your learning path'}
-            </h1>
-            <p className="text-[#94A3B8]">
-              {tab === 'ai-plan'
-                ? 'Personalized to your role and interests. Review and approve to get started.'
-                : 'Browse the full catalog and select exactly what you want to learn.'}
-            </p>
+            {isPlanApproved ? (
+              <>
+                <h1 className="text-3xl font-bold text-white mb-1">Your learning plan</h1>
+                <p className="text-[#94A3B8]">
+                  {completedCount} of {totalVisible} sessions complete
+                </p>
+              </>
+            ) : (
+              <>
+                <h1 className="text-3xl font-bold text-white mb-1">Your personalised learning plan</h1>
+                <p className="text-[#94A3B8]">
+                  {isFallback
+                    ? "We're still building your full personalised plan — it'll be ready shortly."
+                    : 'Based on your topics and role. Review and approve to begin.'}
+                </p>
+              </>
+            )}
           </div>
 
           {tab === 'ai-plan' && (
-            approved ? (
+            isPlanApproved ? (
               <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-green-950/30 border border-green-800/30">
                 <CheckCircle size={16} className="text-[#10B981]" />
                 <span className="text-sm font-semibold text-[#10B981]">Plan Approved</span>
               </div>
             ) : (
               <Button onClick={handleApprove} disabled={approving} className="gap-2 whitespace-nowrap">
-                {approving ? 'Approving...' : 'Approve Plan'}
+                {approving ? 'Approving…' : 'Approve plan — start learning'}
                 <ArrowRight size={16} />
               </Button>
             )
           )}
         </div>
 
-        {/* Stats row — only when a plan is visible */}
-        {activePlan && tab === 'ai-plan' && (
+        {/* Stats */}
+        {tab === 'ai-plan' && totalVisible > 0 && (
           <div className="mt-6 grid grid-cols-3 gap-4">
             {[
-              { label: 'Sessions', value: activePlan.sessions.length, color: '#7C3AED' },
-              { label: 'Total Minutes', value: totalMins, color: '#06B6D4' },
-              { label: 'Your Balance', value: `${balance} min`, color: hasEnoughMinutes ? '#10B981' : '#F59E0B' },
+              { label: 'Sessions', value: totalVisible, color: '#7C3AED' },
+              { label: 'Total time', value: `~${Math.floor(totalMins / 60)}h ${totalMins % 60}m`, color: '#06B6D4' },
+              { label: arcGroups.size > 1 ? 'Arcs' : 'Arc', value: arcGroups.size, color: '#A855F7' },
             ].map((stat) => (
               <Card key={stat.label} className="p-4 text-center">
                 <p className="text-2xl font-bold" style={{ color: stat.color }}>{stat.value}</p>
@@ -179,19 +374,22 @@ export default function PlanClient({ user }: { user: User }) {
           </div>
         )}
 
-        {tab === 'ai-plan' && activePlan && !hasEnoughMinutes && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="mt-4 flex items-center justify-between px-4 py-3 rounded-xl border border-amber-800/30 bg-amber-950/20"
-          >
-            <p className="text-sm text-[#FCD34D]">
-              You need {totalMins - balance} more minutes to complete this plan.
-            </p>
-            <Button variant="secondary" size="sm" className="gap-1 whitespace-nowrap" onClick={() => setTopUpOpen(true)}>
-              Top up minutes <ArrowRight size={14} />
-            </Button>
-          </motion.div>
+        {/* Progress bar (active state only) */}
+        {isPlanApproved && tab === 'ai-plan' && totalVisible > 0 && (
+          <div className="mt-4">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs text-[#475569]">{completedCount} of {totalVisible} complete</span>
+              <span className="text-xs text-[#475569]">{Math.round((completedCount / totalVisible) * 100)}%</span>
+            </div>
+            <div className="h-1 rounded-full bg-[#1E1E1E] overflow-hidden">
+              <motion.div
+                className="h-full bg-[#7C3AED] rounded-full"
+                initial={{ width: 0 }}
+                animate={{ width: `${(completedCount / totalVisible) * 100}%` }}
+                transition={{ duration: 0.6 }}
+              />
+            </div>
+          </div>
         )}
       </motion.div>
 
@@ -207,9 +405,7 @@ export default function PlanClient({ user }: { user: User }) {
             key={t.id}
             onClick={() => setTab(t.id)}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
-              tab === t.id
-                ? 'bg-[#7C3AED] text-white'
-                : 'text-[#475569] hover:text-[#94A3B8]'
+              tab === t.id ? 'bg-[#7C3AED] text-white' : 'text-[#475569] hover:text-[#94A3B8]'
             }`}
           >
             {t.icon}
@@ -218,78 +414,83 @@ export default function PlanClient({ user }: { user: User }) {
         ))}
       </motion.div>
 
-      {/* Tab content */}
+      {/* ─── AI Plan tab ─────────────────────────────────────────────────── */}
       {tab === 'ai-plan' && (
         <motion.div
           key="ai-plan"
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3 }}
+          className="space-y-4"
         >
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-bold text-white flex items-center gap-2">
-              <Clock size={17} className="text-[#06B6D4]" />
-              Your Learning Path
-            </h2>
-            <span className="text-xs text-[#475569]">Select a session to see details</span>
-          </div>
-          {plan && <LearningPathView plan={plan} />}
-        </motion.div>
-      )}
+          {/* Arc groups */}
+          {Array.from(arcGroups.entries()).map(([arcName, { sessions, arcType }]) => (
+            <ArcSection
+              key={arcName}
+              arcName={arcName}
+              arcType={arcType}
+              sessions={sessions}
+              completedIds={completedIds}
+              currentSessionId={firstIncomplete?.session_id}
+              onStartSession={(id) => {
+                void handleSessionComplete(id)
+                router.push(`/dashboard/schedule`)
+              }}
+              defaultExpanded
+            />
+          ))}
 
-      {tab === 'browse' && (
-        <motion.div
-          key="browse"
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3 }}
-          className="space-y-6"
-        >
-          {/* Custom plan preview (after building) */}
-          {customPlan && (
-            <div className="rounded-xl border border-[#7C3AED]/30 bg-[#7C3AED]/5 p-5 space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <LayoutList size={16} className="text-[#A855F7]" />
-                  <h3 className="text-base font-bold text-white">
-                    {customPlan.sessions.length} sessions · {customPlan.totalMinutes} min total
-                  </h3>
+          {/* Free/Trial gate */}
+          {isFreeOrTrial && (
+            <div className="rounded-xl border border-[#333333] bg-[#111111] p-5">
+              <div className="flex items-center gap-3">
+                <Lock size={18} className="text-[#475569]" />
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-white">Unlock your full learning path</p>
+                  <p className="text-xs text-[#475569] mt-0.5">10 sessions + AI recommendations + shadow queue</p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-[#94A3B8]">{customPlan.totalTopics} lessons</span>
-                  <Button size="sm" onClick={handleApprove} disabled={approving} className="gap-1">
-                    {approving ? 'Approving...' : 'Approve this plan'} <ArrowRight size={13} />
-                  </Button>
-                </div>
+                <Button size="sm" onClick={() => router.push('/pricing')} className="whitespace-nowrap">
+                  Upgrade to Starter →
+                </Button>
               </div>
-              <LearningPathView plan={customPlan} />
             </div>
           )}
 
-          {/* Catalog tree */}
-          <div>
-            <div className="flex items-center gap-2 mb-4">
-              <BookOpen size={16} className="text-[#06B6D4]" />
-              <h2 className="text-lg font-bold text-white">Catalog</h2>
-              <span className="text-xs text-[#475569] ml-1">Expand domains → check what you want to learn</span>
-            </div>
-            <TopicTree onBuild={handleBuildFromSelection} building={building} />
-          </div>
-        </motion.div>
-      )}
+          {/* Recommendations section */}
+          {!isFreeOrTrial && recommendations.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.3 }}
+              className="space-y-3 pt-2"
+            >
+              <div className="border-t border-[#1E1E1E] pt-4">
+                <p className="text-sm font-semibold text-white mb-0.5">Recommended for you</p>
+                <p className="text-xs text-[#475569] mb-3">Topics we think you&apos;ll benefit from next</p>
+                <AnimatePresence>
+                  {recommendations.slice(0, recLimit).map((rec) => (
+                    <RecommendationCard
+                      key={rec.session_id}
+                      recommendation={rec}
+                      onAccept={handleAcceptRecommendation}
+                      onDismiss={handleDismissRecommendation}
+                    />
+                  ))}
+                </AnimatePresence>
+              </div>
+            </motion.div>
+          )}
 
-      {/* Bottom CTAs — AI Plan tab only */}
-      {tab === 'ai-plan' && (
-        <>
-          {!approved && (
+          {/* Bottom CTAs */}
+          {!isPlanApproved && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 0.4 }}
-              className="flex gap-4 items-center"
+              className="flex gap-4 items-center pt-2"
             >
               <Button onClick={handleApprove} disabled={approving} size="lg" className="gap-2">
-                {approving ? 'Approving...' : 'Approve & Schedule Sessions'}
+                {approving ? 'Approving…' : 'Approve & start learning'}
                 <ArrowRight size={18} />
               </Button>
               <button
@@ -301,12 +502,12 @@ export default function PlanClient({ user }: { user: User }) {
             </motion.div>
           )}
 
-          {approved && !approving && (
+          {isPlanApproved && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 0.4 }}
-              className="flex items-center gap-4 flex-wrap"
+              className="flex items-center gap-4 flex-wrap pt-2"
             >
               <Button onClick={() => router.push('/dashboard/schedule')} size="lg" className="gap-2">
                 Go to Schedule
@@ -320,28 +521,44 @@ export default function PlanClient({ user }: { user: User }) {
               </button>
             </motion.div>
           )}
-
-          {approving && (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="flex items-center gap-3 p-4 rounded-xl bg-green-950/20 border border-green-800/30"
-            >
-              <CheckCircle size={20} className="text-[#10B981]" />
-              <div>
-                <p className="text-sm font-semibold text-[#10B981]">Plan approved!</p>
-                <p className="text-xs text-[#475569]">Redirecting to scheduling...</p>
-              </div>
-            </motion.div>
-          )}
-        </>
+        </motion.div>
       )}
 
-      <TopUpModal
-        open={topUpOpen}
-        onClose={() => setTopUpOpen(false)}
-        currentBalance={user.minutes_balance ?? 0}
-      />
+      {/* ─── Browse tab ──────────────────────────────────────────────────── */}
+      {tab === 'browse' && (
+        <motion.div
+          key="browse"
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3 }}
+          className="space-y-6"
+        >
+          {customPlan && (
+            <div className="rounded-xl border border-[#7C3AED]/30 bg-[#7C3AED]/5 p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <LayoutList size={16} className="text-[#A855F7]" />
+                  <h3 className="text-base font-bold text-white">
+                    {customPlan.sessions.length} sessions · {customPlan.totalMinutes} min total
+                  </h3>
+                </div>
+                <Button size="sm" onClick={handleApprove} disabled={approving} className="gap-1">
+                  {approving ? 'Approving...' : 'Approve this plan'} <ArrowRight size={13} />
+                </Button>
+              </div>
+            </div>
+          )}
+
+          <div>
+            <div className="flex items-center gap-2 mb-4">
+              <BookOpen size={16} className="text-[#06B6D4]" />
+              <h2 className="text-lg font-bold text-white">Catalog</h2>
+              <span className="text-xs text-[#475569] ml-1">Expand domains → check what you want to learn</span>
+            </div>
+            <TopicTree onBuild={handleBuildFromSelection} building={building} />
+          </div>
+        </motion.div>
+      )}
     </div>
   )
 }
