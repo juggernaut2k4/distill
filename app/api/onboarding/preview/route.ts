@@ -164,7 +164,7 @@ export async function POST(request: NextRequest) {
 
     const systemPrompt = `You are Clio, a sharp AI advisor for senior business executives. Write like a trusted peer who has already done the research. No jargon. No filler phrases. No "As an AI..." hedging. Every sentence must be either actionable or genuinely illuminating. Maximum 60 words. Always end with exactly one sentence starting with "So what?" — make it specific to their role and situation. Return only the insight text, nothing else.`
 
-    const userPrompt = `Write ONE insight for a ${role || 'senior executive'}${industry ? ` in ${industry}` : ''}${worry ? `, concerned about ${worry}` : ''}${aiMaturity ? ` (AI maturity: ${aiMaturity})` : ''}. Maximum 60 words. End with a "So what?" sentence.`
+    const userPrompt = `Write ONE insight for a ${role || 'senior executive'}${industry ? ` working in ${industry}` : ''}${worry ? `, who wants to ${worry}` : ''}${aiMaturity ? ` (AI maturity: ${aiMaturity})` : ''}. Write the insight specifically for someone at ${role || 'this'} level — do not reference C-suite titles (CEO, CFO, CTO, CIO) unless that is the user's role. Maximum 60 words. End with a "So what?" sentence specific to their role.`
 
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',

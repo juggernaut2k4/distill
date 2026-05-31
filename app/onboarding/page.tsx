@@ -484,9 +484,9 @@ function OnboardingContent() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             role,
-            industry: '',
+            industry: primaryDomain,
             aiMaturity: proficiencies[primaryDomain] ?? 'intermediate',
-            worry: '',
+            worry: learningGoal,
           }),
         })
         if (res.ok) {
