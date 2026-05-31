@@ -34,6 +34,9 @@ test.describe('Curriculum Engine — CEO × FS × Claude × beginner', () => {
   test.setTimeout(30_000)
 
   test('1. POST /api/topics/generate returns curriculum with correct structure', async ({ page }) => {
+    // Navigate first to activate Clerk session (refreshes short-lived JWT before API calls)
+    await page.goto(`${BASE}/dashboard`, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+
     const resp = await page.request.post(`${BASE}/api/topics/generate`, {
       data: TEST_INPUT,
     })
@@ -123,6 +126,8 @@ test.describe('Curriculum Engine — CEO × FS × Claude × beginner', () => {
   })
 
   test('2. Topics catalog returns featured/other split for CEO × FS', async ({ page }) => {
+    await page.goto(`${BASE}/dashboard`, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+
     const resp = await page.request.get(`${BASE}/api/topics/catalog?role=ceo&domains=ai-ml,leadership,finance`)
 
     expect(resp.ok(), `Catalog API returned ${resp.status()}`).toBeTruthy()
@@ -174,6 +179,8 @@ test.describe('Curriculum Engine — CEO × FS × Claude × beginner', () => {
   })
 
   test('3. Curriculum respects maturity: beginner gets foundation-heavy plan', async ({ page }) => {
+    await page.goto(`${BASE}/dashboard`, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+
     const resp = await page.request.post(`${BASE}/api/topics/generate`, {
       data: { ...TEST_INPUT, maturity: 'advanced', interest: 'AI strategy' },
     })
