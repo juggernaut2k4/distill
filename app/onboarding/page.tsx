@@ -643,27 +643,28 @@ function OnboardingContent() {
           </motion.div>
         </AnimatePresence>
 
-        {/* Navigation — hidden on step 5 (auto-advances) */}
-        {step < 5 && (
-          <div className="mt-8 w-full max-w-sm flex items-center gap-3">
-            {step > 0 && (
-              <button
-                onClick={handleBack}
-                className="flex items-center justify-center w-12 h-12 rounded-xl border border-[#333333] text-[#94A3B8] hover:text-white hover:border-[#555] transition-colors shrink-0"
-              >
-                <ArrowLeft size={18} />
-              </button>
-            )}
+        {/* Navigation */}
+        <div className="mt-8 w-full max-w-sm flex items-center gap-3">
+          {step > 0 && (
+            <button
+              onClick={handleBack}
+              className="flex items-center justify-center w-12 h-12 rounded-xl border border-[#333333] text-[#94A3B8] hover:text-white hover:border-[#555] transition-colors shrink-0"
+            >
+              <ArrowLeft size={18} />
+            </button>
+          )}
+          {/* Step 5 (sub-domain) auto-advances on selection — no Continue button needed */}
+          {step < TOTAL_STEPS - 1 && (
             <button
               onClick={handleNext}
               disabled={!canProceed}
               className="flex-1 flex items-center justify-center gap-2 h-12 rounded-xl bg-[#7C3AED] hover:bg-[#6D28D9] disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-sm transition-colors"
             >
-              {step === TOTAL_STEPS - 2 ? 'Continue' : 'Continue'}
+              Continue
               <ArrowRight size={16} />
             </button>
-          </div>
-        )}
+          )}
+        </div>
 
         <p className="mt-5 text-xs text-[#333333]">{step + 1} of {TOTAL_STEPS}</p>
       </div>
