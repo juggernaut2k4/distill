@@ -31,7 +31,7 @@ const EXPECTED_ARC = ['foundation', 'foundation', 'interest', 'interest', 'conte
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 test.describe('Curriculum Engine — CEO × FS × Claude × beginner', () => {
-  test.setTimeout(30_000)
+  test.setTimeout(60_000)
 
   test('1. POST /api/topics/generate returns curriculum with correct structure', async ({ page }) => {
     // Navigate first to activate Clerk session (refreshes short-lived JWT before API calls)
@@ -39,6 +39,7 @@ test.describe('Curriculum Engine — CEO × FS × Claude × beginner', () => {
 
     const resp = await page.request.post(`${BASE}/api/topics/generate`, {
       data: TEST_INPUT,
+      timeout: 25_000,  // Claude API call can take 10-20s
     })
 
     expect(resp.ok(), `Expected 200, got ${resp.status()}`).toBeTruthy()
@@ -183,6 +184,7 @@ test.describe('Curriculum Engine — CEO × FS × Claude × beginner', () => {
 
     const resp = await page.request.post(`${BASE}/api/topics/generate`, {
       data: { ...TEST_INPUT, maturity: 'advanced', interest: 'AI strategy' },
+      timeout: 25_000,
     })
 
     if (!resp.ok()) {
