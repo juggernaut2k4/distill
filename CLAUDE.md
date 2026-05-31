@@ -44,7 +44,7 @@ You operate with full autonomy. These rules govern how you use that freedom:
 ### You MUST NOT stop for:
 - Missing environment variables → use clearly named placeholders: `PLACEHOLDER_STRIPE_KEY`, `PLACEHOLDER_TWILIO_SID`, etc.
 - Missing API keys → mock the integration with a working stub that logs what it would send
-- Ambiguous design decisions → choose the option that best serves a time-poor executive
+- Ambiguous technical decisions (library choice, config, schema column names) → choose and document
 - Package version choices → always use the latest stable LTS version
 - Database decisions → follow the schema in `architecture.md` exactly
 
@@ -52,6 +52,18 @@ You operate with full autonomy. These rules govern how you use that freedom:
 - A task requires Arun's real credentials or bank/payment details
 - A third-party API rejects a test call that cannot be mocked
 - Two agents have produced irreconcilably conflicting output files
+- **A user-facing screen or flow is described in the brief in fewer than 3 lines with no example or wireframe** → do not invent; document your interpretation in `BACKLOG.md` under "Ambiguous UX — needs owner decision" and build the simplest possible placeholder (e.g. a blank page with the route registered)
+
+### UX screens: implement literally, never interpret
+When building any user-facing page or flow that appears in `brief.md`:
+- Implement **exactly** what is written — no additions, no embellishments
+- If a screen is described as "Plan preview (here's what you'll learn)" — show the plan. Do not substitute with generated content, animations, or features not mentioned.
+- If a screen's content is unclear, build the minimal version (e.g. a static placeholder) and log it in `BACKLOG.md` as "Needs UX decision from owner"
+- **Never use an AI-generated API call to populate a screen whose content requirements are undefined** — this produces unpredictable output that will reach real users
+
+### Autonomy boundary: technical vs product decisions
+- **Technical decisions** (library, config, schema, error handling): full autonomy
+- **Product decisions** (what a screen shows, what copy says, what a flow does): implement the brief literally; when unclear, do the minimum and flag it
 
 ### When blocked, do this:
 1. Log the blocker clearly in `BACKLOG.md` under a "Blockers" section
