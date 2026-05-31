@@ -37,10 +37,41 @@ export default function PlanClient({ user }: { user: User }) {
   const [topUpOpen, setTopUpOpen] = useState(false)
 
   useEffect(() => {
-    const topics = user.topic_interests ?? []
-    const maturity = user.ai_maturity ?? 'observer'
-    const curriculum = buildCurriculum(topics, maturity)
-    setPlan(curriculum)
+    async function buildPlan() {
+      let topics = user.topic_interests ?? []
+
+      // If Supabase has no saved topics (user came from sign-up without prior profile),
+      // read selectedTopics from localStorage and persist them before building the plan.
+      if (topics.length === 0) {
+        try {
+          const raw = localStorage.getItem('clio_onboarding')
+          if (raw) {
+            const onboarding = JSON.parse(raw) as Record<string, unknown>
+            const localTopics = Array.isArray(onboarding.selectedTopics)
+              ? (onboarding.selectedTopics as string[]).filter((t) => typeof t === 'string' && t.length > 0)
+              : []
+
+            if (localTopics.length > 0) {
+              // Persist to Supabase so future loads don't need localStorage
+              await fetch('/api/topics', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ topics: localTopics }),
+              })
+              topics = localTopics
+            }
+          }
+        } catch {
+          // localStorage read or API call failed — continue with empty topics
+        }
+      }
+
+      const maturity = user.ai_maturity ?? 'intermediate'
+      const curriculum = buildCurriculum(topics, maturity)
+      setPlan(curriculum)
+    }
+
+    buildPlan()
   }, [user.topic_interests, user.ai_maturity])
 
   function handleBuildFromSelection(selectedLessonIds: string[]) {

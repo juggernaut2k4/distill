@@ -377,10 +377,22 @@ const TOPIC_CATALOG: CurriculumTopic[] = [
 ]
 
 const MATURITY_MAX_DIFFICULTY: Record<string, 'beginner' | 'intermediate' | 'advanced'> = {
+  // Legacy label set (onboarding v1)
   observer: 'beginner',
   evaluator: 'intermediate',
   pilot: 'intermediate',
   scaler: 'advanced',
+  // Standard label set (onboarding v2 / API)
+  beginner: 'beginner',
+  intermediate: 'intermediate',
+  advanced: 'advanced',
+  expert: 'advanced',
+  // Free-text variants stored from the topics page Q3
+  'no experience': 'beginner',
+  'some experience': 'intermediate',
+  'somewhat experience': 'intermediate',
+  'solid experience': 'advanced',
+  'extensive experience': 'advanced',
 }
 
 /**
@@ -429,8 +441,10 @@ function generateSubtopicsForTitle(title: string): string[] {
 // Keyword → catalog ID map. Longer/more specific phrases must come first so they
 // take priority over shorter overlapping keywords (e.g. "claude code" before "claude").
 const TITLE_KEYWORD_MAP: Array<{ keywords: string[]; id: string }> = [
-  { keywords: ['claude code', 'claude chat', 'claude cowork', 'claude feature', 'how to use claude', 'large language model', 'llm', 'language model'], id: 'llm-basics' },
-  { keywords: ['generative ai', 'gen ai', 'ai fundamentals', 'ai basics', 'foundation model', 'gpt', 'claude', 'gemini'], id: 'ai-fundamentals' },
+  // 'anthropic claude', 'claude for work', plain 'claude' → LLM basics (covers Claude in detail)
+  // Longer/more-specific phrases listed first so they win over the shorter 'claude' match.
+  { keywords: ['anthropic claude', 'claude for work', 'claude code', 'claude chat', 'claude cowork', 'claude feature', 'how to use claude', 'claude enterprise', 'large language model', 'llm', 'language model', 'claude'], id: 'llm-basics' },
+  { keywords: ['generative ai', 'gen ai', 'ai fundamentals', 'ai basics', 'foundation model', 'gpt', 'gemini'], id: 'ai-fundamentals' },
   { keywords: ['ai strategy', 'ai roadmap', 'ai ambition', 'ai posture'], id: 'ai-strategy-intro' },
   { keywords: ['machine learning', 'ml basics', 'supervised', 'unsupervised'], id: 'ml-basics' },
   { keywords: ['ai culture', 'ai mindset', 'psychological safety', 'ai champion'], id: 'ai-culture' },
