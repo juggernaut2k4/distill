@@ -5,22 +5,57 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { useRouter } from 'next/navigation'
 import { useUser } from '@clerk/nextjs'
 import { ProgressBar } from '@/components/onboarding/ProgressBar'
-import { ArrowRight, ArrowLeft, Plus, X, Search, Mail, Sparkles } from 'lucide-react'
+import { ArrowRight, ArrowLeft, Plus, X, Search } from 'lucide-react'
 import {
   ALL_DOMAINS, PROFICIENCY_LEVELS, LEARNING_GOALS,
   getDomainsForRole, searchDomains,
   type Domain, type Proficiency, type LearningGoal,
 } from '@/lib/learning/taxonomy'
-// Type mirrored from /app/api/onboarding/preview/route.ts
-interface PreviewResponse {
-  bodyText: string
-  type: 'tip' | 'signal' | 'decoder'
-}
 
 // ─── Step definitions ─────────────────────────────────────────────────────────
 
-const TOTAL_STEPS = 5
-// 0: Level  1: Department → resolves roleId  2: Domains  3: Proficiency  4: Goal
+const TOTAL_STEPS = 6
+// 0: Level  1: Department → resolves roleId  2: Domains  3: Proficiency  4: Goal  5: SubDomain
+
+// ─── Sub-domain lists per primary domain ──────────────────────────────────────
+
+const SUB_DOMAIN_MAP: Record<string, string[]> = {
+  finance: ['Banking', 'Insurance', 'Investment Management', 'FinTech', 'Private Equity', 'Corporate Finance'],
+  technology: ['Cloud & Infrastructure', 'Cybersecurity', 'Data & Analytics', 'Software Development', 'AI / ML', 'Product Management'],
+  healthcare: ['Clinical Operations', 'Pharma & Life Sciences', 'Health Insurance', 'MedTech & Devices', 'Digital Health'],
+  retail: ['E-commerce', 'Physical Retail', 'Consumer Goods', 'Supply Chain & Logistics', 'Retail Technology'],
+  manufacturing: ['Industrial Operations', 'Automotive', 'Aerospace & Defence', 'Consumer Manufacturing', 'Supply Chain'],
+  legal: ['Corporate Law', 'Regulatory & Compliance', 'Legal Tech', 'Litigation', 'Financial Services Law'],
+  consulting: ['Strategy Consulting', 'Technology Consulting', 'Management Consulting', 'HR & Organisational Change', 'Financial Advisory'],
+}
+
+const FALLBACK_SUB_DOMAINS = ['Strategy', 'Operations', 'Technology', 'People & Culture', 'Finance']
+
+/**
+ * Given a domain ID (from taxonomy, e.g. "ai-ml", "finance", "corp-finance"),
+ * find the best matching sub-domain list.
+ */
+function getSubDomains(primaryDomainId: string): string[] {
+  const lower = primaryDomainId.toLowerCase()
+  for (const [key, list] of Object.entries(SUB_DOMAIN_MAP)) {
+    if (lower.includes(key) || key.includes(lower)) {
+      return list
+    }
+  }
+  return FALLBACK_SUB_DOMAINS
+}
+
+/**
+ * Get a human-readable domain label in title case for use in Q6 text.
+ */
+function getDomainDisplayName(primaryDomainId: string): string {
+  const found = ALL_DOMAINS.find((d) => d.id === primaryDomainId)
+  if (found) return found.label
+  // Fallback: title-case the id
+  return primaryDomainId
+    .replace(/-/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+}
 
 // ─── Role level + department mapping ─────────────────────────────────────────
 
@@ -170,7 +205,7 @@ function DepartmentStep({ levelId, value, onChange }: { levelId: string; value: 
   )
 }
 
-// ─── Step 1: Domain selection ─────────────────────────────────────────────────
+// ─── Step 2: Domain selection ─────────────────────────────────────────────────
 
 function DomainStep({
   roleId,
@@ -298,7 +333,7 @@ function DomainStep({
   )
 }
 
-// ─── Step 2: Proficiency per domain ──────────────────────────────────────────
+// ─── Step 3: Proficiency per domain ──────────────────────────────────────────
 
 function ProficiencyStep({
   selectedDomainIds,
@@ -356,7 +391,7 @@ function ProficiencyStep({
   )
 }
 
-// ─── Step 3: Learning goal ────────────────────────────────────────────────────
+// ─── Step 4: Learning goal ────────────────────────────────────────────────────
 
 function GoalStep({ value, onChange }: { value: LearningGoal | ''; onChange: (v: LearningGoal) => void }) {
   return (
@@ -387,17 +422,48 @@ function GoalStep({ value, onChange }: { value: LearningGoal | ''; onChange: (v:
   )
 }
 
+// ─── Step 5: Sub-domain ───────────────────────────────────────────────────────
+
+function SubDomainStep({
+  primaryDomainId,
+  value,
+  onChange,
+}: {
+  primaryDomainId: string
+  value: string
+  onChange: (v: string) => void
+}) {
+  const domainName = getDomainDisplayName(primaryDomainId)
+  const subDomains = getSubDomains(primaryDomainId)
+
+  return (
+    <div className="w-full max-w-sm mx-auto">
+      <StepHeading
+        title={`Which area of ${domainName} describes your work best?`}
+      />
+      <div className="flex flex-col gap-2">
+        {subDomains.map((sd) => (
+          <SingleOptionButton
+            key={sd}
+            label={sd}
+            selected={value === sd}
+            onClick={() => onChange(sd)}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ─── Main onboarding flow ─────────────────────────────────────────────────────
 
 function OnboardingContent() {
   const router = useRouter()
-  const { isLoaded, isSignedIn } = useUser()
+  const { isSignedIn } = useUser()
 
   const [step, setStep] = useState(0)
   const [direction, setDirection] = useState<'right' | 'left'>('right')
   const [building, setBuilding] = useState(false)
-  const [preview, setPreview] = useState<PreviewResponse | null>(null)
-  const [previewLoading, setPreviewLoading] = useState(false)
 
   // Step answers
   const [roleLevel, setRoleLevel] = useState('')          // step 0: level bucket
@@ -406,6 +472,7 @@ function OnboardingContent() {
   const [customDomains, setCustomDomains] = useState<string[]>([])
   const [proficiencies, setProficiencies] = useState<Record<string, Proficiency>>({})
   const [learningGoal, setLearningGoal] = useState<LearningGoal | ''>('')
+  const [subDomain, setSubDomain] = useState('')          // step 5: sub-domain
 
   // ── Can proceed from each step ──────────────────────────────────────────────
   const canProceed = useMemo(() => {
@@ -417,8 +484,9 @@ function OnboardingContent() {
       return allKeys.length > 0 && allKeys.every((k) => proficiencies[k])
     }
     if (step === 4) return learningGoal !== ''
+    if (step === 5) return subDomain !== ''
     return false
-  }, [step, roleLevel, role, selectedDomains, customDomains, proficiencies, learningGoal])
+  }, [step, roleLevel, role, selectedDomains, customDomains, proficiencies, learningGoal, subDomain])
 
   // ── Domain handlers ─────────────────────────────────────────────────────────
   function toggleDomain(id: string) {
@@ -434,6 +502,16 @@ function OnboardingContent() {
     setProficiencies((prev) => { const next = { ...prev }; delete next[label]; return next })
   }
 
+  // ── Auto-advance handler for Q6 sub-domain ─────────────────────────────────
+  function handleSubDomainSelect(value: string) {
+    setSubDomain(value)
+    // Auto-advance after 400ms
+    setTimeout(() => {
+      setBuilding(true)
+      submitOnboarding(value)
+    }, 400)
+  }
+
   // ── Navigation ──────────────────────────────────────────────────────────────
   function handleNext() {
     if (!canProceed) return
@@ -442,7 +520,7 @@ function OnboardingContent() {
       setStep((s) => s + 1)
     } else {
       setBuilding(true)
-      submitOnboarding()
+      submitOnboarding(subDomain)
     }
   }
   function handleBack() {
@@ -452,7 +530,7 @@ function OnboardingContent() {
   }
 
   // ── Submit ──────────────────────────────────────────────────────────────────
-  async function submitOnboarding() {
+  async function submitOnboarding(finalSubDomain: string) {
     const primaryDomain = selectedDomains[0] ?? customDomains[0] ?? 'ai-ml'
     const domainProficiency: Record<string, string> = {}
     ;[...selectedDomains, ...customDomains].forEach((k) => {
@@ -466,54 +544,33 @@ function OnboardingContent() {
       worry: '',
       deliveryPreference: 'email',
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      // new multi-domain fields
+      // multi-domain fields
       domains: selectedDomains,
       customDomains,
       primaryDomain,
       domainProficiency,
       learningGoal,
+      subDomain: finalSubDomain,
     }
     localStorage.setItem('clio_onboarding', JSON.stringify(payload))
 
-    // After 2s building animation, fetch preview then show it
-    setTimeout(async () => {
-      setPreviewLoading(true)
-      try {
-        const res = await fetch('/api/onboarding/preview', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            role,
-            industry: primaryDomain,
-            aiMaturity: proficiencies[primaryDomain] ?? 'intermediate',
-            worry: learningGoal,
-          }),
-        })
-        if (res.ok) {
-          const data = (await res.json()) as PreviewResponse
-          setPreview(data)
-        } else {
-          // On any error, skip preview and go straight to plan
-          router.push(isSignedIn ? '/plan' : '/sign-up')
-        }
-      } catch {
-        router.push(isSignedIn ? '/plan' : '/sign-up')
-      } finally {
-        setPreviewLoading(false)
-      }
+    // Fire-and-forget API save — not required to redirect
+    fetch('/api/onboarding', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...payload,
+        // add signed-in user's data if available
+      }),
+    }).catch(() => { /* non-fatal */ })
+
+    // After 2s building animation, redirect to /topics
+    setTimeout(() => {
+      router.push(isSignedIn ? '/topics' : '/sign-up')
     }, 2000)
   }
 
-  if (building && preview) {
-    return (
-      <PreviewScreen
-        preview={preview}
-        onContinue={() => router.push(isSignedIn ? '/plan' : '/sign-up')}
-      />
-    )
-  }
-
-  if (building) return <BuildingScreen loading={previewLoading} />
+  if (building) return <BuildingScreen />
 
   return (
     <div className="min-h-screen bg-[#080808] flex flex-col">
@@ -560,28 +617,38 @@ function OnboardingContent() {
             )}
 
             {step === 4 && <GoalStep value={learningGoal} onChange={setLearningGoal} />}
+
+            {step === 5 && (
+              <SubDomainStep
+                primaryDomainId={selectedDomains[0] ?? customDomains[0] ?? ''}
+                value={subDomain}
+                onChange={handleSubDomainSelect}
+              />
+            )}
           </motion.div>
         </AnimatePresence>
 
-        {/* Navigation */}
-        <div className="mt-8 w-full max-w-sm flex items-center gap-3">
-          {step > 0 && (
+        {/* Navigation — hidden on step 5 (auto-advances) */}
+        {step < 5 && (
+          <div className="mt-8 w-full max-w-sm flex items-center gap-3">
+            {step > 0 && (
+              <button
+                onClick={handleBack}
+                className="flex items-center justify-center w-12 h-12 rounded-xl border border-[#333333] text-[#94A3B8] hover:text-white hover:border-[#555] transition-colors shrink-0"
+              >
+                <ArrowLeft size={18} />
+              </button>
+            )}
             <button
-              onClick={handleBack}
-              className="flex items-center justify-center w-12 h-12 rounded-xl border border-[#333333] text-[#94A3B8] hover:text-white hover:border-[#555] transition-colors shrink-0"
+              onClick={handleNext}
+              disabled={!canProceed}
+              className="flex-1 flex items-center justify-center gap-2 h-12 rounded-xl bg-[#7C3AED] hover:bg-[#6D28D9] disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-sm transition-colors"
             >
-              <ArrowLeft size={18} />
+              {step === TOTAL_STEPS - 2 ? 'Continue' : 'Continue'}
+              <ArrowRight size={16} />
             </button>
-          )}
-          <button
-            onClick={handleNext}
-            disabled={!canProceed}
-            className="flex-1 flex items-center justify-center gap-2 h-12 rounded-xl bg-[#7C3AED] hover:bg-[#6D28D9] disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-sm transition-colors"
-          >
-            {step === TOTAL_STEPS - 1 ? 'Build my learning plan' : 'Continue'}
-            <ArrowRight size={16} />
-          </button>
-        </div>
+          </div>
+        )}
 
         <p className="mt-5 text-xs text-[#333333]">{step + 1} of {TOTAL_STEPS}</p>
       </div>
@@ -599,7 +666,7 @@ export default function OnboardingPage() {
   )
 }
 
-function BuildingScreen({ loading = false }: { loading?: boolean }) {
+function BuildingScreen() {
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -623,7 +690,7 @@ function BuildingScreen({ loading = false }: { loading?: boolean }) {
         transition={{ delay: 0.5 }}
         className="text-[#94A3B8] text-center"
       >
-        {loading ? 'Crafting your first insight…' : 'Building your personalised learning paths…'}
+        Calibrating your AI learning path...
       </motion.p>
       <div className="mt-8 flex gap-2">
         {[0, 1, 2].map((i) => (
@@ -635,104 +702,6 @@ function BuildingScreen({ loading = false }: { loading?: boolean }) {
           />
         ))}
       </div>
-    </motion.div>
-  )
-}
-
-// ─── Preview Screen ────────────────────────────────────────────────────────────
-
-const TYPE_LABELS: Record<string, string> = {
-  tip: 'DAILY TIP',
-  signal: 'MARKET SIGNAL',
-  decoder: 'AI DECODED',
-}
-
-function PreviewScreen({
-  preview,
-  onContinue,
-}: {
-  preview: PreviewResponse
-  onContinue: () => void
-}) {
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.4 }}
-      className="min-h-screen bg-[#080808] flex flex-col items-center justify-center px-4 py-16"
-    >
-      {/* Label */}
-      <motion.p
-        initial={{ opacity: 0, y: -8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.15 }}
-        className="text-xs tracking-widest text-[#7C3AED] uppercase font-semibold mb-8"
-      >
-        Here&apos;s your first insight
-      </motion.p>
-
-      {/* Message card */}
-      <motion.div
-        initial={{ opacity: 0, y: 32 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.25, duration: 0.5, ease: 'easeOut' }}
-        className="w-full max-w-lg bg-[#111111] border border-[#222222] rounded-2xl overflow-hidden shadow-2xl"
-      >
-        {/* Card header */}
-        <div className="flex items-center gap-2.5 px-5 py-3.5 border-b border-[#1A1A1A]">
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#06B6D4]/10 border border-[#06B6D4]/25 text-[#06B6D4] text-[10px] font-bold tracking-wider uppercase">
-            <Mail size={10} />
-            Email
-          </span>
-          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-[#7C3AED]/10 border border-[#7C3AED]/25 text-[#A855F7] text-[10px] font-semibold tracking-wide uppercase">
-            <Sparkles size={9} />
-            {TYPE_LABELS[preview.type] ?? 'INSIGHT'}
-          </span>
-          <span className="ml-auto text-[#475569] text-xs">Tomorrow, 7 AM</span>
-        </div>
-
-        {/* Card body */}
-        <div className="px-5 py-5">
-          <p className="text-white text-sm leading-relaxed">{preview.bodyText}</p>
-        </div>
-
-        {/* SMS footer simulation */}
-        <div className="px-5 py-3 border-t border-[#1A1A1A] bg-[#0D0D0D]">
-          <p className="text-[#475569] text-xs">
-            Reply <span className="text-[#10B981] font-semibold">Y</span> if useful&nbsp;&nbsp;·&nbsp;&nbsp;
-            Reply <span className="text-[#EF4444] font-semibold">N</span> if not — we&apos;ll adjust
-          </p>
-        </div>
-      </motion.div>
-
-      {/* Subtext */}
-      <motion.p
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.55 }}
-        className="mt-6 text-[#94A3B8] text-sm text-center max-w-sm"
-      >
-        This is what lands in your inbox tomorrow morning.
-      </motion.p>
-
-      {/* CTA */}
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.7 }}
-        className="mt-8 flex flex-col items-center gap-3"
-      >
-        <button
-          onClick={onContinue}
-          className="flex items-center gap-2 bg-[#7C3AED] hover:bg-[#A855F7] text-white px-8 py-4 rounded-xl text-base font-semibold transition-colors"
-        >
-          Start my free trial
-          <ArrowRight size={18} />
-        </button>
-        <p className="text-[#475569] text-xs text-center">
-          7-day free trial&nbsp;&nbsp;·&nbsp;&nbsp;No card needed&nbsp;&nbsp;·&nbsp;&nbsp;Cancel anytime
-        </p>
-      </motion.div>
     </motion.div>
   )
 }

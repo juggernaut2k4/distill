@@ -21,6 +21,7 @@ const OnboardingSchema = z.object({
   primaryDomain: z.string().default('ai-ml'),
   domainProficiency: z.record(z.string(), z.string()).default({}),
   learningGoal: z.string().default('steady_progress'),
+  subDomain: z.string().min(1).max(100).optional(),
 })
 
 /**
@@ -78,6 +79,7 @@ export async function POST(request: NextRequest) {
       primary_domain: data.primaryDomain,
       domain_proficiency: data.domainProficiency,
       learning_goal: data.learningGoal,
+      sub_domain: data.subDomain ?? null,
     }
 
     const { error: upsertError } = await supabase
