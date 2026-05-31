@@ -19,9 +19,25 @@ const TOTAL_STEPS = 6
 
 // ─── Sub-domain lists per primary domain ──────────────────────────────────────
 
+// Industry sectors — used for all technical, AI, data, product, leadership, and
+// marketing domains where the most useful personalisation signal is "which
+// industry are you applying this in?" rather than a technical sub-type.
+const INDUSTRY_SECTORS = [
+  'Financial Services',
+  'Healthcare & Life Sciences',
+  'Retail & E-commerce',
+  'Technology & Software',
+  'Manufacturing & Industrial',
+  'Professional Services',
+  'Media & Entertainment',
+  'Government & Public Sector',
+]
+
+// Industry-specific domains get their own focused sub-domain lists.
+// All other taxonomy domain IDs (ai-ml, devops, cloud, leadership, etc.)
+// fall through to INDUSTRY_SECTORS above.
 const SUB_DOMAIN_MAP: Record<string, string[]> = {
   finance: ['Banking', 'Insurance', 'Investment Management', 'FinTech', 'Private Equity', 'Corporate Finance'],
-  technology: ['Cloud & Infrastructure', 'Cybersecurity', 'Data & Analytics', 'Software Development', 'AI / ML', 'Product Management'],
   healthcare: ['Clinical Operations', 'Pharma & Life Sciences', 'Health Insurance', 'MedTech & Devices', 'Digital Health'],
   retail: ['E-commerce', 'Physical Retail', 'Consumer Goods', 'Supply Chain & Logistics', 'Retail Technology'],
   manufacturing: ['Industrial Operations', 'Automotive', 'Aerospace & Defence', 'Consumer Manufacturing', 'Supply Chain'],
@@ -29,20 +45,19 @@ const SUB_DOMAIN_MAP: Record<string, string[]> = {
   consulting: ['Strategy Consulting', 'Technology Consulting', 'Management Consulting', 'HR & Organisational Change', 'Financial Advisory'],
 }
 
-const FALLBACK_SUB_DOMAINS = ['Strategy', 'Operations', 'Technology', 'People & Culture', 'Finance']
-
 /**
- * Given a domain ID (from taxonomy, e.g. "ai-ml", "finance", "corp-finance"),
- * find the best matching sub-domain list.
+ * Given a domain ID from the taxonomy (e.g. "ai-ml", "finance", "devops"),
+ * return the appropriate sub-domain list.
+ * Industry-specific domains get targeted sub-lists; all others get industry sectors.
  */
 function getSubDomains(primaryDomainId: string): string[] {
   const lower = primaryDomainId.toLowerCase()
   for (const [key, list] of Object.entries(SUB_DOMAIN_MAP)) {
-    if (lower.includes(key) || key.includes(lower)) {
+    if (lower === key || lower.includes(key) || key.includes(lower)) {
       return list
     }
   }
-  return FALLBACK_SUB_DOMAINS
+  return INDUSTRY_SECTORS
 }
 
 /**
