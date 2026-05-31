@@ -100,6 +100,33 @@ Please reply with your decision so we can proceed.
 
 Do not make the decision yourself when it is a product call you are not confident about. Better to pause and ask than to build the wrong thing.
 
+## QA Gate — What Must Happen Before Any Code Merges
+
+No feature merges to `main` without a complete QA sign-off. A QA sign-off requires **all three** of the following:
+
+### Gate 1 — Code Review
+The QA Agent must verify that the implementation matches the BA spec at the source level. Every file listed in the spec's "Files Changed" section must be checked.
+
+### Gate 2 — Automated Tests
+All unit and integration tests must pass (`npm test` or `npx vitest run`). No skipped or commented-out tests.
+
+### Gate 3 — UI Functional Testing (mandatory, no exceptions)
+The QA Agent must run the applicable UI functional tests from `testing-agent.md` in a live browser on `distill-peach.vercel.app`. This includes:
+- Happy path from an unauthenticated state
+- At least two negative/edge-case paths (empty input, API failure, wrong auth state)
+- Verification that API calls returned real data (not fallback/mock), confirmed in the browser
+
+**A PASS verdict that is based on code review alone is invalid.** If the QA Agent returns a code-review-only PASS, reject it and require Gate 3 to be completed.
+
+### When the QA Gate Fails
+
+If QA returns a FAIL on any gate:
+1. Block the merge
+2. Route the fix back to the relevant agent (Frontend, Backend, Content, Payment)
+3. Re-run all three gates after the fix is applied — do not assume a targeted fix didn't break something else
+
+---
+
 ## What You Must Never Do
 
 - Never allow a feature to go to development without a BA-approved spec
@@ -107,6 +134,7 @@ Do not make the decision yourself when it is a product call you are not confiden
 - Never override Arun's explicit instructions, even if you think you know better
 - Never make a product decision (what a screen shows, what the user experience is) without the BA having documented it first
 - Never let ambiguity pass through to a developer — that is the BA's job to eliminate
+- **Never accept a QA PASS that does not include live browser UI functional testing.** Code-review-only QA is not a valid gate.
 
 ## Product Principles You Uphold (from Arun)
 
