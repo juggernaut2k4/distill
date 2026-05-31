@@ -50,8 +50,15 @@ test.describe('Full QA flow — authenticated', () => {
     await page.waitForLoadState('networkidle', { timeout: 60_000 })
     await page.waitForTimeout(2000) // let catalog load
 
-    // Click first 3 available topic buttons/checkboxes
-    const topicButtons = page.locator('button[data-topic-id], [data-testid="topic-option"], button').filter({ hasText: /GPT|Claude|AI Strategy|LLM|Digital Transform|Leadership/i })
+    // Wait for the topics page to leave loading state and show selection view
+    await page.waitForSelector('button:has(p)', { timeout: 30_000 }).catch(() => {})
+    await page.waitForTimeout(1000)
+
+    // Topic cards are motion.button elements — click up to 3 of the first visible ones
+    // The featured catalog cards (FeaturedCard component) are buttons containing a <p> with the title
+    const topicButtons = page.locator('button').filter({ has: page.locator('p') }).filter({
+      hasNotText: /skip|continue|build|generate|back|more topics|enter topics/i,
+    })
     const count = await topicButtons.count()
     console.log(`Found ${count} matching topic buttons`)
 
@@ -60,8 +67,8 @@ test.describe('Full QA flow — authenticated', () => {
       await page.waitForTimeout(300)
     }
 
-    // Click Continue / Build my plan
-    const continueBtn = page.locator('button').filter({ hasText: /continue|build.*plan|next/i }).first()
+    // Sticky bottom bar "Continue" button appears when ≥1 topic selected
+    const continueBtn = page.locator('button').filter({ hasText: /^Continue$|^Continue with/i }).last()
     await expect(continueBtn).toBeEnabled({ timeout: 5000 })
     await continueBtn.click()
 
