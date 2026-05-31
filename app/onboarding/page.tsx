@@ -3,7 +3,6 @@
 import { useState, Suspense, useMemo } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useRouter } from 'next/navigation'
-import { useUser } from '@clerk/nextjs'
 import { ProgressBar } from '@/components/onboarding/ProgressBar'
 import { ArrowRight, ArrowLeft, Plus, X, Search } from 'lucide-react'
 import {
@@ -474,7 +473,6 @@ function SubDomainStep({
 
 function OnboardingContent() {
   const router = useRouter()
-  const { isSignedIn } = useUser()
 
   const [step, setStep] = useState(0)
   const [direction, setDirection] = useState<'right' | 'left'>('right')
@@ -579,9 +577,9 @@ function OnboardingContent() {
       }),
     }).catch(() => { /* non-fatal */ })
 
-    // After 2s building animation, redirect to /topics
+    // After 2s building animation, always redirect to /topics (public — auth happens after topic selection)
     setTimeout(() => {
-      router.push(isSignedIn ? '/topics' : '/sign-up')
+      router.push('/topics')
     }, 2000)
   }
 

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import { useUser } from '@clerk/nextjs'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   TrendingUp, Briefcase, Wrench, Target, Plus, ArrowRight,
@@ -165,6 +166,7 @@ const SECTION_COLORS = [
 
 export default function TopicsPage() {
   const router = useRouter()
+  const { isSignedIn } = useUser()
 
   const [pageState, setPageState] = useState<PageState>('loading')
   const [sections, setSections] = useState<RecommendationSection[]>([])
@@ -316,7 +318,40 @@ export default function TopicsPage() {
   }, [])
 
   const selectedCount = selectedIds.size
-  const canContinue = selectedCount >= 3
+  const canContinue = selectedCount >= 1
+
+  // ── Auth-aware continue handler ───────────────────────────────────────────────
+
+  const handleContinue = useCallback(() => {
+    if (!canContinue) return
+
+    // Collect all topic titles (AI-recommended + custom)
+    const allTopics: RecommendedTopic[] = [
+      ...sections.flatMap((s) => s.topics),
+      ...customTopics,
+    ]
+    const selectedTitles = Array.from(selectedIds)
+      .map((id) => allTopics.find((t) => t.id === id)?.title)
+      .filter((title): title is string => Boolean(title))
+
+    // Merge into existing localStorage profile
+    let existing: Record<string, unknown> = {}
+    try {
+      const raw = localStorage.getItem('clio_onboarding')
+      if (raw) existing = JSON.parse(raw) as Record<string, unknown>
+    } catch { /* ignore */ }
+    localStorage.setItem('clio_onboarding', JSON.stringify({
+      ...existing,
+      selectedTopics: selectedTitles,
+    }))
+
+    // Signed-in → go straight to plan; unauthenticated → sign up first
+    if (isSignedIn) {
+      router.push('/plan')
+    } else {
+      router.push('/sign-up')
+    }
+  }, [canContinue, sections, customTopics, selectedIds, isSignedIn, router])
 
   // ── Selected count pill ───────────────────────────────────────────────────────
 
@@ -372,7 +407,7 @@ export default function TopicsPage() {
                 <div>
                   <h1 className="text-2xl font-bold text-white">Your AI Learning Plan</h1>
                   <p className="text-sm text-[#94A3B8] mt-1">
-                    Select the topics you want to master. Pick at least 3.
+                    Select the topics you want to master. Pick at least 1 to get started.
                   </p>
                 </div>
                 {selectedPill}
@@ -478,7 +513,7 @@ export default function TopicsPage() {
                 </p>
                 <div className="relative group">
                   <button
-                    onClick={() => canContinue && router.push('/plan')}
+                    onClick={handleContinue}
                     disabled={!canContinue}
                     className={`flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-semibold transition-colors ${
                       canContinue
@@ -492,7 +527,7 @@ export default function TopicsPage() {
                   {/* Tooltip when disabled */}
                   {!canContinue && (
                     <div className="absolute bottom-full mb-2 right-0 hidden group-hover:block whitespace-nowrap bg-[#1A1A1A] border border-[#333333] text-xs text-[#94A3B8] rounded-lg px-3 py-2 pointer-events-none">
-                      Select at least 3 topics to continue
+                      Select at least 1 topic to continue
                     </div>
                   )}
                 </div>
