@@ -26,7 +26,7 @@ export default function WelcomePage() {
       } else {
         clearInterval(interval)
         setDone(true)
-        setTimeout(() => router.push('/topics'), 1200)
+        setTimeout(() => router.push('/dashboard'), 1200)
       }
     }, 900)
 
@@ -101,7 +101,7 @@ export default function WelcomePage() {
               <CheckCircle size={48} className="text-[#10B981]" />
             </motion.div>
             <h2 className="text-3xl font-bold text-white mb-2">You&apos;re all set!</h2>
-            <p className="text-[#94A3B8]">Let&apos;s build your learning plan...</p>
+            <p className="text-[#94A3B8]">Taking you to your dashboard...</p>
           </motion.div>
         )}
       </AnimatePresence>
