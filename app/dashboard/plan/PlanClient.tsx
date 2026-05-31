@@ -202,6 +202,31 @@ export default function PlanClient({ user }: { user: User }) {
     return () => { if (pollingRef.current) clearInterval(pollingRef.current) }
   }, [])
 
+  // ─── Regenerate plan (for fallback plans when API key becomes available) ──
+
+  async function handleRegenerate() {
+    setViewState('generating')
+    setPlanId(null)
+    setVisibleSessions([])
+    try {
+      const genRes = await fetch('/api/curriculum/generate', { method: 'POST' })
+      if (!genRes.ok) throw new Error('Generate failed')
+      const genData = await genRes.json() as {
+        plan_id: string
+        visible_sessions: CurriculumSession[]
+        is_approved: boolean
+        is_fallback?: boolean
+      }
+      setPlanId(genData.plan_id)
+      setVisibleSessions(genData.visible_sessions ?? [])
+      setIsFallback(genData.is_fallback ?? false)
+      setIsPlanApproved(genData.is_approved)
+      setViewState(genData.is_approved ? 'active' : 'approval')
+    } catch {
+      setViewState('fallback')
+    }
+  }
+
   // ─── Approve plan ─────────────────────────────────────────────────────────
 
   async function handleApprove() {
@@ -339,6 +364,14 @@ export default function PlanClient({ user }: { user: User }) {
                     ? "We're still building your full personalised plan — it'll be ready shortly."
                     : 'Based on your topics and role. Review and approve to begin.'}
                 </p>
+                {isFallback && !isPlanApproved && (
+                  <button
+                    onClick={handleRegenerate}
+                    className="mt-2 text-sm text-[#7C3AED] hover:text-[#A855F7] transition-colors underline underline-offset-2"
+                  >
+                    Try generating the full plan →
+                  </button>
+                )}
               </>
             )}
           </div>

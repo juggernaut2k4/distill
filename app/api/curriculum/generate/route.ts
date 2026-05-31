@@ -35,21 +35,29 @@ export async function POST() {
   const planTier = user.plan_tier ?? null
   const profileHash = buildProfileHash(role, maturity, topics)
 
-  // Return existing plan if profile has not changed
+  // Return existing plan if profile has not changed AND it is not a fallback plan
   const { data: existing } = await supabase
     .from('curriculum_plans')
-    .select('id, visible_sessions, queue_sessions, is_approved, user_profile_hash')
+    .select('id, visible_sessions, queue_sessions, is_approved, user_profile_hash, raw_llm_output')
     .eq('user_id', userId!)
     .is('superseded_at', null)
     .single()
 
-  if (existing && existing.user_profile_hash === profileHash) {
+  const existingIsFallback = existing?.raw_llm_output
+    ? (existing.raw_llm_output as { is_fallback?: boolean }).is_fallback === true
+    : false
+  const apiKeyAvailable = (process.env.ANTHROPIC_API_KEY ?? '').length > 0 &&
+    !(process.env.ANTHROPIC_API_KEY ?? '').startsWith('PLACEHOLDER_')
+
+  // Cache hit: same profile hash AND (real plan OR still no API key to improve it)
+  if (existing && existing.user_profile_hash === profileHash && (!existingIsFallback || !apiKeyAvailable)) {
     return NextResponse.json({
       plan_id: existing.id,
       visible_sessions: existing.visible_sessions,
       is_approved: existing.is_approved,
       arc_count: 0,
       total_visible: Array.isArray(existing.visible_sessions) ? existing.visible_sessions.length : 0,
+      is_fallback: existingIsFallback,
       cached: true,
     })
   }
