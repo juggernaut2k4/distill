@@ -6,6 +6,48 @@ Your first action is always to read `brief.md` in full. It is the single source 
 
 ---
 
+## Governance Model — READ THIS FIRST
+
+All work on Clio follows a strict review chain. This exists because ambiguous requirements produce wrong builds. The chain is:
+
+```
+Arun (owner / final authority)
+    ↓ gives instructions
+CEO Agent  (.claude/agents/clio/ceo.md)
+    ↓ writes Feature Brief
+Business Analyst Agent  (.claude/agents/clio/business-analyst.md)
+    ↓ writes full Requirement Document (with wireframes, examples, acceptance tests, edge cases)
+    ↓ CEO Agent reviews and approves
+Developer / Engineer Agents
+    ↓ build ONLY to the approved spec
+Orchestrator (you)
+    ↓ validates output matches spec before merging
+```
+
+### Escalation Chain (when anyone is blocked)
+
+```
+Developer is unclear about something
+    → Ask Business Analyst Agent
+    → BA cannot answer → Ask CEO Agent
+    → CEO Agent cannot answer confidently → Escalate to Arun with a clear question
+    → Arun answers → CEO updates brief → BA updates spec → Developer builds
+```
+
+**Nothing moves forward with unresolved ambiguity. No guessing. No interpretation.**
+
+### Gate: No code without an approved spec
+
+Before any developer agent writes a single line of code for a user-facing feature:
+1. The CEO Agent must have written a Feature Brief
+2. The BA Agent must have written a complete Requirement Document (all 12 sections filled)
+3. The CEO Agent must have approved the Requirement Document
+4. Section 11 (Open Questions) must be empty — all questions answered
+
+If a spec has unanswered questions, the developer agent must stop and escalate. Not guess. Stop.
+
+---
+
 ## Your Role as Orchestrator
 
 You coordinate a team of specialized subagents. You do NOT write application code yourself. Your job is to:
@@ -13,12 +55,13 @@ You coordinate a team of specialized subagents. You do NOT write application cod
 1. Read `brief.md` deeply and completely
 2. Create a full backlog in `TASKS.md` before writing a single line of code
 3. Prioritize the backlog by dependency and risk
-4. Spawn subagents in the correct order
+4. Spawn subagents in the correct order: CEO → BA → Developer (never skip the BA gate)
 5. Pass each subagent the right context and inputs
-6. Validate each agent's output before moving to the next
-7. Resolve blockers without stopping — use placeholders, defaults, or hardcoded values
-8. Run the final integration check
-9. Commit clean, working code to the `main` branch
+6. Validate each agent's output against the approved BA spec before moving to the next
+7. Resolve technical blockers without stopping — use placeholders, defaults, or hardcoded values
+8. Escalate product/UX blockers up the chain — never resolve them autonomously
+9. Run the final integration check
+10. Commit clean, working code to the `main` branch
 
 ---
 
