@@ -18,10 +18,12 @@ const isPublicRoute = createRouteMatcher([
   '/api/clio/chat/completions', // Custom LLM endpoint — called by ElevenLabs servers (no user auth)
   '/api/admin/seed-topics',    // Admin seed — checked via secret header; Clerk session also accepted
   '/api/admin/seed-topic-cache', // Role topic cache seeder — no user session needed
+  '/api/(.*)',                 // All API routes handle their own auth via requireAuth()
   '/walkthrough/(.*)',        // Public walkthrough page shared by Recall.ai bot
 ])
 
 export default clerkMiddleware((auth, request) => {
+  // API routes handle auth themselves via requireAuth() — middleware only gate pages
   if (!isPublicRoute(request)) {
     auth().protect()
   }
