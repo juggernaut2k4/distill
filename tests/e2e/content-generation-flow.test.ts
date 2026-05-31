@@ -45,17 +45,43 @@ test.describe('Full QA flow — authenticated', () => {
   })
 
   test('3. can select topics and continue to plan', async ({ page }) => {
-    // session loaded via storageState
+    // Inject a minimal onboarding profile into localStorage so the catalog API
+    // returns personalised topics (otherwise, with no profile, the page falls
+    // through to the 'input' / goal-entry view).
+    await page.goto('/dashboard', { waitUntil: 'domcontentloaded', timeout: 60_000 })
+    await page.evaluate(() => {
+      localStorage.setItem('clio_onboarding', JSON.stringify({
+        role: 'ceo',
+        domains: ['ai-ml', 'leadership'],
+        primaryDomain: 'ai-ml',
+      }))
+    })
+
     await page.goto('/topics', { waitUntil: 'domcontentloaded', timeout: 60_000 })
-    await page.waitForLoadState('networkidle', { timeout: 60_000 })
     await page.waitForTimeout(2000) // let catalog load
 
-    // Wait for the topics page to leave loading state and show selection view
-    await page.waitForSelector('button:has(p)', { timeout: 30_000 }).catch(() => {})
-    await page.waitForTimeout(1000)
+    // The topics page can land in two states depending on whether the catalog
+    // returned topics:
+    //   'selection' view — FeaturedCard motion.button elements (contain a <p>)
+    //   'input' view    — textarea + "Generate my topic list" button
+    const textarea = page.locator('textarea').first()
+    const isInputView = await textarea.isVisible({ timeout: 5000 }).catch(() => false)
 
-    // Topic cards are motion.button elements — click up to 3 of the first visible ones
-    // The featured catalog cards (FeaturedCard component) are buttons containing a <p> with the title
+    if (isInputView) {
+      console.log('Topics page landed on input view — generating topics via textarea')
+      await textarea.fill('I want to understand how AI can help my business and become confident leading AI initiatives')
+      await page.locator('button').filter({ hasText: /Generate my topic list/i }).first().click()
+      // Wait up to 45s for the AI to return topics and switch to selection view
+      await page.waitForSelector('button:has(p)', { timeout: 45_000 })
+      await page.waitForTimeout(1000)
+    } else {
+      // Already in selection view — wait for cards to fully render
+      await page.waitForSelector('button:has(p)', { timeout: 30_000 }).catch(() => {})
+      await page.waitForTimeout(1000)
+    }
+
+    // Topic cards are motion.button elements (FeaturedCard component) — each
+    // contains a <p> with the topic title.
     const topicButtons = page.locator('button').filter({ has: page.locator('p') }).filter({
       hasNotText: /skip|continue|build|generate|back|more topics|enter topics/i,
     })
