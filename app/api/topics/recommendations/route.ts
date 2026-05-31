@@ -5,8 +5,9 @@ import Anthropic from '@anthropic-ai/sdk'
 // ─── Request schema ────────────────────────────────────────────────────────────
 
 const RecommendationsSchema = z.object({
-  role: z.string().min(1).max(100),
-  primaryDomain: z.string().min(1).max(100),
+  // min(1) removed — empty strings are valid; we default gracefully rather than returning blank fallback
+  role: z.string().max(100).optional().default(''),
+  primaryDomain: z.string().max(100).optional().default(''),
   subDomain: z.string().max(100).optional().default(''),
   learningGoal: z.string().max(200).optional().default(''),
   aiMaturity: z.string().max(50).optional().default('intermediate'),
@@ -33,36 +34,39 @@ interface RecommendationsResponse {
 
 interface FallbackResponse {
   fallback: true
+  sections: Section[]
 }
 
 // ─── Mock data ─────────────────────────────────────────────────────────────────
 
+// Generic AI/ML fallback — shown when Claude is unavailable or profile data is incomplete.
+// Domain-neutral so it's useful regardless of the user's specific field.
 const MOCK_RESPONSE: RecommendationsResponse = {
   sections: [
     {
       id: 'trending',
-      label: 'Trending in your field',
+      label: 'Trending right now',
       icon: 'TrendingUp',
       topics: [
         {
-          id: 'ai-credit-risk',
-          title: 'AI in Credit Risk Modelling',
-          description: 'ML models replacing scorecards for faster, more accurate lending decisions.',
+          id: 'llm-enterprise-apps',
+          title: 'LLMs in Enterprise Applications',
+          description: 'How organisations are embedding large language models into existing workflows.',
         },
         {
-          id: 'llm-compliance',
-          title: 'LLMs for Regulatory Compliance',
-          description: 'Using AI to parse regulations and flag policy gaps automatically.',
+          id: 'agentic-ai',
+          title: 'Agentic AI & Autonomous Systems',
+          description: 'AI that plans, executes, and self-corrects without constant human direction.',
         },
         {
-          id: 'ai-fraud-detection',
-          title: 'Real-Time Fraud Detection',
-          description: 'How banks deploy AI to catch fraud milliseconds before transactions clear.',
+          id: 'ai-governance-leaders',
+          title: 'AI Governance for Leaders',
+          description: 'Building oversight structures that satisfy regulators and your board.',
         },
         {
-          id: 'gen-ai-reporting',
-          title: 'Generative AI for Financial Reporting',
-          description: 'Automating commentary and variance analysis in board-ready reports.',
+          id: 'multimodal-ai',
+          title: 'Multimodal AI in Practice',
+          description: 'Models that combine text, images, and audio are reshaping product workflows.',
         },
       ],
     },
@@ -72,19 +76,19 @@ const MOCK_RESPONSE: RecommendationsResponse = {
       icon: 'Briefcase',
       topics: [
         {
-          id: 'ai-strategy-finance',
-          title: 'AI Strategy for Finance Leaders',
-          description: 'Building a credible AI roadmap your board and CFO will approve.',
+          id: 'ai-strategy',
+          title: 'Building an AI Strategy',
+          description: 'A framework for deciding where AI creates competitive advantage for your organisation.',
         },
         {
-          id: 'ai-business-case',
-          title: 'Building AI Business Cases',
-          description: 'How to quantify ROI on AI projects before committing budget.',
-        },
-        {
-          id: 'vendor-evaluation',
+          id: 'ai-vendor-pitches',
           title: 'Evaluating AI Vendor Pitches',
-          description: 'The 5 questions that separate real AI from a polished demo.',
+          description: 'The 5 questions that separate real AI capability from a polished demo.',
+        },
+        {
+          id: 'ai-team-enablement',
+          title: 'Enabling Your Team with AI',
+          description: 'How executives accelerate adoption without becoming the AI bottleneck.',
         },
       ],
     },
@@ -94,41 +98,41 @@ const MOCK_RESPONSE: RecommendationsResponse = {
       icon: 'Wrench',
       topics: [
         {
-          id: 'anthropic-claude-banking',
-          title: 'Anthropic Claude for Banking',
-          description: 'Using Claude for contract review, report drafting, and scenario analysis.',
+          id: 'anthropic-claude-work',
+          title: 'Anthropic Claude for Work',
+          description: 'Using Claude for analysis, writing, and decision support in your daily workflow.',
         },
         {
-          id: 'chatgpt-analysis',
-          title: 'ChatGPT for Financial Analysis',
-          description: 'Prompting strategies that turn raw data into executive-ready summaries.',
+          id: 'chatgpt-executive-use',
+          title: 'ChatGPT for Executives',
+          description: 'Prompting strategies that turn raw information into board-ready insights.',
         },
         {
           id: 'copilot-productivity',
-          title: 'Microsoft Copilot in Finance',
-          description: 'Automating Excel models, PowerPoint decks, and email drafts at scale.',
+          title: 'Microsoft Copilot Productivity',
+          description: 'Automating documents, presentations, and email drafts across the Office suite.',
         },
       ],
     },
     {
       id: 'goal',
-      label: 'Based on your goal',
+      label: 'To reach your goal',
       icon: 'Target',
       topics: [
         {
-          id: 'ai-roi-frameworks',
-          title: 'AI ROI Frameworks',
-          description: 'Proven methods to measure and communicate AI investment returns.',
+          id: 'ai-fundamentals-leaders',
+          title: 'AI Fundamentals for Leaders',
+          description: 'What every executive needs to understand about how AI models actually work.',
         },
         {
-          id: 'ai-governance',
-          title: 'AI Governance for Executives',
-          description: 'Building oversight structures that satisfy regulators and your board.',
+          id: 'ai-roi',
+          title: 'Measuring AI ROI',
+          description: 'Proven methods to quantify and communicate the return on AI investments.',
         },
         {
-          id: 'ai-readiness',
-          title: 'Assessing AI Readiness',
-          description: 'A diagnostic for where your organisation stands versus competitors.',
+          id: 'prompt-engineering-basics',
+          title: 'Prompt Engineering Basics',
+          description: 'The skill that immediately multiplies the quality of every AI interaction you have.',
         },
       ],
     },
@@ -241,8 +245,7 @@ export async function POST(
     const parsed = RecommendationsSchema.safeParse(body)
 
     if (!parsed.success) {
-      // Even on validation failure return fallback so the frontend can degrade gracefully
-      return NextResponse.json({ fallback: true } as FallbackResponse)
+      return NextResponse.json({ fallback: true, sections: MOCK_RESPONSE.sections } as FallbackResponse)
     }
 
     const { role, primaryDomain, subDomain, learningGoal, aiMaturity } = parsed.data
@@ -268,9 +271,9 @@ export async function POST(
       learningGoal
     )
 
-    // 10-second timeout via AbortController
+    // 20-second timeout via AbortController (Claude Sonnet p50 is ~3s, p99 is ~15s)
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 10_000)
+    const timeoutId = setTimeout(() => controller.abort(), 20_000)
 
     let rawText: string
     try {
@@ -289,7 +292,7 @@ export async function POST(
     } catch (err) {
       // Covers both timeout (AbortError) and network errors
       console.error('[topics/recommendations] Claude API error:', (err as Error).message)
-      return NextResponse.json({ fallback: true } as FallbackResponse)
+      return NextResponse.json({ fallback: true, sections: MOCK_RESPONSE.sections } as FallbackResponse)
     } finally {
       clearTimeout(timeoutId)
     }
@@ -297,13 +300,13 @@ export async function POST(
     const result = parseClaudeResponse(rawText)
     if (!result) {
       console.error('[topics/recommendations] Failed to parse Claude JSON response')
-      return NextResponse.json({ fallback: true } as FallbackResponse)
+      return NextResponse.json({ fallback: true, sections: MOCK_RESPONSE.sections } as FallbackResponse)
     }
 
     return NextResponse.json(result)
   } catch (err) {
     // Unhandled errors — never let this route return 500
     console.error('[topics/recommendations] Unexpected error:', err)
-    return NextResponse.json({ fallback: true } as FallbackResponse)
+    return NextResponse.json({ fallback: true, sections: MOCK_RESPONSE.sections } as FallbackResponse)
   }
 }
