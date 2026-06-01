@@ -61,11 +61,17 @@ export async function GET(_req: NextRequest, { params }: Params) {
   if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 })
 
   const topicId = session.topic_id ?? 'ai-fundamentals'
-  // Prefer session_plan subtopics (the actual agenda items) over the high-level topics array
+  // Prefer session_plan subtopics → LLM-designed subtopics from approval → hardcoded catalog
   const planSubtopics = (session.session_plan as SessionPlan | null)?.subtopics
     ?.filter((s: { skipped?: boolean }) => !s.skipped)
     ?.map((s: { title: string }) => s.title) ?? []
-  const subtopicTitles = planSubtopics.length > 0 ? planSubtopics : getSubtopics(topicId, session.topics as string[] | null)
+  const rawSubtopicsGet = (session as unknown as { subtopics?: unknown }).subtopics
+  const designedTitlesGet = Array.isArray(rawSubtopicsGet) && rawSubtopicsGet.length > 0
+    ? (rawSubtopicsGet as Array<{ title: string }>).map((s) => s.title)
+    : null
+  const subtopicTitles = planSubtopics.length > 0
+    ? planSubtopics
+    : (designedTitlesGet ?? getSubtopics(topicId, session.topics as string[] | null))
 
   // Fetch per-subtopic pipeline state from cache.
   // Query by topic_id only; match in memory by both stored slug AND title-derived slug
@@ -115,7 +121,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
   const [{ data: session }, { data: userRow }] = await Promise.all([
     supabase
       .from('sessions')
-      .select('id, session_title, topic_id, topics, content_status, session_plan, duration_mins')
+      .select('id, session_title, topic_id, topics, content_status, session_plan, duration_mins, subtopics')
       .eq('id', params.id)
       .eq('user_id', userId!)
       .single(),
@@ -135,7 +141,14 @@ export async function POST(_req: NextRequest, { params }: Params) {
   const planSubtopics = (session.session_plan as SessionPlan | null)?.subtopics
     ?.filter((s: { skipped?: boolean }) => !s.skipped)
     ?.map((s: { title: string }) => s.title) ?? []
-  const subtopicTitles = planSubtopics.length > 0 ? planSubtopics : getSubtopics(topicId, session.topics as string[] | null)
+  // Prefer: session_plan subtopics (already resolved) → LLM-designed subtopics from approval → hardcoded catalog
+  const rawSubtopicsPost = (session as unknown as { subtopics?: unknown }).subtopics
+  const designedTitlesPost = Array.isArray(rawSubtopicsPost) && rawSubtopicsPost.length > 0
+    ? (rawSubtopicsPost as Array<{ title: string }>).map((s) => s.title)
+    : null
+  const subtopicTitles = planSubtopics.length > 0
+    ? planSubtopics
+    : (designedTitlesPost ?? getSubtopics(topicId, session.topics as string[] | null))
   const userContext = {
     role: userRow?.role ?? 'executive',
     industry: userRow?.industry ?? 'business',
