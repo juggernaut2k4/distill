@@ -17,14 +17,14 @@ export async function POST() {
 
   const { data: user, error: dbError } = await supabase
     .from('users')
-    .select('id, role, industry, ai_maturity, topic_interests, plan_tier, worry')
+    .select('id, role, industry, ai_maturity, topic_interests, plan_tier, worry_tags')
     .eq('id', userId!)
     .single()
 
-  const supaUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? '').slice(0, 30)
-  console.log('[gen]', JSON.stringify({ uid: userId?.slice(0,12), found: !!user, err: dbError?.code ?? dbError?.message?.slice(0,50) ?? null, url: supaUrl }))
-
-  if (!user) return NextResponse.json({ error: 'User not found', code: 'USER_NOT_FOUND' }, { status: 404 })
+  if (!user) {
+    console.error('[curriculum/generate] user not found', { userId: userId?.slice(0, 12), code: dbError?.code })
+    return NextResponse.json({ error: 'User not found', code: 'USER_NOT_FOUND' }, { status: 404 })
+  }
 
   const topics: string[] = Array.isArray(user.topic_interests) ? user.topic_interests : []
   if (topics.length === 0) {
@@ -34,7 +34,7 @@ export async function POST() {
   const role = user.role ?? 'executive'
   const industry = user.industry ?? 'general'
   const maturity = user.ai_maturity ?? 'intermediate'
-  const worry = user.worry ?? ''
+  const worry = Array.isArray(user.worry_tags) ? user.worry_tags.join(', ') : ''
   const planTier = user.plan_tier ?? null
   const profileHash = buildProfileHash(role, maturity, topics)
 
