@@ -98,10 +98,18 @@ export default function SessionDetailClient({ session }: Props) {
 
   // Session plan state — polls until all visuals are ready
   const [sessionPlan, setSessionPlan] = useState<SessionPlan | null>(session.session_plan)
+  const planFetchFailures = useRef(0)
 
   const fetchPlan = useCallback(async () => {
     const res = await fetch(`/api/sessions/${session.id}/generate-plan`)
-    if (!res.ok) return
+    if (!res.ok) {
+      if (res.status === 401 || res.status === 403 || ++planFetchFailures.current >= 3) {
+        // Force the plan into a terminal state so the interval clears
+        setSessionPlan((prev) => prev ? { ...prev, plan_status: 'failed' } : prev)
+      }
+      return
+    }
+    planFetchFailures.current = 0
     const data = await res.json() as { session_plan: SessionPlan | null }
     if (data.session_plan) setSessionPlan(data.session_plan)
   }, [session.id])
@@ -138,10 +146,19 @@ export default function SessionDetailClient({ session }: Props) {
   const [isStuck, setIsStuck] = useState(false)
 
   const isInitialLoadRef = useRef(true)
+  const contentFetchFailures = useRef(0)
 
   const fetchContentStatus = useCallback(async () => {
     const res = await fetch(`/api/sessions/${session.id}/generate-content`)
-    if (!res.ok) return
+    if (!res.ok) {
+      // Stop polling on auth failure or after 3 consecutive errors
+      if (res.status === 401 || res.status === 403 || ++contentFetchFailures.current >= 3) {
+        setContentStatus('failed')
+        setIsGeneratingContent(false)
+      }
+      return
+    }
+    contentFetchFailures.current = 0
     const data = await res.json() as { content_status: string; subtopics: ContentSubtopic[] }
     const status = data.content_status as typeof contentStatus
 
