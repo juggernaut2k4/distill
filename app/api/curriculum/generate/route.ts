@@ -15,11 +15,13 @@ export async function POST() {
 
   const supabase = createSupabaseAdminClient()
 
-  const { data: user } = await supabase
+  const { data: user, error: dbError } = await supabase
     .from('users')
     .select('id, role, industry, ai_maturity, topic_interests, plan_tier, worry')
     .eq('id', userId!)
     .single()
+
+  console.log('[generate] userId:', userId, '| user found:', !!user, '| dbError:', dbError?.message ?? null)
 
   if (!user) return NextResponse.json({ error: 'User not found', code: 'USER_NOT_FOUND' }, { status: 404 })
 
