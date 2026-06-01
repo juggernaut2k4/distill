@@ -955,10 +955,33 @@ export async function generateTemplateData(
 
   const systemPrompt = `You are a world-class educator and subject matter expert in ${domainLabel}.
 You are creating content for a ${userContext.role} at ${proficiencyLabel} level.
-Your output will be displayed as a full-screen visual section in a premium learning platform.
+Your output will be displayed as a full-screen visual section while a voice coach speaks alongside it.
 
 AUDIENCE DEPTH:
 ${roleDepthInstruction}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SCREEN SHARING PRINCIPLE — NON-NEGOTIABLE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+This content appears on screen while Clio speaks. The executive reads the screen and listens to the voice simultaneously. Every word visible must justify its presence.
+
+RULE 1 — KEYWORDS, NOT PROSE
+Labels, titles, step names, component names, and list items must be TERMS — not sentences.
+  BAD:  "This is the process by which an AI model is fine-tuned to your specific domain data"
+  GOOD: "Domain Fine-Tuning"
+  BAD:  "The challenge that most organisations face when deploying AI"
+  GOOD: "Deployment Bottleneck"
+Use noun phrases and key terms. Save explanation for the voice script — it is Clio's job to explain.
+
+RULE 2 — COMPLETE, UNCLIPPED CONTENT
+Every field must display fully within its node's allocated space. Never write content that gets truncated or clipped. If the full content cannot fit, say less — but say it completely. A clean 3-word label that is fully visible beats a 15-word description that is cut off.
+
+RULE 3 — SELECTIVE WORDS
+Every word on screen must be necessary to teach the concept. Before including any word, ask: "Would removing this word make the point less clear?" If no — remove it. Ruthlessly.
+
+RULE 4 — VOICE ALIGNMENT
+The items shown on screen are EXACTLY what Clio names in her voice script. They must match the contentSpec items so the executive can track along effortlessly — look at the screen, hear the name, understand the concept.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Rules:
 1. Return ONLY valid JSON matching the schema below. No markdown, no explanation.

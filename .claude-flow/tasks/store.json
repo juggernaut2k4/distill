@@ -1,0 +1,216 @@
+{
+  "tasks": {
+    "task-1780083299003-8rdi69": {
+      "taskId": "task-1780083299003-8rdi69",
+      "type": "feature",
+      "description": "P0: Build Messages page — wire delivery_log table to dashboard UI. Fetch last 30 messages per user, render MessageCard components with content preview, date, thumbs up/down inline feedback buttons. Replace MessagesComingSoon.tsx.",
+      "priority": "critical",
+      "status": "pending",
+      "progress": 0,
+      "assignedTo": [
+        "distill-frontend",
+        "distill-backend"
+      ],
+      "tags": [
+        "p0",
+        "dashboard",
+        "messages",
+        "retention"
+      ],
+      "createdAt": "2026-05-29T19:34:59.003Z",
+      "startedAt": null,
+      "completedAt": null
+    },
+    "task-1780083299029-3jtc0e": {
+      "taskId": "task-1780083299029-3jtc0e",
+      "type": "feature",
+      "description": "P0: Verify feedback loop end-to-end — daily delivery → Y/N SMS reply → delivery_log update → feedback_weights upsert → AI Readiness Score recalculate → dashboard ScoreRing updates. Fix any silent breaks in the chain.",
+      "priority": "critical",
+      "status": "pending",
+      "progress": 0,
+      "assignedTo": [
+        "distill-backend",
+        "distill-qa"
+      ],
+      "tags": [
+        "p0",
+        "feedback-loop",
+        "score",
+        "retention",
+        "inngest"
+      ],
+      "createdAt": "2026-05-29T19:34:59.029Z",
+      "startedAt": null,
+      "completedAt": null
+    },
+    "task-1780083299041-s0heax": {
+      "taskId": "task-1780083299041-s0heax",
+      "type": "feature",
+      "description": "P0: Add personalized content preview on onboarding — after 5-question flow, before paywall, show a live sample of what their daily message will look like (mock Claude output using their role/industry answers). Must feel real, not generic.",
+      "priority": "critical",
+      "status": "pending",
+      "progress": 0,
+      "assignedTo": [
+        "distill-frontend",
+        "distill-content"
+      ],
+      "tags": [
+        "p0",
+        "onboarding",
+        "conversion",
+        "preview"
+      ],
+      "createdAt": "2026-05-29T19:34:59.041Z",
+      "startedAt": null,
+      "completedAt": null
+    },
+    "task-1780083299047-rstdcc": {
+      "taskId": "task-1780083299047-rstdcc",
+      "type": "feature",
+      "description": "P1: GitHub Actions CI pipeline — run vitest unit+integration tests on every PR, run Playwright E2E tests on Vercel preview deploy. Block merge if tests fail. Add status badge to README.",
+      "priority": "high",
+      "status": "pending",
+      "progress": 0,
+      "assignedTo": [
+        "distill-devops"
+      ],
+      "tags": [
+        "p1",
+        "ci",
+        "github-actions",
+        "testing"
+      ],
+      "createdAt": "2026-05-29T19:34:59.047Z",
+      "startedAt": null,
+      "completedAt": null
+    },
+    "task-1780083299057-zenusz": {
+      "taskId": "task-1780083299057-zenusz",
+      "type": "feature",
+      "description": "P1: Admin delivery health dashboard — show last 24h delivery success/failure counts per channel (email/SMS), last run timestamp of daily-delivery Inngest job, any users with 3+ consecutive failed deliveries. Accessible at /api/admin/delivery-health.",
+      "priority": "high",
+      "status": "pending",
+      "progress": 0,
+      "assignedTo": [
+        "distill-backend",
+        "distill-devops"
+      ],
+      "tags": [
+        "p1",
+        "admin",
+        "monitoring",
+        "delivery"
+      ],
+      "createdAt": "2026-05-29T19:34:59.057Z",
+      "startedAt": null,
+      "completedAt": null
+    },
+    "task-1780083299065-qxqx0c": {
+      "taskId": "task-1780083299065-qxqx0c",
+      "type": "feature",
+      "description": "P1: Unified dashboard — redesign dashboard home to show both learning tracks in one view: (1) Today's daily message + streak counter at top, (2) Next Clio session card below. One coherent learning journey, not two separate tools.",
+      "priority": "high",
+      "status": "pending",
+      "progress": 0,
+      "assignedTo": [
+        "distill-frontend",
+        "distill-product"
+      ],
+      "tags": [
+        "p1",
+        "dashboard",
+        "ux",
+        "clio",
+        "daily-learning"
+      ],
+      "createdAt": "2026-05-29T19:34:59.065Z",
+      "startedAt": null,
+      "completedAt": null
+    },
+    "task-1780083299069-g47nk0": {
+      "taskId": "task-1780083299069-g47nk0",
+      "type": "feature",
+      "description": "P1: Inngest job failure alerting — configure webhook notifications on job failure for daily-delivery, session-content-pipeline, feedback-processor. Send alert to admin email via Resend when any critical job fails 3+ retries.",
+      "priority": "high",
+      "status": "pending",
+      "progress": 0,
+      "assignedTo": [
+        "distill-devops",
+        "distill-backend"
+      ],
+      "tags": [
+        "p1",
+        "alerting",
+        "inngest",
+        "monitoring"
+      ],
+      "createdAt": "2026-05-29T19:34:59.069Z",
+      "startedAt": null,
+      "completedAt": null
+    },
+    "task-1780083299072-rw59li": {
+      "taskId": "task-1780083299072-rw59li",
+      "type": "feature",
+      "description": "P2: Mobile responsiveness audit — test all pages and template renderers at 375px (iPhone) and 390px viewports using gstack /qa. ComparisonTable, Timeline, StepFlow, Flowchart must stack vertically on mobile. Fix all layout breaks.",
+      "priority": "normal",
+      "status": "pending",
+      "progress": 0,
+      "assignedTo": [
+        "distill-qa",
+        "distill-frontend"
+      ],
+      "tags": [
+        "p2",
+        "mobile",
+        "responsive",
+        "templates",
+        "qa"
+      ],
+      "createdAt": "2026-05-29T19:34:59.073Z",
+      "startedAt": null,
+      "completedAt": null
+    },
+    "task-1780083299077-7ra0xk": {
+      "taskId": "task-1780083299077-7ra0xk",
+      "type": "feature",
+      "description": "P2: KB QA automation — add automated quality rules to kb-qa-agent.ts: word count check (≤80 words), 'So what?' sentence presence, Flesch-Kincaid reading level check. Run QA automatically before marking session content as 'ready'.",
+      "priority": "normal",
+      "status": "pending",
+      "progress": 0,
+      "assignedTo": [
+        "distill-content"
+      ],
+      "tags": [
+        "p2",
+        "kb",
+        "qa",
+        "content-quality",
+        "80-words"
+      ],
+      "createdAt": "2026-05-29T19:34:59.077Z",
+      "startedAt": null,
+      "completedAt": null
+    },
+    "task-1780083299081-kv4lmg": {
+      "taskId": "task-1780083299081-kv4lmg",
+      "type": "feature",
+      "description": "P2: Brand decision and copy alignment — resolve Distill vs Clio naming. Update all user-facing copy, brief.md, README, and CLAUDE.md to use one consistent brand. Update CLAUDE.md approved library list to include elevenlabs, @11labs/client, googleapis, @xyflow/react, svix.",
+      "priority": "normal",
+      "status": "pending",
+      "progress": 0,
+      "assignedTo": [
+        "distill-product"
+      ],
+      "tags": [
+        "p2",
+        "brand",
+        "copy",
+        "documentation"
+      ],
+      "createdAt": "2026-05-29T19:34:59.081Z",
+      "startedAt": null,
+      "completedAt": null
+    }
+  },
+  "version": "3.0.0"
+}

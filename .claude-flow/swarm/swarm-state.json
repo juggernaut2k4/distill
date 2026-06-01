@@ -1,0 +1,33 @@
+{
+  "swarms": {
+    "swarm-1780081045259-r16h7v": {
+      "swarmId": "swarm-1780081045259-r16h7v",
+      "topology": "hierarchical",
+      "maxAgents": 8,
+      "status": "running",
+      "agents": [
+        "distill-orchestrator",
+        "distill-backend",
+        "distill-frontend",
+        "distill-qa",
+        "distill-content",
+        "distill-devops",
+        "distill-product",
+        "distill-security"
+      ],
+      "tasks": [],
+      "config": {
+        "topology": "hierarchical",
+        "maxAgents": 8,
+        "strategy": "specialized",
+        "communicationProtocol": "message-bus",
+        "autoScaling": true,
+        "consensusMechanism": "majority"
+      },
+      "createdAt": "2026-05-29T18:57:25.259Z",
+      "updatedAt": "2026-05-29T18:57:25.259Z",
+      "pid": 96917
+    }
+  },
+  "version": "3.0.0"
+}

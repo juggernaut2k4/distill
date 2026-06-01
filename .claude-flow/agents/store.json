@@ -1,0 +1,188 @@
+{
+  "agents": {
+    "distill-orchestrator": {
+      "agentId": "distill-orchestrator",
+      "agentType": "orchestrator",
+      "status": "idle",
+      "health": 1,
+      "taskCount": 0,
+      "config": {
+        "role": "Lead Orchestrator",
+        "project": "distill",
+        "responsibilities": [
+          "task prioritisation",
+          "agent coordination",
+          "build progress tracking",
+          "blocker resolution"
+        ],
+        "model": "sonnet"
+      },
+      "createdAt": "2026-05-29T19:33:21.565Z",
+      "domain": "project-management",
+      "model": "sonnet",
+      "modelRoutedBy": "explicit"
+    },
+    "distill-backend": {
+      "agentId": "distill-backend",
+      "agentType": "backend-engineer",
+      "status": "idle",
+      "health": 1,
+      "taskCount": 0,
+      "config": {
+        "role": "Backend Engineer",
+        "owns": [
+          "app/api/*",
+          "inngest/*",
+          "lib/delivery/*",
+          "lib/stripe.ts",
+          "lib/supabase.ts"
+        ],
+        "model": "sonnet"
+      },
+      "createdAt": "2026-05-29T19:33:28.411Z",
+      "domain": "backend",
+      "model": "sonnet",
+      "modelRoutedBy": "explicit"
+    },
+    "distill-frontend": {
+      "agentId": "distill-frontend",
+      "agentType": "frontend-engineer",
+      "status": "idle",
+      "health": 1,
+      "taskCount": 0,
+      "config": {
+        "role": "Frontend Engineer",
+        "owns": [
+          "app/(marketing)/*",
+          "app/dashboard/*",
+          "app/onboarding/*",
+          "components/*"
+        ],
+        "model": "sonnet"
+      },
+      "createdAt": "2026-05-29T19:33:30.427Z",
+      "domain": "frontend",
+      "model": "sonnet",
+      "modelRoutedBy": "explicit"
+    },
+    "distill-qa": {
+      "agentId": "distill-qa",
+      "agentType": "qa-engineer",
+      "status": "idle",
+      "health": 1,
+      "taskCount": 0,
+      "config": {
+        "role": "QA Engineer",
+        "tools": [
+          "gstack /qa",
+          "gstack /qa-only",
+          "Playwright"
+        ],
+        "testSuites": [
+          "tests/e2e/*",
+          "tests/unit/*",
+          "tests/integration/*"
+        ],
+        "model": "sonnet"
+      },
+      "createdAt": "2026-05-29T19:33:33.934Z",
+      "domain": "quality-assurance",
+      "model": "sonnet",
+      "modelRoutedBy": "explicit"
+    },
+    "distill-content": {
+      "agentId": "distill-content",
+      "agentType": "content-engineer",
+      "status": "idle",
+      "health": 1,
+      "taskCount": 0,
+      "config": {
+        "role": "Content Engineer",
+        "owns": [
+          "lib/content/*",
+          "lib/templates/*",
+          "lib/kb-qa-agent.ts",
+          "supabase/seed.sql"
+        ],
+        "model": "sonnet"
+      },
+      "createdAt": "2026-05-29T19:33:36.598Z",
+      "domain": "content-pipeline",
+      "model": "sonnet",
+      "modelRoutedBy": "explicit"
+    },
+    "distill-devops": {
+      "agentId": "distill-devops",
+      "agentType": "devops-engineer",
+      "status": "idle",
+      "health": 1,
+      "taskCount": 0,
+      "config": {
+        "role": "DevOps Engineer",
+        "owns": [
+          ".github/workflows/*",
+          "vercel.json",
+          "inngest monitoring",
+          "error alerting"
+        ],
+        "model": "sonnet"
+      },
+      "createdAt": "2026-05-29T19:33:38.609Z",
+      "domain": "devops",
+      "model": "sonnet",
+      "modelRoutedBy": "explicit"
+    },
+    "distill-product": {
+      "agentId": "distill-product",
+      "agentType": "product-lead",
+      "status": "idle",
+      "health": 1,
+      "taskCount": 0,
+      "config": {
+        "role": "Product Lead",
+        "tools": [
+          "gstack /plan-ceo-review",
+          "gstack /office-hours",
+          "ruflo memory_search"
+        ],
+        "owns": [
+          "brief.md alignment",
+          "user journey",
+          "brand consistency"
+        ],
+        "model": "sonnet"
+      },
+      "createdAt": "2026-05-29T19:33:41.627Z",
+      "domain": "product",
+      "model": "sonnet",
+      "modelRoutedBy": "explicit"
+    },
+    "distill-security": {
+      "agentId": "distill-security",
+      "agentType": "security-reviewer",
+      "status": "idle",
+      "health": 1,
+      "taskCount": 0,
+      "config": {
+        "role": "Security Reviewer",
+        "tools": [
+          "gstack /cso",
+          "gstack /review"
+        ],
+        "focus": [
+          "webhook signature verification",
+          "auth middleware",
+          "secret handling",
+          "Zod validation",
+          "RLS policies"
+        ],
+        "model": "sonnet"
+      },
+      "createdAt": "2026-05-29T19:33:44.145Z",
+      "domain": "security",
+      "model": "sonnet",
+      "modelRoutedBy": "explicit"
+    }
+  },
+  "version": "3.0.0"
+}

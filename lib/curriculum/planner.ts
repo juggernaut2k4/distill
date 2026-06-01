@@ -13,7 +13,7 @@ export const SessionSchema = z.object({
   arc_length: z.number().int().min(1),
   depth_level: z.enum(['beginner', 'intermediate', 'advanced']),
   role_hint: z.string().min(5).max(300),
-  estimated_minutes: z.number().int().refine((v) => [15, 20, 25, 30].includes(v)),
+  subtopics: z.array(z.string().min(3).max(200)).min(1).max(20),
   is_visible: z.boolean(),
   queue_rationale: z.string().max(300).nullable(),
 })
@@ -32,7 +32,7 @@ export const CurriculumOutputSchema = z.object({
   user_profile_hash: z.string().min(8),
 })
 
-export type Session = z.infer<typeof SessionSchema>
+export type Session = z.infer<typeof SessionSchema> & { estimated_minutes: number }
 export type Arc = z.infer<typeof ArcSchema>
 export type CurriculumOutput = z.infer<typeof CurriculumOutputSchema>
 
@@ -136,10 +136,14 @@ ROLE HINT RULES:
 - Write it as a specific instruction: "Frame this as [specific angle] for a ${role} in ${industry}."
 - Focus on the user's ${worry ? `stated worry: "${worry}"` : 'professional context'}.
 
-ESTIMATED MINUTES RULES:
-- Only use values: 15, 20, 25, or 30
-- Introductory sessions (arc_position 1): 15-20 min
-- Deep-dive sessions: 25-30 min
+SUBTOPICS RULES:
+- For each session, list every subtopic the learner must understand to genuinely grasp this topic.
+- There is no fixed count — use as many as the topic actually requires.
+- Simple concepts may need 2–4 subtopics. Complex strategic topics may need 8–12.
+- Write each subtopic as a specific, concrete learning point (not a vague category name).
+- Bad example: "Overview of AI" — too vague.
+- Good example: "How transformer models process language without understanding meaning" — specific.
+- Do NOT pad with subtopics that are not genuinely needed. Every subtopic must earn its place.
 
 SESSION ID FORMAT: {arc-slug}-s{n} where arc-slug is a kebab-case version of the arc name.
 Example: "ai-governance-arc-s1", "tools-integration-s2"
@@ -167,7 +171,7 @@ Return ONLY valid JSON matching this TypeScript type. No explanation, no markdow
           "arc_length": number,
           "depth_level": "beginner" | "intermediate" | "advanced",
           "role_hint": string,
-          "estimated_minutes": 15 | 20 | 25 | 30,
+          "subtopics": string[],
           "is_visible": boolean,
           "queue_rationale": string | null
         }
@@ -186,18 +190,29 @@ Return ONLY valid JSON matching this TypeScript type. No explanation, no markdow
 function buildFallbackPlan(topics: string[], maturity: string, profileHash: string): CurriculumOutput {
   const simplePlan = buildCurriculum(topics, maturity)
   const sessions: Session[] = simplePlan.sessions.flatMap((s, sIdx) =>
-    s.topics.map((l, lIdx) => ({
-      session_id: `fallback-session-${sIdx}-${lIdx}`,
-      title: l.title,
-      focus: l.subtopics?.[0] ?? `Learn about ${l.title}`,
-      arc_position: lIdx + 1,
-      arc_length: s.topics.length,
-      depth_level: l.difficulty,
-      role_hint: 'Frame for a senior executive with limited technical background.',
-      estimated_minutes: ([15, 20, 25, 30].includes(l.estimatedMinutes) ? l.estimatedMinutes : 20) as 15 | 20 | 25 | 30,
-      is_visible: true,
-      queue_rationale: null,
-    }))
+    s.topics.map((l, lIdx) => {
+      const subtopics: string[] = l.subtopics && l.subtopics.length > 0
+        ? l.subtopics
+        : [
+            `Core concepts of ${l.title}`,
+            `Why ${l.title} matters for executives`,
+            `How leading organisations apply ${l.title}`,
+            `Your immediate action steps for ${l.title}`,
+          ]
+      return {
+        session_id: `fallback-session-${sIdx}-${lIdx}`,
+        title: l.title,
+        focus: subtopics[0] ?? `Learn about ${l.title}`,
+        arc_position: lIdx + 1,
+        arc_length: s.topics.length,
+        depth_level: l.difficulty,
+        role_hint: 'Frame for a senior executive with limited technical background.',
+        subtopics,
+        estimated_minutes: Math.ceil(subtopics.length / 4) * 15,
+        is_visible: true,
+        queue_rationale: null,
+      }
+    })
   )
 
   return {
@@ -283,7 +298,18 @@ export async function generateCurriculumPlan(input: PlannerInput): Promise<Plann
       const finalVisible = capped.arcs.flatMap((a) => a.sessions).filter((s) => s.is_visible).length
       const finalQueued = capped.arcs.flatMap((a) => a.sessions).filter((s) => !s.is_visible).length
 
-      const final = { ...capped, total_visible: finalVisible, total_queued: finalQueued, user_profile_hash: profileHash }
+      // Compute estimated_minutes from subtopic count: ceil(n / 4) * 15
+      const withDuration = {
+        ...capped,
+        arcs: capped.arcs.map((arc) => ({
+          ...arc,
+          sessions: arc.sessions.map((s) => ({
+            ...s,
+            estimated_minutes: Math.ceil(s.subtopics.length / 4) * 15,
+          })),
+        })),
+      }
+      const final = { ...withDuration, total_visible: finalVisible, total_queued: finalQueued, user_profile_hash: profileHash }
       return { output: final, isFallback: false, rawLlmOutput: parsed }
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err))
@@ -321,7 +347,7 @@ Do NOT repeat completed topics. Use this profile:
 - Role: ${role}, Industry: ${industry}, AI maturity: ${maturity}, Worry: ${worry}
 - Original topics: ${topics.join(', ')}
 
-Return ONLY a JSON array of session objects (not wrapped in arcs). Each session:
+Return ONLY a JSON array of session objects (not wrapped in arcs). Each session must include a "subtopics" array of specific learning points (3–10 items). Each session:
 {
   "session_id": string (unique slug, prefix with "ext-"),
   "title": string,
@@ -330,7 +356,7 @@ Return ONLY a JSON array of session objects (not wrapped in arcs). Each session:
   "arc_length": number,
   "depth_level": "beginner" | "intermediate" | "advanced",
   "role_hint": string,
-  "estimated_minutes": 15 | 20 | 25 | 30,
+  "subtopics": string[],
   "is_visible": false,
   "queue_rationale": string
 }
@@ -350,7 +376,10 @@ Return raw JSON array only.`
     const trimmed = rawText.trim()
     const jsonText = trimmed.startsWith('```') ? trimmed.replace(/^```[a-z]*\n?/, '').replace(/\n?```$/, '') : trimmed
     const parsed = JSON.parse(jsonText) as unknown[]
-    return z.array(SessionSchema).parse(parsed).slice(0, queueLimit)
+    return z.array(SessionSchema).parse(parsed).slice(0, queueLimit).map((s) => ({
+      ...s,
+      estimated_minutes: Math.ceil(s.subtopics.length / 4) * 15,
+    }))
   } catch (err) {
     console.error('[curriculum/planner] Queue extension failed:', err)
     return []

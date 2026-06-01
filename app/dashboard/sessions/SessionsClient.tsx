@@ -2,7 +2,7 @@
 
 import { motion } from 'framer-motion'
 import Link from 'next/link'
-import { Clock, CalendarDays, PlusCircle, ChevronRight, FlaskConical, Loader2 } from 'lucide-react'
+import { Clock, ChevronRight, FlaskConical, Loader2, BookOpen } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { useState } from 'react'
 
@@ -14,10 +14,12 @@ interface Session {
   status: string
   topics: string[] | null
   duration_mins: number
+  curriculum_session_id: string | null
 }
 
 interface SessionsClientProps {
   sessions: Session[]
+  topicTitleMap: Record<string, string>
 }
 
 const STATUS_STYLE: Record<string, { label: string; className: string }> = {
@@ -27,72 +29,85 @@ const STATUS_STYLE: Record<string, { label: string; className: string }> = {
   cancelled:  { label: 'Cancelled',  className: 'bg-red-950/40 text-red-400 border border-red-800/30' },
 }
 
-function formatDateTime(iso: string): string {
-  const d = new Date(iso)
-  const datePart = d.toLocaleDateString('en-US', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'long',
-  })
-  const timePart = d.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  }).toLowerCase()
-  return `${datePart} · ${timePart}`
-}
-
 function SessionRow({ session, index }: { session: Session; index: number }) {
   const status = STATUS_STYLE[session.status] ?? STATUS_STYLE.scheduled
   const title = session.session_title ?? `Session ${session.session_index}`
-  const dateStr = session.scheduled_at ? formatDateTime(session.scheduled_at) : 'Not scheduled'
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 8 }}
+      initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, delay: index * 0.06 }}
+      transition={{ duration: 0.25, delay: index * 0.04 }}
     >
       <Link href={`/dashboard/sessions/${session.id}`} className="block group">
-        <Card className="p-4 flex items-center gap-4 group-hover:border-[#333] transition-colors cursor-pointer">
-          {/* Session number badge */}
-          <div className="w-9 h-9 rounded-full bg-purple-950/50 border border-purple-800/40 flex items-center justify-center flex-shrink-0">
-            <span className="text-xs font-bold text-[#A855F7]">{session.session_index}</span>
+        <div className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-[#1A1A1A] transition-colors cursor-pointer">
+          {/* Session number */}
+          <div className="w-7 h-7 rounded-full bg-purple-950/50 border border-purple-800/40 flex items-center justify-center flex-shrink-0">
+            <span className="text-[10px] font-bold text-[#A855F7]">{session.session_index}</span>
           </div>
 
-          {/* Info */}
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-white truncate">{title}</p>
-            <div className="flex items-center gap-1 mt-0.5">
-              <CalendarDays size={11} className="text-[#475569]" />
-              <p className="text-xs text-[#475569]">{dateStr}</p>
-            </div>
-          </div>
+          {/* Title */}
+          <p className="text-sm text-white flex-1 min-w-0 truncate">{title}</p>
 
           {/* Duration */}
           <div className="flex items-center gap-1 text-xs text-[#475569] flex-shrink-0">
-            <Clock size={12} />
-            ~{session.duration_mins}m
+            <Clock size={11} />
+            {session.duration_mins}m
           </div>
 
           {/* Status badge */}
-          <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium flex-shrink-0 ${status.className}`}>
+          <span className={`text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${status.className}`}>
             {status.label}
           </span>
 
-          {/* Add to Calendar — stop propagation so it doesn't navigate */}
-          <a
-            href={`/api/sessions/${session.id}/calendar`}
-            onClick={(e) => e.stopPropagation()}
-            className="text-xs text-[#475569] hover:text-[#94A3B8] transition-colors whitespace-nowrap flex-shrink-0"
-            title="Add to Calendar"
-          >
-            + Cal
-          </a>
-
-          <ChevronRight size={14} className="text-[#333] group-hover:text-[#475569] transition-colors flex-shrink-0" />
-        </Card>
+          <ChevronRight size={13} className="text-[#333] group-hover:text-[#475569] transition-colors flex-shrink-0" />
+        </div>
       </Link>
+    </motion.div>
+  )
+}
+
+interface TopicGroup {
+  topicId: string
+  topicTitle: string
+  sessions: Session[]
+}
+
+function TopicGroupCard({ group, startIndex }: { group: TopicGroup; startIndex: number }) {
+  const sessionCount = group.sessions.length
+  const totalMins = group.sessions.reduce((sum, s) => sum + s.duration_mins, 0)
+  const completedCount = group.sessions.filter((s) => s.status === 'completed').length
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, delay: startIndex * 0.08 }}
+    >
+      <Card className="overflow-hidden">
+        {/* Topic header */}
+        <div className="px-4 py-3 border-b border-[#1E1E1E] flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <BookOpen size={14} className="text-[#475569] flex-shrink-0" />
+            <span className="text-sm font-semibold text-white truncate">{group.topicTitle}</span>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {completedCount > 0 && (
+              <span className="text-xs text-[#10B981]">{completedCount}/{sessionCount} done</span>
+            )}
+            <span className="text-xs px-2 py-0.5 rounded-full bg-purple-950/40 border border-purple-800/30 text-[#A855F7] font-medium">
+              {sessionCount} session{sessionCount !== 1 ? 's' : ''} · {totalMins}m total
+            </span>
+          </div>
+        </div>
+
+        {/* Sessions under this topic */}
+        <div className="divide-y divide-[#0D0D0D]">
+          {group.sessions.map((session, i) => (
+            <SessionRow key={session.id} session={session} index={i} />
+          ))}
+        </div>
+      </Card>
     </motion.div>
   )
 }
@@ -122,11 +137,7 @@ function TestSessionButton() {
   }
 
   if (state === 'done') {
-    return (
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-green-400 font-medium">Bot is joining your meeting now!</span>
-      </div>
-    )
+    return <span className="text-xs text-green-400 font-medium">Bot is joining your meeting now!</span>
   }
 
   if (!expanded) {
@@ -166,26 +177,37 @@ function TestSessionButton() {
           {state === 'loading' ? <Loader2 size={12} className="animate-spin" /> : <FlaskConical size={12} />}
           {state === 'loading' ? 'Sending bot…' : 'Send bot'}
         </button>
-        <button onClick={() => setExpanded(false)} className="text-xs text-[#475569] hover:text-white transition-colors">
-          ✕
-        </button>
+        <button onClick={() => setExpanded(false)} className="text-xs text-[#475569] hover:text-white transition-colors">✕</button>
       </div>
       {state === 'error' && <span className="text-xs text-red-400">{error}</span>}
     </div>
   )
 }
 
-export default function SessionsClient({ sessions }: SessionsClientProps) {
-  const now = new Date()
-  const upcoming = sessions.filter(
-    (s) => s.scheduled_at && new Date(s.scheduled_at) >= now && s.status !== 'cancelled' && s.status !== 'completed'
-  )
-  const past = sessions.filter(
-    (s) => (s.scheduled_at && new Date(s.scheduled_at) < now) || s.status === 'completed' || s.status === 'cancelled'
-  )
+export default function SessionsClient({ sessions, topicTitleMap }: SessionsClientProps) {
+  // Group sessions by curriculum topic
+  const grouped: TopicGroup[] = []
+  const topicOrder: string[] = []
+  const topicMap: Record<string, Session[]> = {}
+
+  for (const session of sessions) {
+    const key = session.curriculum_session_id ?? '__ungrouped__'
+    if (!topicMap[key]) {
+      topicMap[key] = []
+      topicOrder.push(key)
+    }
+    topicMap[key].push(session)
+  }
+
+  for (const key of topicOrder) {
+    const title = key === '__ungrouped__'
+      ? 'Other Sessions'
+      : (topicTitleMap[key] ?? key)
+    grouped.push({ topicId: key, topicTitle: title, sessions: topicMap[key] })
+  }
 
   return (
-    <div className="space-y-10 max-w-3xl">
+    <div className="space-y-8 max-w-3xl">
       {/* Page header */}
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
         <div className="flex items-start justify-between gap-4 mb-1">
@@ -197,51 +219,32 @@ export default function SessionsClient({ sessions }: SessionsClientProps) {
           </div>
           <TestSessionButton />
         </div>
-        <p className="text-[#94A3B8]">Your scheduled coaching sessions.</p>
+        <p className="text-[#94A3B8] text-sm">
+          {grouped.length > 0
+            ? `${grouped.filter(g => g.topicId !== '__ungrouped__').length} topic${grouped.filter(g => g.topicId !== '__ungrouped__').length !== 1 ? 's' : ''} · ${sessions.length} sessions`
+            : 'Your scheduled coaching sessions.'}
+        </p>
       </motion.div>
 
-      {/* Upcoming */}
-      <section>
-        <h2 className="text-sm font-semibold text-[#94A3B8] uppercase tracking-wider mb-4">
-          Upcoming
-        </h2>
-        {upcoming.length === 0 ? (
-          <Card className="p-8 flex flex-col items-center gap-3 text-center">
-            <PlusCircle size={32} className="text-[#333]" />
-            <p className="text-[#475569] text-sm">No upcoming sessions.</p>
-            <Link
-              href="/dashboard/schedule"
-              className="text-sm text-[#7C3AED] hover:text-[#A855F7] transition-colors font-semibold"
-            >
-              Go to Schedule to book your first session →
-            </Link>
-          </Card>
-        ) : (
-          <div className="space-y-3">
-            {upcoming.map((session, i) => (
-              <SessionRow key={session.id} session={session} index={i} />
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* Past */}
-      <section>
-        <h2 className="text-sm font-semibold text-[#94A3B8] uppercase tracking-wider mb-4">
-          Past
-        </h2>
-        {past.length === 0 ? (
-          <Card className="p-6 text-center">
-            <p className="text-[#475569] text-sm">No past sessions yet.</p>
-          </Card>
-        ) : (
-          <div className="space-y-3">
-            {past.map((session, i) => (
-              <SessionRow key={session.id} session={session} index={i} />
-            ))}
-          </div>
-        )}
-      </section>
+      {/* Topic groups */}
+      {grouped.length === 0 ? (
+        <Card className="p-8 flex flex-col items-center gap-3 text-center">
+          <BookOpen size={32} className="text-[#333]" />
+          <p className="text-[#475569] text-sm">No sessions yet.</p>
+          <Link
+            href="/dashboard/plan"
+            className="text-sm text-[#7C3AED] hover:text-[#A855F7] transition-colors font-semibold"
+          >
+            Go to My Plan to approve your learning path →
+          </Link>
+        </Card>
+      ) : (
+        <div className="space-y-4">
+          {grouped.map((group, i) => (
+            <TopicGroupCard key={group.topicId} group={group} startIndex={i} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }

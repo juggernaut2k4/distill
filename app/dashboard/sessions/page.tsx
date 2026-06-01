@@ -18,15 +18,30 @@ export default async function SessionsPage() {
 
   if (!user) redirect('/onboarding')
 
-  const { data: sessions } = await supabase
-    .from('sessions')
-    .select('id, session_index, session_title, scheduled_at, status, topics, duration_mins')
-    .eq('user_id', userId)
-    .order('scheduled_at', { ascending: true })
+  const [{ data: sessions }, { data: plan }] = await Promise.all([
+    supabase
+      .from('sessions')
+      .select('id, session_index, session_title, scheduled_at, status, topics, duration_mins, curriculum_session_id')
+      .eq('user_id', userId)
+      .order('session_index', { ascending: true }),
+    supabase
+      .from('curriculum_plans')
+      .select('visible_sessions')
+      .eq('user_id', userId)
+      .is('superseded_at', null)
+      .single(),
+  ])
+
+  // Build a map from curriculum_session_id → topic title
+  const topicTitleMap: Record<string, string> = {}
+  const visibleSessions = (plan?.visible_sessions ?? []) as Array<{ session_id: string; title: string }>
+  for (const vs of visibleSessions) {
+    topicTitleMap[vs.session_id] = vs.title
+  }
 
   return (
     <DashboardShell user={user} activeNav="/dashboard/sessions">
-      <SessionsClient sessions={sessions ?? []} />
+      <SessionsClient sessions={sessions ?? []} topicTitleMap={topicTitleMap} />
     </DashboardShell>
   )
 }
