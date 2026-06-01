@@ -235,10 +235,10 @@ export default function PlanClient({ user }: { user: User }) {
       const res = await fetch('/api/plan/approve', { method: 'POST' })
       if (!res.ok) throw new Error('API error')
 
-      if (planId) {
-        // Mark plan as approved in curriculum_plans too
-        const supaRes = await fetch('/api/curriculum/generate', { method: 'POST' })
-        void supaRes // fire-and-forget to refresh; approve endpoint handles users table
+      // Reload the plan so visible_sessions now include db_session_id
+      const refreshed = await fetchPlan()
+      if (refreshed?.plan?.visible_sessions) {
+        setVisibleSessions(refreshed.plan.visible_sessions)
       }
 
       setIsPlanApproved(true)
@@ -384,7 +384,7 @@ export default function PlanClient({ user }: { user: User }) {
               </div>
             ) : (
               <Button onClick={handleApprove} disabled={approving} className="gap-2 whitespace-nowrap">
-                {approving ? 'Approving…' : 'Approve plan — start learning'}
+                {approving ? 'Designing your sessions…' : 'Approve plan — start learning'}
                 <ArrowRight size={16} />
               </Button>
             )
@@ -466,8 +466,9 @@ export default function PlanClient({ user }: { user: User }) {
               completedIds={completedIds}
               currentSessionId={firstIncomplete?.session_id}
               onStartSession={(id) => {
-                void handleSessionComplete(id)
-                router.push(`/dashboard/schedule`)
+                // id is db_session_id (UUID) when plan is approved, session_id slug otherwise
+                const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)
+                router.push(isUuid ? `/dashboard/sessions/${id}` : `/dashboard/schedule`)
               }}
               defaultExpanded
             />
@@ -523,7 +524,7 @@ export default function PlanClient({ user }: { user: User }) {
               className="flex gap-4 items-center pt-2"
             >
               <Button onClick={handleApprove} disabled={approving} size="lg" className="gap-2">
-                {approving ? 'Approving…' : 'Approve & start learning'}
+                {approving ? 'Designing your sessions…' : 'Approve & start learning'}
                 <ArrowRight size={18} />
               </Button>
               <button

@@ -87,7 +87,7 @@ export function ArcSection({
                   isCurrent={session.session_id === currentSessionId}
                   completedAt={completionDates[session.session_id]}
                   isNew={newSessionIds?.has(session.session_id)}
-                  onStart={onStartSession ? () => onStartSession(session.session_id) : undefined}
+                  onStart={onStartSession ? () => onStartSession(session.db_session_id ?? session.session_id) : undefined}
                 />
               ))}
             </div>

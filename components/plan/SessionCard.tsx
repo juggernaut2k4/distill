@@ -14,6 +14,7 @@ export interface SessionCardData {
   estimated_minutes: number
   arc_name?: string
   arc_type?: string
+  db_session_id?: string   // UUID from sessions table — set after plan approval
 }
 
 interface SessionCardProps {
