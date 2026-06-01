@@ -21,7 +21,8 @@ export async function POST() {
     .eq('id', userId!)
     .single()
 
-  console.log('[generate] userId:', userId, '| user found:', !!user, '| dbError:', dbError?.message ?? null)
+  const supaUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? '').slice(0, 30)
+  console.log('[gen]', JSON.stringify({ uid: userId?.slice(0,12), found: !!user, err: dbError?.code ?? dbError?.message?.slice(0,50) ?? null, url: supaUrl }))
 
   if (!user) return NextResponse.json({ error: 'User not found', code: 'USER_NOT_FOUND' }, { status: 404 })
 
