@@ -203,8 +203,17 @@ export default function SessionsClient({ sessions, topicTitleMap }: SessionsClie
     const title = key === '__ungrouped__'
       ? 'Other Sessions'
       : (topicTitleMap[key] ?? key)
-    grouped.push({ topicId: key, topicTitle: title, sessions: topicMap[key] })
+    // Sort sessions within group by session_index
+    const sortedSessions = [...topicMap[key]].sort((a, b) => a.session_index - b.session_index)
+    grouped.push({ topicId: key, topicTitle: title, sessions: sortedSessions })
   }
+
+  // Sort groups by the lowest session_index in each group so overall order matches plan order
+  grouped.sort((a, b) => {
+    const aMin = Math.min(...a.sessions.map((s) => s.session_index))
+    const bMin = Math.min(...b.sessions.map((s) => s.session_index))
+    return aMin - bMin
+  })
 
   return (
     <div className="space-y-8 max-w-3xl">

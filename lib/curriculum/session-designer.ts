@@ -163,7 +163,8 @@ Respond ONLY with valid JSON (no markdown, no explanation):
         const result = SessionDesignOutputSchema.safeParse(parsed)
 
         if (result.success && result.data.sessions.length > 0) {
-          sessions.push(result.data.sessions[0])
+          // Enforce exactly maxMins — LLM sometimes drifts by 1
+          sessions.push({ ...result.data.sessions[0], duration_mins: maxMins })
           break
         }
         console.error('[session-designer] pre-planned chunk validation failed, attempt', attempt + 1)

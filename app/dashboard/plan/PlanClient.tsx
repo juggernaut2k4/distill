@@ -244,6 +244,7 @@ export default function PlanClient({ user }: { user: User }) {
       setIsPlanApproved(true)
       setViewState('active')
       setApproving(false)
+      router.push('/dashboard/sessions')
     } catch {
       alert('Something went wrong. Please try again.')
       setApproving(false)
