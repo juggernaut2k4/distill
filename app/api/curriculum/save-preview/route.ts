@@ -59,6 +59,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Template not found', code: 'TEMPLATE_NOT_FOUND' }, { status: 404 })
   }
 
+  // Never copy a fallback template — it has 1 session per topic (no LLM expansion).
+  // Return 404 so the caller falls through to the normal Inngest-based generation.
+  if (template.is_fallback) {
+    return NextResponse.json({ error: 'Template is a fallback — skipping', code: 'TEMPLATE_FALLBACK' }, { status: 404 })
+  }
+
   // ── Check if user already has a valid plan with the same hash ─────────────
   const { data: existing } = await supabase
     .from('curriculum_plans')

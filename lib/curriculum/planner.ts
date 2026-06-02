@@ -29,7 +29,7 @@ export const CurriculumOutputSchema = z.object({
   total_visible: z.number().int().min(1).max(10),
   total_queued: z.number().int().min(0).max(50),
   generated_at: z.string(),
-  user_profile_hash: z.string().min(8),
+  user_profile_hash: z.string().optional().default(''),
 })
 
 export type Session = z.infer<typeof SessionSchema> & { estimated_minutes: number }
@@ -181,7 +181,7 @@ Return ONLY valid JSON matching this TypeScript type. No explanation, no markdow
   "total_visible": number,
   "total_queued": number,
   "generated_at": string,
-  "user_profile_hash": string
+  "user_profile_hash": "computed-server-side"
 }`
 }
 
@@ -253,6 +253,7 @@ export async function generateCurriculumPlan(input: PlannerInput): Promise<Plann
 
   const apiKey = process.env.ANTHROPIC_API_KEY ?? ''
   if (!apiKey || apiKey.startsWith('PLACEHOLDER_')) {
+    console.error('[planner] ANTHROPIC_API_KEY not set — returning fallback plan')
     const fallback = buildFallbackPlan(topics, maturity, profileHash)
     return { output: fallback, isFallback: true, rawLlmOutput: { fallback: true, reason: 'ANTHROPIC_API_KEY not set' } }
   }
@@ -313,6 +314,7 @@ export async function generateCurriculumPlan(input: PlannerInput): Promise<Plann
       return { output: final, isFallback: false, rawLlmOutput: parsed }
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err))
+      console.error(`[planner] LLM attempt ${attempt}/3 failed:`, lastError.message)
       if (attempt < 3) await new Promise((r) => setTimeout(r, attempt * 5000))
     }
   }
