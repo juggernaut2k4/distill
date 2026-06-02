@@ -340,10 +340,42 @@ export default function TopicsPage() {
       const raw = localStorage.getItem('clio_onboarding')
       if (raw) existing = JSON.parse(raw) as Record<string, unknown>
     } catch { /* ignore */ }
+
+    const profile = existing as { role?: string; aiMaturity?: string; domainProficiency?: Record<string, string>; primaryDomain?: string }
     localStorage.setItem('clio_onboarding', JSON.stringify({
       ...existing,
       selectedTopics: selectedTitles,
     }))
+
+    // Fire plan generation in the background — result cached in localStorage.
+    // keepalive: true ensures the request completes even after page navigation.
+    // By the time the user finishes signup + payment, the plan is ready.
+    const role = profile.role ?? 'executive'
+    const maturity = profile.aiMaturity ??
+      (profile.domainProficiency && profile.primaryDomain
+        ? (profile.domainProficiency[profile.primaryDomain] ?? 'intermediate')
+        : 'intermediate')
+
+    fetch('/api/curriculum/generate-preview', {
+      method:    'POST',
+      headers:   { 'Content-Type': 'application/json' },
+      body:      JSON.stringify({ role, maturity, topics: selectedTitles }),
+      keepalive: true,
+    })
+      .then((res) => res.ok ? res.json() : null)
+      .then((data: { profile_hash?: string; visible_sessions?: unknown[]; queue_sessions?: unknown[] } | null) => {
+        if (data?.profile_hash) {
+          try {
+            localStorage.setItem('clio_plan_preview', JSON.stringify({
+              profile_hash:     data.profile_hash,
+              visible_sessions: data.visible_sessions ?? [],
+              queue_sessions:   data.queue_sessions   ?? [],
+              cached_at:        Date.now(),
+            }))
+          } catch { /* ignore storage errors */ }
+        }
+      })
+      .catch(() => { /* non-fatal — fallback generates on /plan page visit */ })
 
     // Signed-in → go straight to plan; unauthenticated → sign up first
     if (isSignedIn) {

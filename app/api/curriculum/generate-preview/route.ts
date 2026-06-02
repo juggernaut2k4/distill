@@ -1,0 +1,110 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
+import { createSupabaseAdminClient } from '@/lib/supabase'
+import { generateCurriculumPlan, buildProfileHash } from '@/lib/curriculum/planner'
+
+const BodySchema = z.object({
+  role:     z.string().min(1).max(100),
+  maturity: z.string().min(1).max(50),
+  topics:   z.array(z.string().min(1).max(200)).min(1).max(20),
+  worry:    z.string().max(300).optional().default(''),
+})
+
+/**
+ * POST /api/curriculum/generate-preview
+ *
+ * Public (no auth). Called from the topics selection page before signup.
+ * Checks the shared curriculum_plan_templates cache first.
+ * If a template exists for this profile hash, returns it instantly (zero LLM).
+ * If not, generates via LLM, saves as a shared template, and returns.
+ *
+ * Cross-user caching: two users with identical role+maturity+topics share one
+ * LLM call. The template is then copied per-user by /api/curriculum/save-preview.
+ */
+export async function POST(request: NextRequest) {
+  let body: unknown
+  try {
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+  }
+
+  const parsed = BodySchema.safeParse(body)
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Validation failed', details: parsed.error.flatten() }, { status: 400 })
+  }
+
+  const { role, maturity, topics, worry } = parsed.data
+  const profileHash = buildProfileHash(role, maturity, topics)
+  const supabase = createSupabaseAdminClient()
+
+  // ── Cache hit ──────────────────────────────────────────────────────────────
+  const { data: existing } = await supabase
+    .from('curriculum_plan_templates')
+    .select('id, visible_sessions, queue_sessions, is_fallback, use_count')
+    .eq('profile_hash', profileHash)
+    .maybeSingle()
+
+  const apiKeyAvailable = (process.env.ANTHROPIC_API_KEY ?? '').length > 0 &&
+    !(process.env.ANTHROPIC_API_KEY ?? '').startsWith('PLACEHOLDER_')
+
+  if (existing && (!existing.is_fallback || !apiKeyAvailable)) {
+    // Bump use_count without blocking
+    supabase
+      .from('curriculum_plan_templates')
+      .update({ use_count: existing.use_count + 1 })
+      .eq('id', existing.id)
+      .then(() => {})
+
+    return NextResponse.json({
+      profile_hash:     profileHash,
+      visible_sessions: existing.visible_sessions,
+      queue_sessions:   existing.queue_sessions,
+      cached:           true,
+    })
+  }
+
+  // ── Cache miss — generate via LLM ─────────────────────────────────────────
+  // Generate with 'pro' tier so the template is generous enough for all tiers.
+  // /api/curriculum/save-preview enforces the actual user's tier limits when copying.
+  const { output, isFallback, rawLlmOutput } = await generateCurriculumPlan({
+    userId:    'preview',
+    role,
+    industry:  'general',
+    maturity,
+    worry,
+    topics,
+    planTier:  'pro',
+  })
+
+  const visibleSessions = output.arcs.flatMap((a) =>
+    a.sessions.filter((s) => s.is_visible).map((s) => ({ ...s, arc_name: a.arc_name, arc_type: a.arc_type }))
+  )
+  const queueSessions = output.arcs.flatMap((a) =>
+    a.sessions.filter((s) => !s.is_visible).map((s) => ({ ...s, arc_name: a.arc_name, arc_type: a.arc_type }))
+  )
+
+  // Upsert — handles the race condition where two users generate at the same time
+  await supabase
+    .from('curriculum_plan_templates')
+    .upsert(
+      {
+        profile_hash:     profileHash,
+        visible_sessions: visibleSessions,
+        queue_sessions:   queueSessions,
+        generated_at:     new Date().toISOString(),
+        use_count:        1,
+        is_fallback:      isFallback,
+      },
+      { onConflict: 'profile_hash' }
+    )
+
+  console.log(`[generate-preview] Template ${isFallback ? '(fallback)' : 'generated'} for hash ${profileHash}`, { rawLlmOutput })
+
+  return NextResponse.json({
+    profile_hash:     profileHash,
+    visible_sessions: visibleSessions,
+    queue_sessions:   queueSessions,
+    cached:           false,
+  })
+}

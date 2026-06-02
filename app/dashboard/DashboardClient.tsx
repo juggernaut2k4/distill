@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { ScoreRing } from '@/components/dashboard/ScoreRing'
 import { StreakCounter } from '@/components/dashboard/StreakCounter'
@@ -278,6 +278,30 @@ export default function DashboardClient({
   const [activateError, setActivateError] = useState<string | null>(null)
   const [, startTransition] = useTransition()
   const router = useRouter()
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('clio_plan_preview')
+      if (!raw) return
+      const preview = JSON.parse(raw) as {
+        profile_hash: string
+        cached_at: number
+      }
+      const TWO_HOURS = 2 * 60 * 60 * 1000
+      if (!preview.profile_hash || Date.now() - preview.cached_at > TWO_HOURS) {
+        localStorage.removeItem('clio_plan_preview')
+        return
+      }
+      localStorage.removeItem('clio_plan_preview')
+      fetch('/api/curriculum/save-preview', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ profile_hash: preview.profile_hash }),
+      }).catch(() => { /* non-fatal — Inngest will generate plan normally if this fails */ })
+    } catch {
+      // localStorage unavailable or JSON parse error — ignore
+    }
+  }, [])
 
   const score = user.ai_readiness_score ?? 0
   const streak = user.streak_days ?? 0
