@@ -60,6 +60,7 @@ export default function PlanClient({ user }: { user: User }) {
   const [recommendations, setRecommendations] = useState<RecommendationData[]>([])
   const [isPlanApproved, setIsPlanApproved] = useState(user.plan_approved ?? false)
   const [approving, setApproving] = useState(false)
+  const [approvingMessage, setApprovingMessage] = useState('')
   const [isFallback, setIsFallback] = useState(false)
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -245,23 +246,56 @@ export default function PlanClient({ user }: { user: User }) {
 
   async function handleApprove() {
     setApproving(true)
-    try {
-      const res = await fetch('/api/plan/approve', { method: 'POST' })
-      if (!res.ok) throw new Error('API error')
+    setApprovingMessage('Approving your plan…')
 
-      // Reload the plan so visible_sessions now include db_session_id
-      const refreshed = await fetchPlan()
-      if (refreshed?.plan?.visible_sessions) {
-        setVisibleSessions(refreshed.plan.visible_sessions)
+    const MAX_WAIT_MS = 60_000
+    const RETRY_INTERVAL_MS = 3_000
+    const started = Date.now()
+
+    const tryApprove = async (): Promise<void> => {
+      const res = await fetch('/api/plan/approve', { method: 'POST' })
+
+      if (res.ok) {
+        // Sessions are ready — reload plan and navigate
+        const refreshed = await fetchPlan()
+        if (refreshed?.plan?.visible_sessions) {
+          setVisibleSessions(refreshed.plan.visible_sessions)
+        }
+        setIsPlanApproved(true)
+        setViewState('active')
+        setApproving(false)
+        setApprovingMessage('')
+        router.push('/dashboard/sessions')
+        return
       }
 
-      setIsPlanApproved(true)
-      setViewState('active')
+      const data = await res.json().catch(() => ({})) as { code?: string }
+
+      // Sessions not designed yet — Inngest still running, retry after a short wait
+      if (res.status === 409 && data.code === 'SESSIONS_NOT_READY') {
+        if (Date.now() - started < MAX_WAIT_MS) {
+          setApprovingMessage('Preparing your sessions… almost ready')
+          await new Promise((r) => setTimeout(r, RETRY_INTERVAL_MS))
+          return tryApprove()
+        }
+        // Timed out waiting for Inngest — unblock the user
+        setApproving(false)
+        setApprovingMessage('')
+        alert('Session preparation is taking longer than expected. Please wait a moment and try again.')
+        return
+      }
+
       setApproving(false)
-      router.push('/dashboard/sessions')
-    } catch {
+      setApprovingMessage('')
       alert('Something went wrong. Please try again.')
+    }
+
+    try {
+      await tryApprove()
+    } catch {
       setApproving(false)
+      setApprovingMessage('')
+      alert('Something went wrong. Please try again.')
     }
   }
 
@@ -399,7 +433,7 @@ export default function PlanClient({ user }: { user: User }) {
               </div>
             ) : (
               <Button onClick={handleApprove} disabled={approving} className="gap-2 whitespace-nowrap">
-                {approving ? 'Designing your sessions…' : 'Approve plan — start learning'}
+                {approving ? (approvingMessage || 'Preparing…') : 'Approve plan — start learning'}
                 <ArrowRight size={16} />
               </Button>
             )
@@ -539,7 +573,7 @@ export default function PlanClient({ user }: { user: User }) {
               className="flex gap-4 items-center pt-2"
             >
               <Button onClick={handleApprove} disabled={approving} size="lg" className="gap-2">
-                {approving ? 'Designing your sessions…' : 'Approve & start learning'}
+                {approving ? (approvingMessage || 'Preparing…') : 'Approve & start learning'}
                 <ArrowRight size={18} />
               </Button>
               <button
@@ -592,7 +626,7 @@ export default function PlanClient({ user }: { user: User }) {
                   </h3>
                 </div>
                 <Button size="sm" onClick={handleApprove} disabled={approving} className="gap-1">
-                  {approving ? 'Approving...' : 'Approve this plan'} <ArrowRight size={13} />
+                  {approving ? (approvingMessage || 'Preparing…') : 'Approve this plan'} <ArrowRight size={13} />
                 </Button>
               </div>
             </div>
