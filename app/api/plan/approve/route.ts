@@ -3,24 +3,22 @@ import { requireAuth } from '@/lib/clerk'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { sendPlanReadyEmail, sendPlanApprovedEmail, type User } from '@/lib/delivery/email'
 import { sendSMS } from '@/lib/delivery/sms'
-import { inngest } from '@/inngest/client'
+import { designSessionsForTopic, getSessionDuration, type CurriculumTopicInput } from '@/lib/curriculum/session-designer'
 
-interface VisibleSession {
-  session_id:      string
-  title:           string
+interface VisibleSession extends CurriculumTopicInput {
   arc_name:        string
   arc_type:        string
   arc_position:    number
   arc_length:      number
+  is_visible:      boolean
   db_session_id?:  string
   [key: string]: unknown
 }
 
 /**
  * POST /api/plan/approve
- * Lightweight activation — no LLM work.
- * Sessions are pre-designed by the session-designer-auto Inngest job (status='draft').
- * This route flips them to 'scheduled', marks the plan approved, and notifies the user.
+ * Activates a curriculum plan. If sessions haven't been pre-designed by Inngest,
+ * designs them synchronously here so approve always succeeds on first attempt.
  */
 export async function POST() {
   const { userId, error } = requireAuth()
@@ -47,9 +45,7 @@ export async function POST() {
 
   if (!plan) return NextResponse.json({ error: 'No active plan' }, { status: 404 })
 
-  // ── Activate draft sessions → scheduled ──────────────────────────────────────
-  // Sessions were pre-designed by session-designer-auto Inngest job (status='draft').
-  // Approve just flips them visible — no LLM work here.
+  // ── Ensure draft sessions exist — design synchronously if Inngest hasn't run ──
   const { count: draftCount } = await supabase
     .from('sessions')
     .select('id', { count: 'exact', head: true })
@@ -58,22 +54,63 @@ export async function POST() {
     .eq('status', 'draft')
 
   if ((draftCount ?? 0) === 0) {
-    // Re-fire plan.generated so session-designer-auto retries (handles exhausted Inngest retries)
-    await inngest.send({ name: 'clio/plan.generated', data: { planId: plan.id, userId: userId!, cached: true } })
-    return NextResponse.json(
-      { error: 'Sessions not ready yet — plan is still being generated. Please wait a moment and try again.', code: 'SESSIONS_NOT_READY' },
-      { status: 409 }
+    const visibleSessions = (
+      Array.isArray(plan.visible_sessions) ? plan.visible_sessions : []
+    ) as VisibleSession[]
+
+    const maxMins = getSessionDuration((user as { learning_goal?: string }).learning_goal ?? null)
+    const profile = {
+      role:     ((user as { role?: string }).role)         ?? 'executive',
+      industry: ((user as { industry?: string }).industry) ?? 'general',
+      maturity: ((user as { ai_maturity?: string }).ai_maturity) ?? 'intermediate',
+    }
+
+    // Design all topics concurrently — designSessionsForTopic has its own LLM+fallback logic
+    const designResults = await Promise.all(
+      visibleSessions.map(async (cs) => ({
+        cs,
+        designed: await designSessionsForTopic(
+          {
+            session_id:        cs.session_id,
+            title:             cs.title,
+            focus:             cs.focus,
+            depth_level:       cs.depth_level,
+            estimated_minutes: cs.estimated_minutes,
+            subtopics:         cs.subtopics as string[] | undefined,
+          },
+          profile,
+          maxMins
+        ),
+      }))
     )
+
+    let globalOrder = 0
+    for (const { cs, designed } of designResults) {
+      for (const ds of designed) {
+        globalOrder++
+        await supabase.from('sessions').insert({
+          user_id:               userId,
+          session_title:         ds.session_title,
+          topics:                [cs.session_id],
+          curriculum_plan_id:    plan.id,
+          curriculum_session_id: cs.session_id,
+          subtopics:             ds.subtopics,
+          duration_mins:         ds.duration_mins,
+          session_index:         globalOrder,
+          status:                'draft',
+        })
+      }
+    }
   }
 
-  await supabase
+  // ── Flip draft → scheduled ───────────────────────────────────────────────────
+  const { count: activatedCount } = await supabase
     .from('sessions')
     .update({ status: 'scheduled' })
     .eq('user_id', userId!)
     .eq('curriculum_plan_id', plan.id)
     .eq('status', 'draft')
-
-  const sessionsCreated = draftCount ?? 0
+    .select('id')
 
   // ── Update curriculum plan ────────────────────────────────────────────────────
   await supabase
@@ -112,7 +149,7 @@ export async function POST() {
 
   return NextResponse.json({
     success:          true,
-    sessions_created: sessionsCreated,
+    sessions_created: activatedCount ?? 0,
   })
 }
 
