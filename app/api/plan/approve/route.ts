@@ -3,6 +3,7 @@ import { requireAuth } from '@/lib/clerk'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { sendPlanReadyEmail, sendPlanApprovedEmail, type User } from '@/lib/delivery/email'
 import { sendSMS } from '@/lib/delivery/sms'
+import { inngest } from '@/inngest/client'
 
 interface VisibleSession {
   session_id:      string
@@ -57,6 +58,8 @@ export async function POST() {
     .eq('status', 'draft')
 
   if ((draftCount ?? 0) === 0) {
+    // Re-fire plan.generated so session-designer-auto retries (handles exhausted Inngest retries)
+    await inngest.send({ name: 'clio/plan.generated', data: { planId: plan.id, userId: userId!, cached: true } })
     return NextResponse.json(
       { error: 'Sessions not ready yet — plan is still being generated. Please wait a moment and try again.', code: 'SESSIONS_NOT_READY' },
       { status: 409 }
