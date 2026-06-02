@@ -23,6 +23,7 @@ export default async function SessionsPage() {
       .from('sessions')
       .select('id, session_index, session_title, scheduled_at, status, topics, duration_mins, curriculum_session_id')
       .eq('user_id', userId)
+      .neq('status', 'draft')
       .order('session_index', { ascending: true }),
     supabase
       .from('curriculum_plans')

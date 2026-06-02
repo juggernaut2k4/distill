@@ -4,6 +4,7 @@ import { requireAuth } from '@/lib/clerk'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { sendPlanReadyEmail, type User as EmailUser } from '@/lib/delivery/email'
 import { sendSMS } from '@/lib/delivery/sms'
+import { inngest } from '@/inngest/client'
 
 const ProfileSchema = z.object({
   role: z.string().optional(),
@@ -61,11 +62,11 @@ export async function POST(request: NextRequest) {
 
   if (!updateError) {
     try {
-      await supabase
-        .from('users')
-        .update({ plan_generated_at: new Date().toISOString() })
-        .eq('id', userId!)
+      // Fire background job to generate curriculum plan + design sessions.
+      // The Inngest job handles superseding the old plan and deleting stale draft sessions.
+      await inngest.send({ name: 'clio/topics.selected', data: { userId: userId! } })
 
+      // Notify user that their plan is being built
       const { data: user } = await supabase
         .from('users')
         .select('id, email, role, industry, ai_maturity, phone, twilio_number_assigned')
@@ -84,14 +85,14 @@ export async function POST(request: NextRequest) {
           sendSMS(
             user.phone as string,
             user.twilio_number_assigned as string,
-            `Your Clio learning plan is ready! Review and approve it here: ${appUrl}/dashboard/plan — Clio`
+            `Your Clio learning plan is being built! Review and approve it here: ${appUrl}/dashboard/plan — Clio`
           ).catch(console.error)
         )
       }
 
       await Promise.all(sends)
     } catch (notifyErr) {
-      console.error('[topics] Plan-ready notification failed:', notifyErr)
+      console.error('[topics] Post-save actions failed:', notifyErr)
     }
   }
 

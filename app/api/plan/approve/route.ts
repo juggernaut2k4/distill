@@ -3,32 +3,23 @@ import { requireAuth } from '@/lib/clerk'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { sendPlanReadyEmail, sendPlanApprovedEmail, type User } from '@/lib/delivery/email'
 import { sendSMS } from '@/lib/delivery/sms'
-import {
-  designSessionsForTopic,
-  getSessionDuration,
-  type CurriculumTopicInput,
-} from '@/lib/curriculum/session-designer'
 
-interface VisibleSession extends CurriculumTopicInput {
-  arc_name:         string
-  arc_type:         string
-  arc_position:     number
-  arc_length:       number
-  is_visible:       boolean
-  queue_rationale?: string | null
-  db_session_id?:   string
+interface VisibleSession {
+  session_id:      string
+  title:           string
+  arc_name:        string
+  arc_type:        string
+  arc_position:    number
+  arc_length:      number
+  db_session_id?:  string
   [key: string]: unknown
 }
 
 /**
  * POST /api/plan/approve
- * 1. Designs actual learning sessions (LLM) from the curriculum plan, respecting
- *    the user's stated time preference (learning_goal → max session minutes).
- * 2. Inserts rows into the sessions table.
- * 3. Embeds db_session_id into each visible_session so the plan page can link
- *    directly to /dashboard/sessions/[id].
- * 4. Marks the curriculum plan and user as approved.
- * 5. Sends approval email / SMS.
+ * Lightweight activation — no LLM work.
+ * Sessions are pre-designed by the session-designer-auto Inngest job (status='draft').
+ * This route flips them to 'scheduled', marks the plan approved, and notifies the user.
  */
 export async function POST() {
   const { userId, error } = requireAuth()
@@ -55,74 +46,38 @@ export async function POST() {
 
   if (!plan) return NextResponse.json({ error: 'No active plan' }, { status: 404 })
 
-  const maxMins = getSessionDuration(user.learning_goal as string | null)
-  const visibleSessions = (
-    Array.isArray(plan.visible_sessions) ? plan.visible_sessions : []
-  ) as VisibleSession[]
+  // ── Activate draft sessions → scheduled ──────────────────────────────────────
+  // Sessions were pre-designed by session-designer-auto Inngest job (status='draft').
+  // Approve just flips them visible — no LLM work here.
+  const { count: draftCount } = await supabase
+    .from('sessions')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId!)
+    .eq('curriculum_plan_id', plan.id)
+    .eq('status', 'draft')
 
-  const profile = {
-    role:     (user.role         as string | null) ?? 'executive',
-    industry: (user.industry     as string | null) ?? 'general',
-    maturity: (user.ai_maturity  as string | null) ?? 'intermediate',
+  if ((draftCount ?? 0) === 0) {
+    return NextResponse.json(
+      { error: 'Sessions not ready yet — plan is still being generated. Please wait a moment and try again.', code: 'SESSIONS_NOT_READY' },
+      { status: 409 }
+    )
   }
 
-  // ── Design sessions in parallel ───────────────────────────────────────────────
-  const designResults = await Promise.all(
-    visibleSessions.map(async (cs) => ({
-      cs,
-      designed: await designSessionsForTopic(
-        {
-          session_id:        cs.session_id,
-          title:             cs.title,
-          focus:             cs.focus,
-          depth_level:       cs.depth_level,
-          estimated_minutes: cs.estimated_minutes,
-          subtopics:         cs.subtopics,
-        },
-        profile,
-        maxMins
-      ),
-    }))
-  )
+  await supabase
+    .from('sessions')
+    .update({ status: 'scheduled' })
+    .eq('user_id', userId!)
+    .eq('curriculum_plan_id', plan.id)
+    .eq('status', 'draft')
 
-  // ── Insert sessions into DB ───────────────────────────────────────────────────
-  let globalOrder = 0
-  const updatedVisible: VisibleSession[] = []
-
-  for (const { cs, designed } of designResults) {
-    let firstDbSessionId: string | undefined
-
-    for (const ds of designed) {
-      globalOrder++
-      const { data: inserted } = await supabase
-        .from('sessions')
-        .insert({
-          user_id:               userId!,
-          session_title:         ds.session_title,
-          topics:                [cs.session_id],
-          curriculum_plan_id:    plan.id,
-          curriculum_session_id: cs.session_id,
-          subtopics:             ds.subtopics,
-          duration_mins:         ds.duration_mins,
-          session_index:         globalOrder,
-          status:                'scheduled',
-        })
-        .select('id')
-        .single()
-
-      if (inserted && !firstDbSessionId) firstDbSessionId = inserted.id
-    }
-
-    updatedVisible.push({ ...cs, db_session_id: firstDbSessionId })
-  }
+  const sessionsCreated = draftCount ?? 0
 
   // ── Update curriculum plan ────────────────────────────────────────────────────
   await supabase
     .from('curriculum_plans')
     .update({
-      is_approved:      true,
-      approved_at:      new Date().toISOString(),
-      visible_sessions: updatedVisible,
+      is_approved: true,
+      approved_at: new Date().toISOString(),
     })
     .eq('id', plan.id)
 
@@ -154,8 +109,7 @@ export async function POST() {
 
   return NextResponse.json({
     success:          true,
-    sessions_created: globalOrder,
-    max_session_mins: maxMins,
+    sessions_created: sessionsCreated,
   })
 }
 
