@@ -322,7 +322,7 @@ export default function TopicsPage() {
 
   // ── Auth-aware continue handler ───────────────────────────────────────────────
 
-  const handleContinue = useCallback(() => {
+  const handleContinue = useCallback(async () => {
     if (!canContinue) return
 
     // Collect all topic titles (AI-recommended + custom)
@@ -347,35 +347,41 @@ export default function TopicsPage() {
       selectedTopics: selectedTitles,
     }))
 
-    // Fire plan generation in the background — result cached in localStorage.
-    // keepalive: true ensures the request completes even after page navigation.
-    // By the time the user finishes signup + payment, the plan is ready.
     const role = profile.role ?? 'executive'
     const maturity = profile.aiMaturity ??
       (profile.domainProficiency && profile.primaryDomain
         ? (profile.domainProficiency[profile.primaryDomain] ?? 'intermediate')
         : 'intermediate')
 
+    // Compute profile_hash client-side using Web Crypto API — same algorithm as
+    // buildProfileHash on the server: SHA256(`role::maturity::sorted_topics`).slice(0,16).
+    // We write it to localStorage BEFORE router.push() because browsers do not execute
+    // .then() callbacks after page navigation, even with keepalive:true.
+    try {
+      const sorted = [...selectedTitles].sort().join(',')
+      const hashBuffer = await crypto.subtle.digest(
+        'SHA-256',
+        new TextEncoder().encode(`${role}::${maturity}::${sorted}`)
+      )
+      const profileHash = Array.from(new Uint8Array(hashBuffer))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('')
+        .slice(0, 16)
+
+      localStorage.setItem('clio_plan_preview', JSON.stringify({
+        profile_hash: profileHash,
+        cached_at:    Date.now(),
+      }))
+    } catch { /* Web Crypto unavailable — dashboard falls back to normal Inngest flow */ }
+
+    // Fire plan generation on the server in background so the template is ready
+    // by the time the user finishes signup + payment (60–120s of natural wait time).
     fetch('/api/curriculum/generate-preview', {
       method:    'POST',
       headers:   { 'Content-Type': 'application/json' },
       body:      JSON.stringify({ role, maturity, topics: selectedTitles }),
       keepalive: true,
-    })
-      .then((res) => res.ok ? res.json() : null)
-      .then((data: { profile_hash?: string; visible_sessions?: unknown[]; queue_sessions?: unknown[] } | null) => {
-        if (data?.profile_hash) {
-          try {
-            localStorage.setItem('clio_plan_preview', JSON.stringify({
-              profile_hash:     data.profile_hash,
-              visible_sessions: data.visible_sessions ?? [],
-              queue_sessions:   data.queue_sessions   ?? [],
-              cached_at:        Date.now(),
-            }))
-          } catch { /* ignore storage errors */ }
-        }
-      })
-      .catch(() => { /* non-fatal — fallback generates on /plan page visit */ })
+    }).catch(() => { /* non-fatal */ })
 
     // Signed-in → go straight to plan; unauthenticated → sign up first
     if (isSignedIn) {
