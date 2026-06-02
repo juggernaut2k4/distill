@@ -77,6 +77,7 @@ export async function POST() {
           focus:             cs.focus,
           depth_level:       cs.depth_level,
           estimated_minutes: cs.estimated_minutes,
+          subtopics:         cs.subtopics,
         },
         profile,
         maxMins
