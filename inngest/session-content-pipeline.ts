@@ -79,7 +79,7 @@ export const sessionContentPipeline = inngest.createFunction(
       const [{ data: sessionRow }, { data: userRow }] = await Promise.all([
         supabase
           .from('sessions')
-          .select('id, session_title, topic_id, topics, session_plan')
+          .select('id, session_title, topic_id, topics, session_plan, curriculum_session_id, subtopics')
           .eq('id', sessionId)
           .single(),
         supabase
@@ -96,15 +96,24 @@ export const sessionContentPipeline = inngest.createFunction(
 
     if (!session) throw new Error(`Session ${sessionId} not found`)
 
-    const topicId = session.topic_id ?? 'ai-fundamentals'
+    // Curriculum sessions have topic_id=NULL — use curriculum_session_id as the effective
+    // cache key so content is stored and retrieved under the right identifier.
+    const topicId = session.topic_id ?? session.curriculum_session_id ?? 'ai-fundamentals'
     const topicTitle = session.session_title ?? 'AI Strategy Session'
-    // Prefer session_plan subtopics (actual agenda) over the high-level topics column —
-    // must match what generate-content GET uses so KB lookups resolve correctly.
+
+    // Priority 1: session_plan.subtopics (old-style sessions — unchanged)
     const planSubtopics = (session.session_plan as { subtopics?: Array<{ title: string; skipped?: boolean }> } | null)
       ?.subtopics?.filter((s) => !s.skipped)?.map((s) => s.title) ?? []
+
+    // Priority 2: session.subtopics JSONB (curriculum sessions — [{title, type, ...}])
+    const jsonbSubtopics = (session.subtopics as Array<{ title: string }> | null)
+      ?.map((s) => s.title) ?? []
+
     const subtopicTitles = planSubtopics.length > 0
       ? planSubtopics
-      : getSubtopicsForSession(topicId, session.topics)
+      : jsonbSubtopics.length > 0
+        ? jsonbSubtopics
+        : getSubtopicsForSession(topicId, session.topics)
     const userContext = {
       role: userProfile?.role ?? 'executive',
       industry: userProfile?.industry ?? 'business',

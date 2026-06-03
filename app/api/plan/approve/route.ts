@@ -4,6 +4,7 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
 import { sendPlanReadyEmail, sendPlanApprovedEmail, type User } from '@/lib/delivery/email'
 import { sendSMS } from '@/lib/delivery/sms'
 import { designSessionsForTopic, getSessionDuration, type CurriculumTopicInput } from '@/lib/curriculum/session-designer'
+import { inngest } from '@/inngest/client'
 
 interface VisibleSession extends CurriculumTopicInput {
   arc_name:        string
@@ -111,6 +112,34 @@ export async function POST() {
     .eq('curriculum_plan_id', plan.id)
     .eq('status', 'draft')
     .select('id')
+
+  // ── Fire content generation for all newly activated curriculum sessions ──────
+  // Non-fatal — hourly cron will catch any sessions missed here.
+  try {
+    const { data: activatedSessions } = await supabase
+      .from('sessions')
+      .select('id, curriculum_session_id')
+      .eq('user_id', userId!)
+      .eq('curriculum_plan_id', plan.id)
+      .eq('status', 'scheduled')
+      .not('curriculum_session_id', 'is', null)
+
+    if (activatedSessions && activatedSessions.length > 0) {
+      const events = activatedSessions.map((s) => ({
+        name: 'distill/session.content.generate' as const,
+        data: {
+          sessionId: s.id,
+          userId: userId!,
+          topicId: s.curriculum_session_id!,
+          priority: 'high',
+        },
+      }))
+      await inngest.send(events)
+      console.log(`[plan/approve] Fired content generation for ${events.length} curriculum sessions`)
+    }
+  } catch (err) {
+    console.error('[plan/approve] Content generation trigger failed (non-fatal):', err)
+  }
 
   // ── Update curriculum plan ────────────────────────────────────────────────────
   await supabase

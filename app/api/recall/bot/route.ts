@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
     const [{ data: sessionData }, { data: userRow }, learningProfile] = await Promise.all([
       supabase
         .from('sessions')
-        .select('session_title, topic_id, session_plan, session_index')
+        .select('session_title, topic_id, session_plan, session_index, curriculum_session_id')
         .eq('id', sessionId)
         .single(),
       supabase
@@ -68,7 +68,10 @@ export async function POST(request: NextRequest) {
     ])
 
     const sessionTitle = sessionData?.session_title ?? 'AI Coaching Session'
-    const topicId = sessionData?.topic_id ?? null
+    // Curriculum sessions have topic_id=NULL — use curriculum_session_id as the effective
+    // cache key so sections and training scripts are found in topic_content_cache.
+    const topicId = sessionData?.topic_id ?? sessionData?.curriculum_session_id ?? null
+    const isCurriculumSession = !sessionData?.topic_id && !!sessionData?.curriculum_session_id
     const sessionIndex = (sessionData?.session_index as number | null) ?? null
     const readySections = getAllReadySections(sessionData?.session_plan as SessionPlan | null)
     const userRole = userRow?.role ?? 'executive'
@@ -92,16 +95,22 @@ export async function POST(request: NextRequest) {
     // Starts as the session-plan snapshot; overwritten with fresh cache data below when available.
     let freshSections: TemplateSection[] = readySections
 
-    if (topicId && readySections.length > 0) {
-      const slugs = readySections.map((s) => s.id)
-
-      const { data: cacheRows } = await supabase
+    if (topicId && (readySections.length > 0 || isCurriculumSession)) {
+      // Old-style sessions: filter by known slugs from session_plan.
+      // Curriculum sessions: load ALL cache rows for this curriculum_session_id
+      // (no session_plan slug list — the pipeline owns the ordering via generated_at).
+      const cacheQuery = supabase
         .from('topic_content_cache')
         .select('subtopic_slug, training_script, content_outline, topic_context_doc, section_data')
         .eq('topic_id', topicId)
-        .in('subtopic_slug', slugs)
+        .eq('pipeline_status', 'ready')
 
-      console.log(`[recall/bot] Querying cache: topic_id=${topicId}, slugs=[${slugs.join(', ')}]`)
+      const { data: cacheRows } = isCurriculumSession
+        ? await cacheQuery.order('generated_at', { ascending: true })
+        : await cacheQuery.in('subtopic_slug', readySections.map((s) => s.id))
+
+      const slugs = isCurriculumSession ? (cacheRows ?? []).map((r) => r.subtopic_slug) : readySections.map((s) => s.id)
+      console.log(`[recall/bot] Querying cache: topic_id=${topicId}, curriculum=${isCurriculumSession}, slugs=[${slugs.join(', ')}]`)
       console.log(`[recall/bot] Cache rows found: ${cacheRows?.length ?? 0}`, (cacheRows ?? []).map((r) => `${r.subtopic_slug}(script=${r.training_script ? 'yes' : 'no'}, section_data=${r.section_data ? 'yes' : 'null'})`))
 
       const scriptMap = new Map((cacheRows ?? []).map((r) => [r.subtopic_slug, r.training_script]))
@@ -118,24 +127,36 @@ export async function POST(request: NextRequest) {
 
       console.log(`[recall/bot] freshSectionMap has ${freshSectionMap.size} entries with section_data`)
 
-      // Replace each section's data with the latest from topic_content_cache,
-      // patching meta so role/industry reflects the current user.
-      // Falls back to the session-plan snapshot if the slug isn't cached yet.
-      freshSections = readySections.map((s) => {
-        const cached = freshSectionMap.get(s.id)
-        if (!cached) {
-          console.log(`[recall/bot] FALLBACK to session plan snapshot for slug="${s.id}" — no section_data in cache`)
-          return s
-        }
-        console.log(`[recall/bot] Using KB-fresh section for slug="${s.id}" type=${cached.type}`)
-        return {
-          ...cached,
-          meta: { ...cached.meta, userRole: userRole, userIndustry: userIndustry },
-        } as TemplateSection
-      })
+      if (isCurriculumSession) {
+        // Curriculum sessions: build freshSections directly from all cache rows (ordered by generated_at).
+        // No session_plan to fall back to — cache is the source of truth.
+        freshSections = (cacheRows ?? [])
+          .filter((r) => r.section_data)
+          .map((r) => ({
+            ...(r.section_data as TemplateSection),
+            meta: { ...(r.section_data as TemplateSection).meta, userRole, userIndustry },
+          }))
+        trainingScripts = freshSections.map((s) => scriptMap.get(s.id) ?? null)
+        console.log(`[recall/bot] Curriculum: built ${freshSections.length} sections from cache`)
+      } else {
+        // Old-style sessions: replace each session_plan section with the latest cache version.
+        // Falls back to the session-plan snapshot if the slug isn't cached yet.
+        freshSections = readySections.map((s) => {
+          const cached = freshSectionMap.get(s.id)
+          if (!cached) {
+            console.log(`[recall/bot] FALLBACK to session plan snapshot for slug="${s.id}" — no section_data in cache`)
+            return s
+          }
+          console.log(`[recall/bot] Using KB-fresh section for slug="${s.id}" type=${cached.type}`)
+          return {
+            ...cached,
+            meta: { ...cached.meta, userRole, userIndustry },
+          } as TemplateSection
+        })
+        trainingScripts = freshSections.map((s) => scriptMap.get(s.id) ?? null)
+      }
 
-      trainingScripts = freshSections.map((s) => scriptMap.get(s.id) ?? null)
-      const contentOutlines = readySections.map((s) => outlineMap.get(s.id) ?? null)
+      const contentOutlines = slugs.map((slug) => outlineMap.get(slug) ?? null)
 
       const contextDocUpdates: Array<{ slug: string; doc: string }> = []
       topicContextDocs = await Promise.all(
