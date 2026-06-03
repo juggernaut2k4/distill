@@ -24,7 +24,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
 
   const { data: rows, error: dbError } = await supabase
     .from('topic_content_cache')
-    .select('id, subtopic_slug, subtopic_title, template_type, section_data, previous_section_data, kb_feedback, generated_at, qa_score, qa_result, qa_run_at')
+    .select('id, subtopic_slug, subtopic_title, template_type, section_data, previous_section_data, kb_feedback, generated_at, qa_score, qa_result, qa_run_at, training_script, content_outline')
     .eq('topic_id', params.topicId)
     .gt('expires_at', new Date().toISOString())
     .order('generated_at', { ascending: true })

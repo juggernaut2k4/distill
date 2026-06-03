@@ -40,6 +40,19 @@ interface QAResult {
   layout_issues: Array<{ location: string; issue: string; severity: string; data_fix: string; component_fix: string | null }>
 }
 
+interface ScriptSegment {
+  type: string
+  content: string
+  duration_seconds?: number
+}
+
+interface TrainingScript {
+  subtopic_title: string
+  subtopic_slug: string
+  segments: ScriptSegment[]
+  total_duration_seconds: number
+}
+
 interface CacheRow {
   id: string
   subtopic_slug: string
@@ -52,6 +65,8 @@ interface CacheRow {
   qa_score: number | null
   qa_result: QAResult | null
   qa_run_at: string | null
+  training_script: TrainingScript | null
+  content_outline: Record<string, unknown> | null
 }
 
 interface SectionState {
@@ -543,6 +558,118 @@ export default function KBTopicClient({ topicId }: Props) {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* ── Content / Visualization / Script boxes ── */}
+      {activeSection && (
+        <div className="mt-4 space-y-4">
+
+          {/* Box 1 — Content (content_outline: Step 1 pipeline output) */}
+          {activeSection.row.content_outline && (
+            <div className="bg-[#111111] border border-[#222222] rounded-xl p-5">
+              <p className="text-[#475569] text-xs font-medium uppercase tracking-wider mb-4">Content</p>
+              <div className="space-y-4">
+                {Object.entries(activeSection.row.content_outline)
+                  .filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== '')
+                  .map(([key, value]) => (
+                    <div key={key}>
+                      <p className="text-[#475569] text-xs font-medium mb-1.5 capitalize">{key.replace(/_/g, ' ')}</p>
+                      {Array.isArray(value) ? (
+                        <ul className="space-y-1">
+                          {(value as unknown[]).map((item, i) => (
+                            <li key={i} className="text-[#94A3B8] text-sm flex gap-2">
+                              <span className="text-[#7C3AED] shrink-0 mt-0.5">•</span>
+                              <span>{typeof item === 'string' ? item : JSON.stringify(item)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="text-[#94A3B8] text-sm leading-relaxed">{String(value)}</p>
+                      )}
+                    </div>
+                  ))
+                }
+              </div>
+            </div>
+          )}
+
+          {/* Box 2 — Visualization content (section_data: Step 2 pipeline output) */}
+          <div className="bg-[#111111] border border-[#222222] rounded-xl p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <p className="text-[#475569] text-xs font-medium uppercase tracking-wider">Visualization content</p>
+              <span className="text-xs font-medium px-2 py-0.5 rounded bg-[#7C3AED]/15 border border-[#7C3AED]/30 text-[#A855F7]">
+                {activeSection.row.section_data.type}
+              </span>
+            </div>
+            <div className="space-y-4">
+              {Object.entries(activeSection.row.section_data.data as unknown as Record<string, unknown>)
+                .filter(([, v]) => v !== null && v !== undefined)
+                .map(([key, value]) => (
+                  <div key={key}>
+                    <p className="text-[#475569] text-xs font-medium mb-1.5 capitalize">{key.replace(/_/g, ' ')}</p>
+                    {Array.isArray(value) ? (
+                      <div className="space-y-1.5">
+                        {(value as unknown[]).map((item, i) => (
+                          <div key={i} className="text-[#94A3B8] text-sm bg-[#0d0d0d] rounded-lg px-3 py-2">
+                            {typeof item === 'object' ? JSON.stringify(item) : String(item)}
+                          </div>
+                        ))}
+                      </div>
+                    ) : typeof value === 'object' ? (
+                      <pre className="text-[#94A3B8] text-xs bg-[#0d0d0d] rounded-lg px-3 py-2 overflow-auto whitespace-pre-wrap">
+                        {JSON.stringify(value, null, 2)}
+                      </pre>
+                    ) : (
+                      <p className="text-[#94A3B8] text-sm leading-relaxed">{String(value)}</p>
+                    )}
+                  </div>
+                ))
+              }
+            </div>
+          </div>
+
+          {/* Box 3 — Script for explanation (training_script: Step 3 pipeline output) */}
+          {activeSection.row.training_script ? (
+            <div className="bg-[#111111] border border-[#222222] rounded-xl p-5">
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-[#475569] text-xs font-medium uppercase tracking-wider">Script for explanation</p>
+                <span className="text-[#475569] text-xs">
+                  {Math.round((activeSection.row.training_script.total_duration_seconds ?? 0) / 60)} min
+                </span>
+              </div>
+              <div className="space-y-3">
+                {activeSection.row.training_script.segments.map((seg, i) => {
+                  const segColor: Record<string, string> = {
+                    TEACH:      'bg-[#7C3AED]/10 border-[#7C3AED]/30 text-[#A855F7]',
+                    CHECKPOINT: 'bg-[#06B6D4]/10 border-[#06B6D4]/30 text-[#06B6D4]',
+                    PROBE:      'bg-[#F59E0B]/10 border-[#F59E0B]/30 text-[#F59E0B]',
+                    CONTINUE:   'bg-[#10B981]/10 border-[#10B981]/30 text-[#10B981]',
+                    CLOSE:      'bg-[#475569]/10 border-[#475569]/30 text-[#94A3B8]',
+                  }
+                  return (
+                    <div key={i} className="border border-[#222222] rounded-lg overflow-hidden">
+                      <div className="px-3 py-1.5 bg-[#0d0d0d] border-b border-[#222222] flex items-center justify-between">
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded border ${segColor[seg.type] ?? 'text-[#94A3B8] border-[#333333]'}`}>
+                          {seg.type}
+                        </span>
+                        {seg.duration_seconds != null && (
+                          <span className="text-[#475569] text-xs">{seg.duration_seconds}s</span>
+                        )}
+                      </div>
+                      <p className="text-[#94A3B8] text-sm px-3 py-3 leading-relaxed">{seg.content}</p>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ) : (
+            <div className="bg-[#111111] border border-[#222222] rounded-xl p-5">
+              <p className="text-[#475569] text-xs font-medium uppercase tracking-wider mb-2">Script for explanation</p>
+              <p className="text-[#475569] text-sm">No script generated yet for this section.</p>
+            </div>
+          )}
+
         </div>
       )}
 
