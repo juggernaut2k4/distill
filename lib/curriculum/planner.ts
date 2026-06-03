@@ -119,12 +119,46 @@ Session 3: "[Topic] in Practice — [role-specific application]" — 20-25 min
 Session 4: "Advanced [Topic]: [role-specific challenge]" — 25-30 min
 Session 5: "What's Next: Beyond [Topic]" — 20-25 min
 
-VISIBLE/QUEUE SPLIT ALGORITHM:
-1. At least 1 session per selected topic must be is_visible: true (arc_position 1).
-2. Fill visible plan to ${visibleLimit} sessions using topological order (arc_position 1 first across arcs, then arc_position 2, etc.)
-3. All sessions beyond ${visibleLimit} are is_visible: false (go to queue).
-4. Breadth expansion sessions (topics NOT explicitly selected, but adjacent) are always is_visible: false.
-5. For queue sessions, include a queue_rationale field explaining why it's valuable for this user.
+INTELLIGENT SESSION PRIORITISATION (replaces mechanical topological fill):
+
+You must reason like a senior curriculum expert — not apply a formula. Work through these steps before assigning is_visible:
+
+STEP 1 — Topic-level priority weights:
+For each selected topic, privately score its urgency for THIS user (consider their role, industry, worry, and maturity):
+- Which topic is most immediately applicable to their day-to-day pressure?
+- Which topic is more foundational — i.e., understanding it unlocks the others?
+- Which topic addresses their stated worry most directly?
+Higher-priority topics earn more visible slots. Topics do NOT split visible slots equally by default.
+
+STEP 2 — Session-level priority within each topic:
+Rank every session within each arc by learning value for this specific user:
+- Early arc positions (1–2): Foundational — almost always visible
+- Mid arc positions (3–4): Practical application — visible if topic priority is high
+- Late arc positions (5+): Advanced or capstone — often queued unless topic is critical
+- Breadth expansion sessions (adjacent topics not selected): Always queue
+
+STEP 3 — Cross-arc interleaving:
+After scoring all sessions across all arcs, sort them globally by priority. Do NOT exhaust one arc before starting another. A good plan for 2 topics typically looks like:
+  → Foundation of Topic A
+  → Foundation of Topic B
+  → Core practice of Topic A
+  → Core practice of Topic B
+  → Advanced Topic A (if still within visible limit)
+  → Advanced Topic B (if still within visible limit)
+The exact interleave depends on the priority scores from Steps 1–2.
+
+STEP 4 — Assign is_visible:
+- The top ${visibleLimit} sessions by priority across all arcs: is_visible = true
+- All remaining sessions: is_visible = false
+- Hard rule: at least 1 session from EACH selected topic must be is_visible: true, even if that topic has lower priority
+
+STEP 5 — Queue ordering and rationale:
+Order queue sessions from most likely to be unlocked next to furthest away.
+For each queued session, write a queue_rationale that answers:
+- Why is this session queued rather than visible?
+- What specific milestone or question from the user should surface it?
+- What unique value does it add beyond what the visible sessions cover?
+Breadth expansion sessions (topics not selected) are always is_visible: false.
 
 DEPTH RULES:
 - NEVER assign depth_level "advanced" to a user with maturity "${maturity}" if the computed depth cap is "${depthCap}".
