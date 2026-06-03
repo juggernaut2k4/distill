@@ -89,7 +89,7 @@ USER PROFILE:
 
 CURRICULUM REQUIREMENTS:
 - Visible plan sessions: exactly up to ${visibleLimit} sessions (at least 1 per selected topic)
-- Shadow queue sessions: up to ${queueLimit} additional sessions (can be 0 if queueLimit is 0)
+- Shadow queue sessions: generate as many as genuinely add value — do not fill slots for the sake of it, but do not artificially limit yourself either. The cap is ${queueLimit}${queueLimit === 0 ? ' (this tier has no queue — skip queue sessions entirely)' : ', but quality determines count, not the cap. A queue of 8 deeply relevant sessions is better than 40 generic ones.'}
 - Total arcs: 1 to 10
 
 ARC CLASSIFICATION RULES (strictly follow these):
@@ -159,6 +159,23 @@ For each queued session, write a queue_rationale that answers:
 - What specific milestone or question from the user should surface it?
 - What unique value does it add beyond what the visible sessions cover?
 Breadth expansion sessions (topics not selected) are always is_visible: false.
+
+STEP 6 — Education specialist curriculum review (breadth expansion):
+After completing all arcs for the selected topics, pause and act as a senior education specialist reviewing this learner's full journey.
+
+Ask yourself:
+- What gaps exist in their understanding that the selected topics don't cover?
+- What adjacent skills or knowledge would make the visible sessions 2× more useful?
+- What topics are commonly needed by a ${role} in ${industry} that this person hasn't selected but would benefit from?
+- What would a great executive coach add to this curriculum that the learner didn't know to ask for?
+
+Generate additional queue sessions only for topics that genuinely belong in this person's learning journey. Do not pad.
+Each breadth expansion session must:
+- Address a real gap or adjacent need specific to this user's role, industry, and worry
+- Have a clear reason why it belongs alongside the selected topics
+- Be ordered in the queue by how soon the learner will need it (earliest need first)
+
+There is no minimum or mandatory count for breadth expansion — generate what earns its place and nothing more.
 
 DEPTH RULES:
 - NEVER assign depth_level "advanced" to a user with maturity "${maturity}" if the computed depth cap is "${depthCap}".
