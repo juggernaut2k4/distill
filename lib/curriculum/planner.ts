@@ -196,6 +196,15 @@ SUBTOPICS RULES:
 - Good example: "How transformer models process language without understanding meaning" — specific.
 - Do NOT pad with subtopics that are not genuinely needed. Every subtopic must earn its place.
 
+SUBTOPIC ORDERING (within each session):
+Order subtopics from most foundational to most advanced — the learner should be able to follow them in sequence without skipping:
+1. Context / why it matters — the one thing that makes the rest meaningful
+2. Core concept — the fundamental mechanism or idea
+3. How it works in practice — a concrete application in their role or industry
+4. The nuance or pitfall — what trips executives up, what to watch for
+5. The decision or action — what they can do or decide differently after this session
+Not every session needs all five layers. Use the layers that the topic genuinely requires. The key rule: each subtopic should assume the previous one is understood.
+
 SESSION ID FORMAT: {arc-slug}-s{n} where arc-slug is a kebab-case version of the arc name.
 Example: "ai-governance-arc-s1", "tools-integration-s2"
 All session_ids must be unique within the entire output.
