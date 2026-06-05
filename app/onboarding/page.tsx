@@ -3,6 +3,7 @@
 import { useState, useRef, Suspense, useMemo } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useRouter } from 'next/navigation'
+import { useUser } from '@clerk/nextjs'
 import { ProgressBar } from '@/components/onboarding/ProgressBar'
 import { ArrowRight, ArrowLeft, Plus, X, Search } from 'lucide-react'
 import {
@@ -473,6 +474,7 @@ function SubDomainStep({
 
 function OnboardingContent() {
   const router = useRouter()
+  const { isLoaded: clerkLoaded, isSignedIn } = useUser()
 
   const [step, setStep] = useState(0)
   const [direction, setDirection] = useState<'right' | 'left'>('right')
@@ -514,13 +516,20 @@ function OnboardingContent() {
   }
 
   // ── Auto-advance handler for step 5 goal selection ─────────────────────────
-  // Snapshot all state synchronously at click time to avoid stale closure issues
-  // when the setTimeout fires 400ms later.
+  // Snapshot all state synchronously at click time to avoid stale closure issues.
+  // Waits for Clerk's isSignedIn before submitting — handles the brief window
+  // after OAuth sign-up where the session cookie exists but isSignedIn is still false.
   function handleGoalSelect(value: LearningGoal) {
     setLearningGoal(value)
     if (goalTimerRef.current) clearTimeout(goalTimerRef.current)
     const snapshot = { role, roleLevel, industry, aiEngagement, selectedDomains, customDomains }
-    goalTimerRef.current = setTimeout(() => {
+    goalTimerRef.current = setTimeout(async () => {
+      // Wait up to 8 seconds for Clerk session to become available
+      let waited = 0
+      while ((!clerkLoaded || !isSignedIn) && waited < 8000) {
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        waited += 500
+      }
       setBuilding(true)
       submitOnboarding(value, snapshot)
     }, 400)
