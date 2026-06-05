@@ -3,7 +3,7 @@
 import { useState, useRef, Suspense, useMemo } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useRouter } from 'next/navigation'
-import { useUser } from '@clerk/nextjs'
+import { useUser, useAuth } from '@clerk/nextjs'
 import { ProgressBar } from '@/components/onboarding/ProgressBar'
 import { ArrowRight, ArrowLeft, Plus, X, Search } from 'lucide-react'
 import {
@@ -475,6 +475,7 @@ function SubDomainStep({
 function OnboardingContent() {
   const router = useRouter()
   const { isLoaded: clerkLoaded, isSignedIn } = useUser()
+  const { getToken } = useAuth()
   // Ref so the setTimeout async loop always sees the latest isSignedIn value
   const isSignedInRef = useRef(false)
   isSignedInRef.current = !!(clerkLoaded && isSignedIn)
@@ -527,13 +528,18 @@ function OnboardingContent() {
     if (goalTimerRef.current) clearTimeout(goalTimerRef.current)
     const snapshot = { role, roleLevel, industry, aiEngagement, selectedDomains, customDomains }
     goalTimerRef.current = setTimeout(async () => {
-      // Wait up to 8 seconds for Clerk session to become available.
-      // Use isSignedInRef (not closure variable) so each iteration
-      // sees the latest value from React re-renders.
+      // Wait for Clerk to fully establish the session by polling getToken().
+      // getToken() triggers a token refresh which sets the __client_uat cookie
+      // that the server-side auth() reads. isSignedIn alone is not enough —
+      // the server cookie lags behind the client state after fresh OAuth sign-up.
+      let token: string | null = null
       let waited = 0
-      while (!isSignedInRef.current && waited < 8000) {
-        await new Promise((resolve) => setTimeout(resolve, 500))
-        waited += 500
+      while (!token && waited < 8000) {
+        try { token = await getToken() } catch { /* not ready yet */ }
+        if (!token) {
+          await new Promise((resolve) => setTimeout(resolve, 500))
+          waited += 500
+        }
       }
       setBuilding(true)
       submitOnboarding(value, snapshot)
