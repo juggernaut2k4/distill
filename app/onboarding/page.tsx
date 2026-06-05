@@ -528,21 +528,20 @@ function OnboardingContent() {
     if (goalTimerRef.current) clearTimeout(goalTimerRef.current)
     const snapshot = { role, roleLevel, industry, aiEngagement, selectedDomains, customDomains }
     goalTimerRef.current = setTimeout(async () => {
-      // Wait for Clerk to fully establish the session by polling getToken().
-      // getToken() triggers a token refresh which sets the __client_uat cookie
-      // that the server-side auth() reads. isSignedIn alone is not enough —
-      // the server cookie lags behind the client state after fresh OAuth sign-up.
-      let token: string | null = null
+      // Poll getToken() until Clerk's session JWT is available (up to 8s).
+      // Pass the token to submitOnboarding so it can be sent as Authorization: Bearer,
+      // bypassing the __client_uat=0 cookie issue that occurs immediately after OAuth sign-up.
+      let authToken: string | null = null
       let waited = 0
-      while (!token && waited < 8000) {
-        try { token = await getToken() } catch { /* not ready yet */ }
-        if (!token) {
+      while (!authToken && waited < 8000) {
+        try { authToken = await getToken() } catch { /* not ready yet */ }
+        if (!authToken) {
           await new Promise((resolve) => setTimeout(resolve, 500))
           waited += 500
         }
       }
       setBuilding(true)
-      submitOnboarding(value, snapshot)
+      submitOnboarding(value, snapshot, 0, authToken ?? undefined)
     }, 400)
   }
 
@@ -564,7 +563,8 @@ function OnboardingContent() {
   async function submitOnboarding(
     finalGoal: LearningGoal | '',
     snapshot?: { role: string; roleLevel: string; industry: string; aiEngagement: string; selectedDomains: string[]; customDomains: string[] },
-    retryCount = 0
+    retryCount = 0,
+    authToken?: string
   ) {
     const r = snapshot?.role ?? role
     const rl = snapshot?.roleLevel ?? roleLevel
@@ -594,7 +594,11 @@ function OnboardingContent() {
     try {
       const res = await fetch('/api/onboarding', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          // Pass Bearer token to bypass __client_uat=0 cookie issue after OAuth sign-up
+          ...(authToken ? { 'Authorization': `Bearer ${authToken}` } : {}),
+        },
         body: JSON.stringify(payload),
       })
       if (!res.ok) {

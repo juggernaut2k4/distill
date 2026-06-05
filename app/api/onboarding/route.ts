@@ -31,11 +31,26 @@ const OnboardingSchema = z.object({
  */
 export async function POST(request: NextRequest) {
   try {
-    const { userId } = auth()
+    // Try cookie-based auth first, then fall back to Bearer token.
+    // Bearer token path handles the __client_uat=0 case that occurs
+    // immediately after OAuth sign-up before the cookie is fully set.
+    let userId = auth().userId
 
-    // Clerk session may not have propagated yet immediately after sign-up.
-    // Return a retryable 401 so the client can retry after a brief delay
-    // rather than silently creating an anonymous record.
+    if (!userId) {
+      const authHeader = request.headers.get('Authorization')
+      if (authHeader?.startsWith('Bearer ')) {
+        const { verifyToken } = await import('@clerk/nextjs/server')
+        try {
+          const payload = await verifyToken(authHeader.slice(7), {
+            secretKey: process.env.CLERK_SECRET_KEY!,
+          })
+          userId = payload.sub ?? null
+        } catch {
+          // Token invalid — fall through to 401
+        }
+      }
+    }
+
     if (!userId) {
       return NextResponse.json(
         { error: 'session_not_ready', message: 'Authentication session not yet available. Please retry.' },
