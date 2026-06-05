@@ -607,7 +607,12 @@ function OnboardingContent() {
         if (res.status === 401 && data?.error === 'session_not_ready' && retryCount < 3) {
           console.log(`[onboarding] Session not ready, retrying (${retryCount + 1}/3)...`)
           await new Promise((resolve) => setTimeout(resolve, 1000))
-          return submitOnboarding(finalGoal, snapshot, retryCount + 1)
+          return submitOnboarding(finalGoal, snapshot, retryCount + 1, authToken)
+        }
+        // After retries exhausted on 401, session is likely dead — direct to sign-in
+        if (res.status === 401) {
+          router.replace('/sign-in?redirect_url=/onboarding')
+          return
         }
         console.error('[onboarding] API error:', data)
         setBuilding(false)
@@ -642,6 +647,14 @@ function OnboardingContent() {
   }
 
   if (building) return <BuildingScreen />
+
+  // If Clerk has loaded and there's no valid session, the user's cookies are stale
+  // or tied to a deleted account. Redirect to sign-in rather than letting them
+  // complete all 6 steps and fail at the API call.
+  if (clerkLoaded && !isSignedIn) {
+    router.replace('/sign-in?redirect_url=/onboarding')
+    return <div className="min-h-screen bg-[#080808]" />
+  }
 
   return (
     <div className="min-h-screen bg-[#080808] flex flex-col">
