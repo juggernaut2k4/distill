@@ -514,12 +514,15 @@ function OnboardingContent() {
   }
 
   // ── Auto-advance handler for step 5 goal selection ─────────────────────────
+  // Snapshot all state synchronously at click time to avoid stale closure issues
+  // when the setTimeout fires 400ms later.
   function handleGoalSelect(value: LearningGoal) {
     setLearningGoal(value)
     if (goalTimerRef.current) clearTimeout(goalTimerRef.current)
+    const snapshot = { role, roleLevel, industry, aiEngagement, selectedDomains, customDomains }
     goalTimerRef.current = setTimeout(() => {
       setBuilding(true)
-      submitOnboarding(value)
+      submitOnboarding(value, snapshot)
     }, 400)
   }
 
@@ -536,23 +539,33 @@ function OnboardingContent() {
   }
 
   // ── Submit ──────────────────────────────────────────────────────────────────
-  async function submitOnboarding(finalGoal: LearningGoal | '') {
-    const primaryDomain = selectedDomains[0] ?? customDomains[0] ?? 'ai-ml'
+  // Accepts an explicit snapshot to prevent stale closure when called from setTimeout.
+  async function submitOnboarding(
+    finalGoal: LearningGoal | '',
+    snapshot?: { role: string; roleLevel: string; industry: string; aiEngagement: string; selectedDomains: string[]; customDomains: string[] }
+  ) {
+    const r = snapshot?.role ?? role
+    const rl = snapshot?.roleLevel ?? roleLevel
+    const ind = snapshot?.industry ?? industry
+    const eng = snapshot?.aiEngagement ?? aiEngagement
+    const domains = snapshot?.selectedDomains ?? selectedDomains
+    const custom = snapshot?.customDomains ?? customDomains
+    const primaryDomain = domains[0] ?? custom[0] ?? 'ai-ml'
 
     const payload = {
-      role,
-      roleLevel,
-      industry,
-      aiMaturity: aiEngagement,
+      role: r,
+      roleLevel: rl,
+      industry: ind,
+      aiMaturity: eng,
       worry: '',
       deliveryPreference: 'email',
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      domains: selectedDomains,
-      customDomains,
+      domains,
+      customDomains: custom,
       primaryDomain,
       domainProficiency: {},
       learningGoal: finalGoal,
-      subDomain: industry,  // backward compat: same value as industry
+      subDomain: ind,  // backward compat: same value as industry
     }
     localStorage.setItem('clio_onboarding', JSON.stringify(payload))
 

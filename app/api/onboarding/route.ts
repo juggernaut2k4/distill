@@ -83,9 +83,11 @@ export async function POST(request: NextRequest) {
       sub_domain: data.subDomain ?? null,
     }
 
+    console.log('[onboarding] upsert — role:', data.role, '| roleLevel:', data.roleLevel, '| industry:', data.industry, '| aiMaturity:', data.aiMaturity)
+
     const { error: upsertError } = await supabase
       .from('users')
-      .upsert(userRecord)
+      .upsert(userRecord, { onConflict: 'id' })
 
     if (upsertError) {
       console.error('[onboarding] Supabase upsert error:', upsertError.message)
