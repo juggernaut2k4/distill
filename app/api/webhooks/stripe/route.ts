@@ -66,6 +66,7 @@ export async function POST(request: NextRequest) {
             subscription_status: subscription.status,
             minutes_included: minutesIncluded,
             minutes_balance: minutesBalance,
+            ...(isTrialing && { onboarded_at: new Date().toISOString() }),
           })
           .eq('id', userId)
 

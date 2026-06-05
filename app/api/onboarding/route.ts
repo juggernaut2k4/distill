@@ -7,6 +7,7 @@ import { assignPhoneNumber } from '@/lib/delivery/sms'
 
 const OnboardingSchema = z.object({
   role: z.string().min(1, 'Role is required'),
+  roleLevel: z.enum(['c-suite', 'vp-dir', 'manager', 'specialist']),
   industry: z.string().default(''),
   aiMaturity: z.string().default('intermediate'),
   worry: z.string().default(''),
@@ -62,6 +63,7 @@ export async function POST(request: NextRequest) {
       email: data.email ?? null,
       phone: data.phone ?? null,
       role: data.role,
+      role_level: data.roleLevel,
       industry: data.industry,
       ai_maturity: data.aiMaturity,
       worry_tags: data.worry ? [data.worry] : [],
@@ -69,7 +71,6 @@ export async function POST(request: NextRequest) {
       timezone: data.timezone,
       plan_tier: data.plan,
       twilio_number_assigned: twilioNumber,
-      onboarded_at: new Date().toISOString(),
       needs_recalibration: false,
       streak_days: 0,
       ai_readiness_score: 0,

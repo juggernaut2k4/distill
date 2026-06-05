@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, Suspense, useMemo } from 'react'
+import { useState, useRef, Suspense, useMemo } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useRouter } from 'next/navigation'
 import { ProgressBar } from '@/components/onboarding/ProgressBar'
@@ -14,7 +14,7 @@ import {
 // ─── Step definitions ─────────────────────────────────────────────────────────
 
 const TOTAL_STEPS = 6
-// 0: Level  1: Department → resolves roleId  2: Domains  3: Proficiency  4: Goal  5: SubDomain
+// 0: Level  1: Department → resolves roleId  2: Industry  3: AI Engagement  4: Domains  5: Goal (auto-advance)
 
 // ─── Sub-domain lists per primary domain ──────────────────────────────────────
 
@@ -481,25 +481,24 @@ function OnboardingContent() {
   // Step answers
   const [roleLevel, setRoleLevel] = useState('')          // step 0: level bucket
   const [role, setRole] = useState('')                    // step 1: resolved roleId
+  const [industry, setIndustry] = useState('')            // step 2: industry sector
+  const [aiEngagement, setAiEngagement] = useState<'observer' | 'emerging' | 'practitioner' | 'leader' | ''>('')  // step 3
   const [selectedDomains, setSelectedDomains] = useState<string[]>([])
   const [customDomains, setCustomDomains] = useState<string[]>([])
-  const [proficiencies, setProficiencies] = useState<Record<string, Proficiency>>({})
   const [learningGoal, setLearningGoal] = useState<LearningGoal | ''>('')
-  const [subDomain, setSubDomain] = useState('')          // step 5: sub-domain
+  const goalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [submitError, setSubmitError] = useState<string | null>(null)
 
   // ── Can proceed from each step ──────────────────────────────────────────────
   const canProceed = useMemo(() => {
     if (step === 0) return roleLevel !== ''
     if (step === 1) return role !== ''
-    if (step === 2) return selectedDomains.length > 0 || customDomains.length > 0
-    if (step === 3) {
-      const allKeys = [...selectedDomains, ...customDomains]
-      return allKeys.length > 0 && allKeys.every((k) => proficiencies[k])
-    }
-    if (step === 4) return learningGoal !== ''
-    if (step === 5) return subDomain !== ''
+    if (step === 2) return industry !== ''
+    if (step === 3) return aiEngagement !== ''
+    if (step === 4) return selectedDomains.length > 0 || customDomains.length > 0
+    // Step 5 (GoalStep) auto-advances on selection — no Continue button shown
     return false
-  }, [step, roleLevel, role, selectedDomains, customDomains, proficiencies, learningGoal, subDomain])
+  }, [step, roleLevel, role, industry, aiEngagement, selectedDomains, customDomains])
 
   // ── Domain handlers ─────────────────────────────────────────────────────────
   function toggleDomain(id: string) {
@@ -512,14 +511,13 @@ function OnboardingContent() {
   }
   function removeCustomDomain(label: string) {
     setCustomDomains((prev) => prev.filter((x) => x !== label))
-    setProficiencies((prev) => { const next = { ...prev }; delete next[label]; return next })
   }
 
-  // ── Auto-advance handler for Q6 sub-domain ─────────────────────────────────
-  function handleSubDomainSelect(value: string) {
-    setSubDomain(value)
-    // Auto-advance after 400ms
-    setTimeout(() => {
+  // ── Auto-advance handler for step 5 goal selection ─────────────────────────
+  function handleGoalSelect(value: LearningGoal) {
+    setLearningGoal(value)
+    if (goalTimerRef.current) clearTimeout(goalTimerRef.current)
+    goalTimerRef.current = setTimeout(() => {
       setBuilding(true)
       submitOnboarding(value)
     }, 400)
@@ -528,13 +526,8 @@ function OnboardingContent() {
   // ── Navigation ──────────────────────────────────────────────────────────────
   function handleNext() {
     if (!canProceed) return
-    if (step < TOTAL_STEPS - 1) {
-      setDirection('right')
-      setStep((s) => s + 1)
-    } else {
-      setBuilding(true)
-      submitOnboarding(subDomain)
-    }
+    setDirection('right')
+    setStep((s) => s + 1)
   }
   function handleBack() {
     if (step === 0) return
@@ -543,44 +536,64 @@ function OnboardingContent() {
   }
 
   // ── Submit ──────────────────────────────────────────────────────────────────
-  async function submitOnboarding(finalSubDomain: string) {
+  async function submitOnboarding(finalGoal: LearningGoal | '') {
     const primaryDomain = selectedDomains[0] ?? customDomains[0] ?? 'ai-ml'
-    const domainProficiency: Record<string, string> = {}
-    ;[...selectedDomains, ...customDomains].forEach((k) => {
-      domainProficiency[k] = proficiencies[k] ?? 'intermediate'
-    })
 
     const payload = {
       role,
-      industry: '',
-      aiMaturity: proficiencies[primaryDomain] ?? 'intermediate',
+      roleLevel,
+      industry,
+      aiMaturity: aiEngagement,
       worry: '',
       deliveryPreference: 'email',
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      // multi-domain fields
       domains: selectedDomains,
       customDomains,
       primaryDomain,
-      domainProficiency,
-      learningGoal,
-      subDomain: finalSubDomain,
+      domainProficiency: {},
+      learningGoal: finalGoal,
+      subDomain: industry,  // backward compat: same value as industry
     }
     localStorage.setItem('clio_onboarding', JSON.stringify(payload))
 
-    // Fire-and-forget API save — not required to redirect
-    fetch('/api/onboarding', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...payload,
-        // add signed-in user's data if available
-      }),
-    }).catch(() => { /* non-fatal */ })
-
-    // After 2s building animation, always redirect to /topics (public — auth happens after topic selection)
-    setTimeout(() => {
+    try {
+      const res = await fetch('/api/onboarding', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        console.error('[onboarding] API error:', data)
+        setBuilding(false)
+        setSubmitError("Something went wrong. We couldn't save your profile. Please try again — your answers are still here.")
+        return
+      }
       router.push('/topics')
-    }, 2000)
+    } catch {
+      setBuilding(false)
+      setSubmitError("Something went wrong. We couldn't save your profile. Please try again — your answers are still here.")
+    }
+  }
+
+  if (submitError) {
+    return (
+      <div className="min-h-screen bg-[#080808] flex flex-col items-center justify-center px-6">
+        <div className="max-w-sm w-full text-center space-y-4">
+          <h2 className="text-2xl font-bold text-white">Something went wrong.</h2>
+          <p className="text-[#94A3B8] text-sm">{submitError}</p>
+          <button
+            onClick={() => {
+              setSubmitError(null)
+              submitOnboarding(learningGoal as LearningGoal)
+            }}
+            className="w-full h-12 rounded-xl bg-[#7C3AED] hover:bg-[#6D28D9] text-white font-semibold text-sm transition-colors"
+          >
+            Try Again
+          </button>
+        </div>
+      </div>
+    )
   }
 
   if (building) return <BuildingScreen />
@@ -610,6 +623,43 @@ function OnboardingContent() {
             )}
 
             {step === 2 && (
+              <div className="w-full max-w-sm mx-auto">
+                <StepHeading title="Which industry or area describes your work best?" />
+                <div className="flex flex-col gap-2">
+                  {INDUSTRY_SECTORS.map((sector) => (
+                    <SingleOptionButton
+                      key={sector}
+                      label={sector}
+                      selected={industry === sector}
+                      onClick={() => setIndustry(sector)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {step === 3 && (
+              <div className="w-full max-w-sm mx-auto">
+                <StepHeading title="When it comes to AI in your work, which best describes where you are right now?" />
+                <div className="flex flex-col gap-3">
+                  {[
+                    { label: "I'm exploring what AI can do for my business", value: 'observer' as const },
+                    { label: "I'm seeing AI initiatives start and want to understand them", value: 'emerging' as const },
+                    { label: "I'm being asked to lead or approve AI decisions and need to be ready", value: 'practitioner' as const },
+                    { label: "I'm already using AI tools and want to go deeper", value: 'leader' as const },
+                  ].map((opt) => (
+                    <SingleOptionButton
+                      key={opt.value}
+                      label={opt.label}
+                      selected={aiEngagement === opt.value}
+                      onClick={() => setAiEngagement(opt.value)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {step === 4 && (
               <DomainStep
                 roleId={role}
                 selected={selectedDomains}
@@ -620,24 +670,7 @@ function OnboardingContent() {
               />
             )}
 
-            {step === 3 && (
-              <ProficiencyStep
-                selectedDomainIds={selectedDomains}
-                customDomains={customDomains}
-                proficiencies={proficiencies}
-                onChange={(key, level) => setProficiencies((p) => ({ ...p, [key]: level }))}
-              />
-            )}
-
-            {step === 4 && <GoalStep value={learningGoal} onChange={setLearningGoal} />}
-
-            {step === 5 && (
-              <SubDomainStep
-                primaryDomainId={selectedDomains[0] ?? customDomains[0] ?? ''}
-                value={subDomain}
-                onChange={handleSubDomainSelect}
-              />
-            )}
+            {step === 5 && <GoalStep value={learningGoal} onChange={handleGoalSelect} />}
           </motion.div>
         </AnimatePresence>
 
@@ -651,7 +684,7 @@ function OnboardingContent() {
               <ArrowLeft size={18} />
             </button>
           )}
-          {/* Step 5 (sub-domain) auto-advances on selection — no Continue button needed */}
+          {/* Step 5 (goal) auto-advances on selection — no Continue button needed */}
           {step < TOTAL_STEPS - 1 && (
             <button
               onClick={handleNext}
