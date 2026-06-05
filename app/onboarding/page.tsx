@@ -475,6 +475,9 @@ function SubDomainStep({
 function OnboardingContent() {
   const router = useRouter()
   const { isLoaded: clerkLoaded, isSignedIn } = useUser()
+  // Ref so the setTimeout async loop always sees the latest isSignedIn value
+  const isSignedInRef = useRef(false)
+  isSignedInRef.current = !!(clerkLoaded && isSignedIn)
 
   const [step, setStep] = useState(0)
   const [direction, setDirection] = useState<'right' | 'left'>('right')
@@ -524,9 +527,11 @@ function OnboardingContent() {
     if (goalTimerRef.current) clearTimeout(goalTimerRef.current)
     const snapshot = { role, roleLevel, industry, aiEngagement, selectedDomains, customDomains }
     goalTimerRef.current = setTimeout(async () => {
-      // Wait up to 8 seconds for Clerk session to become available
+      // Wait up to 8 seconds for Clerk session to become available.
+      // Use isSignedInRef (not closure variable) so each iteration
+      // sees the latest value from React re-renders.
       let waited = 0
-      while ((!clerkLoaded || !isSignedIn) && waited < 8000) {
+      while (!isSignedInRef.current && waited < 8000) {
         await new Promise((resolve) => setTimeout(resolve, 500))
         waited += 500
       }
