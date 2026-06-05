@@ -168,72 +168,27 @@ Only use packages that are:
 
 ---
 
-## Project Structure to Create
+## Project Structure
 
 ```
 distill/
-├── CLAUDE.md                  ← this file
-├── TASKS.md                   ← full backlog (created before any code)
-├── brief.md                   ← product brief (source of truth)
-├── research-findings.md       ← output of Research Agent
-├── architecture.md            ← output of Architecture Agent
-├── schema.sql                 ← database schema
-├── test-report.md             ← output of Testing Agent
-├── .env.local.example         ← all env vars with placeholders
-│
+├── CLAUDE.md  TASKS.md  brief.md  architecture.md  schema.sql  test-report.md  .env.local.example
 ├── app/
-│   ├── (auth)/
-│   │   ├── sign-in/[[...sign-in]]/page.tsx
-│   │   └── sign-up/[[...sign-up]]/page.tsx
-│   ├── (marketing)/
-│   │   ├── page.tsx           ← landing page
-│   │   └── pricing/page.tsx
-│   ├── onboarding/page.tsx    ← 5-question tap UI
-│   ├── dashboard/
-│   │   ├── page.tsx
-│   │   └── billing/page.tsx
-│   ├── api/
-│   │   ├── webhooks/
-│   │   │   ├── stripe/route.ts
-│   │   │   └── twilio/route.ts
-│   │   ├── checkout/route.ts
-│   │   ├── onboarding/route.ts
-│   │   ├── feedback/route.ts
-│   │   ├── ask/route.ts
-│   │   └── inngest/route.ts
+│   ├── (auth)/sign-in/[[...sign-in]]/page.tsx
+│   ├── (auth)/sign-up/[[...sign-up]]/page.tsx
+│   ├── (marketing)/page.tsx  (marketing)/pricing/page.tsx
+│   ├── onboarding/page.tsx
+│   ├── dashboard/page.tsx  dashboard/billing/page.tsx
+│   ├── api/webhooks/stripe/route.ts  api/webhooks/twilio/route.ts
+│   ├── api/checkout/route.ts  api/onboarding/route.ts  api/feedback/route.ts
+│   ├── api/ask/route.ts  api/inngest/route.ts
 │   └── layout.tsx
-│
-├── components/
-│   ├── onboarding/
-│   ├── dashboard/
-│   └── ui/
-│
-├── lib/
-│   ├── content/
-│   │   ├── generator.ts
-│   │   ├── personalizer.ts
-│   │   ├── news-ingestion.ts
-│   │   └── taxonomy.ts
-│   ├── delivery/
-│   │   ├── email.ts
-│   │   └── sms.ts
-│   ├── stripe.ts
-│   ├── supabase.ts
-│   └── clerk.ts
-│
-├── inngest/
-│   ├── client.ts
-│   ├── daily-delivery.ts
-│   ├── weekly-digest.ts
-│   └── feedback-processor.ts
-│
-├── supabase/
-│   └── migrations/001_initial.sql
-│
-└── tests/
-    ├── unit/
-    ├── integration/
-    └── e2e/
+├── components/onboarding/  components/dashboard/  components/ui/
+├── lib/content/generator.ts  lib/content/personalizer.ts  lib/content/news-ingestion.ts  lib/content/taxonomy.ts
+├── lib/delivery/email.ts  lib/delivery/sms.ts  lib/stripe.ts  lib/supabase.ts  lib/clerk.ts
+├── inngest/client.ts  inngest/daily-delivery.ts  inngest/weekly-digest.ts  inngest/feedback-processor.ts
+├── supabase/migrations/001_initial.sql
+└── tests/unit/  tests/integration/  tests/e2e/
 ```
 
 ---
@@ -261,58 +216,7 @@ distill/
 
 ## Environment Variables
 
-Create `.env.local.example` with these placeholders:
-
-```
-# Supabase
-NEXT_PUBLIC_SUPABASE_URL=PLACEHOLDER_SUPABASE_URL
-NEXT_PUBLIC_SUPABASE_ANON_KEY=PLACEHOLDER_SUPABASE_ANON_KEY
-SUPABASE_SERVICE_ROLE_KEY=PLACEHOLDER_SUPABASE_SERVICE_ROLE_KEY
-
-# Clerk
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=PLACEHOLDER_CLERK_PUBLISHABLE_KEY
-CLERK_SECRET_KEY=PLACEHOLDER_CLERK_SECRET_KEY
-NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
-NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
-NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL=/dashboard
-NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=/onboarding
-
-# Stripe
-STRIPE_SECRET_KEY=PLACEHOLDER_STRIPE_SECRET_KEY
-STRIPE_WEBHOOK_SECRET=PLACEHOLDER_STRIPE_WEBHOOK_SECRET
-NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=PLACEHOLDER_STRIPE_PUBLISHABLE_KEY
-STRIPE_STARTER_MONTHLY_PRICE_ID=PLACEHOLDER_STRIPE_STARTER_MONTHLY
-STRIPE_STARTER_ANNUAL_PRICE_ID=PLACEHOLDER_STRIPE_STARTER_ANNUAL
-STRIPE_PRO_MONTHLY_PRICE_ID=PLACEHOLDER_STRIPE_PRO_MONTHLY
-STRIPE_PRO_ANNUAL_PRICE_ID=PLACEHOLDER_STRIPE_PRO_ANNUAL
-STRIPE_EXECUTIVE_MONTHLY_PRICE_ID=PLACEHOLDER_STRIPE_EXEC_MONTHLY
-STRIPE_EXECUTIVE_ANNUAL_PRICE_ID=PLACEHOLDER_STRIPE_EXEC_ANNUAL
-
-# Twilio
-TWILIO_ACCOUNT_SID=PLACEHOLDER_TWILIO_ACCOUNT_SID
-TWILIO_AUTH_TOKEN=PLACEHOLDER_TWILIO_AUTH_TOKEN
-TWILIO_PHONE_POOL=+15550000001,+15550000002
-TWILIO_WEBHOOK_URL=https://hello-clio.com/api/webhooks/twilio
-
-# Resend
-RESEND_API_KEY=PLACEHOLDER_RESEND_API_KEY
-RESEND_FROM_EMAIL=hello@hello-clio.com
-RESEND_FROM_NAME=Clio
-
-# Anthropic
-ANTHROPIC_API_KEY=PLACEHOLDER_ANTHROPIC_API_KEY
-
-# NewsAPI
-NEWS_API_KEY=PLACEHOLDER_NEWS_API_KEY
-
-# Inngest
-INNGEST_EVENT_KEY=PLACEHOLDER_INNGEST_EVENT_KEY
-INNGEST_SIGNING_KEY=PLACEHOLDER_INNGEST_SIGNING_KEY
-
-# App
-NEXT_PUBLIC_APP_URL=https://hello-clio.com
-NODE_ENV=development
-```
+See `.env.local.example` for all required variables with `PLACEHOLDER_` values. Groups: Supabase (3), Clerk (6), Stripe (9 — secret + webhook + publishable + 6 price IDs), Twilio (4), Resend (3), Anthropic (1), NewsAPI (1), Inngest (2), App URL + NODE_ENV. Never commit `.env.local`.
 
 ---
 
@@ -416,540 +320,106 @@ Text muted:           #475569
 
 ### Phase 1 — Foundation (Sequential)
 
-#### Agent 1: Research Agent
-**Branch:** `agent/research`
-**Prompt:**
-```
-You are the Research Agent for Clio. Read brief.md carefully.
-
-Research and document everything needed before writing code.
-
-Produce research-findings.md covering:
-1. Next.js 14 App Router best practices — layouts, route groups, server vs client components
-2. Clerk auth with Next.js — middleware pattern, protected routes, useUser hook
-3. Supabase with Next.js — SSR client (@supabase/ssr), browser client, RLS patterns
-4. Stripe subscriptions — checkout sessions, customer portal, webhook handling best practices
-5. Twilio SMS — outbound sends, inbound webhook handling, signature verification, phone number pool management
-6. Resend + React Email — transactional email, template components, deliverability best practices
-7. Inngest — cron schedule syntax, event-driven functions, step functions, retry configuration
-8. Anthropic Claude API (@anthropic-ai/sdk) — Messages API, system prompts, max_tokens, streaming vs non-streaming
-9. NewsAPI — /v2/top-headlines and /v2/everything endpoints, filtering by category and keyword
-10. Framer Motion with Next.js — AnimatePresence, page transitions, scroll animations, performance
-
-For each topic: document the exact npm package, version, key functions, and a working code snippet.
-Flag any known version conflicts or gotchas.
-Output: research-findings.md
-```
+#### Agent 1: Research Agent — `agent/research`
+**Reads:** `brief.md`
+**Produces:** `research-findings.md` covering 10 topics — each with exact npm package, version, key functions, working code snippet, and version-conflict flags:
+Next.js 14 App Router (layouts, route groups, server/client split) · Clerk (middleware, protected routes, useUser) · Supabase SSR (@supabase/ssr, RLS) · Stripe (checkout sessions, customer portal, webhook handling) · Twilio (outbound SMS, inbound webhooks, signature verification, pool management) · Resend + React Email (templates, deliverability) · Inngest (cron syntax, step functions, retries) · Anthropic SDK (Messages API, system prompts, streaming) · NewsAPI (/v2/everything, keyword + category filtering) · Framer Motion (AnimatePresence, scroll animations, performance).
 **Validation:** File exists. All 10 topics covered with code snippets.
 
 ---
 
-#### Agent 2: Architecture Agent
-**Branch:** `agent/architecture`
-**Inputs:** `brief.md`, `research-findings.md`
-**Prompt:**
-```
-You are the Architecture Agent for Clio. Read brief.md and research-findings.md.
-
-Produce two files:
-
-1. architecture.md:
-   - Database schema: all tables, columns, types, indexes, foreign keys, RLS policies
-   - API route map: every endpoint, method, auth required, Zod request schema, response shape
-   - Content tagging taxonomy: role × industry × maturity × worry tag constants
-   - Inngest job definitions: cron schedules, event names, step definitions
-   - Twilio strategy: shared pool (Starter/Pro), dedicated number (Executive)
-   - Stripe setup: product names, price IDs structure, trial configuration
-   - Data flow diagrams (text-based) for: onboarding, daily delivery, SMS feedback loop, Ask Anything
-
-2. schema.sql — production-ready Supabase PostgreSQL migration:
-   Tables: users, content_items, delivery_log, user_learning_plans, sms_conversations, feedback_weights
-   Include: indexes on foreign keys and frequent query columns, RLS policies for user data isolation, updated_at triggers
-
-Be precise. All subsequent agents depend on this.
-```
-**Validation:** Both files exist. schema.sql passes `psql --dry-run` check. All tables present.
+#### Agent 2: Architecture Agent — `agent/architecture`
+**Reads:** `brief.md`, `research-findings.md`
+**Produces:**
+- `architecture.md` — DB schema, full API route map (method/auth/Zod schema/response), content taxonomy constants (role × industry × maturity × worry), Inngest job definitions, Twilio pool strategy (shared for Starter/Pro; dedicated for Executive), Stripe product/price structure, text-based data flow diagrams (onboarding / daily delivery / SMS feedback / Ask Anything)
+- `schema.sql` — Supabase PostgreSQL migration: tables `users`, `content_items`, `delivery_log`, `user_learning_plans`, `sms_conversations`, `feedback_weights`; FK + query indexes; RLS policies for user isolation; `updated_at` triggers
+**Validation:** Both files exist. All tables present. `psql --dry-run` passes.
 
 ---
 
-### Phase 2 — Core Build (Run all 4 agents in PARALLEL)
+### Phase 2 — Core Build (PARALLEL)
 
-#### Agent 3: Backend Agent
-**Branch:** `agent/backend`
-**Inputs:** `brief.md`, `architecture.md`, `research-findings.md`
-**Prompt:**
-```
-You are the Backend Agent for Clio. Read brief.md, architecture.md, and research-findings.md.
-
-Build all server-side code. Use TypeScript strict mode. Validate all inputs with Zod. Handle errors gracefully with typed error responses. Add JSDoc on every exported function. Never log sensitive data.
-
-Files to create:
-
-lib/supabase.ts
-- createServerClient() using @supabase/ssr for API routes and server components
-- createBrowserClient() for client components
-- Helper: getUserFromSession(request) → returns user or null
-
-lib/clerk.ts
-- currentUser() wrapper with proper typing
-- requireAuth() middleware helper that returns 401 if not authenticated
-- getUserId() from Clerk session
-
-lib/stripe.ts
-- Stripe client initialization
-- getPlanFromPriceId(priceId) → returns 'starter' | 'pro' | 'executive'
-- createCheckoutSession(userId, priceId, billingPeriod) → Stripe checkout URL
-- createPortalSession(customerId) → Stripe portal URL
-- handleWebhookEvent(event) → processes all subscription events
-
-lib/delivery/email.ts
-- Resend client initialization
-- sendDailyEmail(user, contentItem) → sends personalized email
-- sendWeeklyDigest(user, items[]) → sends Sunday digest
-- sendPaymentFailedEmail(user) → billing alert
-- sendTrialEndingEmail(user) → upgrade nudge
-- sendRecalibrationEmail(user) → "adjusting your plan" notice
-All email functions must return { success: boolean, error?: string }
-
-lib/delivery/sms.ts
-- Twilio client initialization
-- sendSMS(toNumber, fromNumber, body) → sends outbound SMS
-- assignPhoneNumber(userId, plan) → assigns from pool or dedicated
-- verifyTwilioSignature(request, signature, url) → returns boolean
-- parseInboundSMS(body) → classifies as 'feedback_yes' | 'feedback_no' | 'question' | 'command'
-
-app/api/onboarding/route.ts (POST)
-- Validate body with Zod: role, industry, aiMaturity, worry, deliveryPreference, timezone
-- Save to users table via Supabase
-- Generate initial learning plan (call personalizer stub)
-- Assign Twilio number if Pro/Executive plan
-- Return: { success, userId, planPreview }
-
-app/api/feedback/route.ts (POST)
-- Validate Twilio webhook signature
-- Parse Y/N response
-- Update delivery_log with feedback
-- Emit Inngest event: 'distill/feedback.received'
-- Return 200 TwiML response
-
-app/api/ask/route.ts (POST)
-- Validate Twilio webhook signature
-- Extract question from SMS body
-- Call Anthropic API with executive advisor system prompt
-- Reply via Twilio SMS (max 160 chars)
-- Log to sms_conversations
-- Return 200 TwiML response
-
-app/api/webhooks/stripe/route.ts (POST)
-- Verify Stripe webhook signature (constructEvent)
-- Handle: customer.subscription.created, .updated, .deleted, invoice.payment_failed, customer.subscription.trial_will_end
-- Update users table on all events
-- Trigger appropriate email via Resend
-- Return 200 on success, 400 on signature failure
-
-app/api/webhooks/twilio/route.ts (POST)
-- Verify Twilio signature
-- Parse inbound SMS intent
-- Route to /api/feedback or /api/ask based on intent
-- Return TwiML response
-
-app/api/checkout/route.ts (POST)
-- Require auth (Clerk)
-- Validate plan and billingPeriod with Zod
-- Create Stripe checkout session
-- Return { checkoutUrl }
-
-middleware.ts
-- Use Clerk middleware
-- Protect routes: /dashboard/*, /api/onboarding, /api/feedback, /api/ask, /api/checkout
-- Public routes: /, /pricing, /sign-in, /sign-up, /api/webhooks/*
-
-If an integration requires a real API key to test, create a mock stub that:
-- Has the exact same TypeScript interface as the real implementation
-- Logs what it would send to console.log('[MOCK]', ...)
-- Returns realistic mock data
-- Can be switched to real implementation by setting NODE_ENV=production
-```
-**Validation:** `npx tsc --noEmit` passes. All files created. Stubs work without real API keys.
+#### Agent 3: Backend Agent — `agent/backend`
+**Reads:** `brief.md`, `architecture.md`, `research-findings.md`
+**Produces:** `lib/supabase.ts` (server + browser clients, `getUserFromSession`) · `lib/clerk.ts` (currentUser, requireAuth, getUserId) · `lib/stripe.ts` (client, getPlanFromPriceId, createCheckoutSession, createPortalSession, handleWebhookEvent) · `lib/delivery/email.ts` (sendDailyEmail, sendWeeklyDigest, sendPaymentFailedEmail, sendTrialEndingEmail, sendRecalibrationEmail — all return `{success, error?}`) · `lib/delivery/sms.ts` (sendSMS, assignPhoneNumber, verifyTwilioSignature, parseInboundSMS → `feedback_yes | feedback_no | question | command`) · API routes: `onboarding` (Zod-validate + save + assign number) · `feedback` (verify Twilio sig + update log + emit Inngest event) · `ask` (verify sig + Anthropic call ≤160 chars + log) · `webhooks/stripe` (constructEvent + handle 5 event types) · `webhooks/twilio` (verify + route to feedback or ask) · `checkout` (Clerk auth + Zod + Stripe session) · `middleware.ts` (Clerk, protect /dashboard/* and key API routes)
+**Key rules:** TypeScript strict; Zod on all inputs; never log secrets. Missing API key → mock stub with identical interface, logs `[MOCK]`, switches to real via `NODE_ENV=production`.
+**Validation:** `npx tsc --noEmit` clean. All files created. Stubs work without real keys.
 
 ---
 
-#### Agent 4: Content Agent
-**Branch:** `agent/content`
-**Inputs:** `brief.md`, `architecture.md`, `research-findings.md`
-**Prompt:**
-```
-You are the Content Agent for Clio. Read brief.md, architecture.md, and research-findings.md.
-
-Build the entire content engine:
-
-lib/content/taxonomy.ts
-- Export typed constants: ROLES, INDUSTRIES, MATURITY_LEVELS, WORRY_TYPES as const arrays
-- Export type definitions: Role, Industry, Maturity, Worry
-- Export: matchContentToUser(userProfile, contentItems[]) → returns ranked ContentItem[]
-- Ranking logic: exact tag match scores 3pts, partial match 1pt, sort descending
-- Export: getNextContentType(deliveryLog[]) → balances content types so user gets variety
-
-lib/content/generator.ts
-- Anthropic SDK integration using ANTHROPIC_API_KEY env var
-- generateContent(contentItem, userProfile, contentType) → PersonalizedContent
-- System prompt: "You are a concise AI advisor for senior business executives. Write like a trusted peer, not a teacher. No jargon. No fluff. Every sentence must be immediately actionable or illuminating. Maximum 80 words. Always end with one 'So what?' sentence specific to their role."
-- Enforce 80-word max: count words, truncate at last complete sentence under limit
-- Validate output: word count check, not empty, ends with a sentence
-- Format SMS version: strip to ≤160 chars, preserve the "So what?" line
-- If ANTHROPIC_API_KEY is placeholder: return realistic mock content for each content type
-
-lib/content/news-ingestion.ts
-- NewsAPI integration: fetch /v2/everything with query='artificial intelligence OR AI' and category filtering
-- Filter articles: remove duplicates by URL, score relevance by keyword presence
-- Transform to ContentItem candidates: extract title, description, source, url, publishedAt
-- Tag articles by detected role/industry relevance using keyword matching
-- Save to content_items table via Supabase
-- If NEWS_API_KEY is placeholder: return 10 hardcoded realistic mock articles
-
-lib/content/personalizer.ts
-- getUserContentPlan(userId) → full personalization pipeline:
-  1. Fetch user profile from users table
-  2. Fetch last 30 delivery_log entries for this user
-  3. Fetch feedback_weights for this user
-  4. Call matchContentToUser() to get ranked candidates
-  5. Filter out items sent in last 14 days
-  6. Call getNextContentType() to determine today's content type
-  7. Call generateContent() to personalize the chosen item
-  8. Return: { emailContent, smsContent, contentItemId }
-
-Seed file: supabase/seed.sql
-- 50 INSERT statements into content_items
-- 10 per content type: tip, signal, decoder, lens, framework
-- Distributed across role tags and industry tags
-- All under 80 words, all end with a "So what?" sentence
-- Generated content should be realistic, high-quality, exec-appropriate
-```
-**Validation:** TypeScript compiles. seed.sql has exactly 50 valid INSERT statements.
+#### Agent 4: Content Agent — `agent/content`
+**Reads:** `brief.md`, `architecture.md`, `research-findings.md`
+**Produces:**
+- `lib/content/taxonomy.ts` — `ROLES`, `INDUSTRIES`, `MATURITY_LEVELS`, `WORRY_TYPES` as const; `matchContentToUser` (exact tag = 3pts, partial = 1pt, sorted desc); `getNextContentType` (rotates types for variety)
+- `lib/content/generator.ts` — Anthropic SDK; system prompt instructs peer-level exec advisor, no jargon, ≤80 words, ends with "So what?" sentence; enforces word count at sentence boundary; SMS strip to ≤160 chars preserving "So what?". Placeholder key → realistic mock per type.
+- `lib/content/news-ingestion.ts` — NewsAPI `/v2/everything` (query=`artificial intelligence OR AI`); dedup by URL; relevance score by keyword; tag by role/industry; save to `content_items`. Placeholder key → 10 hardcoded mock articles.
+- `lib/content/personalizer.ts` — `getUserContentPlan(userId)`: fetch profile → last 30 delivery_log → feedback_weights → match → filter 14-day recency → pick content type → generate → return `{emailContent, smsContent, contentItemId}`
+- `supabase/seed.sql` — 50 INSERTs into `content_items`: 10 per type (tip / signal / decoder / lens / framework), distributed across role + industry tags, ≤80 words each, ends with "So what?"
+**Validation:** TypeScript compiles. seed.sql has exactly 50 valid INSERTs.
 
 ---
 
-#### Agent 5: Frontend Agent
-**Branch:** `agent/frontend`
-**Inputs:** `brief.md`, `architecture.md`, `research-findings.md`
-**Prompt:**
-```
-You are the Frontend Agent for Clio. Read brief.md and architecture.md carefully.
-
-Build all user-facing pages and components using Next.js 14 App Router, TypeScript, Tailwind CSS, Framer Motion, and Lucide React.
-
-CRITICAL DESIGN REQUIREMENT — READ THIS FIRST:
-This product is for CEOs, VPs, and senior executives. The design must make them feel the energy of a premium AI startup. Think: Vercel meets Bloomberg Terminal. Dark, bold, confident, alive.
-
-Color system (apply via Tailwind config):
-- bg-void: #080808 (page backgrounds)
-- bg-surface: #111111 (cards, panels)
-- bg-raised: #1A1A1A (hover, modals)
-- border-subtle: #222222
-- border-strong: #333333
-- accent-purple: #7C3AED
-- accent-purple-bright: #A855F7
-- accent-cyan: #06B6D4
-- accent-amber: #F59E0B
-- text-primary: #FFFFFF
-- text-secondary: #94A3B8
-- text-muted: #475569
-
-Tailwind config: extend the theme with these colors.
-
-PAGE 1 — app/(marketing)/page.tsx — Landing Page
-
-Hero section:
-- Full viewport height (min-h-screen)
-- Background: #080808 with an animated radial gradient (purple glow at center, fading to black)
-- Headline: "AI, distilled." — text-8xl font-extrabold tracking-tight text-white
-- Subheadline: "15 seconds a day. Zero jargon. Total confidence." — text-2xl text-secondary
-- Primary CTA: large purple button "Start free — no card needed" with ArrowRight icon, Framer Motion hover scale
-- Below CTA: 3 trust signals in a row (icons): "5-question onboarding", "Daily in your inbox", "Cancel anytime"
-- Right side: floating phone mockup (styled div showing an example SMS message from Clio)
-- Framer Motion: hero content fades and slides up on load
-
-Problem section "The executive AI trap":
-- Section background: #080808
-- Section heading: "Sound familiar?" — bold, centered
-- 3 cards on dark surface (#111111), purple-left-border accent
-- Card 1: BrainCircuit icon — "You sit in AI meetings and can't separate hype from substance"
-- Card 2: TrendingUp icon — "Your team moves faster on AI than you do"
-- Card 3: Search icon — "You can't tell if an AI vendor's pitch is brilliant or nonsense"
-- Framer Motion: cards stagger-animate in on scroll
-
-How it works "Three steps to AI confidence":
-- Numbered steps with large purple circle badges (1, 2, 3)
-- Step content with bold heading + 2-line description
-- Connecting line between steps (subtle, dashed, #333333)
-- Step 1: Zap icon — "Answer 5 questions" / "Tell us your role, industry, and biggest AI worry. 15 seconds."
-- Step 2: MessageSquare icon — "Receive one insight daily" / "Personalized to your exact role. Email or SMS. 15–20 seconds to read."
-- Step 3: TrendingUp icon — "Watch your score climb" / "Your AI Readiness Score grows as you engage. Track your progress."
-
-Social proof (placeholder):
-- 3 testimonial cards, dark (#111111), subtle border
-- Placeholder quotes from: "CEO, Fortune 500 Retail", "VP Technology, Global Bank", "CU Lead, Consulting Firm"
-- Avatar: colored circle with initials (A, B, C) in purple/cyan/amber
-
-Pricing section:
-- Monthly/Annual toggle — styled as pill toggle, purple for selected
-- 4 plan cards (Free Trial, Starter, Pro, Executive)
-- Pro card: purple border (2px), "Most popular" badge in purple
-- Each card: plan name, price, billing note, feature list with CheckCircle icons
-- All cards: dark (#111111) background
-- CTA buttons link to /onboarding or Stripe checkout
-
-Bottom CTA banner:
-- Full-width dark purple gradient
-- "Your competitors are already learning. Are you?" — large, bold, white
-- Single CTA button — white text on purple
-
-PAGE 2 — app/onboarding/page.tsx — 5-Question Tap UI
-
-- Full viewport height, black background (#080808)
-- Thin progress bar at top (4px height, purple fill, width animates 20%→40%→60%→80%→100%)
-- One question visible at a time — centered vertically
-- Question text: text-4xl font-bold text-white text-center, max-w-lg mx-auto
-- 4–7 option buttons per question — full width (max-w-sm mx-auto), min-h-[64px]
-- Option button: bg-surface border border-subtle text-white rounded-xl, hover:border-strong hover:bg-raised
-- Selected option: border-accent-purple bg-purple-950/30 text-white
-- Framer Motion AnimatePresence: slide current question out left, new question in from right
-- After Q5: show "Building your plan..." screen
-  - Centered Clio logo (text, styled)
-  - Animated pulsing purple ring (CSS animation)
-  - Tagline: "Calibrating your AI learning path..." fades in after 0.5s
-  - After 2s: redirect to /dashboard or /pricing
-
-PAGE 3 — app/dashboard/page.tsx — User Dashboard
-
-Layout:
-- Left sidebar: 240px, bg-surface, contains nav links with Lucide icons
-- Main area: bg-void, padded (p-8)
-- Sidebar nav items: Dashboard, Messages, Billing, Settings
-- Top right: Clerk UserButton component
-
-Content:
-- Row 1: 3 metric cards (bg-surface, border-subtle)
-  - AI Readiness Score: large cyan circular progress ring + number (0–100)
-  - Day Streak: amber flame icon + number + "days active"
-  - Messages Received: total count + "this month"
-- Row 2: Recent Messages (last 7)
-  - Each message card: date, content preview (2 lines), thumbs up/thumbs down buttons
-  - Thumbs up: green when positive feedback given
-  - Thumbs down: red when negative feedback given
-- Row 3: Preferences
-  - Delivery toggle: Email | SMS | Both — styled as segmented control (purple selected)
-  - Pause delivery button: bordered, no fill
-- If plan is Starter: upgrade CTA banner (purple gradient, "Unlock SMS delivery with Pro")
-
-COMPONENTS
-
-components/ui/Button.tsx — variant props: primary | secondary | ghost | danger
-components/ui/Card.tsx — dark surface card with border
-components/ui/Badge.tsx — small colored badge (purple | cyan | amber | green | red)
-components/ui/ProgressRing.tsx — SVG circular progress component, accepts value 0-100
-components/onboarding/QuestionCard.tsx — animated question wrapper
-components/onboarding/OptionButton.tsx — selectable option
-components/onboarding/ProgressBar.tsx — thin top progress bar
-components/dashboard/ScoreRing.tsx — AI readiness score display
-components/dashboard/StreakCounter.tsx — streak with flame animation
-components/dashboard/MessageCard.tsx — message with feedback buttons
-components/dashboard/DeliveryToggle.tsx — segmented preference control
-
-All components: typed props, no any types, Framer Motion for transitions.
-```
+#### Agent 5: Frontend Agent — `agent/frontend`
+**Reads:** `brief.md`, `architecture.md`
+**Produces:** All pages and components per the design system in this file.
+- `app/(marketing)/page.tsx` — hero (full-vh, animated gradient, Framer Motion fade-in, phone mockup) + problem section (3 cards, stagger-on-scroll) + how-it-works (numbered steps, dashed connector) + social proof (3 placeholder testimonials) + pricing (monthly/annual toggle, 4 plan cards, Pro highlighted) + bottom CTA banner
+- `app/onboarding/page.tsx` — one question at a time, AnimatePresence horizontal slide, progress bar (4px purple, 20→100%), "Building your plan..." screen (pulsing ring + tagline + redirect after 2s)
+- `app/dashboard/page.tsx` — 240px sidebar + bg-void main; Row 1: AI Readiness Score ring (cyan), streak (amber flame), messages count; Row 2: last 7 message cards with thumbs up/down; Row 3: delivery toggle + pause button; Starter upgrade banner
+- Components: `ui/Button` (primary/secondary/ghost/danger) · `ui/Card` · `ui/Badge` (5 colors) · `ui/ProgressRing` · `onboarding/QuestionCard`, `OptionButton`, `ProgressBar` · `dashboard/ScoreRing`, `StreakCounter`, `MessageCard`, `DeliveryToggle`
+**Key rules:** Implement `brief.md` literally — no additions. Typed props, no `any`. Framer Motion on all interactive elements.
 **Validation:** `npm run build` passes. All pages render without errors.
 
 ---
 
-#### Agent 6: Payment Agent
-**Branch:** `agent/payment`
-**Inputs:** `brief.md`, `architecture.md`, `research-findings.md`
-**Prompt:**
-```
-You are the Payment Agent for Clio. Read brief.md and architecture.md.
-
-Build the complete Stripe subscription system. If STRIPE_SECRET_KEY is a placeholder, implement with full real logic but add mock guards that return success responses without calling Stripe — so the build never breaks.
-
-1. Document Stripe product structure in architecture.md:
-   Product: Clio Starter — prices: $12/mo, $99/yr (with 7-day trial)
-   Product: Clio Pro — prices: $25/mo, $199/yr (with 7-day trial)
-   Product: Clio Executive — prices: $49/mo, $399/yr (with 7-day trial)
-
-2. app/api/checkout/route.ts
-   - Auth required (Clerk)
-   - Zod validate: { plan, billingPeriod }
-   - Create Stripe Checkout Session: trial_period_days=7, success_url=/dashboard?welcome=1, cancel_url=/pricing
-   - Return checkoutUrl
-
-3. app/api/webhooks/stripe/route.ts
-   - Verify signature via stripe.webhooks.constructEvent
-   - customer.subscription.created → upsert users table (plan, stripe_customer_id, status=active)
-   - customer.subscription.updated → update plan tier if changed
-   - customer.subscription.deleted → set plan=free, status=inactive, stop delivery flag
-   - invoice.payment_failed → sendPaymentFailedEmail()
-   - customer.subscription.trial_will_end → sendTrialEndingEmail() 3 days before
-   Return 200 always (log errors, don't return 500 — Stripe retries on 5xx)
-
-4. app/dashboard/billing/page.tsx
-   - Show current plan name and status
-   - Next billing date (from Stripe subscription)
-   - "Manage billing" button → calls /api/portal → redirects to Stripe Customer Portal
-   - "Upgrade plan" button if on Starter or free
-
-5. app/api/portal/route.ts
-   - Auth required
-   - Create Stripe Customer Portal session
-   - Return portalUrl
-```
-**Validation:** Checkout → success flow works with Stripe test mode. All webhook events handled.
+#### Agent 6: Payment Agent — `agent/payment`
+**Reads:** `brief.md`, `architecture.md`
+**Produces:**
+- `app/api/checkout/route.ts` — Clerk auth + Zod `{plan, billingPeriod}` + Stripe Checkout Session (7-day trial, success → `/dashboard?welcome=1`, cancel → `/pricing`)
+- `app/api/webhooks/stripe/route.ts` — `constructEvent` signature verify; handles `subscription.created` (upsert users), `.updated` (update tier), `.deleted` (set free + inactive), `invoice.payment_failed` (email), `trial_will_end` (email); always returns 200 (log errors; Stripe retries on 5xx)
+- `app/api/portal/route.ts` — Clerk auth + Stripe Customer Portal session
+- `app/dashboard/billing/page.tsx` — plan name, status, next billing date, "Manage billing" → portal, "Upgrade" if Starter/free
+**Key rules:** Placeholder `STRIPE_SECRET_KEY` → mock guard returns success without calling Stripe.
+**Validation:** Checkout → success flow works in test mode. All 5 webhook event types handled.
 
 ---
 
-### Phase 3 — Scheduling (After Phase 2 complete)
+### Phase 3 — Scheduling (after Phase 2)
 
-#### Agent 7: Scheduler Agent
-**Branch:** `agent/scheduler`
-**Inputs:** All Phase 2 outputs
-**Prompt:**
-```
-You are the Scheduler Agent for Clio. Read brief.md, architecture.md, and all lib/ files.
-
-Build the Inngest job system. If INNGEST_EVENT_KEY is a placeholder, all functions should still register and log what they would do — never throw on missing keys.
-
-inngest/client.ts
-- Initialize Inngest client with name 'distill' and eventKey from env
-
-inngest/daily-delivery.ts — cron: "0 7 * * *" (per user timezone, use date-fns-tz)
-- Fetch all active users (not paused, plan != 'free', subscription status = 'active')
-- Batch in groups of 50 using Inngest step.run() for each batch
-- For each user: call getUserContentPlan(userId) from lib/content/personalizer.ts
-- Send email if deliveryPreference includes 'email': call sendDailyEmail()
-- Send SMS if deliveryPreference includes 'sms' AND plan is 'pro' or 'executive': call sendSMS()
-- Log each send to delivery_log table
-- On error for individual user: log error, continue to next user (never fail the whole batch)
-- Retry configuration: { retries: 3, backoff: 'exponential' }
-
-inngest/weekly-digest.ts — cron: "0 8 * * 0" (Sundays 8AM UTC)
-- Fetch all Starter+ active users
-- For each user: get their top 5 content items from last 7 days (by positive feedback or recency)
-- Call sendWeeklyDigest(user, items)
-- Log to delivery_log with channel='email', type='weekly_digest'
-
-inngest/feedback-processor.ts — triggered by event: 'distill/feedback.received'
-- Update delivery_log with feedback value
-- Upsert feedback_weights: increment tag weight +1 for Y, decrement -0.5 for N
-- Count consecutive N responses in last 10 deliveries
-- If 5+ consecutive N: update user flag needs_recalibration=true, send recalibration SMS
-- Count total deliveries with feedback
-- If 7+ days since onboarding AND 5+ feedbacks: calculate AI Readiness Score:
-  Score = (positive_feedbacks / total_feedbacks) * 60 + (streak_days / 30) * 40
-  Clamp to 0–100. Save to users.ai_readiness_score.
-
-app/api/inngest/route.ts
-- Serve all Inngest functions: [dailyDelivery, weeklyDigest, feedbackProcessor]
-- Required by Inngest SDK to register functions
-```
-**Validation:** Inngest dev server starts. All 3 functions register. Test events trigger without errors.
+#### Agent 7: Scheduler Agent — `agent/scheduler`
+**Reads:** `brief.md`, `architecture.md`, all `lib/` files
+**Produces:**
+- `inngest/client.ts` — Inngest client, name `distill`, eventKey from env
+- `inngest/daily-delivery.ts` — cron `0 7 * * *`; fetch active non-paused paid users; batch 50 via `step.run`; per user: call `getUserContentPlan` → email if pref includes email → SMS if pref includes sms AND plan is pro/executive; log to `delivery_log`; per-user errors are caught and skipped (never fail whole batch); retries: 3, exponential
+- `inngest/weekly-digest.ts` — cron `0 8 * * 0`; Starter+ users; top-5 items last 7 days (positive feedback or recency); `sendWeeklyDigest`; log as `channel=email, type=weekly_digest`
+- `inngest/feedback-processor.ts` — event `distill/feedback.received`; update `delivery_log`; upsert `feedback_weights` (+1 Y / −0.5 N); if 5+ consecutive N → set `needs_recalibration=true` + send SMS; if ≥7 days since onboarding AND ≥5 feedbacks → score = `(pos/total)×60 + (streak/30)×40`, clamp 0–100, save to `users.ai_readiness_score`
+- `app/api/inngest/route.ts` — serve all 3 functions
+**Key rules:** Placeholder `INNGEST_EVENT_KEY` → functions register and log; never throw.
+**Validation:** Dev server starts. All 3 functions register. Test events trigger without errors.
 
 ---
 
-### Phase 4 — Testing (After Phase 3)
+### Phase 4 — Testing (after Phase 3)
 
-#### Agent 8: Testing Agent
-**Branch:** `agent/testing`
-**Inputs:** All previous agent outputs
-**Prompt:**
-```
-You are the Testing Agent for Clio. Verify the entire application.
-
-UNIT TESTS (tests/unit/) — use Vitest:
-
-content-generator.test.ts
-- Mock Anthropic SDK
-- Test: output is always ≤80 words
-- Test: output always ends with a sentence (not mid-word truncation)
-- Test: mock returns valid PersonalizedContent shape
-- Test: SMS version is always ≤160 chars
-
-personalizer.test.ts
-- Mock Supabase calls
-- Test: matchContentToUser returns items in correct priority order
-- Test: items sent in last 14 days are excluded
-- Test: getNextContentType rotates content types correctly
-
-taxonomy.test.ts
-- Test: all ROLES constants are non-empty strings
-- Test: matchContentToUser with exact tag match scores higher than partial match
-- Test: empty tag arrays don't throw
-
-stripe-webhooks.test.ts
-- Use Stripe test fixtures (from stripe npm package)
-- Test: subscription.created → users table updated
-- Test: subscription.deleted → plan set to free
-- Test: payment_failed → email function called
-- Test: invalid signature → returns 400
-
-INTEGRATION TESTS (tests/integration/) — use Vitest + mock Supabase:
-
-onboarding-api.test.ts
-- POST valid payload → 200 with userId
-- POST missing required field → 400 with Zod error
-- POST invalid role value → 400
-
-feedback-api.test.ts
-- POST valid Y feedback → delivery_log updated, Inngest event emitted
-- POST invalid Twilio signature → 403
-
-ask-api.test.ts
-- POST valid question → Claude called, SMS sent, 200 TwiML returned
-- POST empty body → 400
-
-E2E TESTS (tests/e2e/) — use Playwright:
-
-onboarding-flow.test.ts
-- Navigate to /onboarding
-- Click through all 5 questions
-- Verify "Building your plan..." screen appears
-- Verify redirect happens after 2.5s
-
-landing-page.test.ts
-- Navigate to /
-- Verify hero headline is visible
-- Verify all 3 pricing plan cards render
-- Verify monthly/annual toggle works
-
-dashboard.test.ts
-- Navigate to /dashboard (mock Clerk session)
-- Verify ScoreRing renders
-- Verify StreakCounter renders
-
-After all tests, create test-report.md:
-- Total tests run, pass count, fail count
-- Coverage percentage per module
-- Any failures: file, test name, error message, root cause, fix applied
-- Overall: PASS or FAIL
-- If any tests fail: fix the underlying code and re-run until all pass
-```
-**Validation:** All unit + integration tests pass. E2E tests pass. test-report.md shows PASS.
+#### Agent 8: Testing Agent — `agent/testing`
+**Reads:** All previous outputs
+**Produces:**
+- Unit (Vitest): `content-generator.test.ts` (≤80 words, sentence-end truncation, SMS ≤160) · `personalizer.test.ts` (priority order, 14-day filter, type rotation) · `taxonomy.test.ts` (constants non-empty, exact > partial scoring) · `stripe-webhooks.test.ts` (subscription.created/deleted, payment_failed, invalid sig → 400)
+- Integration (Vitest + mock Supabase): `onboarding-api.test.ts` · `feedback-api.test.ts` (invalid sig → 403) · `ask-api.test.ts`
+- E2E (Playwright): `onboarding-flow.test.ts` · `landing-page.test.ts` · `dashboard.test.ts`
+- `test-report.md` — total/pass/fail counts, coverage %, root causes for failures, overall PASS or FAIL
+**Key rules:** If any test fails, fix the underlying code and re-run until all pass. Never write PASS unless every test actually passes.
+**Validation:** All unit + integration + E2E tests pass. test-report.md shows PASS.
 
 ---
 
 ## Final Integration Checklist
 
-Before marking the build complete, verify ALL of these:
-
-- [ ] `npm run build` — zero errors, zero TypeScript errors
-- [ ] `npx tsc --noEmit` — clean
-- [ ] `.env.local.example` — all vars documented with PLACEHOLDER_ values
-- [ ] No hardcoded secrets or real credentials anywhere in code
-- [ ] No unapproved npm packages used
-- [ ] All API inputs validated with Zod
-- [ ] All webhook handlers verify signatures before processing
-- [ ] All agent branches merged into `dev`
-- [ ] `dev` passes full test suite
-- [ ] `dev` merged into `main` with commit: `feat: complete initial Clio build`
-- [ ] `README.md` created with local setup instructions
+- [ ] `npm run build` + `npx tsc --noEmit` — zero errors
+- [ ] No hardcoded secrets; all vars in `.env.local.example` with `PLACEHOLDER_` values
+- [ ] No unapproved packages; all API inputs Zod-validated; all webhooks signature-verified
+- [ ] All agent branches merged into `dev` → `dev` passes full test suite → merge to `main`
+- [ ] Commit message: `feat: complete initial Clio build`
+- [ ] `README.md` with local setup instructions
 
 ---
 
@@ -977,33 +447,13 @@ Examples:
 
 ---
 
-## How to Start
-
-Open terminal in `~/Documents/claudeworkspace` and run:
-
-```bash
-claude
-```
-
-Then paste this prompt:
+## Orchestrator Starter Prompt
 
 ```
-Read CLAUDE.md and brief.md completely before doing anything.
-
-You are the Orchestrator for Clio. Your mission: build the complete application fully autonomously.
-
-Begin by creating TASKS.md — a full prioritized backlog of every task across all 8 agents and 4 phases.
-
-Then execute the build:
-- Follow the phase order strictly: Phase 1 → Phase 2 (parallel) → Phase 3 → Phase 4
-- Never stop for approvals or missing credentials — use PLACEHOLDER_ values and mock stubs
-- If any agent's output fails validation, fix it before moving to the next phase
-- If tests fail, fix the code and re-run — do not leave failing tests
-- Log any items needing Arun's real credentials in BACKLOG.md and move on immediately
-- Only use approved libraries from the security list in CLAUDE.md
-- Think before any external network call — is this vendor approved? Is this endpoint safe?
-
-When complete, say: "Clio build complete. All tests passing. See test-report.md."
+Read CLAUDE.md and brief.md fully before acting.
+Create TASKS.md (full prioritized backlog). Then execute Phase 1 → Phase 2 (parallel) → Phase 3 → Phase 4.
+Rules: use PLACEHOLDER_ values for missing credentials; mock stubs for unavailable APIs; fix failing tests before proceeding; log credential blockers in BACKLOG.md and move on; approved libraries only; verify every external endpoint against the approved vendor list.
+Done when: "Clio build complete. All tests passing. See test-report.md."
 ```
 
 ---
@@ -1033,3 +483,13 @@ Key routing rules:
 - Security review → invoke /cso
 - Performance benchmarks → invoke /benchmark
 - Health/code quality dashboard → invoke /health
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
