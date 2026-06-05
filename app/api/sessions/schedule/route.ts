@@ -75,18 +75,23 @@ export async function POST(request: NextRequest) {
     (insertedRows ?? []).map((r: { id: string; session_index: number }) => [r.session_index, r.id])
   )
 
-  // Create Google Meet links for all sessions in parallel — awaited so Vercel doesn't kill them
+  // Create Google Meet links — 8s timeout per session so slow/failing Calendar API
+  // doesn't block the response. Sessions are created; Meet links are best-effort.
+  const meetTimeout = (ms: number) => new Promise<null>((resolve) => setTimeout(() => resolve(null), ms))
   await Promise.all(
     parsed.data.sessions.map(async (s) => {
       const sessionId = indexToId.get(s.sessionIndex)
       if (!sessionId) return
       try {
-        const meet = await createGoogleMeetEvent({
-          title: `Clio Session: ${s.title}`,
-          description: `AI coaching session with Clio. Topics: ${s.topics.join(', ')}`,
-          startIso: s.scheduledAt,
-          durationMins: s.estimatedMinutes,
-        })
+        const meet = await Promise.race([
+          createGoogleMeetEvent({
+            title: `Clio Session: ${s.title}`,
+            description: `AI coaching session with Clio. Topics: ${s.topics.join(', ')}`,
+            startIso: s.scheduledAt,
+            durationMins: s.estimatedMinutes,
+          }),
+          meetTimeout(8000),
+        ])
         if (meet) {
           await supabase
             .from('sessions')
