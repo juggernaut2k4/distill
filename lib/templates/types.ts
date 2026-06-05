@@ -339,6 +339,21 @@ export interface AnswerSpotlightData {
   so_what: string
 }
 
+// ─── VISUALIZATION TAB MANIFEST ───────────────────────────────────────────────
+
+export interface VisualizationTab {
+  tab_id: string
+  tab_index: number       // 1-based
+  tab_name: string
+  section: TemplateSection
+  mapped_segments: string[]
+}
+
+export interface TabManifest {
+  subtopic_slug: string
+  tabs: VisualizationTab[]
+}
+
 // ─── SECTION STATUS ───────────────────────────────────────────────────────────
 
 export type SectionStatus = 'pending' | 'ready' | 'active' | 'completed' | 'skipped' | 'inserted'

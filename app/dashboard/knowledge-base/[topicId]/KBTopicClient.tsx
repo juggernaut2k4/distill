@@ -9,7 +9,8 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import KBSessionPreview from '@/components/kb/KBSessionPreview'
-import type { TemplateSection, TemplateName } from '@/lib/templates/types'
+import VisualizationTabPanel from '@/components/kb/VisualizationTabPanel'
+import type { TemplateSection, TemplateName, TabManifest } from '@/lib/templates/types'
 
 // ── All available template types with display labels ──────────────────────────
 const TEMPLATE_OPTIONS: { value: TemplateName; label: string }[] = [
@@ -67,6 +68,7 @@ interface CacheRow {
   qa_run_at: string | null
   training_script: TrainingScript | null
   content_outline: Record<string, unknown> | null
+  tab_manifest: TabManifest | null
 }
 
 interface SectionState {
@@ -89,6 +91,7 @@ export default function KBTopicClient({ topicId }: Props) {
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [activeSectionIndex, setActiveSectionIndex] = useState(0)
+  const [activeTabIndex, setActiveTabIndex] = useState(0)
   const [isPortrait, setIsPortrait] = useState(false)
   const [isRegeneratingAll, setIsRegeneratingAll] = useState(false)
   const [regenerateAllResult, setRegenerateAllResult] = useState<string | null>(null)
@@ -253,6 +256,7 @@ export default function KBTopicClient({ topicId }: Props) {
 
   const handleSectionChange = useCallback((index: number) => {
     setActiveSectionIndex(index)
+    setActiveTabIndex(0)
   }, [])
 
   // ── Derived: TemplateSection[] for preview ────────────────────────────────
@@ -349,14 +353,23 @@ export default function KBTopicClient({ topicId }: Props) {
         </div>
       </div>
 
-      {/* ── Session Preview ── */}
+      {/* ── Session Preview (tab-aware) ── */}
       <div style={{ height: '70vh' }}>
-        <KBSessionPreview
-          sections={previewSections}
-          activeSectionIndex={activeSectionIndex}
-          onSectionChange={handleSectionChange}
-          topicId={topicId}
-        />
+        {activeSection?.row.tab_manifest && activeSection.row.tab_manifest.tabs.length >= 2 ? (
+          <VisualizationTabPanel
+            tabs={activeSection.row.tab_manifest.tabs}
+            activeIndex={activeTabIndex}
+            onTabChange={setActiveTabIndex}
+            topicId={topicId}
+          />
+        ) : (
+          <KBSessionPreview
+            sections={previewSections}
+            activeSectionIndex={activeSectionIndex}
+            onSectionChange={handleSectionChange}
+            topicId={topicId}
+          />
+        )}
       </div>
 
       {/* ── Feedback Panel ── */}
