@@ -528,17 +528,22 @@ function OnboardingContent() {
     if (goalTimerRef.current) clearTimeout(goalTimerRef.current)
     const snapshot = { role, roleLevel, industry, aiEngagement, selectedDomains, customDomains }
     goalTimerRef.current = setTimeout(async () => {
-      // Poll getToken() until Clerk's session JWT is available (up to 8s).
-      // Pass the token to submitOnboarding so it can be sent as Authorization: Bearer,
-      // bypassing the __client_uat=0 cookie issue that occurs immediately after OAuth sign-up.
+      // Try Clerk SDK getToken() first, then fall back to reading the JWT cookie
+      // directly. The fallback handles Clerk dev instances where __client_uat=0
+      // prevents SDK session hydration but the raw JWT cookie is still valid.
       let authToken: string | null = null
       let waited = 0
-      while (!authToken && waited < 8000) {
+      while (!authToken && waited < 4000) {
         try { authToken = await getToken() } catch { /* not ready yet */ }
         if (!authToken) {
           await new Promise((resolve) => setTimeout(resolve, 500))
           waited += 500
         }
+      }
+      // SDK fallback: read __clerk_db_jwt directly from document.cookie
+      if (!authToken && typeof document !== 'undefined') {
+        const m = document.cookie.match(/(?:^|;\s*)__clerk_db_jwt=([^;]+)/)
+        authToken = m ? m[1] : null
       }
       setBuilding(true)
       submitOnboarding(value, snapshot, 0, authToken ?? undefined)
