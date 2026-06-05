@@ -540,9 +540,11 @@ function OnboardingContent() {
 
   // ── Submit ──────────────────────────────────────────────────────────────────
   // Accepts an explicit snapshot to prevent stale closure when called from setTimeout.
+  // Retries up to 3 times on session_not_ready (Clerk session propagation delay).
   async function submitOnboarding(
     finalGoal: LearningGoal | '',
-    snapshot?: { role: string; roleLevel: string; industry: string; aiEngagement: string; selectedDomains: string[]; customDomains: string[] }
+    snapshot?: { role: string; roleLevel: string; industry: string; aiEngagement: string; selectedDomains: string[]; customDomains: string[] },
+    retryCount = 0
   ) {
     const r = snapshot?.role ?? role
     const rl = snapshot?.roleLevel ?? roleLevel
@@ -577,6 +579,12 @@ function OnboardingContent() {
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
+        // Clerk session not yet propagated — retry up to 3 times with 1s delay
+        if (res.status === 401 && data?.error === 'session_not_ready' && retryCount < 3) {
+          console.log(`[onboarding] Session not ready, retrying (${retryCount + 1}/3)...`)
+          await new Promise((resolve) => setTimeout(resolve, 1000))
+          return submitOnboarding(finalGoal, snapshot, retryCount + 1)
+        }
         console.error('[onboarding] API error:', data)
         setBuilding(false)
         setSubmitError("Something went wrong. We couldn't save your profile. Please try again — your answers are still here.")

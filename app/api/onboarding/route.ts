@@ -33,6 +33,16 @@ export async function POST(request: NextRequest) {
   try {
     const { userId } = auth()
 
+    // Clerk session may not have propagated yet immediately after sign-up.
+    // Return a retryable 401 so the client can retry after a brief delay
+    // rather than silently creating an anonymous record.
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'session_not_ready', message: 'Authentication session not yet available. Please retry.' },
+        { status: 401 }
+      )
+    }
+
     const body = await request.json()
     const parsed = OnboardingSchema.safeParse(body)
 
