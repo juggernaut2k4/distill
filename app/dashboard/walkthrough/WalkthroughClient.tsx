@@ -4,8 +4,9 @@ import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import ConceptVisualizer from '@/components/walkthrough/ConceptVisualizer'
 import SessionStack from '@/components/templates/SessionStack'
+import VisualizationTabPanel from '@/components/kb/VisualizationTabPanel'
 import type { VisualSpec } from '@/lib/session-ai'
-import type { TemplateSection } from '@/lib/templates/types'
+import type { TabManifest, TemplateSection, VisualizationTab } from '@/lib/templates/types'
 import { Conversation } from '@11labs/client'
 
 const AGENT_ID = process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID ?? 'agent_0701krp1ta48fswrff17ctb0520m'
@@ -57,6 +58,9 @@ interface WalkthroughState {
   session_script?: string | null
   // Legacy combined field — fallback only
   clio_session_context?: string | null
+  // Per-section tab manifests — keyed by section index as string (e.g. "0", "1").
+  // Present only when the section has a VisualizationTabPanel with 2+ tabs.
+  tab_manifests?: Record<string, TabManifest> | null
 }
 
 /**
@@ -91,6 +95,53 @@ function buildScriptContext(scripts: TrainingScript[]): string {
     '(3) If the participant seems uncertain, deliver the PROBE reframe. ' +
     '(4) Use the CONTINUE text as the bridge before advancing to the next section.'
   )
+}
+
+/**
+ * Parses a [NAV:command] directive from Clio's spoken text.
+ * Returns the text with the directive stripped (for TTS) and the command
+ * value (for client-side tab navigation).
+ *
+ * Supported formats:
+ *   [NAV:tab_id]   — jump to tab by semantic ID
+ *   [NAV:±N]       — relative offset (e.g. [NAV:-1], [NAV:+2])
+ *   [NAV:N]        — absolute 1-indexed tab number (e.g. [NAV:5])
+ */
+function parseNavCommand(text: string): { cleanText: string; navCommand: string | null } {
+  const navMatch = text.match(/\[NAV:([^\]]+)\]/)
+  if (!navMatch) return { cleanText: text, navCommand: null }
+  return {
+    cleanText: text.replace(/\[NAV:[^\]]+\]/g, '').trim(),
+    navCommand: navMatch[1],
+  }
+}
+
+/**
+ * Resolves a NAV command string into a new 0-based tab index.
+ *
+ * @param command  - raw command value extracted by parseNavCommand
+ * @param tabs     - the current section's tab array
+ * @param current  - current 0-based active tab index
+ * @returns new 0-based index, clamped to valid range
+ */
+function resolveNavIndex(command: string, tabs: VisualizationTab[], current: number): number {
+  if (!tabs.length) return current
+
+  // Relative offset: starts with + or -
+  if (/^[+-]\d+$/.test(command)) {
+    const delta = parseInt(command, 10)
+    return Math.max(0, Math.min(tabs.length - 1, current + delta))
+  }
+
+  // Absolute 1-indexed number (e.g. "5" → index 4)
+  if (/^\d+$/.test(command)) {
+    const idx = parseInt(command, 10) - 1
+    return Math.max(0, Math.min(tabs.length - 1, idx))
+  }
+
+  // Semantic tab_id lookup
+  const idx = tabs.findIndex((t) => t.tab_id === command)
+  return idx >= 0 ? idx : current
 }
 
 interface Props {
@@ -136,6 +187,10 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
   const [showLandscapePrompt, setShowLandscapePrompt] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const [dimensions, setDimensions] = useState({ width: 1280, height: 720 })
+  // Tab navigation state for VisualizationTabPanel
+  const [activeTabIndex, setActiveTabIndex] = useState(0)
+  // Ref mirrors state so onMessage callback (captured at session start) always sees fresh value
+  const activeTabIndexRef = useRef(0)
   const [agentStatus, setAgentStatus] = useState<AgentStatus>('disconnected')
   const [agentError, setAgentError] = useState<string | null>(null)
   const [pollCount, setPollCount] = useState(0)
@@ -153,6 +208,8 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
   const skippedTopicsRef = useRef<string[]>(initialState.skipped_topics ?? [])
   const sectionsRef = useRef<TemplateSection[]>(initialState.sections ?? [])
   const trainingScriptsRef = useRef<TrainingScript[]>((initialState.training_scripts ?? []) as TrainingScript[])
+  const tabManifestsRef = useRef<Record<string, TabManifest> | null>(initialState.tab_manifests ?? null)
+  const currentSectionIndexRef = useRef<number>(initialState.current_section_index ?? 0)
   // Three-document system — used to build the ElevenLabs system prompt override
   const sessionBriefRef = useRef<string | null>(initialState.session_brief ?? null)
   const topicContextRef = useRef<string | null>(initialState.topic_context ?? null)
@@ -192,6 +249,17 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
       window.removeEventListener('orientationchange', check)
     }
   }, [])
+
+  // Keep ref in sync so NAV handler inside onMessage (closure) always reads fresh index
+  useEffect(() => {
+    activeTabIndexRef.current = activeTabIndex
+  }, [activeTabIndex])
+
+  // Reset active tab to 0 whenever the section changes
+  useEffect(() => {
+    setActiveTabIndex(0)
+    activeTabIndexRef.current = 0
+  }, [state.current_section_index])
 
   // Track graceful session end — set true when Clio says goodbye or calls end_session
   const [sessionComplete, setSessionComplete] = useState(false)
@@ -370,8 +438,26 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
           },
           onMessage: ({ message, source }: { message: string; source: string }) => {
             console.log(`[Walkthrough] Agent message [${source}]:`, message.slice(0, 120))
-            // Detect graceful session end from Clio's speech so we don't reconnect
             if (source === 'ai') {
+              // ── NAV command processing ─────────────────────────────────────
+              // Strip [NAV:...] from the spoken text and fire tab navigation.
+              // The clean text was already sent to TTS server-side by /api/clio/llm;
+              // here we act on the command to update the visible tab index.
+              const { navCommand } = parseNavCommand(message)
+              if (navCommand !== null) {
+                const sectionKey = String(currentSectionIndexRef.current)
+                const manifest = tabManifestsRef.current?.[sectionKey]
+                if (manifest && manifest.tabs.length >= 2) {
+                  const newIndex = resolveNavIndex(navCommand, manifest.tabs, activeTabIndexRef.current)
+                  activeTabIndexRef.current = newIndex
+                  setActiveTabIndex(newIndex)
+                  console.log(`[Walkthrough] NAV command "${navCommand}" → tab index ${newIndex}`)
+                } else {
+                  console.log(`[Walkthrough] NAV command "${navCommand}" ignored — no tab manifest for section ${sectionKey}`)
+                }
+              }
+
+              // ── Farewell detection ─────────────────────────────────────────
               const lower = message.toLowerCase()
               const farewells = ['bye', 'goodbye', 'farewell', 'take care', 'see you',
                 'until next time', 'session is complete', "that's all for today",
@@ -456,6 +542,8 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
         if (data.skipped_topics) skippedTopicsRef.current = data.skipped_topics
         if (data.sections) sectionsRef.current = data.sections
         if (data.training_scripts) trainingScriptsRef.current = data.training_scripts as TrainingScript[]
+        if (data.tab_manifests !== undefined) tabManifestsRef.current = data.tab_manifests ?? null
+        currentSectionIndexRef.current = data.current_section_index ?? 0
         if (data.session_brief) sessionBriefRef.current = data.session_brief
         if (data.topic_context) topicContextRef.current = data.topic_context
         if (data.session_script) sessionScriptRef.current = data.session_script
@@ -519,6 +607,17 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
   const spec = state.visual_spec
   const hasSections = (state.sections?.length ?? 0) > 0
 
+  // Derive the tab manifest for the currently active section (if any)
+  const currentSectionIdx = state.current_section_index ?? 0
+  const currentTabManifest: TabManifest | null =
+    state.tab_manifests?.[String(currentSectionIdx)] ?? null
+  const shouldShowTabPanel = hasSections && currentTabManifest !== null && (currentTabManifest?.tabs.length ?? 0) >= 2
+
+  // The topicId used by VisualizationTabPanel — derived from the current section's meta
+  // or falls back to an empty string. Used by KBSessionPreview for data binding.
+  const currentSection = state.sections?.[currentSectionIdx] ?? null
+  const tabPanelTopicId = currentSection?.meta.subtopicTitle.toLowerCase().replace(/\s+/g, '-') ?? ''
+
   const agentStatusColor =
     agentStatus === 'listening'    ? 'bg-blue-900/80 text-blue-300' :
     agentStatus === 'speaking'     ? 'bg-green-900/80 text-green-300' :
@@ -549,8 +648,23 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
         </div>
       )}
 
-      {/* Template-based session stack — shown when sections are pre-generated */}
-      {hasSections && state.sections && (
+      {/* VisualizationTabPanel — shown when the active section has a tab manifest with 2+ tabs */}
+      {shouldShowTabPanel && currentTabManifest && (
+        <div className="absolute inset-0 flex flex-col">
+          <VisualizationTabPanel
+            tabs={currentTabManifest.tabs}
+            activeIndex={activeTabIndex}
+            onTabChange={(idx) => {
+              activeTabIndexRef.current = idx
+              setActiveTabIndex(idx)
+            }}
+            topicId={tabPanelTopicId}
+          />
+        </div>
+      )}
+
+      {/* Template-based session stack — shown when sections exist but no tab manifest for active section */}
+      {hasSections && !shouldShowTabPanel && state.sections && (
         <SessionStack
           sections={state.sections}
           currentSectionIndex={state.current_section_index ?? 0}
