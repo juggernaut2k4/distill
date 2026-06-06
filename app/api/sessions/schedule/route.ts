@@ -5,12 +5,11 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
 import { sendSessionsConfirmedEmail, type User, type SessionSummary } from '@/lib/delivery/email'
 import { sendSMS } from '@/lib/delivery/sms'
 import { inngest } from '@/inngest/client'
-import { createGoogleMeetEvent } from '@/lib/google-calendar'
 
 const ScheduledSessionSchema = z.object({
   sessionIndex: z.number().int().positive(),
   title: z.string().min(1),
-  topicId: z.string().default(''),
+  topicId: z.string().min(1, 'topicId must be a non-empty string'),
   topics: z.array(z.string()),
   subtopics: z.array(z.string()).default([]),
   scheduledAt: z.string().datetime(),
@@ -53,7 +52,7 @@ export async function POST(request: NextRequest) {
     user_id: userId!,
     session_index: s.sessionIndex,
     session_title: s.title,
-    topic_id: s.topicId || null,
+    topic_id: s.topicId,
     topics: s.topics,
     scheduled_at: s.scheduledAt,
     duration_mins: s.estimatedMinutes,
@@ -73,36 +72,6 @@ export async function POST(request: NextRequest) {
   // Build a map from session_index → uuid so email links use the real ID
   const indexToId = new Map<number, string>(
     (insertedRows ?? []).map((r: { id: string; session_index: number }) => [r.session_index, r.id])
-  )
-
-  // Create Google Meet links — 8s timeout per session so slow/failing Calendar API
-  // doesn't block the response. Sessions are created; Meet links are best-effort.
-  const meetTimeout = (ms: number) => new Promise<null>((resolve) => setTimeout(() => resolve(null), ms))
-  await Promise.all(
-    parsed.data.sessions.map(async (s) => {
-      const sessionId = indexToId.get(s.sessionIndex)
-      if (!sessionId) return
-      try {
-        const meet = await Promise.race([
-          createGoogleMeetEvent({
-            title: `Clio Session: ${s.title}`,
-            description: `AI coaching session with Clio. Topics: ${s.topics.join(', ')}`,
-            startIso: s.scheduledAt,
-            durationMins: s.estimatedMinutes,
-          }),
-          meetTimeout(8000),
-        ])
-        if (meet) {
-          await supabase
-            .from('sessions')
-            .update({ meeting_url: meet.meetUrl })
-            .eq('id', sessionId)
-          console.log(`[schedule] Meet created for session ${sessionId}: ${meet.meetUrl}`)
-        }
-      } catch (err) {
-        console.error(`[schedule] Meet creation failed for session ${s.sessionIndex}:`, err)
-      }
-    })
   )
 
   // Fire Inngest event for each session to pre-generate visual specs in background

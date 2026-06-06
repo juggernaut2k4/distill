@@ -75,13 +75,27 @@ export function scheduleSessions(
     const cappedMinutes = Math.min(session.estimatedMinutes, prefs.maxDurationMins)
     const primaryTopic = session.topics[0]
 
+    // Derive a stable topic ID guaranteed to be a non-empty string.
+    // Priority: (1) catalog topic ID from the primary topic, (2) kebab-slug of the
+    // session title, (3) positional fallback 'session-N' when the title produces an
+    // empty slug (e.g. all-punctuation, all-numeric after stripping, or empty string).
+    const slugFromTitle = session.title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+/, '')
+      .replace(/-+$/, '')
+      .slice(0, 60)
+    const derivedTopicId: string = primaryTopic?.id || slugFromTitle || (() => {
+      console.warn(
+        `[planner] Session ${i + 1} title "${session.title}" produced an empty slug — using positional fallback.`
+      )
+      return `session-${i + 1}`
+    })()
+
     scheduled.push({
       sessionIndex: i + 1,
       title: session.title,
-      // Use catalog topic ID if present; otherwise derive a stable slug from the
-      // session title so content is never stored under the 'ai-fundamentals' fallback.
-      topicId: primaryTopic?.id ||
-        session.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/, '').slice(0, 60),
+      topicId: derivedTopicId,
       topics: session.topics.map((t) => t.title),
       subtopics: primaryTopic?.subtopics ?? [],
       scheduledAt: sessionDate.toISOString(),
