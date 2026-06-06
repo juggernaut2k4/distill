@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, Suspense, useMemo } from 'react'
+import { useState, useRef, Suspense, useMemo, useEffect } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useRouter } from 'next/navigation'
 import { useUser, useAuth } from '@clerk/nextjs'
@@ -494,6 +494,39 @@ function OnboardingContent() {
   const [learningGoal, setLearningGoal] = useState<LearningGoal | ''>('')
   const goalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
+
+  // ── Auto-submit after sign-up return ─────────────────────────────────────────
+  // When the user returns from Google sign-up, they land back on /onboarding.
+  // If localStorage has their answers from the anonymous flow, auto-submit them
+  // now that they're authenticated — no need to re-fill the form.
+  useEffect(() => {
+    if (!clerkLoaded || !isSignedIn) return
+    const saved = localStorage.getItem('clio_onboarding')
+    if (!saved) return
+    try {
+      const parsed = JSON.parse(saved) as {
+        role?: string; roleLevel?: string; industry?: string; aiMaturity?: string
+        domains?: string[]; customDomains?: string[]; primaryDomain?: string
+        domainProficiency?: Record<string, string>; learningGoal?: string; subDomain?: string
+      }
+      if (!parsed.role || !parsed.learningGoal) return
+      setBuilding(true)
+      localStorage.removeItem('clio_onboarding')
+      // Re-use the snapshot path — pass values directly to avoid stale closure
+      const snapshot = {
+        role: parsed.role ?? '',
+        roleLevel: parsed.roleLevel ?? '',
+        industry: parsed.industry ?? '',
+        aiEngagement: (parsed.aiMaturity ?? '') as 'observer' | 'emerging' | 'practitioner' | 'leader' | '',
+        selectedDomains: parsed.domains ?? [],
+        customDomains: parsed.customDomains ?? [],
+      }
+      submitOnboarding(parsed.learningGoal as LearningGoal, snapshot)
+    } catch {
+      // Malformed data — just clear it and show the form normally
+      localStorage.removeItem('clio_onboarding')
+    }
+  }, [clerkLoaded, isSignedIn]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Can proceed from each step ──────────────────────────────────────────────
   const canProceed = useMemo(() => {
