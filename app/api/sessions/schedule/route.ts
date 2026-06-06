@@ -130,12 +130,16 @@ export async function POST(request: NextRequest) {
   const firstSessionId = indexToId.get(1)
   const firstSession = parsed.data.sessions.find((s) => s.sessionIndex === 1)
   if (firstSessionId && firstSession) {
+    // Derive a session-specific topicId from the title rather than falling back
+    // to 'ai-fundamentals', which generates wrong catalog-context visualizations.
+    const sessionTopicId = firstSession.topicId ||
+      firstSession.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/, '').slice(0, 60)
     inngest
       .send({
         name: 'distill/session.content.generate' as const,
         data: {
           sessionId: firstSessionId,
-          topicId: firstSession.topicId || 'ai-fundamentals',
+          topicId: sessionTopicId,
           topicTitle: firstSession.title,
           subtopics: firstSession.subtopics,
           userId: userId!,
@@ -143,7 +147,7 @@ export async function POST(request: NextRequest) {
         },
       })
       .catch((err) => console.error('[schedule] Failed to emit content.generate for session 1:', err))
-    console.log(`[schedule] Triggered content generation for Session 1: ${firstSessionId}`)
+    console.log(`[schedule] Triggered content generation for Session 1: ${firstSessionId} (topicId: ${sessionTopicId})`)
   }
 
   // Fire-and-forget confirmation email + SMS
