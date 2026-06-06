@@ -716,7 +716,8 @@ function buildSessionsConfirmedEmailHtml(sessions: SessionSummary[], appUrl: str
     <tr><td>
       <p style="color:#7C3AED;font-size:12px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin:0 0 32px;">CLIO</p>
       <h1 style="color:#ffffff;font-size:32px;font-weight:800;margin:0 0 12px;">Sessions confirmed.</h1>
-      <p style="color:#94A3B8;font-size:16px;line-height:1.7;margin:0 0 32px;">${sessions.length} session${sessions.length !== 1 ? 's' : ''} scheduled across your learning plan.</p>
+      <p style="color:#94A3B8;font-size:16px;line-height:1.7;margin:0 0 16px;">${sessions.length} session${sessions.length !== 1 ? 's' : ''} scheduled across your learning plan.</p>
+      <p style="color:#94A3B8;font-size:15px;line-height:1.7;margin:0 0 32px;">Your sessions are confirmed. Add your Google Meet link in your dashboard before your first session.</p>
       <div style="background:#111111;border:1px solid #222222;border-radius:12px;padding:32px;margin-bottom:24px;">
         <table width="100%" cellpadding="0" cellspacing="0">
           ${sessionsHtml}
@@ -728,6 +729,7 @@ function buildSessionsConfirmedEmailHtml(sessions: SessionSummary[], appUrl: str
         <a href="${appUrl}/dashboard/sessions" style="background:#7C3AED;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:700;display:inline-block;">View My Sessions →</a>
       </div>
       <p style="color:#475569;font-size:12px;text-align:center;">You'll receive a reminder the day before each session.</p>
+      <p style="color:#475569;font-size:12px;text-align:center;margin-top:8px;">Add your meeting link in your Clio dashboard before your first session: <a href="${appUrl}/dashboard/sessions" style="color:#06B6D4;text-decoration:none;">${appUrl}/dashboard/sessions</a></p>
     </td></tr>
   </table>
 </body>

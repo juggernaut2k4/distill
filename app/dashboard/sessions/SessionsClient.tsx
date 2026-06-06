@@ -2,7 +2,7 @@
 
 import { motion } from 'framer-motion'
 import Link from 'next/link'
-import { Clock, ChevronRight, FlaskConical, Loader2, BookOpen } from 'lucide-react'
+import { Clock, ChevronRight, FlaskConical, Loader2, BookOpen, Link as LinkIcon, Loader } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { useState } from 'react'
 
@@ -15,6 +15,7 @@ interface Session {
   topics: string[] | null
   duration_mins: number
   curriculum_session_id: string | null
+  meeting_url: string | null
 }
 
 interface SessionsClientProps {
@@ -23,10 +24,105 @@ interface SessionsClientProps {
 }
 
 const STATUS_STYLE: Record<string, { label: string; className: string }> = {
-  scheduled:  { label: 'Scheduled',  className: 'bg-[#1A1A1A] text-[#94A3B8] border border-[#333]' },
+  scheduled:  { label: 'Scheduled',  className: 'bg-[#1A1A1A] text-[#475569] border border-[#222222]' },
   active:     { label: 'Active',     className: 'bg-cyan-950/40 text-cyan-400 border border-cyan-800/30' },
   completed:  { label: 'Completed',  className: 'bg-green-950/40 text-green-400 border border-green-800/30' },
   cancelled:  { label: 'Cancelled',  className: 'bg-red-950/40 text-red-400 border border-red-800/30' },
+}
+
+function truncateUrl(url: string, max = 40): string {
+  try {
+    const { host, pathname } = new URL(url)
+    const display = host + pathname
+    return display.length > max ? display.slice(0, max) + '…' : display
+  } catch {
+    return url.length > max ? url.slice(0, max) + '…' : url
+  }
+}
+
+/** Inline meeting link widget — manages its own edit/save state */
+function MeetingLinkWidget({ sessionId, initialUrl }: { sessionId: string; initialUrl: string | null }) {
+  const [meetingUrl, setMeetingUrl] = useState<string | null>(initialUrl)
+  const [editing, setEditing] = useState(false)
+  const [inputValue, setInputValue] = useState(initialUrl ?? '')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleSave() {
+    setError(null)
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}/meeting-url`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ meetingUrl: inputValue }),
+      })
+      if (res.ok) {
+        setMeetingUrl(inputValue)
+        setEditing(false)
+      } else {
+        setError("Couldn't save the link. Please try again.")
+      }
+    } catch {
+      setError("Couldn't save the link. Please try again.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // State B — has link, not editing
+  if (meetingUrl && !editing) {
+    return (
+      <div className="mt-3 flex items-center gap-2">
+        <LinkIcon size={13} className="text-[#06B6D4] flex-shrink-0" />
+        <a
+          href={meetingUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[#06B6D4] text-sm truncate hover:underline flex-1 min-w-0"
+          title={meetingUrl}
+        >
+          {truncateUrl(meetingUrl)}
+        </a>
+        <button
+          onClick={() => {
+            setInputValue(meetingUrl)
+            setEditing(true)
+          }}
+          className="text-xs text-[#475569] hover:text-[#94A3B8] transition-colors border border-[#333333] rounded-lg px-3 py-1 flex-shrink-0 ml-2"
+        >
+          Edit
+        </button>
+      </div>
+    )
+  }
+
+  // State A / C — no link, or editing
+  return (
+    <div className="mt-3">
+      <p className="text-xs font-medium text-[#94A3B8] mb-1.5">Meeting link</p>
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          value={inputValue}
+          onChange={(e) => setInputValue(e.target.value)}
+          placeholder="https://meet.google.com/..."
+          disabled={saving}
+          className="flex-1 min-w-0 h-[38px] px-[10px] rounded-[10px] bg-[#111111] border border-[#222222] text-[13px] text-white placeholder:text-[#475569] focus:outline-none focus:border-[#7C3AED] transition-colors duration-150 disabled:opacity-60 disabled:cursor-not-allowed"
+        />
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="h-[38px] px-4 rounded-[10px] bg-[#7C3AED] text-white text-[13px] font-semibold flex-shrink-0 flex items-center justify-center disabled:opacity-60 disabled:cursor-not-allowed hover:bg-[#A855F7] transition-colors"
+        >
+          {saving ? <Loader size={13} className="animate-spin" /> : 'Save'}
+        </button>
+      </div>
+      {error && (
+        <p className="mt-1.5 text-xs text-[#EF4444]">{error}</p>
+      )}
+    </div>
+  )
 }
 
 function SessionRow({ session, index }: { session: Session; index: number }) {
@@ -38,9 +134,11 @@ function SessionRow({ session, index }: { session: Session; index: number }) {
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25, delay: index * 0.04 }}
+      className="px-4 py-3"
     >
+      {/* Top row: number, title, duration, status, chevron */}
       <Link href={`/dashboard/sessions/${session.id}`} className="block group">
-        <div className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-[#1A1A1A] transition-colors cursor-pointer">
+        <div className="flex items-center gap-3 rounded-lg hover:bg-[#1A1A1A] transition-colors cursor-pointer -mx-1 px-1 py-1">
           {/* Session number */}
           <div className="w-7 h-7 rounded-full bg-purple-950/50 border border-purple-800/40 flex items-center justify-center flex-shrink-0">
             <span className="text-[10px] font-bold text-[#A855F7]">{session.session_index}</span>
@@ -63,6 +161,9 @@ function SessionRow({ session, index }: { session: Session; index: number }) {
           <ChevronRight size={13} className="text-[#333] group-hover:text-[#475569] transition-colors flex-shrink-0" />
         </div>
       </Link>
+
+      {/* Meeting link widget — below the clickable row */}
+      <MeetingLinkWidget sessionId={session.id} initialUrl={session.meeting_url} />
     </motion.div>
   )
 }
@@ -215,6 +316,8 @@ export default function SessionsClient({ sessions, topicTitleMap }: SessionsClie
     return aMin - bMin
   })
 
+  const anyMissingLink = sessions.some((s) => !s.meeting_url)
+
   return (
     <div className="space-y-8 max-w-3xl">
       {/* Page header */}
@@ -233,6 +336,18 @@ export default function SessionsClient({ sessions, topicTitleMap }: SessionsClie
             ? `${grouped.filter(g => g.topicId !== '__ungrouped__').length} topic${grouped.filter(g => g.topicId !== '__ungrouped__').length !== 1 ? 's' : ''} · ${sessions.length} sessions`
             : 'Your scheduled coaching sessions.'}
         </p>
+
+        {/* Informational banner — shown only when at least one session is missing a meeting link */}
+        {anyMissingLink && sessions.length > 0 && (
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.2 }}
+            className="mt-3 text-sm text-[#94A3B8]"
+          >
+            Add your Google Meet links so you&apos;re ready to join each session. You can do this any time before it starts.
+          </motion.p>
+        )}
       </motion.div>
 
       {/* Topic groups */}
