@@ -36,11 +36,45 @@ export type Session = z.infer<typeof SessionSchema> & { estimated_minutes: numbe
 export type Arc = z.infer<typeof ArcSchema>
 export type CurriculumOutput = z.infer<typeof CurriculumOutputSchema>
 
+// ─── Maturity normalisation ───────────────────────────────────────────────────
+
+/**
+ * Normalises ai_maturity to a canonical depth level.
+ * Two vocabularies are in use:
+ *   New (onboarding 2026-06): observer | emerging | practitioner | leader
+ *   Old (legacy):             beginner | intermediate | advanced | expert
+ *                             + legacy free-text: 'no experience', 'some experience', 'somewhat experience'
+ * Both vocabularies map to the same four canonical values.
+ * Exported so buildProfileHash and tests can call it independently.
+ */
+export function normaliseMaturity(maturity: string): 'beginner' | 'intermediate' | 'advanced' | 'expert' {
+  switch (maturity.toLowerCase().trim()) {
+    case 'observer':
+    case 'beginner':
+    case 'no experience':        return 'beginner'
+    case 'emerging':
+    case 'intermediate':
+    case 'some experience':
+    case 'somewhat experience':  return 'intermediate'
+    case 'practitioner':
+    case 'advanced':             return 'advanced'
+    case 'leader':
+    case 'expert':               return 'expert'
+    default:                     return 'intermediate'  // safe default for unknown values
+  }
+}
+
 // ─── Profile hash ─────────────────────────────────────────────────────────────
 
-export function buildProfileHash(role: string, maturity: string, topics: string[]): string {
+/**
+ * Produces a 16-char hex cache key for a user's curriculum profile.
+ * Uses normalised maturity so 'observer' and 'beginner' share the same key.
+ * roleLevel is included so a VP and a C-Suite with the same role+topics get distinct plans.
+ */
+export function buildProfileHash(role: string, maturity: string, topics: string[], roleLevel: string): string {
+  const normMaturity = normaliseMaturity(maturity)
   const sorted = [...topics].sort().join(',')
-  return createHash('sha256').update(`${role}::${maturity}::${sorted}`).digest('hex').slice(0, 16)
+  return createHash('sha256').update(`${role}::${roleLevel}::${normMaturity}::${sorted}`).digest('hex').slice(0, 16)
 }
 
 // ─── Tier limits ──────────────────────────────────────────────────────────────
@@ -64,17 +98,52 @@ function buildSystemPrompt(
   topics: string[],
   visibleLimit: number,
   queueLimit: number,
+  roleLevel: string,
 ): string {
+  /**
+   * Normalise ai_maturity to a canonical depth level.
+   * Two vocabularies:
+   *   New (onboarding 2026-06): observer | emerging | practitioner | leader
+   *   Old (legacy):             beginner | intermediate | advanced | expert
+   *                             + legacy free-text: 'no experience', 'some experience', 'somewhat experience'
+   * Both map to: beginner | intermediate | advanced | expert
+   *
+   * Note: 'practitioner' and 'leader' both resolve to depthCap 'advanced' (the schema's max).
+   * The difference is expressed as a PROMPT INSTRUCTION, not a schema value.
+   */
+  const normalisedMaturity = normaliseMaturity(maturity)
+
   const depthCap = (() => {
-    switch (maturity.toLowerCase()) {
-      case 'beginner':
-      case 'no experience': return 'intermediate'
-      case 'intermediate':
-      case 'some experience':
-      case 'somewhat experience': return 'advanced'
-      default: return 'advanced'
+    switch (normalisedMaturity) {
+      case 'beginner':     return 'intermediate'
+      case 'intermediate': return 'advanced'
+      case 'advanced':     return 'advanced'
+      case 'expert':       return 'advanced'
+      default:             return 'advanced'
     }
   })()
+
+  const roleLevelLabel: Record<string, string> = {
+    'c-suite':   'Executive / C-Suite (owns P&L, accountable to board)',
+    'vp-dir':    'VP / Director (leads a function, reports to C-Suite, accountable for team outcomes)',
+    'manager':   'Manager / Team Lead (manages a team, executes strategy set above them)',
+    'specialist':'Specialist / Individual Contributor (expert practitioner)',
+  }
+
+  const roleLevelInstruction: Record<string, string> = {
+    'c-suite':   'Frame all content for a leader who approves budgets, sponsors AI initiatives, and answers to the board. Examples must involve strategic decisions, not implementation choices.',
+    'vp-dir':    'Frame all content for a function leader who owns team adoption and reports outcomes to the C-Suite. Examples must involve managing upward (presenting to executives) and downward (enabling their team). Do NOT use board-level or P&L-authority framing.',
+    'manager':   'Frame all content for a team lead implementing AI tools day-to-day. Examples should be hands-on and practical. Avoid board-level or C-Suite strategic framing.',
+    'specialist':'Frame all content for a practitioner who uses AI tools directly. Examples should be technical and applied.',
+  }
+
+  const maturityFramingInstruction = normalisedMaturity === 'expert'
+    ? '- Frame content as peer-level: Claude is speaking to someone who already understands AI mechanisms. Skip introductory analogies. Focus on edge cases, failure modes, nuanced tradeoffs, and decisions at the frontier of AI deployment. Use first-person plural: "When we\'re evaluating model risk at this scale..."'
+    : normalisedMaturity === 'advanced'
+    ? '- Frame content for a practitioner who has hands-on AI experience: strategic depth, real tradeoffs, and implementation decisions are appropriate. Minimal introductory context needed.'
+    : normalisedMaturity === 'intermediate'
+    ? '- Frame content with practical focus: explain mechanisms briefly, then move quickly to application and decisions. Some analogies are helpful; avoid deep technical theory.'
+    : '- Frame content with maximum accessibility: generous analogies, concrete examples before abstract concepts, explicit "why this matters" for each idea. Never assume prior AI knowledge.'
 
   return `You are an expert learning curriculum designer for senior business executives.
 
@@ -86,6 +155,8 @@ USER PROFILE:
 - AI maturity: ${maturity}
 - Biggest AI worry: ${worry || 'not specified'}
 - Selected topics: ${topics.join(', ')}
+- Seniority level: ${roleLevelLabel[roleLevel] ?? roleLevel}
+${roleLevelInstruction[roleLevel] ?? ''}
 
 CURRICULUM REQUIREMENTS:
 - Visible plan sessions: exactly up to ${visibleLimit} sessions (at least 1 per selected topic)
@@ -181,6 +252,8 @@ DEPTH RULES:
 - NEVER assign depth_level "advanced" to a user with maturity "${maturity}" if the computed depth cap is "${depthCap}".
 - ${depthCap === 'intermediate' ? 'All sessions must be "beginner" or "intermediate" depth only.' : 'Sessions may reach "advanced" depth from session 3+ within an arc.'}
 - Match session depth to the user's role: a CFO getting AI governance content needs board-level framing, not technical implementation details.
+- Maturity framing: this user's AI maturity normalises to "${normalisedMaturity}".
+${maturityFramingInstruction}
 
 ROLE HINT RULES:
 - role_hint is a private instruction for the content generator — NOT shown to the user.
@@ -298,6 +371,7 @@ export interface PlannerInput {
   worry: string
   topics: string[]
   planTier: string | null
+  roleLevel: string  // 'c-suite' | 'vp-dir' | 'manager' | 'specialist'
 }
 
 export interface PlannerResult {
@@ -307,9 +381,9 @@ export interface PlannerResult {
 }
 
 export async function generateCurriculumPlan(input: PlannerInput): Promise<PlannerResult> {
-  const { role, industry, maturity, worry, topics, planTier } = input
+  const { role, industry, maturity, worry, topics, planTier, roleLevel } = input
   const { visible: visibleLimit, queue: queueLimit } = getTierLimits(planTier)
-  const profileHash = buildProfileHash(role, maturity, topics)
+  const profileHash = buildProfileHash(role, maturity, topics, roleLevel)
 
   const apiKey = process.env.ANTHROPIC_API_KEY ?? ''
   if (!apiKey || apiKey.startsWith('PLACEHOLDER_')) {
@@ -318,7 +392,7 @@ export async function generateCurriculumPlan(input: PlannerInput): Promise<Plann
     return { output: fallback, isFallback: true, rawLlmOutput: { fallback: true, reason: 'ANTHROPIC_API_KEY not set' } }
   }
 
-  const systemPrompt = buildSystemPrompt(role, industry, maturity, worry, topics, visibleLimit, queueLimit)
+  const systemPrompt = buildSystemPrompt(role, industry, maturity, worry, topics, visibleLimit, queueLimit, roleLevel)
   const client = new Anthropic({ apiKey })
 
   let lastError: Error | null = null
@@ -390,9 +464,9 @@ export async function generateQueueExtension(
   input: PlannerInput,
   completedTitles: string[],
 ): Promise<Session[]> {
-  const { role, industry, maturity, worry, topics, planTier } = input
+  const { role, industry, maturity, worry, topics, planTier, roleLevel } = input
   const { queue: queueLimit } = getTierLimits(planTier)
-  const profileHash = buildProfileHash(role, maturity, topics)
+  const profileHash = buildProfileHash(role, maturity, topics, roleLevel)
 
   const apiKey = process.env.ANTHROPIC_API_KEY ?? ''
   if (!apiKey || apiKey.startsWith('PLACEHOLDER_')) return []

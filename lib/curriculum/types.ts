@@ -5,6 +5,7 @@ export interface UserProfile {
   role: string
   industry: string
   maturity: Maturity
+  roleLevel: string  // 'c-suite' | 'vp-dir' | 'manager' | 'specialist'
   interest?: string // optional free text (last resort)
 }
 
@@ -13,6 +14,7 @@ export interface CurriculumSpec {
   industry: string
   maturity: Maturity
   interest: string
+  roleLevel: string  // 'c-suite' | 'vp-dir' | 'manager' | 'specialist'
   isNamedProduct: boolean
   productName: string | null
   requiredFoundation: SpecItem[]

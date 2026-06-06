@@ -24,7 +24,7 @@ export const curriculumQueueRegenerate = inngest.createFunction(
     const { plan, user, completions } = await step.run('fetch-data', async () => {
       const [p, u, c] = await Promise.all([
         supabase.from('curriculum_plans').select('id, queue_sessions').eq('id', plan_id).single(),
-        supabase.from('users').select('role, industry, ai_maturity, topic_interests, plan_tier, worry').eq('id', user_id).single(),
+        supabase.from('users').select('role, industry, ai_maturity, role_level, topic_interests, plan_tier, worry').eq('id', user_id).single(),
         supabase.from('session_completions').select('session_id').eq('user_id', user_id).eq('plan_id', plan_id),
       ])
       return { plan: p.data, user: u.data, completions: c.data ?? [] }
@@ -55,6 +55,7 @@ export const curriculumQueueRegenerate = inngest.createFunction(
           role: (user as { role?: string }).role ?? 'executive',
           industry: (user as { industry?: string }).industry ?? 'general',
           maturity: (user as { ai_maturity?: string }).ai_maturity ?? 'intermediate',
+          roleLevel: (user as { role_level?: string }).role_level ?? 'c-suite',
           worry: (user as { worry?: string }).worry ?? '',
           topics: Array.isArray((user as { topic_interests?: string[] }).topic_interests) ? (user as { topic_interests: string[] }).topic_interests : [],
           planTier: (user as { plan_tier?: string }).plan_tier ?? null,

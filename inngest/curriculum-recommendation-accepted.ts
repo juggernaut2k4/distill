@@ -24,7 +24,7 @@ export const curriculumRecommendationAccepted = inngest.createFunction(
     const { plan, user } = await step.run('fetch-context', async () => {
       const [p, u] = await Promise.all([
         supabase.from('curriculum_plans').select('queue_sessions, visible_sessions').eq('id', plan_id).single(),
-        supabase.from('users').select('role, industry, ai_maturity, topic_interests, plan_tier, worry').eq('id', user_id).single(),
+        supabase.from('users').select('role, industry, ai_maturity, role_level, topic_interests, plan_tier, worry').eq('id', user_id).single(),
       ])
       return { plan: p.data, user: u.data }
     })
@@ -38,13 +38,14 @@ export const curriculumRecommendationAccepted = inngest.createFunction(
     const completedTitles = visibleSessions.map((s) => s.title)
 
     const newSessions = await step.run('generate-follow-on', async () => {
-      const u = user as { role?: string; industry?: string; ai_maturity?: string; worry?: string; topic_interests?: string[]; plan_tier?: string }
+      const u = user as { role?: string; industry?: string; ai_maturity?: string; role_level?: string; worry?: string; topic_interests?: string[]; plan_tier?: string }
       return generateQueueExtension(
         {
           userId: user_id,
           role: u.role ?? 'executive',
           industry: u.industry ?? 'general',
           maturity: u.ai_maturity ?? 'intermediate',
+          roleLevel: u.role_level ?? 'c-suite',
           worry: u.worry ?? '',
           topics: Array.isArray(u.topic_interests) ? u.topic_interests : [],
           planTier: u.plan_tier ?? null,

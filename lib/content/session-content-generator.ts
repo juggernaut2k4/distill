@@ -133,7 +133,7 @@ export async function generateSessionContentOutline(
   topicTitle: string,
   subtopicTitles: string[],
   userId: string,
-  userContext: { role: string; industry: string; maturity: string }
+  userContext: { role: string; industry: string; maturity: string; roleLevel: string }
 ): Promise<SessionContentOutline> {
   const [previousContext, existingContent] = await Promise.all([
     getPreviousSessionsContext(userId, sessionId),
@@ -178,12 +178,20 @@ export async function generateSessionContentOutline(
     }
   }
 
+  const roleLevelInstruction: Record<string, string> = {
+    'c-suite':   'Frame all content for a leader who approves budgets, sponsors AI initiatives, and answers to the board. Examples must involve strategic decisions, not implementation choices.',
+    'vp-dir':    'Frame all content for a function leader who owns team adoption and reports outcomes to the C-Suite. Examples must involve managing upward (presenting to executives) and downward (enabling their team). Do NOT use board-level or P&L-authority framing.',
+    'manager':   'Frame all content for a team lead implementing AI tools day-to-day. Examples should be hands-on and practical. Avoid board-level or C-Suite strategic framing.',
+    'specialist':'Frame all content for a practitioner who uses AI tools directly. Examples should be technical and applied.',
+  }
+
   const prompt = `You are preparing content for an AI coaching session for a senior executive.
 
 USER CONTEXT
 Role: ${userContext.role}
 Industry: ${userContext.industry}
 AI Maturity: ${userContext.maturity}
+Seniority: ${userContext.roleLevel} — ${roleLevelInstruction[userContext.roleLevel] ?? ''}
 
 SESSION TOPIC: ${topicTitle}
 SUBTOPICS TO COVER (in order):

@@ -27,7 +27,7 @@ export const curriculumGenerator = inngest.createFunction(
     const user = await step.run('load-user', async () => {
       const { data } = await supabase
         .from('users')
-        .select('id, role, industry, ai_maturity, topic_interests, plan_tier, worry_tags')
+        .select('id, role, industry, ai_maturity, role_level, topic_interests, plan_tier, worry_tags')
         .eq('id', userId)
         .single()
       return data
@@ -44,12 +44,13 @@ export const curriculumGenerator = inngest.createFunction(
       return { error: 'no_topics' }
     }
 
-    const role     = (user.role        as string | null) ?? 'executive'
-    const industry = (user.industry    as string | null) ?? 'general'
-    const maturity = (user.ai_maturity as string | null) ?? 'intermediate'
-    const worry    = Array.isArray(user.worry_tags) ? user.worry_tags.join(', ') : ''
-    const planTier = (user.plan_tier   as string | null) ?? null
-    const profileHash = buildProfileHash(role, maturity, topics)
+    const role      = (user.role        as string | null) ?? 'executive'
+    const industry  = (user.industry    as string | null) ?? 'general'
+    const maturity  = (user.ai_maturity as string | null) ?? 'intermediate'
+    const roleLevel = (user.role_level  as string | null) ?? 'c-suite'
+    const worry     = Array.isArray(user.worry_tags) ? user.worry_tags.join(', ') : ''
+    const planTier  = (user.plan_tier   as string | null) ?? null
+    const profileHash = buildProfileHash(role, maturity, topics, roleLevel)
 
     // ── Supersede existing plan if profile changed ────────────────────────────
     const existingPlanId = await step.run('supersede-old-plan', async () => {
@@ -109,7 +110,7 @@ export const curriculumGenerator = inngest.createFunction(
 
     // ── Generate new curriculum plan ──────────────────────────────────────────
     const { output, isFallback, rawLlmOutput } = await step.run('generate-plan', async () => {
-      return generateCurriculumPlan({ userId, role, industry, maturity, worry, topics, planTier })
+      return generateCurriculumPlan({ userId, role, industry, maturity, worry, topics, planTier, roleLevel })
     })
 
     // ── Save to DB ────────────────────────────────────────────────────────────

@@ -49,7 +49,7 @@ export async function GET() {
   const supabase = createSupabaseAdminClient()
   const { data: user } = await supabase
     .from('users')
-    .select('role, industry, ai_maturity, worry, topic_interests')
+    .select('role, industry, ai_maturity, role_level, worry, topic_interests')
     .eq('id', userId!)
     .single()
 
@@ -69,6 +69,7 @@ export async function GET() {
     role: user?.role ?? 'executive',
     industry: user?.industry ?? 'general',
     maturity: (user?.ai_maturity ?? 'beginner') as Maturity,
+    roleLevel: (user?.role_level as string | null) ?? 'c-suite',
     interest: objectives,
   }
 
@@ -113,7 +114,7 @@ export async function POST(request: NextRequest) {
   const supabase = createSupabaseAdminClient()
   const { data: user } = await supabase
     .from('users')
-    .select('role, industry, ai_maturity')
+    .select('role, industry, ai_maturity, role_level')
     .eq('id', userId!)
     .single()
 
@@ -121,6 +122,7 @@ export async function POST(request: NextRequest) {
     role: newParsed.data?.role ?? user?.role ?? 'executive',
     industry: newParsed.data?.industry ?? user?.industry ?? 'general',
     maturity: (newParsed.data?.maturity ?? user?.ai_maturity ?? 'beginner') as Maturity,
+    roleLevel: (user?.role_level as string | null) ?? 'c-suite',
     interest: newParsed.data?.interest ?? legacyParsed.data?.objectives ?? '',
   }
 

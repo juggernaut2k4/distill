@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
   // ── Load user to get plan_tier ─────────────────────────────────────────────
   const { data: user } = await supabase
     .from('users')
-    .select('plan_tier, topic_interests, role, ai_maturity')
+    .select('plan_tier, topic_interests, role, ai_maturity, role_level')
     .eq('id', userId!)
     .single()
 
@@ -137,7 +137,7 @@ export async function POST(request: NextRequest) {
     : []
 
   const actualProfileHash = topics.length > 0 && user?.role && user?.ai_maturity
-    ? buildProfileHash(user.role as string, user.ai_maturity as string, topics)
+    ? buildProfileHash(user.role as string, user.ai_maturity as string, topics, (user.role_level as string | null) ?? 'c-suite')
     : profile_hash
 
   // ── Insert the user's curriculum plan ─────────────────────────────────────

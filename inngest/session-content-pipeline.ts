@@ -84,13 +84,13 @@ export const sessionContentPipeline = inngest.createFunction(
           .single(),
         supabase
           .from('users')
-          .select('role, industry, ai_maturity')
+          .select('role, industry, ai_maturity, role_level')
           .eq('id', userId)
           .single(),
       ])
       return {
         session: sessionRow,
-        userProfile: userRow as { role?: string | null; industry?: string | null; ai_maturity?: string | null } | null,
+        userProfile: userRow as { role?: string | null; industry?: string | null; ai_maturity?: string | null; role_level?: string | null } | null,
       }
     })
 
@@ -118,6 +118,7 @@ export const sessionContentPipeline = inngest.createFunction(
       role: userProfile?.role ?? 'executive',
       industry: userProfile?.industry ?? 'business',
       maturity: userProfile?.ai_maturity ?? 'beginner',
+      roleLevel: userProfile?.role_level ?? 'c-suite',
     }
 
     // Mark session as generating immediately so UI shows progress

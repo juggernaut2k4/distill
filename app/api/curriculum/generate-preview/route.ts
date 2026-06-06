@@ -4,10 +4,11 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
 import { generateCurriculumPlan, buildProfileHash } from '@/lib/curriculum/planner'
 
 const BodySchema = z.object({
-  role:     z.string().min(1).max(100),
-  maturity: z.string().min(1).max(50),
-  topics:   z.array(z.string().min(1).max(200)).min(1).max(20),
-  worry:    z.string().max(300).optional().default(''),
+  role:      z.string().min(1).max(100),
+  maturity:  z.string().min(1).max(50),
+  topics:    z.array(z.string().min(1).max(200)).min(1).max(20),
+  worry:     z.string().max(300).optional().default(''),
+  roleLevel: z.string().max(50).optional().default('c-suite'),
 })
 
 /**
@@ -34,8 +35,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Validation failed', details: parsed.error.flatten() }, { status: 400 })
   }
 
-  const { role, maturity, topics, worry } = parsed.data
-  const profileHash = buildProfileHash(role, maturity, topics)
+  const { role, maturity, topics, worry, roleLevel } = parsed.data
+  const profileHash = buildProfileHash(role, maturity, topics, roleLevel)
   const supabase = createSupabaseAdminClient()
 
   // ── Cache hit ──────────────────────────────────────────────────────────────
@@ -75,6 +76,7 @@ export async function POST(request: NextRequest) {
     worry,
     topics,
     planTier:  'pro',
+    roleLevel,
   })
 
   const visibleSessions = output.arcs.flatMap((a) =>

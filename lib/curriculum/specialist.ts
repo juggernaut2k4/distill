@@ -15,6 +15,7 @@ RULES:
 7. Arc sequence MUST be: foundation → interest → context → deploy → govern. Never reorder.
 8. estimated_minutes: 20-30 per session (25 is typical)
 9. Tier 4: suggest 3-4 follow-on topics that unlock after the main curriculum
+10. Seniority framing: when role_level is 'vp-dir', sessions must be framed for a function leader, not a C-Suite executive. The justification must reference managing upward to C-Suite and enabling their team — not board accountability or P&L ownership. When role_level is 'c-suite', use board and strategy framing. When role_level is 'manager', use team implementation framing.
 
 Return ONLY valid JSON matching this schema exactly:
 {
@@ -132,6 +133,7 @@ function buildUserMessage(spec: CurriculumSpec, validationErrors?: string[]): st
 
   return `Generate a curriculum for:
 Role: ${spec.role}
+Role Level: ${spec.roleLevel}
 Industry: ${spec.industry}
 Maturity: ${spec.maturity}
 Interest: ${spec.interest}

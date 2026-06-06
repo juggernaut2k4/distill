@@ -200,6 +200,7 @@ export function buildSpec(profile: UserProfile): CurriculumSpec {
     role: profile.role,
     industry: profile.industry,
     maturity: profile.maturity,
+    roleLevel: profile.roleLevel,
     interest,
     isNamedProduct: isNamed,
     productName,

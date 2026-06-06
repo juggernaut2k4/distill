@@ -17,7 +17,7 @@ export async function POST() {
 
   const { data: user, error: dbError } = await supabase
     .from('users')
-    .select('id, role, industry, ai_maturity, topic_interests, plan_tier, worry_tags')
+    .select('id, role, industry, ai_maturity, role_level, topic_interests, plan_tier, worry_tags')
     .eq('id', userId!)
     .single()
 
@@ -34,9 +34,10 @@ export async function POST() {
   const role = user.role ?? 'executive'
   const industry = user.industry ?? 'general'
   const maturity = user.ai_maturity ?? 'intermediate'
+  const roleLevel = user.role_level ?? 'c-suite'
   const worry = Array.isArray(user.worry_tags) ? user.worry_tags.join(', ') : ''
   const planTier = user.plan_tier ?? null
-  const profileHash = buildProfileHash(role, maturity, topics)
+  const profileHash = buildProfileHash(role, maturity, topics, roleLevel)
 
   // Return existing plan if profile has not changed AND it is not a fallback plan
   const { data: existing } = await supabase
@@ -86,6 +87,7 @@ export async function POST() {
     worry,
     topics,
     planTier,
+    roleLevel,
   })
 
   const visibleSessions = output.arcs.flatMap((a) =>

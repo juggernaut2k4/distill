@@ -127,7 +127,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
       .single(),
     supabase
       .from('users')
-      .select('role, industry, ai_maturity')
+      .select('role, industry, ai_maturity, role_level')
       .eq('id', userId!)
       .single(),
   ])
@@ -153,6 +153,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
     role: userRow?.role ?? 'executive',
     industry: userRow?.industry ?? 'business',
     maturity: userRow?.ai_maturity ?? 'beginner',
+    roleLevel: (userRow?.role_level as string | null) ?? 'c-suite',
   }
 
   // Mark generating immediately so GET can show progress
