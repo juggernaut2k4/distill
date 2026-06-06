@@ -8,12 +8,12 @@ const PatchBodySchema = z.object({
 })
 
 /**
- * PATCH /api/sessions/[sessionId]/meeting-url
+ * PATCH /api/sessions/[id]/meeting-url
  * Updates the meeting_url for a session owned by the authenticated user.
  */
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { sessionId: string } }
+  { params }: { params: { id: string } }
 ) {
   const user = await currentUser()
   if (!user) {
@@ -34,7 +34,7 @@ export async function PATCH(
   const { data, error } = await supabase
     .from('sessions')
     .update({ meeting_url: parsed.data.meetingUrl })
-    .eq('id', params.sessionId)
+    .eq('id', params.id)
     .eq('user_id', user.id)
     .select('id')
 
