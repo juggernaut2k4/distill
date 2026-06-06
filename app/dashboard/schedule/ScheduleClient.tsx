@@ -670,8 +670,17 @@ export default function ScheduleClient({ user, existingSessions, subscribedSucce
         <div className="flex items-center gap-4 flex-wrap">
           {hasPaidPlan ? (
             <Button onClick={handleConfirm} disabled={saving} size="lg" className="gap-2">
-              {saving ? 'Scheduling...' : 'Confirm Schedule'}
-              {!saving && <ArrowRight size={18} />}
+              {saving ? (
+                <>
+                  <Loader size={16} className="animate-spin" />
+                  Scheduling...
+                </>
+              ) : (
+                <>
+                  Confirm Schedule
+                  <ArrowRight size={18} />
+                </>
+              )}
             </Button>
           ) : (
             <Button onClick={() => setShowPlans(true)} size="lg" className="gap-2">
