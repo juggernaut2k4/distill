@@ -614,9 +614,10 @@ function OnboardingContent() {
           await new Promise((resolve) => setTimeout(resolve, 1000))
           return submitOnboarding(finalGoal, snapshot, retryCount + 1, authToken)
         }
-        // After retries exhausted on 401, session is likely dead — direct to sign-in
+        // After retries exhausted on 401 — user needs to sign up / sign in first
         if (res.status === 401) {
-          router.replace('/sign-in?redirect_url=/onboarding')
+          setBuilding(false)
+          setSubmitError('__needs_auth__')
           return
         }
         console.error('[onboarding] API error:', data)
@@ -629,6 +630,27 @@ function OnboardingContent() {
       setBuilding(false)
       setSubmitError("Something went wrong. We couldn't save your profile. Please try again — your answers are still here.")
     }
+  }
+
+  if (submitError === '__needs_auth__') {
+    return (
+      <div className="min-h-screen bg-[#080808] flex flex-col items-center justify-center px-6">
+        <div className="max-w-sm w-full text-center space-y-5">
+          <div className="w-16 h-16 rounded-full bg-[#7C3AED]/20 border border-[#7C3AED]/40 flex items-center justify-center mx-auto">
+            <span className="text-2xl font-extrabold text-white">C</span>
+          </div>
+          <h2 className="text-2xl font-bold text-white">Your plan is ready.</h2>
+          <p className="text-[#94A3B8] text-sm">Create your account to save your personalised AI learning plan and start your 3-day free trial.</p>
+          <a
+            href="/sign-up?redirect_url=/onboarding"
+            className="flex items-center justify-center w-full h-12 rounded-xl bg-[#7C3AED] hover:bg-[#6D28D9] text-white font-semibold text-sm transition-colors"
+          >
+            Create account — it&apos;s free
+          </a>
+          <p className="text-[#475569] text-xs">Already have an account? <a href="/sign-in?redirect_url=/onboarding" className="text-[#7C3AED] hover:text-[#A855F7]">Sign in</a></p>
+        </div>
+      </div>
+    )
   }
 
   if (submitError) {
@@ -652,14 +674,6 @@ function OnboardingContent() {
   }
 
   if (building) return <BuildingScreen />
-
-  // If Clerk has loaded and there's no valid session, the user's cookies are stale
-  // or tied to a deleted account. Redirect to sign-in rather than letting them
-  // complete all 6 steps and fail at the API call.
-  if (clerkLoaded && !isSignedIn) {
-    router.replace('/sign-in?redirect_url=/onboarding')
-    return <div className="min-h-screen bg-[#080808]" />
-  }
 
   return (
     <div className="min-h-screen bg-[#080808] flex flex-col">
