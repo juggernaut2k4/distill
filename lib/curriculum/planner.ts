@@ -2,6 +2,8 @@ import Anthropic from '@anthropic-ai/sdk'
 import { z } from 'zod'
 import { createHash } from 'crypto'
 import { buildCurriculum } from '@/lib/content/curriculum'
+import { enrichCurriculumPlan, applyEnrichmentVisibility } from './enrichment'
+import type { EnrichedPlan } from './types'
 
 // ─── Zod schemas ─────────────────────────────────────────────────────────────
 
@@ -378,6 +380,8 @@ export interface PlannerResult {
   output: CurriculumOutput
   isFallback: boolean
   rawLlmOutput: object
+  /** FB-007: 3-layer narrative enrichment. null when API key missing or enrichment fails. */
+  enrichedPlan: EnrichedPlan | null
 }
 
 export async function generateCurriculumPlan(input: PlannerInput): Promise<PlannerResult> {
@@ -389,7 +393,7 @@ export async function generateCurriculumPlan(input: PlannerInput): Promise<Plann
   if (!apiKey || apiKey.startsWith('PLACEHOLDER_')) {
     console.error('[planner] ANTHROPIC_API_KEY not set — returning fallback plan')
     const fallback = buildFallbackPlan(topics, maturity, profileHash)
-    return { output: fallback, isFallback: true, rawLlmOutput: { fallback: true, reason: 'ANTHROPIC_API_KEY not set' } }
+    return { output: fallback, isFallback: true, rawLlmOutput: { fallback: true, reason: 'ANTHROPIC_API_KEY not set' }, enrichedPlan: null }
   }
 
   const systemPrompt = buildSystemPrompt(role, industry, maturity, worry, topics, visibleLimit, queueLimit, roleLevel)
@@ -445,7 +449,24 @@ export async function generateCurriculumPlan(input: PlannerInput): Promise<Plann
         })),
       }
       const final = { ...withDuration, total_visible: finalVisible, total_queued: finalQueued, user_profile_hash: profileHash }
-      return { output: final, isFallback: false, rawLlmOutput: parsed }
+
+      // ── FB-007: 3-layer narrative enrichment (2-call pipeline) ─────────────
+      // Run after plan is successfully generated. Failure falls back gracefully.
+      let enrichedPlan: EnrichedPlan | null = null
+      try {
+        enrichedPlan = await enrichCurriculumPlan({
+          role,
+          roleLevel,
+          industry,
+          maturity,
+          arcs: withDuration.arcs,
+        })
+      } catch (enrichErr) {
+        console.error('[planner] 3-layer enrichment threw unexpectedly — using unenriched plan:', enrichErr)
+        enrichedPlan = null
+      }
+
+      return { output: final, isFallback: false, rawLlmOutput: parsed, enrichedPlan }
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err))
       console.error(`[planner] LLM attempt ${attempt}/3 failed:`, lastError.message)
@@ -455,7 +476,7 @@ export async function generateCurriculumPlan(input: PlannerInput): Promise<Plann
 
   console.error('[curriculum/planner] LLM failed after 3 attempts:', lastError?.message)
   const fallback = buildFallbackPlan(topics, maturity, profileHash)
-  return { output: fallback, isFallback: true, rawLlmOutput: { fallback: true, reason: lastError?.message ?? 'LLM error' } }
+  return { output: fallback, isFallback: true, rawLlmOutput: { fallback: true, reason: lastError?.message ?? 'LLM error' }, enrichedPlan: null }
 }
 
 // ─── Queue regeneration ────────────────────────────────────────────────────────

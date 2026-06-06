@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/clerk'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { generateCurriculumPlan, buildProfileHash } from '@/lib/curriculum/planner'
+import { applyEnrichmentVisibility } from '@/lib/curriculum/enrichment'
 
 /**
  * POST /api/curriculum/generate
@@ -79,7 +80,7 @@ export async function POST() {
       .eq('id', userId!)
   }
 
-  const { output, isFallback, rawLlmOutput } = await generateCurriculumPlan({
+  const { output, isFallback, rawLlmOutput, enrichedPlan } = await generateCurriculumPlan({
     userId: userId!,
     role,
     industry,
@@ -90,18 +91,37 @@ export async function POST() {
     roleLevel,
   })
 
-  const visibleSessions = output.arcs.flatMap((a) =>
-    a.sessions.filter((s) => s.is_visible).map((s) => ({ ...s, arc_name: a.arc_name, arc_type: a.arc_type }))
-  )
-  const queueSessions = output.arcs.flatMap((a) =>
-    a.sessions.filter((s) => !s.is_visible).map((s) => ({ ...s, arc_name: a.arc_name, arc_type: a.arc_type }))
-  )
+  // FB-007: when enrichment succeeded, apply layer-based visibility rules
+  // (L1 skip for advanced/expert; quality threshold < 5.5 → queue).
+  // When enrichment failed (null), fall back to the base plan's is_visible flags unchanged.
+  let visibleSessions: object[]
+  let queueSessions: object[]
+
+  if (enrichedPlan && !isFallback) {
+    const { visible, queued } = applyEnrichmentVisibility(enrichedPlan)
+    visibleSessions = visible
+    queueSessions = queued
+  } else {
+    visibleSessions = output.arcs.flatMap((a) =>
+      a.sessions.filter((s) => s.is_visible).map((s) => ({ ...s, arc_name: a.arc_name, arc_type: a.arc_type }))
+    )
+    queueSessions = output.arcs.flatMap((a) =>
+      a.sessions.filter((s) => !s.is_visible).map((s) => ({ ...s, arc_name: a.arc_name, arc_type: a.arc_type }))
+    )
+  }
+
+  // Store enriched_plan inside raw_llm_output JSONB — no new DB column needed.
+  const rawLlmOutputWithEnrichment = {
+    ...rawLlmOutput,
+    is_fallback: isFallback,
+    ...(enrichedPlan ? { enriched_plan: enrichedPlan } : {}),
+  }
 
   const { data: newPlan, error: insertError } = await supabase
     .from('curriculum_plans')
     .insert({
       user_id: userId!,
-      raw_llm_output: { ...rawLlmOutput, is_fallback: isFallback },
+      raw_llm_output: rawLlmOutputWithEnrichment,
       visible_sessions: visibleSessions,
       queue_sessions: queueSessions,
       user_profile_hash: profileHash,
@@ -119,8 +139,9 @@ export async function POST() {
     visible_sessions: visibleSessions,
     is_approved: false,
     arc_count: output.arcs.length,
-    total_visible: output.total_visible,
+    total_visible: visibleSessions.length,
     is_fallback: isFallback,
+    enriched: enrichedPlan !== null,
     cached: false,
   })
 }
