@@ -78,7 +78,10 @@ export function scheduleSessions(
     scheduled.push({
       sessionIndex: i + 1,
       title: session.title,
-      topicId: primaryTopic?.id ?? '',
+      // Use catalog topic ID if present; otherwise derive a stable slug from the
+      // session title so content is never stored under the 'ai-fundamentals' fallback.
+      topicId: primaryTopic?.id ||
+        session.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/, '').slice(0, 60),
       topics: session.topics.map((t) => t.title),
       subtopics: primaryTopic?.subtopics ?? [],
       scheduledAt: sessionDate.toISOString(),
