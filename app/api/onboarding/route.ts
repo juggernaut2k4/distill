@@ -15,7 +15,7 @@ const OnboardingSchema = z.object({
   timezone: z.string().default('America/New_York'),
   email: z.string().email().optional(),
   phone: z.string().optional(),
-  plan: z.enum(['free', 'starter', 'pro', 'executive']).default('free'),
+  plan: z.enum(['starter', 'pro', 'executive']).default('starter'),
   // Multi-domain fields
   domains: z.array(z.string()).default([]),
   customDomains: z.array(z.string()).default([]),
@@ -74,7 +74,6 @@ export async function POST(request: NextRequest) {
     let twilioNumber: string | null = null
     if (
       data.deliveryPreference !== 'email' &&
-      data.plan !== 'free' &&
       userId
     ) {
       twilioNumber = assignPhoneNumber(userId ?? 'anon', data.plan)

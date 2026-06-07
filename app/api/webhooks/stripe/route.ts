@@ -122,7 +122,7 @@ export async function POST(request: NextRequest) {
         await supabase
           .from('users')
           .update({
-            plan_tier: 'free',
+            plan_tier: 'starter',
             subscription_status: 'inactive',
             delivery_paused: true,
           })

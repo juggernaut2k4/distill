@@ -83,10 +83,9 @@ export function buildProfileHash(role: string, maturity: string, topics: string[
 
 function getTierLimits(planTier: string | null): { visible: number; queue: number } {
   switch (planTier) {
-    case 'starter': return { visible: 5, queue: 10 }
     case 'pro':
     case 'executive': return { visible: 10, queue: 50 }
-    default: return { visible: 3, queue: 0 } // free / trial
+    default: return { visible: 5, queue: 10 } // starter (no free tier)
   }
 }
 

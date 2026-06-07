@@ -14,7 +14,7 @@ const TIER_VISIBLE_LIMIT: Record<string, number> = {
   pro:       10,
   executive: 10,
 }
-const DEFAULT_VISIBLE_LIMIT = 3  // free / trial
+const DEFAULT_VISIBLE_LIMIT = 5  // starter (no free tier)
 
 /**
  * POST /api/curriculum/save-preview
@@ -116,7 +116,7 @@ export async function POST(request: NextRequest) {
   }
 
   // ── Enforce tier limits when copying from template ─────────────────────────
-  const planTier = (user?.plan_tier as string | null) ?? 'free'
+  const planTier = (user?.plan_tier as string | null) ?? 'starter'
   const visibleLimit = TIER_VISIBLE_LIMIT[planTier] ?? DEFAULT_VISIBLE_LIMIT
 
   const allVisible = Array.isArray(template.visible_sessions) ? template.visible_sessions : []
