@@ -1,4 +1,11 @@
 export type ArcPosition = 'foundation' | 'interest' | 'context' | 'deploy' | 'govern'
+
+// ─── Shared type for raw_llm_output stored in curriculum_plans ────────────────
+// Use this type in both planner.ts (writer) and generate/route.ts (reader)
+// so property names can never drift between the two files.
+export type RawLlmOutput =
+  | { fallback: true; reason: string }
+  | Record<string, unknown>
 export type Maturity = 'beginner' | 'intermediate' | 'advanced' | 'expert'
 
 // ─── FB-007: 3-layer narrative enrichment types ───────────────────────────────

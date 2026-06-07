@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import Anthropic from '@anthropic-ai/sdk'
 
+export const maxDuration = 45
+
 // ─── Request schema ────────────────────────────────────────────────────────────
 
 const RecommendationsSchema = z.object({

@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { createHash } from 'crypto'
 import { buildCurriculum } from '@/lib/content/curriculum'
 import { enrichCurriculumPlan, applyEnrichmentVisibility } from './enrichment'
-import type { EnrichedPlan } from './types'
+import type { EnrichedPlan, RawLlmOutput } from './types'
 
 // ─── Zod schemas ─────────────────────────────────────────────────────────────
 
@@ -379,7 +379,7 @@ export interface PlannerInput {
 export interface PlannerResult {
   output: CurriculumOutput
   isFallback: boolean
-  rawLlmOutput: object
+  rawLlmOutput: RawLlmOutput
   /** FB-007: 3-layer narrative enrichment. null when API key missing or enrichment fails. */
   enrichedPlan: EnrichedPlan | null
 }

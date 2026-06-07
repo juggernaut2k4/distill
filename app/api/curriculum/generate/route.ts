@@ -3,6 +3,7 @@ import { requireAuth } from '@/lib/clerk'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { generateCurriculumPlan, buildProfileHash } from '@/lib/curriculum/planner'
 import { applyEnrichmentVisibility } from '@/lib/curriculum/enrichment'
+import type { RawLlmOutput } from '@/lib/curriculum/types'
 
 /**
  * POST /api/curriculum/generate
@@ -49,8 +50,7 @@ export async function POST() {
     .single()
 
   const existingIsFallback = existing?.raw_llm_output
-    ? (existing.raw_llm_output as { fallback?: boolean; is_fallback?: boolean }).fallback === true ||
-      (existing.raw_llm_output as { fallback?: boolean; is_fallback?: boolean }).is_fallback === true
+    ? (existing.raw_llm_output as RawLlmOutput).fallback === true
     : false
   const apiKeyAvailable = (process.env.ANTHROPIC_API_KEY ?? '').length > 0 &&
     !(process.env.ANTHROPIC_API_KEY ?? '').startsWith('PLACEHOLDER_')

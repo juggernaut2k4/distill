@@ -5,6 +5,8 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
 import { ALL_DOMAINS } from '@/lib/learning/taxonomy'
 import Anthropic from '@anthropic-ai/sdk'
 
+export const maxDuration = 45
+
 const Body = z.object({
   title: z.string().min(3).max(200),
   role: z.string().optional(),
