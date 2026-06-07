@@ -1,5 +1,5 @@
-import { NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/clerk'
+import { NextRequest, NextResponse } from 'next/server'
+import { requireSessionAuth } from '@/lib/session-auth'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { sendPlanReadyEmail, sendPlanApprovedEmail, type User } from '@/lib/delivery/email'
 import { sendSMS } from '@/lib/delivery/sms'
@@ -21,8 +21,8 @@ interface VisibleSession extends CurriculumTopicInput {
  * Activates a curriculum plan. If sessions haven't been pre-designed by Inngest,
  * designs them synchronously here so approve always succeeds on first attempt.
  */
-export async function POST() {
-  const { userId, error } = requireAuth()
+export async function POST(request: NextRequest) {
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   const supabase = createSupabaseAdminClient()
@@ -186,8 +186,8 @@ export async function POST() {
  * PUT /api/plan/approve
  * Called after topic selection — notifies user their plan is ready.
  */
-export async function PUT() {
-  const { userId, error } = requireAuth()
+export async function PUT(request: NextRequest) {
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   const supabase = createSupabaseAdminClient()
