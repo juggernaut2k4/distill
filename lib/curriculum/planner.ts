@@ -160,7 +160,7 @@ USER PROFILE:
 ${roleLevelInstruction[roleLevel] ?? ''}
 
 CURRICULUM REQUIREMENTS:
-- Visible plan sessions: exactly up to ${visibleLimit} sessions (at least 1 per selected topic)
+- Visible plan sessions: up to ${visibleLimit} sessions total. IMPORTANT: each selected topic MUST have a minimum of 3 sessions covering (1) foundation, (2) core concept/mechanism, (3) practical application for their role. Additional sessions (advanced, synthesis, cross-topic) are encouraged up to the visible limit. Never generate fewer than 3 sessions for any selected topic.
 - Shadow queue sessions: generate as many as genuinely add value — do not fill slots for the sake of it, but do not artificially limit yourself either. The cap is ${queueLimit}${queueLimit === 0 ? ' (this tier has no queue — skip queue sessions entirely)' : ', but quality determines count, not the cap. A queue of 8 deeply relevant sessions is better than 40 generic ones.'}
 - Total arcs: 1 to 10
 
@@ -321,42 +321,130 @@ Return ONLY valid JSON matching this TypeScript type. No explanation, no markdow
 
 // ─── Build fallback plan from existing engine ─────────────────────────────────
 
-function buildFallbackPlan(topics: string[], maturity: string, profileHash: string): CurriculumOutput {
-  const simplePlan = buildCurriculum(topics, maturity)
-  const sessions: Session[] = simplePlan.sessions.flatMap((s, sIdx) =>
-    s.topics.map((l, lIdx) => {
-      const subtopics: string[] = l.subtopics && l.subtopics.length > 0
-        ? l.subtopics
-        : [
-            `Core concepts of ${l.title}`,
-            `Why ${l.title} matters for executives`,
-            `How leading organisations apply ${l.title}`,
-            `Your immediate action steps for ${l.title}`,
-          ]
-      return {
-        session_id: `fallback-session-${sIdx}-${lIdx}`,
-        title: l.title,
-        focus: subtopics[0] ?? `Learn about ${l.title}`,
-        arc_position: lIdx + 1,
-        arc_length: s.topics.length,
-        depth_level: l.difficulty,
-        role_hint: 'Frame for a senior executive with limited technical background.',
-        subtopics,
-        estimated_minutes: Math.ceil(subtopics.length / 4) * 15,
-        is_visible: true,
-        queue_rationale: null,
+function buildFallbackPlan(
+  topics: string[],
+  maturity: string,
+  profileHash: string,
+  planTier: string | null,
+): CurriculumOutput {
+  const { visible: visibleLimit, queue: queueLimit } = getTierLimits(planTier)
+  const normMaturity = normaliseMaturity(maturity)
+
+  // 1. Build 4 sessions per topic using a deterministic template
+  const sessionsByTopic: Session[][] = topics.map((topic, topicIndex) => {
+    const advancedDepth: 'intermediate' | 'advanced' =
+      normMaturity === 'beginner' ? 'intermediate' : 'advanced'
+
+    const templates: Array<{
+      title: string
+      subtopics: string[]
+      depth_level: 'beginner' | 'intermediate' | 'advanced'
+    }> = [
+      {
+        title: `${topic}: Why It Matters`,
+        subtopics: [
+          'What this topic means for your role',
+          'Why this is on every executive agenda now',
+          'The business risk of ignoring it',
+          'One question to ask in your next AI meeting',
+        ],
+        depth_level: 'beginner',
+      },
+      {
+        title: `${topic}: Core Concepts`,
+        subtopics: [
+          'The fundamental mechanism',
+          "How it differs from what you've heard",
+          'A concrete analogy for non-technical leaders',
+          'What practitioners actually do with it',
+        ],
+        depth_level: 'beginner',
+      },
+      {
+        title: `${topic}: Applying It in Your Role`,
+        subtopics: [
+          'How your peers are already using this',
+          'The decision you can make differently now',
+          'What to ask your team',
+          'How to evaluate vendors on this capability',
+        ],
+        depth_level: 'intermediate',
+      },
+      {
+        title: `${topic}: Advanced Decisions`,
+        subtopics: [
+          'The tradeoffs most leaders miss',
+          'What separates good from great in this area',
+          'Your 90-day action step',
+          'How to measure progress',
+        ],
+        depth_level: advancedDepth,
+      },
+    ]
+
+    return templates.map((tmpl, sessionIndex) => ({
+      session_id: `fallback-t${topicIndex}-s${sessionIndex}`,
+      title: tmpl.title,
+      focus: tmpl.title,
+      arc_position: sessionIndex + 1,
+      arc_length: 4,
+      depth_level: tmpl.depth_level,
+      role_hint: 'Frame for a senior executive with practical AI interest.',
+      subtopics: tmpl.subtopics,
+      estimated_minutes: 15,
+      // is_visible and queue_rationale assigned after interleaving
+      is_visible: true,
+      queue_rationale: null,
+    }))
+  })
+
+  // 2. Interleave across topics: position 0..3, then each topic at that position
+  const interleaved: Array<{ topicIndex: number; session: Session }> = []
+  for (let pos = 0; pos < 4; pos++) {
+    for (let t = 0; t < topics.length; t++) {
+      const s = sessionsByTopic[t][pos]
+      if (s !== undefined) {
+        interleaved.push({ topicIndex: t, session: s })
       }
-    })
-  )
+    }
+  }
+
+  // 3. Apply tier limits
+  const totalAllowed = visibleLimit + queueLimit
+  const trimmed = interleaved.slice(0, totalAllowed)
+
+  const withVisibility = trimmed.map((item, idx): typeof item => ({
+    topicIndex: item.topicIndex,
+    session: {
+      ...item.session,
+      is_visible: idx < visibleLimit,
+      queue_rationale: idx < visibleLimit
+        ? null
+        : 'Available after completing earlier sessions in your plan.',
+    },
+  }))
+
+  // 4. Group back into one arc per topic
+  const arcs: Array<z.infer<typeof ArcSchema>> = topics.map((topic, topicIndex) => {
+    const topicSessions = withVisibility
+      .filter((item) => item.topicIndex === topicIndex)
+      .map((item) => item.session)
+    return {
+      arc_name: topic,
+      arc_type: 'singleton' as const,
+      sessions: topicSessions,
+    }
+  }).filter((arc) => arc.sessions.length > 0)
+
+  // 5. Compute totals
+  const allSessions = withVisibility.map((item) => item.session)
+  const totalVisible = allSessions.filter((s) => s.is_visible).length
+  const totalQueued = allSessions.filter((s) => !s.is_visible).length
 
   return {
-    arcs: [{
-      arc_name: 'Your Learning Path',
-      arc_type: 'singleton',
-      sessions,
-    }],
-    total_visible: sessions.length,
-    total_queued: 0,
+    arcs,
+    total_visible: totalVisible,
+    total_queued: totalQueued,
     generated_at: new Date().toISOString(),
     user_profile_hash: profileHash,
   }
@@ -391,7 +479,7 @@ export async function generateCurriculumPlan(input: PlannerInput): Promise<Plann
   const apiKey = process.env.ANTHROPIC_API_KEY ?? ''
   if (!apiKey || apiKey.startsWith('PLACEHOLDER_')) {
     console.error('[planner] ANTHROPIC_API_KEY not set — returning fallback plan')
-    const fallback = buildFallbackPlan(topics, maturity, profileHash)
+    const fallback = buildFallbackPlan(topics, maturity, profileHash, planTier)
     return { output: fallback, isFallback: true, rawLlmOutput: { fallback: true, reason: 'ANTHROPIC_API_KEY not set' }, enrichedPlan: null }
   }
 
@@ -475,7 +563,7 @@ export async function generateCurriculumPlan(input: PlannerInput): Promise<Plann
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err)
     console.error('[curriculum/planner] LLM plan generation failed — using fallback:', errMsg)
-    const fallback = buildFallbackPlan(topics, maturity, profileHash)
+    const fallback = buildFallbackPlan(topics, maturity, profileHash, planTier)
     return { output: fallback, isFallback: true, rawLlmOutput: { fallback: true, reason: errMsg }, enrichedPlan: null }
   } finally {
     clearTimeout(callTimeout)
