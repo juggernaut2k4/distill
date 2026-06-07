@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
 
   const { data: plan } = await supabase
     .from('curriculum_plans')
-    .select('id, visible_sessions, queue_sessions, dismissed_recs, is_approved, approved_at, user_profile_hash, generated_at')
+    .select('id, visible_sessions, queue_sessions, dismissed_recs, is_approved, approved_at, user_profile_hash, generated_at, raw_llm_output')
     .eq('user_id', userId!)
     .is('superseded_at', null)
     .single()
@@ -37,6 +37,7 @@ export async function GET(request: NextRequest) {
   // Check if a generation job is in progress: visible_sessions is empty but plan was just created
   const visibleSessions = Array.isArray(plan.visible_sessions) ? plan.visible_sessions : []
   const isGenerating = checkGenerating && visibleSessions.length === 0
+  const isFallback = !!(plan.raw_llm_output && (plan.raw_llm_output as { fallback?: boolean }).fallback === true)
 
   // Build recommendation list: first session of each arc in queue, not dismissed
   const dismissedRecs: string[] = Array.isArray(plan.dismissed_recs) ? plan.dismissed_recs : []
@@ -56,6 +57,7 @@ export async function GET(request: NextRequest) {
       is_approved: plan.is_approved,
       approved_at: plan.approved_at,
       generated_at: plan.generated_at,
+      is_fallback: isFallback,
     },
     completions: completedIds,
     recommendations,
