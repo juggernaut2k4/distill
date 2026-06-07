@@ -317,6 +317,47 @@ export default function TopicsPage() {
     fetchRecommendations()
   }, [])
 
+  // Pre-select existing topic_interests from the API once recommendations are loaded.
+  // This ensures users see their previous choices when they return to the topics page.
+  useEffect(() => {
+    if (pageState !== 'loaded' || sections.length === 0 || !isSignedIn) return
+
+    async function preSelectExisting() {
+      try {
+        const res = await fetch('/api/topics')
+        if (!res.ok) return
+        const data = await res.json() as { topics: string[] }
+        if (!data.topics?.length) return
+
+        // Build title→id map from all recommendation sections
+        const titleToId = new Map<string, string>()
+        sections.flatMap((s) => s.topics).forEach((t) => {
+          titleToId.set(t.title.toLowerCase(), t.id)
+        })
+
+        const idsToSelect = new Set<string>()
+        const customToAdd: RecommendedTopic[] = []
+
+        for (const title of data.topics) {
+          const id = titleToId.get(title.toLowerCase())
+          if (id) {
+            idsToSelect.add(id)
+          } else {
+            // Previously selected topic not in current recommendations — restore as custom
+            const customId = `custom-preselect-${title.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`
+            customToAdd.push({ id: customId, title, description: '', isCustom: true })
+            idsToSelect.add(customId)
+          }
+        }
+
+        if (idsToSelect.size > 0) setSelectedIds(idsToSelect)
+        if (customToAdd.length > 0) setCustomTopics((prev) => [...customToAdd, ...prev])
+      } catch { /* non-fatal */ }
+    }
+
+    preSelectExisting()
+  }, [pageState, sections, isSignedIn])
+
   const selectedCount = selectedIds.size
   const canContinue = selectedCount >= 1
 

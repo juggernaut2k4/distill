@@ -18,6 +18,7 @@ import { curriculumQueueCron } from '@/inngest/curriculum-queue-cron'
 import { curriculumGenerator } from '@/inngest/curriculum-generator'
 import { sessionDesignerAuto } from '@/inngest/session-designer-auto'
 import { sessionQualityEvaluator } from '@/inngest/session-quality-evaluator'
+import { sessionContentAsync } from '@/inngest/session-content-async'
 
 /**
  * POST /api/inngest
@@ -26,5 +27,5 @@ import { sessionQualityEvaluator } from '@/inngest/session-quality-evaluator'
  */
 export const { GET, POST, PUT } = serve({
   client: inngest,
-  functions: [dailyDelivery, weeklyDigest, feedbackProcessor, sessionReminder, sessionMeetingSetup, sessionPlanGenerator, sessionAgendaEmail, trialExpiryJob, sessionContentPipeline, sessionContentCron, updateLearningProfile, catalogRefresh, curriculumQueueRegenerate, curriculumRecommendationAccepted, curriculumQueueCron, curriculumGenerator, sessionDesignerAuto, sessionQualityEvaluator],
+  functions: [dailyDelivery, weeklyDigest, feedbackProcessor, sessionReminder, sessionMeetingSetup, sessionPlanGenerator, sessionAgendaEmail, trialExpiryJob, sessionContentPipeline, sessionContentCron, updateLearningProfile, catalogRefresh, curriculumQueueRegenerate, curriculumRecommendationAccepted, curriculumQueueCron, curriculumGenerator, sessionDesignerAuto, sessionQualityEvaluator, sessionContentAsync],
 })

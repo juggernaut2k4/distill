@@ -105,7 +105,7 @@ function buildMockScript(outline: SubtopicOutline, sessionCtx?: { allSubtopics: 
  */
 export async function generateTrainingScript(
   outline: SubtopicOutline,
-  userContext: { role: string; industry: string; maturity: string },
+  userContext: { role: string; industry: string; maturity: string; roleLevel?: string; profileContext?: string },
   sessionCtx?: { allSubtopics: string[]; nextSessionTopic?: string }
 ): Promise<TrainingScript> {
   if (!anthropic) {
@@ -134,6 +134,12 @@ export async function generateTrainingScript(
    - 1 sentence teaser for the next session${nextTopic ? `: "${nextTopic}"` : ''} ("Next time, we'll...")
    Keep it warm, confident, and brief. No new information. Pure close.` : ''
 
+  // Inject the full learning profile if available — this is what makes scripts adaptive.
+  // When profile_confidence=low, the profile block is omitted and maturity-level calibration is used.
+  const profileBlock = userContext.profileContext
+    ? `\n${userContext.profileContext}\n`
+    : ''
+
   const prompt = `You are Clio — an AI executive coach scripting a 10-12 minute coaching segment.
 This is the CANONICAL version — it covers the topic at full depth. It will be condensed for shorter sessions.
 
@@ -141,7 +147,7 @@ EXECUTIVE PROFILE
 Role: ${userContext.role}
 Industry: ${userContext.industry}
 AI Maturity: ${userContext.maturity}
-Calibration: ${maturityNote}
+Calibration: ${maturityNote}${profileBlock}
 
 SUBTOPIC: ${outline.subtopic_title}
 POSITION: ${outline.position} (${isLastSubtopic ? 'last subtopic — include CLOSE segment' : 'not the last subtopic'})
@@ -220,7 +226,7 @@ Return ONLY valid JSON (no markdown, no commentary):
  */
 export async function generateAllTrainingScripts(
   outlines: SubtopicOutline[],
-  userContext: { role: string; industry: string; maturity: string },
+  userContext: { role: string; industry: string; maturity: string; roleLevel?: string; profileContext?: string },
   nextSessionTopic?: string
 ): Promise<TrainingScript[]> {
   const allSubtopics = outlines.map((o) => o.subtopic_title)

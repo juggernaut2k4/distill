@@ -7,15 +7,15 @@ import { assignPhoneNumber } from '@/lib/delivery/sms'
 
 const OnboardingSchema = z.object({
   role: z.string().min(1, 'Role is required'),
-  roleLevel: z.enum(['c-suite', 'vp-dir', 'manager', 'specialist']),
+  roleLevel: z.enum(['c-suite', 'vp-dir', 'manager', 'specialist']).default('c-suite'),
   industry: z.string().default(''),
-  aiMaturity: z.string().default('intermediate'),
+  aiMaturity: z.enum(['observer', 'evaluator', 'pilot', 'scaler', 'beginner', 'intermediate', 'advanced', 'expert', 'no experience', 'some experience', 'somewhat experience']).default('intermediate'),
   worry: z.string().default(''),
   deliveryPreference: z.enum(['email', 'sms', 'both']).default('email'),
   timezone: z.string().default('America/New_York'),
   email: z.string().email().optional(),
   phone: z.string().optional(),
-  plan: z.enum(['starter', 'pro', 'executive']).default('starter'),
+  plan: z.enum(['free', 'starter', 'pro', 'executive']).default('starter'),
   // Multi-domain fields
   domains: z.array(z.string()).default([]),
   customDomains: z.array(z.string()).default([]),
@@ -120,6 +120,34 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       )
     }
+
+    // Bootstrap user_learning_profiles row from onboarding signals.
+    // Sets the minimum viable profile before session 1 (profile_confidence = 'low').
+    // Infer business_focus_lens from the worry field; all other dims use defaults.
+    const inferredLens = (() => {
+      const w = data.worry.toLowerCase()
+      if (w.includes('cost') || w.includes('budget') || w.includes('saving')) return 'cost_reduction'
+      if (w.includes('risk') || w.includes('compliance') || w.includes('regulation')) return 'risk_compliance'
+      if (w.includes('team') || w.includes('staff') || w.includes('people')) return 'team_enablement'
+      if (w.includes('compet') || w.includes('market')) return 'competitive_edge'
+      if (w.includes('productiv') || w.includes('efficiency')) return 'productivity'
+      return 'capability_building'
+    })()
+
+    await supabase
+      .from('user_learning_profiles')
+      .upsert(
+        {
+          user_id: userId,
+          domains_active: data.domains,
+          per_domain_levels: data.domainProficiency,
+          overall_goal: data.learningGoal,
+          business_focus_lens: inferredLens,
+          profile_confidence: 'low',
+          sessions_used_for_profile: 0,
+        },
+        { onConflict: 'user_id', ignoreDuplicates: false }
+      )
 
     // Generate initial learning plan preview (stub if DB empty)
     let planPreview: string | null = null
