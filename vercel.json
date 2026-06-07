@@ -9,6 +9,9 @@
     },
     "app/api/ask/route.ts": {
       "maxDuration": 30
+    },
+    "app/api/curriculum/generate/route.ts": {
+      "maxDuration": 120
     }
   },
   "headers": [
