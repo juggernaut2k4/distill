@@ -1,5 +1,5 @@
-import { NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/clerk'
+import { NextRequest, NextResponse } from 'next/server'
+import { requireSessionAuth } from '@/lib/session-auth'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { generateCurriculumPlan, buildProfileHash } from '@/lib/curriculum/planner'
 import { applyEnrichmentVisibility } from '@/lib/curriculum/enrichment'
@@ -15,8 +15,8 @@ export const maxDuration = 300
  * If a non-superseded plan already exists for the current profile hash, returns it.
  * Otherwise generates a new plan and saves it.
  */
-export async function POST() {
-  const { userId, error } = requireAuth()
+export async function POST(request: NextRequest) {
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   const supabase = createSupabaseAdminClient()
