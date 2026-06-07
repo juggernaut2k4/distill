@@ -48,8 +48,8 @@ interface Params { params: { id: string } }
 
 // ─── GET — poll content pipeline status ───────────────────────────────────────
 
-export async function GET(_req: NextRequest, { params }: Params) {
-  const { userId, error } = requireAuth()
+export async function GET(req: NextRequest, { params }: Params) {
+  const { userId, error } = await requireSessionAuth(req)
   if (error) return error
 
   const supabase = createSupabaseAdminClient()
