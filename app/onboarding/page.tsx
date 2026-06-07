@@ -535,9 +535,9 @@ function OnboardingContent() {
     if (step === 2) return industry !== ''
     if (step === 3) return aiEngagement !== ''
     if (step === 4) return selectedDomains.length > 0 || customDomains.length > 0
-    // Step 5 (GoalStep) auto-advances on selection — no Continue button shown
+    if (step === 5) return learningGoal !== ''
     return false
-  }, [step, roleLevel, role, industry, aiEngagement, selectedDomains, customDomains])
+  }, [step, roleLevel, role, industry, aiEngagement, selectedDomains, customDomains, learningGoal])
 
   // ── Domain handlers ─────────────────────────────────────────────────────────
   function toggleDomain(id: string) {
@@ -552,40 +552,38 @@ function OnboardingContent() {
     setCustomDomains((prev) => prev.filter((x) => x !== label))
   }
 
-  // ── Auto-advance handler for step 5 goal selection ─────────────────────────
-  // Snapshot all state synchronously at click time to avoid stale closure issues.
-  // Waits for Clerk's isSignedIn before submitting — handles the brief window
-  // after OAuth sign-up where the session cookie exists but isSignedIn is still false.
+  // ── Goal selection — just records the choice, Continue button triggers submit ─
   function handleGoalSelect(value: LearningGoal) {
     setLearningGoal(value)
     if (goalTimerRef.current) clearTimeout(goalTimerRef.current)
-    const snapshot = { role, roleLevel, industry, aiEngagement, selectedDomains, customDomains }
-    goalTimerRef.current = setTimeout(async () => {
-      // Try Clerk SDK getToken() first, then fall back to reading the JWT cookie
-      // directly. The fallback handles Clerk dev instances where __client_uat=0
-      // prevents SDK session hydration but the raw JWT cookie is still valid.
-      let authToken: string | null = null
-      let waited = 0
-      while (!authToken && waited < 4000) {
-        try { authToken = await getToken() } catch { /* not ready yet */ }
-        if (!authToken) {
-          await new Promise((resolve) => setTimeout(resolve, 500))
-          waited += 500
-        }
-      }
-      // SDK fallback: read __clerk_db_jwt directly from document.cookie
-      if (!authToken && typeof document !== 'undefined') {
-        const m = document.cookie.match(/(?:^|;\s*)__clerk_db_jwt=([^;]+)/)
-        authToken = m ? m[1] : null
-      }
-      setBuilding(true)
-      submitOnboarding(value, snapshot, 0, authToken ?? undefined)
-    }, 400)
   }
 
   // ── Navigation ──────────────────────────────────────────────────────────────
   function handleNext() {
     if (!canProceed) return
+    // Last step: show spinner immediately, then fetch auth token and submit
+    if (step === TOTAL_STEPS - 1) {
+      setBuilding(true)
+      const snapshot = { role, roleLevel, industry, aiEngagement, selectedDomains, customDomains }
+      const goal = learningGoal as LearningGoal
+      ;(async () => {
+        let authToken: string | null = null
+        let waited = 0
+        while (!authToken && waited < 4000) {
+          try { authToken = await getToken() } catch { /* not ready yet */ }
+          if (!authToken) {
+            await new Promise((resolve) => setTimeout(resolve, 500))
+            waited += 500
+          }
+        }
+        if (!authToken && typeof document !== 'undefined') {
+          const m = document.cookie.match(/(?:^|;\s*)__clerk_db_jwt=([^;]+)/)
+          authToken = m ? m[1] : null
+        }
+        submitOnboarding(goal, snapshot, 0, authToken ?? undefined)
+      })()
+      return
+    }
     setDirection('right')
     setStep((s) => s + 1)
   }
@@ -780,7 +778,7 @@ function OnboardingContent() {
               />
             )}
 
-            {step === 5 && <GoalStep value={learningGoal} onChange={handleGoalSelect} />}
+            {step === 5 && <GoalStep value={learningGoal} onChange={(v) => setLearningGoal(v)} />}
           </motion.div>
         </AnimatePresence>
 
@@ -794,8 +792,7 @@ function OnboardingContent() {
               <ArrowLeft size={18} />
             </button>
           )}
-          {/* Step 5 (goal) auto-advances on selection — no Continue button needed */}
-          {step < TOTAL_STEPS - 1 && (
+          {step < TOTAL_STEPS && (
             <button
               onClick={handleNext}
               disabled={!canProceed}
