@@ -142,6 +142,7 @@ export default function ScheduleClient({ user, existingSessions, subscribedSucce
   const [preferredHour, setPreferredHour] = useState(9)
   const [preferredMinute, setPreferredMinute] = useState(0)
   const [saving, setSaving] = useState(false)
+  const [confirming, setConfirming] = useState(false)
   const [checkoutError, setCheckoutError] = useState<string | null>(null)
   const [showPlans, setShowPlans] = useState(false)
   const [selectedPlan, setSelectedPlan] = useState<PlanKey>('pro')
@@ -235,7 +236,9 @@ export default function ScheduleClient({ user, existingSessions, subscribedSucce
   }
 
   async function handleConfirm() {
+    setConfirming(true)
     await submitSessions(scheduledSessions)
+    setConfirming(false)
   }
 
   async function handleSubscribeAndSchedule() {
@@ -295,6 +298,17 @@ export default function ScheduleClient({ user, existingSessions, subscribedSucce
         <Loader size={32} className="text-[#7C3AED] animate-spin" />
         <p className="text-white font-semibold">Subscription confirmed — scheduling your sessions...</p>
         <p className="text-sm text-[#475569]">You&apos;ll be redirected to your sessions in a moment</p>
+      </div>
+    )
+  }
+
+  // Full-screen spinner shown immediately when user clicks Continue
+  if (confirming) {
+    return (
+      <div className="flex flex-col items-center justify-center py-32 text-center gap-4">
+        <Loader size={32} className="text-[#7C3AED] animate-spin" />
+        <p className="text-white font-semibold">Scheduling your sessions...</p>
+        <p className="text-sm text-[#475569]">Setting up your personalised learning plan</p>
       </div>
     )
   }
@@ -670,17 +684,8 @@ export default function ScheduleClient({ user, existingSessions, subscribedSucce
         <div className="flex items-center gap-4 flex-wrap">
           {hasPaidPlan ? (
             <Button onClick={handleConfirm} disabled={saving} size="lg" className="gap-2">
-              {saving ? (
-                <>
-                  <Loader size={16} className="animate-spin" />
-                  Scheduling...
-                </>
-              ) : (
-                <>
-                  Confirm Schedule
-                  <ArrowRight size={18} />
-                </>
-              )}
+              Continue
+              <ArrowRight size={18} />
             </Button>
           ) : (
             <Button onClick={() => setShowPlans(true)} size="lg" className="gap-2">
