@@ -9,7 +9,13 @@ const OnboardingSchema = z.object({
   role: z.string().min(1, 'Role is required'),
   roleLevel: z.enum(['c-suite', 'vp-dir', 'manager', 'specialist']).default('c-suite'),
   industry: z.string().default(''),
-  aiMaturity: z.enum(['observer', 'evaluator', 'pilot', 'scaler', 'beginner', 'intermediate', 'advanced', 'expert', 'no experience', 'some experience', 'somewhat experience']).default('intermediate'),
+  aiMaturity: z.enum([
+    // UI values (current onboarding page)
+    'observer', 'emerging', 'practitioner', 'leader',
+    // Legacy API values (kept for backwards compat)
+    'evaluator', 'pilot', 'scaler', 'beginner', 'intermediate', 'advanced', 'expert',
+    'no experience', 'some experience', 'somewhat experience',
+  ]).default('observer'),
   worry: z.string().default(''),
   deliveryPreference: z.enum(['email', 'sms', 'both']).default('email'),
   timezone: z.string().default('America/New_York'),
