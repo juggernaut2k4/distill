@@ -5,6 +5,9 @@ import { generateCurriculumPlan, buildProfileHash } from '@/lib/curriculum/plann
 import { applyEnrichmentVisibility } from '@/lib/curriculum/enrichment'
 import type { RawLlmOutput } from '@/lib/curriculum/types'
 
+// 3 LLM calls (plan + 2 enrichment) can take 35-90s — must exceed default Vercel limit
+export const maxDuration = 120
+
 /**
  * POST /api/curriculum/generate
  * Generates an LLM-powered curriculum plan for the authenticated user.
