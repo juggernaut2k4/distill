@@ -15,9 +15,9 @@ export const SessionSchema = z.object({
   arc_length: z.number().int().min(1),
   depth_level: z.enum(['beginner', 'intermediate', 'advanced']),
   role_hint: z.string().min(5).max(300),
-  subtopics: z.array(z.string().min(3).max(200)).min(1).max(20),
+  subtopics: z.array(z.string().min(3).max(500)).min(1).max(30),
   is_visible: z.boolean(),
-  queue_rationale: z.string().max(300).nullable(),
+  queue_rationale: z.string().max(500).nullable(),
 })
 
 export const ArcSchema = z.object({
@@ -399,84 +399,88 @@ export async function generateCurriculumPlan(input: PlannerInput): Promise<Plann
   const systemPrompt = buildSystemPrompt(role, industry, maturity, worry, topics, visibleLimit, queueLimit, roleLevel)
   const client = new Anthropic({ apiKey })
 
-  let lastError: Error | null = null
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      const message = await client.messages.create({
+  // Single attempt — retries triple the time budget and cause 504s when Zod
+  // validation fails (e.g. Claude generates >20 subtopics). Fail fast to fallback.
+  const controller = new AbortController()
+  const callTimeout = setTimeout(() => controller.abort(), 90_000)
+
+  try {
+    const message = await client.messages.create(
+      {
         model: 'claude-sonnet-4-6',
         max_tokens: 4096,
         system: systemPrompt,
         messages: [{ role: 'user', content: 'Generate the curriculum plan JSON for this user.' }],
-      })
+      },
+      { signal: controller.signal }
+    )
 
-      const rawText = message.content[0].type === 'text' ? message.content[0].text : ''
-      const trimmed = rawText.trim()
+    const rawText = message.content[0].type === 'text' ? message.content[0].text : ''
+    const trimmed = rawText.trim()
 
-      // Strip markdown code fences if present
-      const jsonText = trimmed.startsWith('```') ? trimmed.replace(/^```[a-z]*\n?/, '').replace(/\n?```$/, '') : trimmed
-      const parsed = JSON.parse(jsonText)
-      const validated = CurriculumOutputSchema.parse(parsed)
+    // Strip markdown code fences if present
+    const jsonText = trimmed.startsWith('```') ? trimmed.replace(/^```[a-z]*\n?/, '').replace(/\n?```$/, '') : trimmed
+    const parsed = JSON.parse(jsonText)
+    const validated = CurriculumOutputSchema.parse(parsed)
 
-      // Enforce tier limits: cap visible sessions
-      let visibleCount = 0
-      const capped = {
-        ...validated,
-        arcs: validated.arcs.map((arc) => ({
-          ...arc,
-          sessions: arc.sessions.map((s) => {
-            if (s.is_visible && visibleCount < visibleLimit) {
-              visibleCount++
-              return s
-            } else if (s.is_visible) {
-              return { ...s, is_visible: false, queue_rationale: s.queue_rationale ?? 'Deferred to queue due to plan tier limit.' }
-            }
+    // Enforce tier limits: cap visible sessions
+    let visibleCount = 0
+    const capped = {
+      ...validated,
+      arcs: validated.arcs.map((arc) => ({
+        ...arc,
+        sessions: arc.sessions.map((s) => {
+          if (s.is_visible && visibleCount < visibleLimit) {
+            visibleCount++
             return s
-          }),
-        })),
-      }
-      const finalVisible = capped.arcs.flatMap((a) => a.sessions).filter((s) => s.is_visible).length
-      const finalQueued = capped.arcs.flatMap((a) => a.sessions).filter((s) => !s.is_visible).length
-
-      // Compute estimated_minutes from subtopic count: ceil(n / 4) * 15
-      const withDuration = {
-        ...capped,
-        arcs: capped.arcs.map((arc) => ({
-          ...arc,
-          sessions: arc.sessions.map((s) => ({
-            ...s,
-            estimated_minutes: Math.ceil(s.subtopics.length / 4) * 15,
-          })),
-        })),
-      }
-      const final = { ...withDuration, total_visible: finalVisible, total_queued: finalQueued, user_profile_hash: profileHash }
-
-      // ── FB-007: 3-layer narrative enrichment (2-call pipeline) ─────────────
-      // Run after plan is successfully generated. Failure falls back gracefully.
-      let enrichedPlan: EnrichedPlan | null = null
-      try {
-        enrichedPlan = await enrichCurriculumPlan({
-          role,
-          roleLevel,
-          industry,
-          maturity,
-          arcs: withDuration.arcs,
-        })
-      } catch (enrichErr) {
-        console.error('[planner] 3-layer enrichment threw unexpectedly — using unenriched plan:', enrichErr)
-        enrichedPlan = null
-      }
-
-      return { output: final, isFallback: false, rawLlmOutput: parsed, enrichedPlan }
-    } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err))
-      console.error(`[planner] LLM attempt ${attempt}/3 failed:`, lastError.message)
-      if (attempt < 3) await new Promise((r) => setTimeout(r, attempt * 5000))
+          } else if (s.is_visible) {
+            return { ...s, is_visible: false, queue_rationale: s.queue_rationale ?? 'Deferred to queue due to plan tier limit.' }
+          }
+          return s
+        }),
+      })),
     }
-  }
+    const finalVisible = capped.arcs.flatMap((a) => a.sessions).filter((s) => s.is_visible).length
+    const finalQueued = capped.arcs.flatMap((a) => a.sessions).filter((s) => !s.is_visible).length
 
-  console.error('[curriculum/planner] LLM failed after 3 attempts:', lastError?.message)
-  const fallback = buildFallbackPlan(topics, maturity, profileHash)
-  return { output: fallback, isFallback: true, rawLlmOutput: { fallback: true, reason: lastError?.message ?? 'LLM error' }, enrichedPlan: null }
+    // Compute estimated_minutes from subtopic count: ceil(n / 4) * 15
+    const withDuration = {
+      ...capped,
+      arcs: capped.arcs.map((arc) => ({
+        ...arc,
+        sessions: arc.sessions.map((s) => ({
+          ...s,
+          estimated_minutes: Math.ceil(s.subtopics.length / 4) * 15,
+        })),
+      })),
+    }
+    const final = { ...withDuration, total_visible: finalVisible, total_queued: finalQueued, user_profile_hash: profileHash }
+
+    // ── FB-007: 3-layer narrative enrichment (2-call pipeline) ─────────────
+    // Run after plan is successfully generated. Failure falls back gracefully.
+    let enrichedPlan: EnrichedPlan | null = null
+    try {
+      enrichedPlan = await enrichCurriculumPlan({
+        role,
+        roleLevel,
+        industry,
+        maturity,
+        arcs: withDuration.arcs,
+      })
+    } catch (enrichErr) {
+      console.error('[planner] 3-layer enrichment threw unexpectedly — using unenriched plan:', enrichErr)
+      enrichedPlan = null
+    }
+
+    return { output: final, isFallback: false, rawLlmOutput: parsed, enrichedPlan }
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err)
+    console.error('[curriculum/planner] LLM plan generation failed — using fallback:', errMsg)
+    const fallback = buildFallbackPlan(topics, maturity, profileHash)
+    return { output: fallback, isFallback: true, rawLlmOutput: { fallback: true, reason: errMsg }, enrichedPlan: null }
+  } finally {
+    clearTimeout(callTimeout)
+  }
 }
 
 // ─── Queue regeneration ────────────────────────────────────────────────────────

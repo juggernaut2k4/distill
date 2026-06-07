@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { generateCurriculumPlan, buildProfileHash } from '@/lib/curriculum/planner'
 
-export const maxDuration = 120
+export const maxDuration = 300
 
 const BodySchema = z.object({
   role:      z.string().min(1).max(100),
