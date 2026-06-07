@@ -5,7 +5,7 @@ import { getPlanFromPriceId, createCheckoutSession, createPortalSession, constru
 beforeEach(() => {
   vi.stubEnv('STRIPE_SECRET_KEY', 'PLACEHOLDER_STRIPE_SECRET_KEY')
   vi.stubEnv('STRIPE_WEBHOOK_SECRET', 'PLACEHOLDER_STRIPE_WEBHOOK_SECRET')
-  vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://hello-clio.com')
+  vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://distill-peach.vercel.app')
   vi.stubEnv('STRIPE_STARTER_MONTHLY_PRICE_ID', 'price_starter_monthly')
   vi.stubEnv('STRIPE_STARTER_ANNUAL_PRICE_ID', 'price_starter_annual')
   vi.stubEnv('STRIPE_PRO_MONTHLY_PRICE_ID', 'price_pro_monthly')

@@ -39,12 +39,12 @@ export async function createCheckoutSession(
   priceId: string,
   successUrl?: string
 ): Promise<string> {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
   const resolvedSuccess = successUrl ?? `${appUrl}/dashboard/welcome`
 
   if (isPlaceholder || !stripeClient) {
-    console.error('[stripe] STRIPE_SECRET_KEY not configured — cannot create checkout session')
-    throw new Error('Stripe is not configured. Set STRIPE_SECRET_KEY in environment variables.')
+    console.log('[MOCK] createCheckoutSession', { userId, priceId })
+    return `${appUrl}/dashboard?mock_checkout=1&plan=${priceId}`
   }
 
   const session = await stripeClient.checkout.sessions.create({
@@ -74,7 +74,7 @@ export async function createPortalSession(customerId: string): Promise<string> {
     return `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/billing?mock=1`
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
   const session = await stripeClient.billingPortal.sessions.create({
     customer: customerId,
     return_url: `${appUrl}/dashboard/billing`,

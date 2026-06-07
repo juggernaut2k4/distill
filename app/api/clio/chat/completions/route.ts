@@ -183,7 +183,7 @@ function toAnthropicMessages(messages: OAIMessage[]): Anthropic.MessageParam[] {
  * conversation turn. We fetch the full session context (41k chars) from walkthrough_state
  * and call Claude Sonnet — bypassing ElevenLabs' prompt override size limit entirely.
  *
- * Configure in ElevenLabs dashboard: Agent → LLM → Custom → URL = https://hello-clio.com/api/clio/llm
+ * Configure in ElevenLabs dashboard: Agent → LLM → Custom → URL = https://distill-peach.vercel.app/api/clio/llm
  * Set Authorization header secret = ELEVENLABS_CUSTOM_LLM_SECRET env var.
  */
 export async function POST(request: NextRequest) {

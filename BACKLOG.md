@@ -163,7 +163,7 @@ _Priority: P0 first, then P1 in order. Approved 2026-05-30._
 ## PART 2 — COMPLETE USER FLOW (Every Step)
 
 ### A. Discovery
-1. User arrives at hello-clio.com (landing page)
+1. User arrives at distill-peach.vercel.app (landing page)
 2. Reads: "Meet Clio." + "15 seconds a day. Zero jargon. Total confidence."
 3. Scrolls: sees problem section, how-it-works, testimonials, pricing
 4. Clicks plan CTA (e.g. "Get Starter — $19/mo") → navigates to /onboarding?plan=starter

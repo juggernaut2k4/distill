@@ -46,7 +46,7 @@ function buildVEVENT(event: CalendarEvent): string {
 
   return [
     'BEGIN:VEVENT',
-    `UID:${event.uid}@hello-clio.com`,
+    `UID:${event.uid}@distill-peach.vercel.app`,
     `DTSTAMP:${now}`,
     `DTSTART:${dtStart}`,
     `DTEND:${dtEnd}`,

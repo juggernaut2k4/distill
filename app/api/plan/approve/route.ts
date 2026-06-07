@@ -164,7 +164,7 @@ export async function POST() {
   }
 
   if (user.phone && user.twilio_number_assigned) {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
     sends.push(
       sendSMS(
         user.phone as string,
@@ -210,7 +210,7 @@ export async function PUT() {
   }
 
   if (user?.phone && user.twilio_number_assigned) {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
     sends2.push(
       sendSMS(
         user.phone,

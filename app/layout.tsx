@@ -11,7 +11,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: 'Clio — AI Learning for Executives',
     description: 'Personalized AI micro-learning for busy executives. 15 seconds a day. Zero jargon. Total confidence.',
-    url: 'https://hello-clio.com',
+    url: 'https://distill-peach.vercel.app',
     siteName: 'Clio',
     locale: 'en_US',
     type: 'website',

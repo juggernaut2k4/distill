@@ -84,7 +84,7 @@ Currently uses old packages (60/120/300 min at $15/$25/$55) — needs updating.
   - TTL: 14d (StatCallout/Timeline), 21d (CaseStudy), 30d (TopicHero/KeyTakeaway/ActionPlan), 60d (conceptual)
 
 ### Domain
-- Production URL: `hello-clio.com`
+- Production URL: `distill-peach.vercel.app`
 - Stripe business URL: still `distill-peach.vercel.app` → update once domain is fully live
 
 ---
@@ -97,7 +97,7 @@ Currently uses old packages (60/120/300 min at $15/$25/$55) — needs updating.
 | Fix marketing page pricing ($19/$49/$99 → $12/$25/$49) | ✅ Done 2026-05-18 |
 | Update code: plan minutes 30/70/150 (webhook + schedule page) | ✅ Done 2026-05-18 |
 | Update code: minute packages $20/50min, $35/90min, $65/170min | ✅ Done 2026-05-18 |
-| Stripe business URL → hello-clio.com | 🔲 Not done (deferred until domain live) |
+| Stripe business URL → distill-peach.vercel.app | 🔲 Not done (deferred until domain live) |
 
 ---
 

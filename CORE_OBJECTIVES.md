@@ -237,10 +237,10 @@ On expiry:     401 returned → full re-authentication required from scratch
 
 **How the AI authenticates programmatically (no browser):**
 ```bash
-TOKEN=$(curl -s -X POST https://hello-clio.com/api/auth/session \
+TOKEN=$(curl -s -X POST https://distill-peach.vercel.app/api/auth/session \
   -H "Authorization: Bearer $CLERK_TOKEN" | jq -r .token)
 
-curl https://hello-clio.com/api/user/profile \
+curl https://distill-peach.vercel.app/api/user/profile \
   -H "Authorization: Bearer $TOKEN"
 ```
 Same endpoint. Same token. Browser and AI are identical clients.

@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const v = searchParams.get('v')
   const id = searchParams.get('id')
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
 
   if (!id || (v !== '0' && v !== '1')) {
     return NextResponse.redirect(`${appUrl}/dashboard`)

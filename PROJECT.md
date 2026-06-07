@@ -2,7 +2,7 @@
 
 **Product:** Clio (rebranded from Distill)
 **Owner:** Arun Prakash
-**Domain:** hello-clio.com
+**Domain:** distill-peach.vercel.app
 **Stack:** Next.js 14, Supabase, Clerk, Stripe, Twilio, Resend, Anthropic Claude, Recall.ai, ElevenLabs, Inngest, Vercel
 **Last updated:** 2026-05-18
 
@@ -121,7 +121,7 @@ Top-ups and add-on packages are the same product. No separate Stripe Price IDs n
 - [x] **Google OAuth** — white background fix for dark theme
 
 ### Infrastructure
-- [x] **Vercel deployment** — production at hello-clio.com
+- [x] **Vercel deployment** — production at distill-peach.vercel.app
 - [x] **Environment variables** — all 9 Stripe keys, Clerk, Supabase, Resend, Twilio, Anthropic, Recall.ai, ElevenLabs, Inngest configured in Vercel
 - [x] **`NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL`** — updated to `/checkout` (2026-05-18)
 - [x] **Topic content cache migration** — `009_topic_content_cache.sql` applied to Supabase (2026-05-18)
@@ -138,9 +138,9 @@ Top-ups and add-on packages are the same product. No separate Stripe Price IDs n
 | B-02 | Update webhook minute allocations (30/60/120 → 30/70/150) | ✅ Done | Updated stripe webhook + schedule page + pricing pages 2026-05-18 |
 | B-03 | Update minute packages in code ($20/50min, $35/90min, $65/170min) | ✅ Done | `app/api/checkout/topup/route.ts` updated 2026-05-18 |
 | B-04 | No top-up Stripe Price ID env vars needed | ✅ Confirmed | Uses dynamic price_data inline |
-| B-05 | Update Stripe business URL from distill-peach.vercel.app → hello-clio.com | P1 | Do when domain DNS is live (currently not pointing to Vercel) |
+| B-05 | Update Stripe business URL from distill-peach.vercel.app → distill-peach.vercel.app | P1 | Do when domain DNS is live (currently not pointing to Vercel) |
 | B-12 | Complete Stripe setup — products, price IDs, webhook | P0 | See Section 11 below — do this next session |
-| B-13 | Connect hello-clio.com DNS to Vercel | P0 | Add A record 76.76.21.21 + CNAME www → cname.vercel-dns.com at registrar |
+| B-13 | Connect distill-peach.vercel.app DNS to Vercel | P0 | Add A record 76.76.21.21 + CNAME www → cname.vercel-dns.com at registrar |
 | B-06 | Messages page — build actual messages/delivery history | P2 | Currently shows "coming soon" |
 | B-07 | Enterprise tier — bulk seats, admin dashboard, SSO | P3 | Post-revenue |
 | B-08 | Referral system — invite colleague, both get free week | P3 | Post-revenue |
@@ -239,7 +239,7 @@ User schedules session → Google Meet created → agenda email sent (30 min bef
 | 1 | What are the actual Stripe prices configured for Starter/Pro/Executive? | Need to fix marketing page inconsistency |
 | 2 | What minute quantities for $20/$35/$65 top-up packs? | Code ready, just need the numbers |
 | 3 | Is the brand name definitely "Clio" or still being decided? | Brief says "Distill", app says "Clio" |
-| 4 | Is hello-clio.com live and pointing to Vercel? | Stripe URL update depends on this |
+| 4 | Is distill-peach.vercel.app live and pointing to Vercel? | Stripe URL update depends on this |
 | 5 | Enterprise tier — any early conversations with potential customers? | Helps prioritize B-07 |
 
 ---
@@ -277,7 +277,7 @@ All configured. Key ones:
 ## 11. Stripe Setup — TODO Next Session 🔲
 
 > Not yet complete. Checkout returns 500 because products/prices not created and webhook not configured.
-> Use `distill-peach.vercel.app` for all URLs until `hello-clio.com` DNS is live.
+> Use `distill-peach.vercel.app` for all URLs until `distill-peach.vercel.app` DNS is live.
 
 ### Step 1 — Create Products & Prices in Stripe
 Go to: **Stripe Dashboard → Products → Add product**
@@ -309,7 +309,7 @@ Go to: **Vercel → distill project → Settings → Environment Variables**
 Go to: **Stripe Dashboard → Developers → Webhooks → Add endpoint**
 
 - **URL:** `https://distill-peach.vercel.app/api/webhooks/stripe`
-  *(update to hello-clio.com once DNS is live — see B-05)*
+  *(update to distill-peach.vercel.app once DNS is live — see B-05)*
 - **Events to listen for:**
   - `checkout.session.completed`
   - `customer.subscription.created`
@@ -337,11 +337,11 @@ Confirm: checkout page → Stripe → back to dashboard/welcome
 
 ---
 
-## 12. DNS Setup — hello-clio.com 🔲
+## 12. DNS Setup — distill-peach.vercel.app 🔲
 
 Domain registered but not pointing to Vercel. Nameservers are third-party.
 
-Go to your domain registrar (wherever hello-clio.com was purchased) and add:
+Go to your domain registrar (wherever distill-peach.vercel.app was purchased) and add:
 
 | Type | Name | Value |
 |---|---|---|
@@ -351,7 +351,7 @@ Go to your domain registrar (wherever hello-clio.com was purchased) and add:
 After adding records, Vercel will auto-verify (check: Vercel → project → Settings → Domains).
 DNS propagation can take up to 24h but usually under 30 min.
 
-Once live: update Stripe webhook URL from `distill-peach.vercel.app` → `hello-clio.com`.
+Once live: update Stripe webhook URL from `distill-peach.vercel.app` → `distill-peach.vercel.app`.
 
 ---
 

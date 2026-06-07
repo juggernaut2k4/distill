@@ -194,13 +194,13 @@ export async function POST(request: NextRequest) {
             .single()
 
           if (topupUser?.email) {
-            const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
+            const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
             const { Resend } = await import('resend')
             const resendKey = process.env.RESEND_API_KEY
             if (resendKey && !resendKey.startsWith('PLACEHOLDER_')) {
               const resend = new Resend(resendKey)
               const fromName = process.env.RESEND_FROM_NAME ?? 'Clio'
-              const fromEmail = process.env.RESEND_FROM_EMAIL ?? 'hello@hello-clio.com'
+              const fromEmail = process.env.RESEND_FROM_EMAIL ?? 'hello@distill-peach.vercel.app'
               resend.emails.send({
                 from: `${fromName} <${fromEmail}>`,
                 to: topupUser.email,
@@ -223,7 +223,7 @@ export async function POST(request: NextRequest) {
           }
 
           if (topupUser?.phone && topupUser?.twilio_number_assigned) {
-            const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
+            const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
             sendSMS(
               topupUser.phone,
               topupUser.twilio_number_assigned,

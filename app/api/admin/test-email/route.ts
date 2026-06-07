@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
   if (error) return error
 
   const apiKey = process.env.RESEND_API_KEY
-  const fromEmail = process.env.RESEND_FROM_EMAIL ?? 'hello@hello-clio.com'
+  const fromEmail = process.env.RESEND_FROM_EMAIL ?? 'hello@distill-peach.vercel.app'
   const fromName = process.env.RESEND_FROM_NAME ?? 'Clio'
 
   const isPlaceholder = !apiKey || apiKey.startsWith('PLACEHOLDER_')

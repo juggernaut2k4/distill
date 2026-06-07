@@ -316,7 +316,7 @@ Tester: QA Agent
 - Never delete or comment out a test that is inconvenient to fix
 - Never write tests that always pass regardless of application behaviour
 - Never mock the thing you're testing — mock dependencies, not the unit under test
-- Never run E2E tests against production (`hello-clio.com`) — always target `distill-peach.vercel.app` (staging) or `localhost:3000` (local)
+- Never run E2E tests against production (`distill-peach.vercel.app`) — always target `distill-peach.vercel.app` (staging) or `localhost:3000` (local)
 - **Never issue a PASS verdict for any feature without running the applicable UI functional tests above.** Code review is one input, not the verdict.
 - Never assume an API call succeeded because the code looks right — confirm it in the browser
 - Never leave a bug unfixed and mark the test PASS — either fix it or escalate with a clear severity and reproduction steps

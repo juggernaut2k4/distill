@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
     }
 
     const { plan, billingPeriod } = parsed.data
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
 
     // ── Dev / mock mode ──────────────────────────────────────────────────────
     if (!isStripeConfigured) {

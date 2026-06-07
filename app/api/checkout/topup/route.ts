@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Use client-provided returnUrl base (so the right domain is used regardless of NEXT_PUBLIC_APP_URL)
-  const appUrl = returnUrl ?? process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
+  const appUrl = returnUrl ?? process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
   const scheduleBase = returnUrl
     ? returnUrl.replace(/\?.*$/, '') // strip any query string from returnUrl, treat as base
     : `${appUrl}/dashboard/schedule`

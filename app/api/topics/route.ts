@@ -197,7 +197,7 @@ async function handleTopicsPost(request: NextRequest, userId: string): Promise<N
       sends.push(sendPlanReadyEmail(user as EmailUser).catch(console.error))
     }
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
     if (user?.phone && user.twilio_number_assigned) {
       sends.push(
         sendSMS(

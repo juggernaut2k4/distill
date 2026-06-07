@@ -138,7 +138,7 @@ export async function POST(request: NextRequest) {
     ]
 
     if (userRow.phone && userRow.twilio_number_assigned) {
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
       const first = parsed.data.sessions[0]
       const firstDate = new Date(first.scheduledAt).toLocaleDateString('en-US', {
         weekday: 'short', month: 'short', day: 'numeric',

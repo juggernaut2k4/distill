@@ -217,7 +217,7 @@ async function sendJoinEmail(
 
   const resend = new Resend(resendKey)
   const fromName = process.env.RESEND_FROM_NAME ?? 'Clio'
-  const fromEmail = process.env.RESEND_FROM_EMAIL ?? 'hello@hello-clio.com'
+  const fromEmail = process.env.RESEND_FROM_EMAIL ?? 'hello@distill-peach.vercel.app'
 
   await resend.emails.send({
     from: `${fromName} <${fromEmail}>`,

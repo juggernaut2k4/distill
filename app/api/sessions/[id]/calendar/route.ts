@@ -4,7 +4,7 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
 import { generateICS, type CalendarEvent } from '@/lib/sessions/calendar'
 
 const ORGANIZER_NAME = 'Clio AI'
-const ORGANIZER_EMAIL = process.env.RESEND_FROM_EMAIL ?? 'hello@hello-clio.com'
+const ORGANIZER_EMAIL = process.env.RESEND_FROM_EMAIL ?? 'hello@distill-peach.vercel.app'
 
 /**
  * GET /api/sessions/[id]/calendar

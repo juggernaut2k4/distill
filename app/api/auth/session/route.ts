@@ -19,7 +19,7 @@
  *   }).then(r => r.json())
  *
  * Example (terminal / AI client):
- *   TOKEN=$(curl -s -X POST https://hello-clio.com/api/auth/session \
+ *   TOKEN=$(curl -s -X POST https://distill-peach.vercel.app/api/auth/session \
  *     -H "Authorization: Bearer $CLERK_TOKEN" | jq -r .token)
  */
 

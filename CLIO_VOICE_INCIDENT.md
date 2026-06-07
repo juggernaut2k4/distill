@@ -110,7 +110,7 @@ In `recall/bot/route.ts`:
 const walkthroughUrl = `${process.env.NEXT_PUBLIC_APP_URL}/walkthrough/${userId}`
 ```
 
-If `NEXT_PUBLIC_APP_URL` is set to `https://hello-clio.com` in Vercel's environment variables, and `hello-clio.com` doesn't resolve to this deployment, the Recall.ai bot loads a 404 page. The bot would be in the call but showing nothing. This would also explain zero walkthrough-related logs.
+If `NEXT_PUBLIC_APP_URL` is set to `https://distill-peach.vercel.app` in Vercel's environment variables, and `distill-peach.vercel.app` doesn't resolve to this deployment, the Recall.ai bot loads a 404 page. The bot would be in the call but showing nothing. This would also explain zero walkthrough-related logs.
 
 **However:** This would have been broken from the very beginning, before the content pipeline. Since the user confirmed "it was working earlier," this is likely correct OR the domain was recently changed.
 
@@ -168,7 +168,7 @@ The userId is already in the prompt override as `DISTILL_USER_ID: ${userId}` —
 
 Check what `NEXT_PUBLIC_APP_URL` is set to in Vercel's environment variables (Settings → Environment Variables). It must resolve to the actual deployment:
 - If using `distill-peach.vercel.app` → set to `https://distill-peach.vercel.app`
-- If `hello-clio.com` is live and pointing to Vercel → keep as is
+- If `distill-peach.vercel.app` is live and pointing to Vercel → keep as is
 
 ### Step 3: Add logging before `getUserMedia` in WalkthroughClient
 

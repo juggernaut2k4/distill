@@ -1007,9 +1007,9 @@ export async function sendRecalibrationEmail(user: { email: string; firstName: s
 
 ```bash
 RESEND_API_KEY=re_...
-RESEND_FROM_EMAIL=hello@hello-clio.com
+RESEND_FROM_EMAIL=hello@distill-peach.vercel.app
 RESEND_FROM_NAME=Distill
-NEXT_PUBLIC_APP_URL=https://hello-clio.com
+NEXT_PUBLIC_APP_URL=https://distill-peach.vercel.app
 ```
 
 ### Gotchas

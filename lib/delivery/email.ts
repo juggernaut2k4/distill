@@ -5,7 +5,7 @@ const isPlaceholder = !process.env.RESEND_API_KEY ||
 
 const resend = isPlaceholder ? null : new Resend(process.env.RESEND_API_KEY)
 
-const FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? 'hello@hello-clio.com'
+const FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? 'hello@distill-peach.vercel.app'
 const FROM_NAME = process.env.RESEND_FROM_NAME ?? 'Clio'
 const FROM = `${FROM_NAME} <${FROM_EMAIL}>`
 
@@ -171,7 +171,7 @@ export async function sendTrialEndingEmail(
     return { success: true }
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
   const label = hoursLeft <= 24 ? '24 hours' : `${Math.round(hoursLeft / 24)} days`
 
   try {
@@ -208,7 +208,7 @@ export async function sendTrialExpiredEmail(
     return { success: true }
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
 
   try {
     const result = await resend.emails.send({
@@ -277,7 +277,7 @@ export async function sendSignupWelcomeEmail(
     return { success: true, messageId: 'mock-signup-welcome-id' }
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
   const greeting = firstName ? `Hi ${firstName}` : 'Hi there'
 
   try {
@@ -317,7 +317,7 @@ export async function sendWelcomeEmail(
     return { success: true }
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
   const planName = planTier.charAt(0).toUpperCase() + planTier.slice(1)
 
   try {
@@ -351,7 +351,7 @@ export async function sendPlanReadyEmail(user: User): Promise<EmailResult> {
     return { success: true }
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
 
   try {
     const result = await resend.emails.send({
@@ -386,7 +386,7 @@ export async function sendPlanApprovedEmail(user: User): Promise<EmailResult> {
     return { success: true, messageId: 'mock-plan-approved-id' }
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
 
   try {
     const result = await resend.emails.send({
@@ -425,7 +425,7 @@ export async function sendSessionsConfirmedEmail(
     return { success: true, messageId: 'mock-sessions-confirmed-id' }
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
 
   try {
     const result = await resend.emails.send({
@@ -473,7 +473,7 @@ export async function sendSessionReminderEmail(
     return { success: true, messageId: 'mock-session-reminder-id' }
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
   const sessionDate = new Date(session.scheduledAt)
   const timeString = sessionDate.toLocaleTimeString('en-US', {
     hour: 'numeric',
@@ -793,7 +793,7 @@ export async function sendSessionAgendaEmail(
     return { success: true, messageId: 'mock-agenda-email-id' }
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://hello-clio.com'
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
   const sessionDate = new Date(session.scheduledAt)
   const timeString = sessionDate.toLocaleTimeString('en-US', {
     hour: 'numeric',
@@ -855,7 +855,7 @@ export async function sendAdminAlert(params: {
 }): Promise<EmailResult> {
   const { subject, body, context } = params
   const recipient =
-    process.env.ADMIN_ALERT_EMAIL ?? process.env.RESEND_FROM_EMAIL ?? 'hello@hello-clio.com'
+    process.env.ADMIN_ALERT_EMAIL ?? process.env.RESEND_FROM_EMAIL ?? 'hello@distill-peach.vercel.app'
 
   if (isPlaceholder || !resend) {
     console.log('[MOCK] sendAdminAlert', { subject, recipient, context })
