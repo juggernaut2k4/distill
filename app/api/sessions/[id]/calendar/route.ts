@@ -1,5 +1,6 @@
 import { type NextRequest } from 'next/server'
-import { requireAuth } from '@/lib/clerk'
+import { requireSessionAuth } from '@/lib/session-auth'
+
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { generateICS, type CalendarEvent } from '@/lib/sessions/calendar'
 
@@ -12,10 +13,10 @@ const ORGANIZER_EMAIL = process.env.RESEND_FROM_EMAIL ?? 'hello@distill-peach.ve
  * Verifies the session belongs to the authenticated user.
  */
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const { userId, error } = requireAuth()
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   const supabase = createSupabaseAdminClient()

@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/clerk'
+import { NextRequest, NextResponse } from 'next/server'
+import { requireSessionAuth } from '@/lib/session-auth'
+
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { canAccessKB } from '@/lib/kb-access'
 
@@ -8,8 +9,8 @@ import { canAccessKB } from '@/lib/kb-access'
  * Returns all distinct topics stored in topic_content_cache,
  * grouped by topic_id with section count and last updated time.
  */
-export async function GET() {
-  const { userId, error } = requireAuth()
+export async function GET(request: NextRequest) {
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   const supabase = createSupabaseAdminClient()

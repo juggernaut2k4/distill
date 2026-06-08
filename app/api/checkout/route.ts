@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSessionAuth } from '@/lib/session-auth'
 import { z } from 'zod'
-import { requireAuth, getCurrentUser } from '@/lib/clerk'
+import { getCurrentUser } from '@/lib/clerk'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 
 const CheckoutSchema = z.object({
@@ -34,7 +35,7 @@ const isStripeConfigured =
  * for the embedded PaymentElement on the checkout page.
  */
 export async function POST(request: NextRequest) {
-  const { userId, error } = requireAuth()
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   try {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSessionAuth } from '@/lib/session-auth'
 import { z } from 'zod'
-import { requireAuth } from '@/lib/clerk'
+
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { inngest } from '@/inngest/client'
 
@@ -19,7 +20,7 @@ const VISIBLE_TARGET = 5
  * drops below the threshold.
  */
 export async function POST(request: NextRequest) {
-  const { userId, error } = requireAuth()
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   let body: unknown

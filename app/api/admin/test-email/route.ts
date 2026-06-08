@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSessionAuth } from '@/lib/session-auth'
 import { Resend } from 'resend'
-import { requireAuth } from '@/lib/clerk'
 
 /**
  * GET /api/admin/test-email?to=you@example.com
@@ -8,7 +8,7 @@ import { requireAuth } from '@/lib/clerk'
  * Remove before production.
  */
 export async function GET(request: NextRequest) {
-  const { userId, error } = requireAuth()
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   const apiKey = process.env.RESEND_API_KEY

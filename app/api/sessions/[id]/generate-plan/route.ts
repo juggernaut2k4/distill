@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/clerk'
+import { requireSessionAuth } from '@/lib/session-auth'
+
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import {
   buildInitialPlan,
@@ -228,8 +229,8 @@ function findSubtopicsFromCatalog(topicId: string, sessionTitle: string): string
  * Generates the first subtopic first (enabling the launch button immediately),
  * then generates the rest in parallel within the same request.
  */
-export async function POST(_request: NextRequest, { params }: Params) {
-  const { userId, error } = requireAuth()
+export async function POST(request: NextRequest, { params }: Params) {
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   const supabase = createSupabaseAdminClient()
@@ -332,7 +333,7 @@ export async function POST(_request: NextRequest, { params }: Params) {
  * Body: { subtopicId: string; skipped: boolean }
  */
 export async function PATCH(request: NextRequest, { params }: Params) {
-  const { userId, error } = requireAuth()
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   const body = await request.json() as { subtopicId?: string; skipped?: boolean }
@@ -373,8 +374,8 @@ export async function PATCH(request: NextRequest, { params }: Params) {
  * GET /api/sessions/[id]/generate-plan
  * Returns the current session_plan for polling.
  */
-export async function GET(_request: NextRequest, { params }: Params) {
-  const { userId, error } = requireAuth()
+export async function GET(request: NextRequest, { params }: Params) {
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   const supabase = createSupabaseAdminClient()

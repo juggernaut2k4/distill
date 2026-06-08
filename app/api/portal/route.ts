@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/clerk'
+import { requireSessionAuth } from '@/lib/session-auth'
+
 import { createPortalSession } from '@/lib/stripe'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 
@@ -9,7 +10,7 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
  * Requires authentication via Clerk.
  */
 export async function POST(request: NextRequest) {
-  const { userId, error } = requireAuth()
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   try {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSessionAuth } from '@/lib/session-auth'
 import { z } from 'zod'
-import { requireAuth } from '@/lib/clerk'
+
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { ALL_DOMAINS } from '@/lib/learning/taxonomy'
 import Anthropic from '@anthropic-ai/sdk'
@@ -23,7 +24,7 @@ const ROLE_IDS = 'ceo, cto, coo, cfo, product-manager, developer, data-scientist
  * Silently skips if the title already exists.
  */
 export async function POST(request: NextRequest) {
-  const { userId, error } = requireAuth()
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   const body = Body.safeParse(await request.json().catch(() => ({})))

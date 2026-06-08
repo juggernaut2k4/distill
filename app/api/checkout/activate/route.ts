@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/clerk'
+import { requireSessionAuth } from '@/lib/session-auth'
+
 import { createSupabaseAdminClient } from '@/lib/supabase'
 
 const MINUTES_MAP: Record<string, number> = {
@@ -17,8 +18,8 @@ const isStripeConfigured =
  * Ends the Stripe trial early so the subscription charges immediately.
  * Called from the dashboard trial banner "Activate plan" button.
  */
-export async function POST(_request: NextRequest) {
-  const { userId, error } = requireAuth()
+export async function POST(request: NextRequest) {
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   try {

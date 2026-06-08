@@ -224,7 +224,12 @@
       "Bash(/usr/bin/curl -s -o /dev/null -w \"jobs/test: %{http_code}\\\\n\" \"https://distill-5rudawjv3-arun-prakash-s-projects.vercel.app/api/jobs/00000000-0000-0000-0000-000000000000\")",
       "Bash(/usr/bin/curl -s -o /dev/null -w \"topics GET: %{http_code}\\\\n\" \"https://distill-5rudawjv3-arun-prakash-s-projects.vercel.app/api/topics\")",
       "Bash(/usr/bin/curl -s -o /dev/null -w \"sessions/generate: %{http_code}\\\\n\" -X POST \"https://distill-5rudawjv3-arun-prakash-s-projects.vercel.app/api/sessions/test/generate-content\")",
-      "Bash(xargs sed -i '' 's/hello-clio\\\\.com/distill-peach.vercel.app/g')"
+      "Bash(xargs sed -i '' 's/hello-clio\\\\.com/distill-peach.vercel.app/g')",
+      "Bash(echo \"=== GET /api/topics ===\")",
+      "Bash(echo \"\")",
+      "Bash(echo \"=== GET /api/sessions ===\")",
+      "Bash(echo \"=== GET /api/curriculum/plan ===\")",
+      "Bash(echo \"=== GET /api/sessions/calendar ===\")"
     ],
     "deny": [],
     "ask": []

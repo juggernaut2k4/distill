@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSessionAuth } from '@/lib/session-auth'
 import { z } from 'zod'
-import { requireAuth } from '@/lib/clerk'
+
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { assignPhoneNumber } from '@/lib/delivery/sms'
 
@@ -14,7 +15,7 @@ const VerifySchema = z.object({
  * Verifies the OTP code and saves the phone number to the user record.
  */
 export async function POST(request: NextRequest) {
-  const { userId, error } = requireAuth()
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   let body: unknown

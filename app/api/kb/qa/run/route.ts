@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSessionAuth } from '@/lib/session-auth'
 import { z } from 'zod'
-import { requireAuth } from '@/lib/clerk'
+
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { canAccessKB } from '@/lib/kb-access'
 import { runQAOnTopic, runAutomatedQA } from '@/lib/kb-qa-agent'
@@ -17,7 +18,7 @@ const Body = z.object({ topicId: z.string().min(1) })
  * Saves QA results to topic_content_cache and rule candidates to kb_qa_rules.
  */
 export async function POST(request: NextRequest) {
-  const { userId, error } = requireAuth()
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   const supabase = createSupabaseAdminClient()

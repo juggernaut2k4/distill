@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/clerk'
+import { requireSessionAuth } from '@/lib/session-auth'
+
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { ROLES } from '@/lib/learning/taxonomy'
 import type { CuratedTopic } from '@/lib/curriculum/catalog-curator'
@@ -36,7 +37,7 @@ interface RoleTopicCacheRow {
  *   { featured: CuratedTopic[], other: TopicRow[], role, industry, maturity, from_cache: false, seeded }
  */
 export async function GET(request: NextRequest) {
-  const { userId, error } = requireAuth()
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   // Query params are a fallback for brand-new users whose DB profile isn't saved yet

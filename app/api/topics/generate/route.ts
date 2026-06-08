@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSessionAuth } from '@/lib/session-auth'
 import { z } from 'zod'
-import { requireAuth } from '@/lib/clerk'
+
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { buildCurriculum } from '@/lib/curriculum'
 import type { UserProfile, Maturity } from '@/lib/curriculum'
@@ -42,8 +43,8 @@ function buildObjectivesFromProfile(profile: {
  * Auto-generates topics from the user's onboarding profile.
  * If the user already has saved topics, returns those first.
  */
-export async function GET() {
-  const { userId, error } = requireAuth()
+export async function GET(request: NextRequest) {
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   const supabase = createSupabaseAdminClient()
@@ -99,7 +100,7 @@ export async function GET() {
  * Always returns: { topics: string[], curriculum: CurriculumResult, source: 'curriculum-engine' }
  */
 export async function POST(request: NextRequest) {
-  const { userId, error } = requireAuth()
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   const body = (await request.json()) as unknown

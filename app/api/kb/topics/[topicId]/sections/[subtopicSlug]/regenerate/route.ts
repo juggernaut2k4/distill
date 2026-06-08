@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSessionAuth } from '@/lib/session-auth'
 import { z } from 'zod'
-import { requireAuth } from '@/lib/clerk'
+
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { canAccessKB } from '@/lib/kb-access'
 import { generateTemplateData } from '@/lib/templates/generator'
@@ -19,7 +20,7 @@ const Body = z.object({
  * - Different templateType → switch template and regenerate
  */
 export async function POST(request: NextRequest, { params }: Params) {
-  const { userId, error } = requireAuth()
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   const supabase = createSupabaseAdminClient()

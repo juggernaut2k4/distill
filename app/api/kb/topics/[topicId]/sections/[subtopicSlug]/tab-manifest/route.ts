@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/clerk'
+import { requireSessionAuth } from '@/lib/session-auth'
+
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { canAccessKB } from '@/lib/kb-access'
 import type { TabManifest } from '@/lib/templates/types'
@@ -11,8 +12,8 @@ interface Params { params: { topicId: string; subtopicSlug: string } }
  * Saves a tab manifest for a specific subtopic cache row.
  * Body: { tab_manifest: TabManifest }
  */
-export async function PATCH(req: NextRequest, { params }: Params) {
-  const { userId, error } = requireAuth()
+export async function PATCH(request: NextRequest, { params }: Params) {
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   const supabase = createSupabaseAdminClient()
@@ -26,7 +27,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
   let body: { tab_manifest: TabManifest }
   try {
-    body = await req.json()
+    body = await request.json()
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }

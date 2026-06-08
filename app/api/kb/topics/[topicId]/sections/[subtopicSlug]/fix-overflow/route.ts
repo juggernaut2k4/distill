@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
+import { requireSessionAuth } from '@/lib/session-auth'
 import { z } from 'zod'
-import { requireAuth } from '@/lib/clerk'
+
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { canAccessKB } from '@/lib/kb-access'
 import { fixOverflowedSection } from '@/lib/templates/generator'
@@ -29,7 +30,7 @@ const Body = z.object({
  */
 export async function POST(request: NextRequest, { params }: Params) {
   // ── Auth ──────────────────────────────────────────────────────────────────
-  const { userId, error } = requireAuth()
+  const { userId, error } = await requireSessionAuth(request)
   if (error) {
     return new Response('data: ' + JSON.stringify({ step: 'error', msg: 'Unauthorized' }) + '\n\n', {
       status: 401,

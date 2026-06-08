@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSessionAuth } from '@/lib/session-auth'
 import { z } from 'zod'
-import { requireAuth } from '@/lib/clerk'
+
 import { createSupabaseAdminClient } from '@/lib/supabase'
 
 /**
@@ -8,8 +9,8 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
  * Returns 200 with basic profile data if the user record exists.
  * Returns 404 if no profile — used by the onboarding page to detect new sign-ups.
  */
-export async function GET(_request: NextRequest) {
-  const { userId, error } = requireAuth()
+export async function GET(request: NextRequest) {
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   const supabase = createSupabaseAdminClient()
@@ -34,7 +35,7 @@ const PreferencesSchema = z.object({
  * Updates user delivery preferences.
  */
 export async function PATCH(request: NextRequest) {
-  const { userId, error } = requireAuth()
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   try {

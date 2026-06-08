@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSessionAuth } from '@/lib/session-auth'
 import { z } from 'zod'
-import { requireAuth } from '@/lib/clerk'
+
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { sendSMS } from '@/lib/delivery/sms'
 
@@ -13,7 +14,7 @@ const SendOTPSchema = z.object({
  * Generates a 6-digit OTP, stores it on the user row, and sends via SMS.
  */
 export async function POST(request: NextRequest) {
-  const { userId, error } = requireAuth()
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   let body: unknown

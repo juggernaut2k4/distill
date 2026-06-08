@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSessionAuth } from '@/lib/session-auth'
 import { z } from 'zod'
-import { requireAuth } from '@/lib/clerk'
+
 import { createSupabaseAdminClient } from '@/lib/supabase'
 
 /** Shape returned for each delivery log entry */
@@ -24,8 +25,8 @@ export type MessageItem = z.infer<typeof MessageSchema>
  * Returns the last 30 delivery_log entries for the authenticated user,
  * joined with content_items for body_text and type.
  */
-export async function GET(_request: NextRequest) {
-  const { userId, error } = requireAuth()
+export async function GET(request: NextRequest) {
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   try {

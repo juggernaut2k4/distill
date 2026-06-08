@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/clerk'
+import { requireSessionAuth } from '@/lib/session-auth'
+
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { canAccessKB } from '@/lib/kb-access'
 
@@ -9,8 +10,8 @@ interface Params { params: { topicId: string } }
  * GET /api/kb/topics/[topicId]
  * Returns all sections for a topic in order.
  */
-export async function GET(_req: NextRequest, { params }: Params) {
-  const { userId, error } = requireAuth()
+export async function GET(request: NextRequest, { params }: Params) {
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   const supabase = createSupabaseAdminClient()
@@ -40,8 +41,8 @@ export async function GET(_req: NextRequest, { params }: Params) {
  * DELETE /api/kb/topics/[topicId]
  * Hard-deletes all cache entries for this topic so it regenerates fresh next session.
  */
-export async function DELETE(_req: NextRequest, { params }: Params) {
-  const { userId, error } = requireAuth()
+export async function DELETE(request: NextRequest, { params }: Params) {
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   const supabase = createSupabaseAdminClient()

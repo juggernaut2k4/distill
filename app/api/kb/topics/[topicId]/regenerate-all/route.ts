@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/clerk'
+import { requireSessionAuth } from '@/lib/session-auth'
+
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { canAccessKB } from '@/lib/kb-access'
 import { generateTemplateData } from '@/lib/templates/generator'
@@ -14,8 +15,8 @@ export const maxDuration = 120
  * Regenerates every section of a topic in sequence using the current template type.
  * Applies all current generation rules (including word count constraints).
  */
-export async function POST(_req: NextRequest, { params }: Params) {
-  const { userId, error } = requireAuth()
+export async function POST(request: NextRequest, { params }: Params) {
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   const supabase = createSupabaseAdminClient()

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSessionAuth } from '@/lib/session-auth'
 import { z } from 'zod'
-import { requireAuth } from '@/lib/clerk'
+
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { canAccessKB } from '@/lib/kb-access'
 import { invalidateRulesCache } from '@/lib/templates/generator'
@@ -18,7 +19,7 @@ const Body = z.object({
  * Approving automatically invalidates the rules cache so next generation picks it up.
  */
 export async function PATCH(request: NextRequest, { params }: Params) {
-  const { userId, error } = requireAuth()
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   const supabase = createSupabaseAdminClient()
@@ -79,8 +80,8 @@ export async function PATCH(request: NextRequest, { params }: Params) {
  * DELETE /api/kb/qa/rules/[ruleId]
  * Hard-deletes a rule.
  */
-export async function DELETE(_req: NextRequest, { params }: Params) {
-  const { userId, error } = requireAuth()
+export async function DELETE(request: NextRequest, { params }: Params) {
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   const supabase = createSupabaseAdminClient()

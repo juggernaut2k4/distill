@@ -10,7 +10,6 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/clerk'
 import { requireSessionAuth } from '@/lib/session-auth'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { inngest } from '@/inngest/client'
@@ -157,8 +156,8 @@ export async function POST(req: NextRequest, { params }: Params) {
 
 // ─── DELETE — reset status so the pipeline can be re-run ──────────────────────
 
-export async function DELETE(_req: NextRequest, { params }: Params) {
-  const { userId, error } = requireAuth()
+export async function DELETE(request: NextRequest, { params }: Params) {
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   const supabase = createSupabaseAdminClient()

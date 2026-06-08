@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSessionAuth } from '@/lib/session-auth'
 import { z } from 'zod'
-import { requireAuth } from '@/lib/clerk'
+
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { canAccessKB } from '@/lib/kb-access'
 import { refineRuleWithSuggestion } from '@/lib/kb-qa-agent'
@@ -16,7 +17,7 @@ const Body = z.object({ suggestion: z.string().min(1).max(1000) })
  * until the user explicitly approves it.
  */
 export async function POST(request: NextRequest, { params }: Params) {
-  const { userId, error } = requireAuth()
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   const supabase = createSupabaseAdminClient()

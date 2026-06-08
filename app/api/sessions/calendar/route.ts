@@ -1,4 +1,6 @@
-import { requireAuth } from '@/lib/clerk'
+import { NextRequest, NextResponse } from 'next/server'
+import { requireSessionAuth } from '@/lib/session-auth'
+
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { generateMultiEventICS, type CalendarEvent } from '@/lib/sessions/calendar'
 
@@ -9,8 +11,8 @@ const ORGANIZER_EMAIL = process.env.RESEND_FROM_EMAIL ?? 'hello@distill-peach.ve
  * GET /api/sessions/calendar
  * Downloads all non-cancelled sessions for the authenticated user as a single .ics file.
  */
-export async function GET() {
-  const { userId, error } = requireAuth()
+export async function GET(request: NextRequest) {
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   const supabase = createSupabaseAdminClient()

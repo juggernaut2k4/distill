@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSessionAuth } from '@/lib/session-auth'
 import { z } from 'zod'
-import { requireAuth } from '@/lib/clerk'
+
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { stripe } from '@/lib/stripe'
 
@@ -20,7 +21,7 @@ const PACK_PRICES: Record<number, number> = {
  * Creates a Stripe Checkout Session for a minutes top-up pack.
  */
 export async function POST(request: NextRequest) {
-  const { userId, error } = requireAuth()
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   const body = await request.json()

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSessionAuth } from '@/lib/session-auth'
 import { z } from 'zod'
-import { requireAuth } from '@/lib/clerk'
+
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { canAccessKB } from '@/lib/kb-access'
 import { regenerateWithFeedback } from '@/lib/templates/generator'
@@ -15,7 +16,7 @@ const Body = z.object({ feedback: z.string().min(1).max(2000) })
  * Applies user feedback: saves current section as previous, generates new current.
  */
 export async function POST(request: NextRequest, { params }: Params) {
-  const { userId, error } = requireAuth()
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   const supabase = createSupabaseAdminClient()

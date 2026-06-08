@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/clerk'
+import { NextRequest, NextResponse } from 'next/server'
+import { requireSessionAuth } from '@/lib/session-auth'
+
 import { createSupabaseAdminClient } from '@/lib/supabase'
 
 /**
@@ -7,8 +8,8 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
  * Temporary debug endpoint — returns queue_sessions titles and session_ids
  * so we can verify topic coverage without querying Supabase directly.
  */
-export async function GET() {
-  const { userId, error } = requireAuth()
+export async function GET(request: NextRequest) {
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   const supabase = createSupabaseAdminClient()

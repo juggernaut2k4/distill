@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/clerk'
+import { requireSessionAuth } from '@/lib/session-auth'
+
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { canAccessKB } from '@/lib/kb-access'
 import type { TemplateSection } from '@/lib/templates/types'
@@ -12,8 +13,8 @@ interface Params { params: { topicId: string; subtopicSlug: string } }
  * After revert: current becomes the old version, previous becomes the feedback version.
  * This lets the user toggle back if they change their mind.
  */
-export async function POST(_req: NextRequest, { params }: Params) {
-  const { userId, error } = requireAuth()
+export async function POST(request: NextRequest, { params }: Params) {
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   const supabase = createSupabaseAdminClient()

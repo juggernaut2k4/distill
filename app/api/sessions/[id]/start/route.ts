@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/clerk'
+import { requireSessionAuth } from '@/lib/session-auth'
+
 import { createSupabaseAdminClient } from '@/lib/supabase'
 
 interface Params {
@@ -11,8 +12,8 @@ interface Params {
  * Marks the session as active and returns the effective duration (capped by minutes_balance).
  * Called when the Recall.ai bot successfully joins the meeting.
  */
-export async function POST(_request: NextRequest, { params }: Params) {
-  const { userId, error } = requireAuth()
+export async function POST(request: NextRequest, { params }: Params) {
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   const supabase = createSupabaseAdminClient()

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSessionAuth } from '@/lib/session-auth'
 import { z } from 'zod'
-import { requireAuth } from '@/lib/clerk'
+
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { sendSessionsConfirmedEmail, type User, type SessionSummary } from '@/lib/delivery/email'
 import { sendSMS } from '@/lib/delivery/sms'
@@ -25,7 +26,7 @@ const ScheduleRequestSchema = z.object({
  * Creates or replaces all scheduled sessions for the authenticated user.
  */
 export async function POST(request: NextRequest) {
-  const { userId, error } = requireAuth()
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   const body = await request.json()
@@ -162,8 +163,8 @@ export async function POST(request: NextRequest) {
  * GET /api/sessions/schedule
  * Returns scheduled sessions for the authenticated user.
  */
-export async function GET() {
-  const { userId, error } = requireAuth()
+export async function GET(request: NextRequest) {
+  const { userId, error } = await requireSessionAuth(request)
   if (error) return error
 
   const supabase = createSupabaseAdminClient()
