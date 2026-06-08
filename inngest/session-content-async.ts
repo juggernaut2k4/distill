@@ -66,7 +66,7 @@ export const sessionContentAsync = inngest.createFunction(
       const [{ data: s }, { data: u }] = await Promise.all([
         supabase
           .from('sessions')
-          .select('id, session_title, topic_id, topics, content_status, session_plan, duration_mins, subtopics')
+          .select('id, session_title, topic_id, curriculum_session_id, topics, content_status, session_plan, duration_mins, subtopics')
           .eq('id', sessionId)
           .eq('user_id', userId)
           .single(),
@@ -96,7 +96,12 @@ export const sessionContentAsync = inngest.createFunction(
       return { status: 'already_ready' }
     }
 
-    const topicId = session.topic_id ?? 'ai-fundamentals'
+    const rawTopics = (session as unknown as { topics?: unknown }).topics
+    const topicId: string =
+      session.topic_id ??
+      (session as unknown as { curriculum_session_id?: string | null }).curriculum_session_id ??
+      (Array.isArray(rawTopics) && typeof rawTopics[0] === 'string' ? rawTopics[0] : null) ??
+      'ai-fundamentals'
     const topicTitle = session.session_title ?? 'AI Strategy Session'
     const sessionDurationMins: number = (session as { duration_mins?: number }).duration_mins ?? 30
     const planSubtopics = (session.session_plan as SessionPlan | null)?.subtopics
