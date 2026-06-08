@@ -105,7 +105,7 @@ export async function POST(request: NextRequest) {
   }
 
   // ── Flip draft → scheduled ───────────────────────────────────────────────────
-  const { count: activatedCount } = await supabase
+  const { data: activatedData } = await supabase
     .from('sessions')
     .update({ status: 'scheduled' })
     .eq('user_id', userId!)
@@ -178,7 +178,7 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({
     success:          true,
-    sessions_created: activatedCount ?? 0,
+    sessions_created: activatedData?.length ?? 0,
   })
 }
 
