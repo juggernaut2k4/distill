@@ -208,10 +208,10 @@ function NextSessionCard({ session }: { session: NextSession | null }) {
         <PlusCircle size={28} className="text-[#333]" />
         <p className="text-[#94A3B8] text-sm font-medium">No upcoming Clio sessions</p>
         <Link
-          href="/dashboard/schedule"
+          href="/dashboard/sessions"
           className="text-sm text-[#7C3AED] hover:text-[#A855F7] transition-colors font-semibold"
         >
-          Schedule a session →
+          Go to Sessions →
         </Link>
       </Card>
     )

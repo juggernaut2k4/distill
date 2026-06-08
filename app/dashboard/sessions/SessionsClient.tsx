@@ -2,8 +2,9 @@
 
 import { motion } from 'framer-motion'
 import Link from 'next/link'
-import { Clock, ChevronRight, FlaskConical, Loader2, BookOpen, Link as LinkIcon, Loader } from 'lucide-react'
+import { Clock, ChevronRight, FlaskConical, Loader2, BookOpen, Link as LinkIcon, Loader, Zap } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
+import { TopUpModal } from '@/components/ui/TopUpModal'
 import { useState } from 'react'
 
 interface Session {
@@ -21,6 +22,7 @@ interface Session {
 interface SessionsClientProps {
   sessions: Session[]
   topicTitleMap: Record<string, string>
+  minutesBalance?: number
 }
 
 const STATUS_STYLE: Record<string, { label: string; className: string }> = {
@@ -285,7 +287,8 @@ function TestSessionButton() {
   )
 }
 
-export default function SessionsClient({ sessions, topicTitleMap }: SessionsClientProps) {
+export default function SessionsClient({ sessions, topicTitleMap, minutesBalance = 0 }: SessionsClientProps) {
+  const [topUpOpen, setTopUpOpen] = useState(false)
   // Group sessions by curriculum topic
   const grouped: TopicGroup[] = []
   const topicOrder: string[] = []
@@ -320,16 +323,31 @@ export default function SessionsClient({ sessions, topicTitleMap }: SessionsClie
 
   return (
     <div className="space-y-8 max-w-3xl">
+      <TopUpModal open={topUpOpen} onClose={() => setTopUpOpen(false)} currentBalance={minutesBalance} />
+
       {/* Page header */}
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
-        <div className="flex items-start justify-between gap-4 mb-1">
+        <div className="flex items-start justify-between gap-4 mb-1 flex-wrap">
           <div className="flex items-center gap-3">
             <h1 className="text-3xl font-bold text-white">Sessions</h1>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-950/50 border border-purple-800/40 text-[#A855F7]">
               {sessions.length}
             </span>
           </div>
-          <TestSessionButton />
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-[#475569]">Balance</span>
+              <span className="font-bold text-[#06B6D4]">{minutesBalance} min</span>
+            </div>
+            <button
+              onClick={() => setTopUpOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#333333] bg-[#111111] hover:border-[#555555] hover:bg-[#1A1A1A] text-xs font-medium text-white transition-all"
+            >
+              <Zap size={12} className="text-[#F59E0B]" />
+              Top up
+            </button>
+            <TestSessionButton />
+          </div>
         </div>
         <p className="text-[#94A3B8] text-sm">
           {grouped.length > 0

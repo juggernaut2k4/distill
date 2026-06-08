@@ -394,7 +394,7 @@ export async function sendPlanApprovedEmail(user: User): Promise<EmailResult> {
       to: user.email,
       subject: 'Your Clio learning plan is approved — let\'s get started',
       html: buildPlanApprovedEmailHtml(appUrl),
-      text: `Your personalized AI learning journey is confirmed. Schedule your first session at ${appUrl}/dashboard/schedule`,
+      text: `Your personalized AI learning journey is confirmed. Schedule your first session at ${appUrl}/dashboard/sessions`,
     })
 
     logEmailResult('sendPlanApprovedEmail', user.email, result)
@@ -679,7 +679,7 @@ function buildPlanApprovedEmailHtml(appUrl: string): string {
         </div>
         <p style="color:#ffffff;font-size:16px;font-weight:600;margin:0 0 8px;">Plan confirmed</p>
         <p style="color:#94A3B8;font-size:14px;margin:0 0 24px;">Choose your session times to lock in your learning schedule.</p>
-        <a href="${appUrl}/dashboard/schedule" style="background:#7C3AED;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:700;display:inline-block;">Schedule Your Sessions →</a>
+        <a href="${appUrl}/dashboard/sessions" style="background:#7C3AED;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:700;display:inline-block;">Schedule Your Sessions →</a>
       </div>
       <p style="color:#475569;font-size:12px;text-align:center;">
         <a href="${appUrl}/dashboard" style="color:#7C3AED;">Dashboard</a>

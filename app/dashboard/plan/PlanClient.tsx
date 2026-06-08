@@ -524,7 +524,7 @@ export default function PlanClient({ user }: { user: User }) {
               onStartSession={(id) => {
                 // id is db_session_id (UUID) when plan is approved, session_id slug otherwise
                 const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)
-                router.push(isUuid ? `/dashboard/sessions/${id}` : `/dashboard/schedule`)
+                router.push(isUuid ? `/dashboard/sessions/${id}` : `/dashboard/sessions`)
               }}
               defaultExpanded
             />
@@ -599,8 +599,8 @@ export default function PlanClient({ user }: { user: User }) {
               transition={{ delay: 0.4 }}
               className="flex items-center gap-4 flex-wrap pt-2"
             >
-              <Button onClick={() => router.push('/dashboard/schedule')} size="lg" className="gap-2">
-                Go to Schedule
+              <Button onClick={() => router.push('/dashboard/sessions')} size="lg" className="gap-2">
+                Go to Sessions
                 <ArrowRight size={18} />
               </Button>
               <button

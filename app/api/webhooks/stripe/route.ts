@@ -214,7 +214,7 @@ export async function POST(request: NextRequest) {
   <strong style="color:#10B981;">${minutes} coaching minutes</strong> have been added to your account.<br>
   New balance: <strong style="color:#fff;">${newBalance} minutes</strong>.
 </p>
-<a href="${appUrl}/dashboard/schedule" style="background:#7C3AED;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:700;display:inline-block;">Schedule Your Sessions →</a>
+<a href="${appUrl}/dashboard/sessions" style="background:#7C3AED;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:700;display:inline-block;">Schedule Your Sessions →</a>
 </td></tr>
 </table>
 </body></html>`,
@@ -227,7 +227,7 @@ export async function POST(request: NextRequest) {
             sendSMS(
               topupUser.phone,
               topupUser.twilio_number_assigned,
-              `Clio: ${minutes} minutes added! New balance: ${newBalance} min. Ready to schedule: ${appUrl}/dashboard/schedule`
+              `Clio: ${minutes} minutes added! New balance: ${newBalance} min. Ready to schedule: ${appUrl}/dashboard/sessions`
             ).catch(console.error)
           }
 

@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
   const appUrl = returnUrl ?? process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
   const scheduleBase = returnUrl
     ? returnUrl.replace(/\?.*$/, '') // strip any query string from returnUrl, treat as base
-    : `${appUrl}/dashboard/schedule`
+    : `${appUrl}/dashboard/sessions`
 
   if (!stripe) {
     console.log('[MOCK] topup checkout', { userId, minutes, unitAmount })
