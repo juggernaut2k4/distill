@@ -9,15 +9,15 @@ import type { EnrichedPlan, RawLlmOutput } from './types'
 
 export const SessionSchema = z.object({
   session_id: z.string().min(1).max(128),
-  title: z.string().min(3).max(100),
-  focus: z.string().min(10).max(300),
+  title: z.string().min(3).max(200),
+  focus: z.string().min(10).max(1000),
   arc_position: z.number().int().min(1),
   arc_length: z.number().int().min(1),
   depth_level: z.enum(['beginner', 'intermediate', 'advanced']),
-  role_hint: z.string().min(5).max(300),
-  subtopics: z.array(z.string().min(3).max(500)).min(1).max(30),
+  role_hint: z.string().min(5).max(1000),
+  subtopics: z.array(z.string().min(3).max(1000)).min(1).max(30),
   is_visible: z.boolean(),
-  queue_rationale: z.string().max(500).nullable(),
+  queue_rationale: z.string().max(2000).nullable(),
 })
 
 export const ArcSchema = z.object({
