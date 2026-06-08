@@ -489,7 +489,7 @@ export async function generateCurriculumPlan(input: PlannerInput): Promise<Plann
   // Single attempt — retries triple the time budget and cause 504s when Zod
   // validation fails (e.g. Claude generates >20 subtopics). Fail fast to fallback.
   const controller = new AbortController()
-  const callTimeout = setTimeout(() => controller.abort(), 90_000)
+  const callTimeout = setTimeout(() => controller.abort(), 180_000)
 
   try {
     const message = await client.messages.create(
