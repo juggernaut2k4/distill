@@ -102,6 +102,23 @@ export const sessionContentAsync = inngest.createFunction(
       (session as unknown as { curriculum_session_id?: string | null }).curriculum_session_id ??
       (Array.isArray(rawTopics) && typeof rawTopics[0] === 'string' ? rawTopics[0] : null) ??
       'ai-fundamentals'
+
+    // Guard: 'ai-fundamentals' is a real topic slug. If a curriculum session falls back to it,
+    // content gets stored under the wrong key and recall/bot can't find it at launch time.
+    // Fail the job loudly here rather than silently corrupt the cache.
+    const curriculumSessionId = (session as unknown as { curriculum_session_id?: string | null }).curriculum_session_id
+    if (topicId === 'ai-fundamentals' && curriculumSessionId) {
+      const errMsg =
+        `topicId resolved to 'ai-fundamentals' for curriculum session ` +
+        `(id=${sessionId}, curriculum_session_id=${curriculumSessionId}). ` +
+        `Cache key would be wrong — check topicId derivation.`
+      await supabase
+        .from('async_jobs')
+        .update({ status: 'failed', error_message: errMsg, completed_at: new Date().toISOString() })
+        .eq('id', jobId)
+      throw new Error(errMsg)
+    }
+
     const topicTitle = session.session_title ?? 'AI Strategy Session'
     const sessionDurationMins: number = (session as { duration_mins?: number }).duration_mins ?? 30
     const planSubtopics = (session.session_plan as SessionPlan | null)?.subtopics

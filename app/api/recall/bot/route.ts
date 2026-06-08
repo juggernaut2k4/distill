@@ -223,6 +223,24 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // ── Guard: refuse to launch a curriculum session with no content ────────
+    // A missing-sections launch silently degrades to on-the-fly generation —
+    // invisible during the call and much harder to debug than a clear error now.
+    if (isCurriculumSession && freshSections.length === 0) {
+      console.error(
+        `[recall/bot] BLOCKED: no sections in topic_content_cache for ` +
+        `curriculum session topic_id=${topicId} session=${sessionId}. ` +
+        `Run generate-content for this session first.`
+      )
+      return NextResponse.json(
+        {
+          error: 'Session content not ready. Please generate content for this session before launching.',
+          code: 'CONTENT_NOT_READY',
+        },
+        { status: 400 }
+      )
+    }
+
     // ── Step 3: Write context to walkthrough_state BEFORE bot creation ───────
     // Critical: Recall.ai loads walkthroughUrl immediately after createBot returns.
     // If context is stored after bot creation, the server-render races and
