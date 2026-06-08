@@ -1,12 +1,16 @@
 /**
- * Hourly cron: proactively generates content for Sessions 2+ for every user.
+ * Hourly cron: proactively generates content for sessions per user.
  *
- * Session 1 is handled immediately on schedule confirmation (via session-content-pipeline).
- * This job picks up the next pending session per user (session_index > 1) and fires
- * the content generation pipeline for it.
+ * Each tick performs three tasks in order:
+ *   1. Stale-ready recovery — sessions marked 'ready' with no topic_content_cache rows
+ *      are silently broken; reset them to 'pending' so the pipeline re-runs.
+ *   2. Pending generation — fire content pipeline for sessions not yet generated,
+ *      excluding any session currently in-flight (content_status='generating').
+ *   3. Empty-subtopic guard — never fire the pipeline for sessions with no subtopics
+ *      designed yet; prevents ai-fundamentals fallback content being stored under
+ *      the wrong cache key.
  *
- * Rate: one session per user per hour. Prevents thundering-herd and stays within
- * Claude API rate limits even with many concurrent users.
+ * Rate: one old-style session per user per hour. Curriculum sessions: all pending.
  */
 
 import { inngest } from './client'
@@ -21,25 +25,66 @@ export const sessionContentCron = inngest.createFunction(
   async ({ step }) => {
     const supabase = createSupabaseAdminClient()
 
-    const SELECT_COLS = 'id, user_id, session_index, session_title, topic_id, topics, duration_mins, curriculum_session_id'
+    // ── Task 1: Stale-ready recovery ─────────────────────────────────────────
+    // A session with content_status='ready' but zero topic_content_cache rows
+    // will return CONTENT_NOT_READY when launched. Reset it to 'pending' so
+    // the cron re-queues it for generation this tick.
+    const recoveryResult = await step.run('reset-stale-ready-sessions', async () => {
+      const { data: candidateSessions } = await supabase
+        .from('sessions')
+        .select('id, curriculum_session_id')
+        .eq('content_status', 'ready')
+        .eq('status', 'scheduled')
+        .not('curriculum_session_id', 'is', null)
 
-    // Branch 1: old-style sessions (have scheduled_at, session_index > 1)
+      if (!candidateSessions?.length) return { reset: 0 }
+
+      const staleIds: string[] = []
+      await Promise.all(
+        candidateSessions.map(async (s) => {
+          const { count } = await supabase
+            .from('topic_content_cache')
+            .select('id', { count: 'exact', head: true })
+            .eq('topic_id', s.curriculum_session_id!)
+            .eq('pipeline_status', 'ready')
+          if ((count ?? 0) === 0) staleIds.push(s.id)
+        })
+      )
+
+      if (staleIds.length === 0) return { reset: 0 }
+
+      await supabase
+        .from('sessions')
+        .update({ content_status: 'pending' })
+        .in('id', staleIds)
+
+      console.log(`[session-content-cron] Stale-ready reset: ${staleIds.length} sessions`, staleIds)
+      return { reset: staleIds.length }
+    })
+
+    // ── Task 2: Query pending sessions ───────────────────────────────────────
+    // Fix 1: exclude 'generating' to prevent duplicate parallel pipeline runs.
+    const SELECT_COLS = 'id, user_id, session_index, session_title, topic_id, topics, duration_mins, curriculum_session_id, subtopics'
+
+    // Branch A: old-style sessions (have scheduled_at, session_index > 1)
     const { data: oldStyleSessions, error: err1 } = await supabase
       .from('sessions')
       .select(SELECT_COLS)
       .eq('status', 'scheduled')
       .not('content_status', 'eq', 'ready')
+      .not('content_status', 'eq', 'generating')
       .gt('session_index', 1)
       .not('scheduled_at', 'is', null)
       .gt('scheduled_at', new Date().toISOString())
       .order('session_index', { ascending: true })
 
-    // Branch 2: curriculum sessions (no scheduled_at, have curriculum_session_id)
+    // Branch B: curriculum sessions (no scheduled_at, have curriculum_session_id)
     const { data: curriculumSessions, error: err2 } = await supabase
       .from('sessions')
       .select(SELECT_COLS)
       .eq('status', 'scheduled')
       .not('content_status', 'eq', 'ready')
+      .not('content_status', 'eq', 'generating')
       .not('curriculum_session_id', 'is', null)
       .order('session_index', { ascending: true })
 
@@ -48,7 +93,16 @@ export const sessionContentCron = inngest.createFunction(
 
     // Merge and deduplicate by session id
     const seen = new Set<string>()
-    const allPending: Array<{ id: string; user_id: string; session_index: number; session_title: string | null; topic_id: string | null; topics: unknown; curriculum_session_id: string | null }> = []
+    const allPending: Array<{
+      id: string
+      user_id: string
+      session_index: number
+      session_title: string | null
+      topic_id: string | null
+      topics: unknown
+      curriculum_session_id: string | null
+      subtopics: unknown
+    }> = []
     for (const s of [...(oldStyleSessions ?? []), ...(curriculumSessions ?? [])]) {
       if (!seen.has(s.id)) {
         seen.add(s.id)
@@ -58,17 +112,31 @@ export const sessionContentCron = inngest.createFunction(
 
     if (allPending.length === 0) {
       console.log('[session-content-cron] No pending sessions found this hour')
-      return { processed: 0 }
+      return { processed: 0, staleReset: recoveryResult.reset }
     }
 
-    // For old-style sessions: throttle to one per user (lowest session_index).
-    // For curriculum sessions: fire all — approve route handles initial load,
-    // cron is the recovery mechanism so all pending sessions need processing.
+    // ── Task 3: Build firing targets ─────────────────────────────────────────
+    // Old-style: one per user (lowest session_index).
+    // Curriculum: all pending, but skip any session with no subtopics designed yet
+    // (Fix 3: pipeline would silently fall back to ai-fundamentals subtopics and
+    // store content under the wrong cache key).
     const perUserOldStyle = new Map<string, typeof allPending[0]>()
     const curriculumTargets: typeof allPending = []
+    const skippedNoSubtopics: string[] = []
 
     for (const session of allPending) {
       if (session.curriculum_session_id) {
+        const hasSubtopics =
+          Array.isArray(session.subtopics) && (session.subtopics as unknown[]).length > 0
+        const hasTopics =
+          Array.isArray(session.topics) && (session.topics as unknown[]).length > 0
+        if (!hasSubtopics && !hasTopics) {
+          skippedNoSubtopics.push(session.id)
+          console.log(
+            `[session-content-cron] Skipping ${session.id} ("${session.session_title}") — no subtopics designed yet`
+          )
+          continue
+        }
         curriculumTargets.push(session)
       } else if (!perUserOldStyle.has(session.user_id)) {
         perUserOldStyle.set(session.user_id, session)
@@ -76,9 +144,13 @@ export const sessionContentCron = inngest.createFunction(
     }
 
     const targets = [...Array.from(perUserOldStyle.values()), ...curriculumTargets]
-    console.log(`[session-content-cron] Processing ${targets.length} sessions (${perUserOldStyle.size} old-style, ${curriculumTargets.length} curriculum)`)
+    console.log(
+      `[session-content-cron] Firing ${targets.length} sessions ` +
+      `(${perUserOldStyle.size} old-style, ${curriculumTargets.length} curriculum, ` +
+      `${skippedNoSubtopics.length} skipped — no subtopics)`
+    )
 
-    // Fire content generation event for each target session
+    // ── Fire content generation events ───────────────────────────────────────
     await step.run('fire-content-generation-events', async () => {
       const events = targets.map((session) => ({
         name: 'distill/session.content.generate' as const,
@@ -98,6 +170,8 @@ export const sessionContentCron = inngest.createFunction(
 
     return {
       processed: targets.length,
+      staleReset: recoveryResult.reset,
+      skippedNoSubtopics: skippedNoSubtopics.length,
       sessionIds: targets.map((s) => s.id),
     }
   }
