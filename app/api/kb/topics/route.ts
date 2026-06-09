@@ -37,6 +37,26 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Database error' }, { status: 500 })
   }
 
+  // Build a map of curriculum_session_id → canonical arc title from the sessions table.
+  // Use the session_title of the lowest session_index per arc so the KB label matches
+  // the actual first session the user attends, not a random subtopic string.
+  const distinctTopicIds = Array.from(new Set((rows ?? []).map((r) => r.topic_id).filter(Boolean)))
+  const arcTitleMap = new Map<string, string>()
+
+  if (distinctTopicIds.length > 0) {
+    const { data: sessionRows } = await supabase
+      .from('sessions')
+      .select('curriculum_session_id, session_title, session_index')
+      .in('curriculum_session_id', distinctTopicIds)
+      .order('session_index', { ascending: true })
+
+    for (const s of (sessionRows ?? [])) {
+      if (s.curriculum_session_id && !arcTitleMap.has(s.curriculum_session_id)) {
+        arcTitleMap.set(s.curriculum_session_id, s.session_title ?? s.curriculum_session_id)
+      }
+    }
+  }
+
   // Group rows by topic_id
   const topicMap = new Map<string, {
     topic_id: string
@@ -47,7 +67,9 @@ export async function GET(request: NextRequest) {
   }>()
 
   for (const row of (rows ?? [])) {
-    const topicTitle = row.subtopic_title?.split('—')[0]?.trim() ?? row.topic_id
+    const topicTitle = arcTitleMap.get(row.topic_id)
+      ?? row.subtopic_title?.split('—')[0]?.trim()
+      ?? row.topic_id
 
     if (!topicMap.has(row.topic_id)) {
       topicMap.set(row.topic_id, {
