@@ -113,29 +113,32 @@ export async function POST(request: NextRequest) {
     .eq('status', 'draft')
     .select('id')
 
-  // ── Fire content generation for all newly activated curriculum sessions ──────
-  // Non-fatal — hourly cron will catch any sessions missed here.
+  // ── Fire content generation for Session 1 only on approval ──────────────────
+  // Only the first session (lowest session_index) is generated immediately so the
+  // user's KB shows their actual first session — not a random later arc.
+  // The hourly cron picks up sessions 2-N in order as each becomes pending.
   try {
     const { data: activatedSessions } = await supabase
       .from('sessions')
-      .select('id, curriculum_session_id')
+      .select('id, curriculum_session_id, session_index')
       .eq('user_id', userId!)
       .eq('curriculum_plan_id', plan.id)
       .eq('status', 'scheduled')
       .not('curriculum_session_id', 'is', null)
+      .order('session_index', { ascending: true })
 
     if (activatedSessions && activatedSessions.length > 0) {
-      const events = activatedSessions.map((s) => ({
+      const firstSession = activatedSessions[0]
+      await inngest.send({
         name: 'distill/session.content.generate' as const,
         data: {
-          sessionId: s.id,
+          sessionId: firstSession.id,
           userId: userId!,
-          topicId: s.curriculum_session_id!,
+          topicId: firstSession.curriculum_session_id!,
           priority: 'high',
         },
-      }))
-      await inngest.send(events)
-      console.log(`[plan/approve] Fired content generation for ${events.length} curriculum sessions`)
+      })
+      console.log(`[plan/approve] Fired content generation for Session 1 (id: ${firstSession.id}). Sessions 2–${activatedSessions.length} handled by hourly cron.`)
     }
   } catch (err) {
     console.error('[plan/approve] Content generation trigger failed (non-fatal):', err)
