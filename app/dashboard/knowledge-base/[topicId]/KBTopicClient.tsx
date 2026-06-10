@@ -97,10 +97,28 @@ interface ContentOutline {
   builds_on?: string[]
 }
 
+interface ArcSession {
+  session_id: string
+  title: string
+  session_index: number
+  subtopic_count: number
+  status: string
+}
+
+interface Arc {
+  title: string
+  focus: string | null
+  sessions: ArcSession[]
+  total_subtopics: number
+  total_sessions: number
+  completed_sessions: number
+}
+
 interface Props { topicId: string }
 
 export default function KBTopicClient({ topicId }: Props) {
   const [sections, setSections] = useState<SectionState[]>([])
+  const [arc, setArc] = useState<Arc | null>(null)
   const [topicTitle, setTopicTitle] = useState<string>('')
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -144,6 +162,7 @@ export default function KBTopicClient({ topicId }: Props) {
       })))
       const first = rows[0]
       setTopicTitle(first?.section_data?.meta?.sessionTitle ?? topicId)
+      setArc((data.arc as Arc) ?? null)
     } catch {
       setLoadError('Connection error. Please refresh.')
     } finally {
@@ -366,6 +385,50 @@ export default function KBTopicClient({ topicId }: Props) {
           </div>
         </div>
       </div>
+
+      {/* ── Overview card (KB-03) ── */}
+      {arc && (
+        <div className="bg-[#111111] border border-[#222222] rounded-2xl p-6 mb-6">
+          <p className="text-xl font-bold text-white">{arc.title}</p>
+          {arc.focus && (
+            <p className="text-sm text-[#94A3B8] mt-1 leading-relaxed">{arc.focus}</p>
+          )}
+
+          <p className="text-xs font-semibold text-[#475569] uppercase tracking-wider mt-4 mb-2">
+            What you&apos;ll cover
+          </p>
+
+          <div className="space-y-0.5">
+            {arc.sessions.map((session, i) => {
+              const isCompleted = session.status === 'completed'
+              const isNext = !isCompleted && arc.sessions.slice(0, i).every((s) => s.status === 'completed')
+              const statusLabel = isCompleted ? 'Completed' : isNext ? 'Next up' : 'Upcoming'
+
+              return (
+                <div key={session.session_id} className="flex items-center gap-3 py-1.5">
+                  {isCompleted ? (
+                    <span className="text-base shrink-0" aria-label="Completed">✅</span>
+                  ) : isNext ? (
+                    <span className="text-[#06B6D4] text-sm font-bold shrink-0 w-4 text-center">→</span>
+                  ) : (
+                    <span className="text-[#475569] text-sm shrink-0 w-4 text-center">○</span>
+                  )}
+                  <span className={`text-sm ${isCompleted || isNext ? 'text-white' : 'text-[#475569]'}`}>
+                    {session.title}
+                  </span>
+                  <span className="text-xs text-[#475569] ml-auto shrink-0">
+                    {session.subtopic_count} {session.subtopic_count === 1 ? 'subtopic' : 'subtopics'} · {statusLabel}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+
+          <p className="text-xs text-[#475569] mt-4 pt-4 border-t border-[#222222]">
+            {arc.total_subtopics} subtopics · {arc.total_sessions} {arc.total_sessions === 1 ? 'session' : 'sessions'} · {arc.completed_sessions} of {arc.total_sessions} completed
+          </p>
+        </div>
+      )}
 
       {/* ── Session Preview (tab-aware) ── */}
       <div style={{ height: '70vh' }}>

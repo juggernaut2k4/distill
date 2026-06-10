@@ -210,7 +210,7 @@ export const sessionContentPipeline = inngest.createFunction(
         const expiresAt = new Date()
         expiresAt.setDate(expiresAt.getDate() + ttlDays)
 
-        await supabase
+        const { error: upsertError } = await supabase
           .from('topic_content_cache')
           .upsert(
             {
@@ -231,11 +231,36 @@ export const sessionContentPipeline = inngest.createFunction(
             },
             { onConflict: 'topic_id,subtopic_slug' }
           )
+
+        if (upsertError) {
+          console.error('[session-content-pipeline] upsert failed for subtopic:', subtopicSlug, upsertError.message)
+          throw new Error(`Cache upsert failed for ${subtopicSlug}: ${upsertError.message}`)
+        }
       })
     }
 
     // ── Step 6: Mark session as ready ───────────────────────────────────────
     await step.run('mark-session-ready', async () => {
+      // Guard: verify the DB actually has rows for this topic before marking ready.
+      // This prevents silent-failure loops where all upserts fail but the session
+      // gets marked ready with 0 content, triggering stale-ready recovery → repeat.
+      const { count, error: countError } = await supabase
+        .from('topic_content_cache')
+        .select('id', { count: 'exact', head: true })
+        .eq('topic_id', topicId)
+
+      if (countError) {
+        console.error('[session-content-pipeline] count check failed for topic:', topicId, countError.message)
+        throw new Error(`Cache count check failed for topic ${topicId}: ${countError.message}`)
+      }
+
+      if (!count || count === 0) {
+        console.error('[session-content-pipeline] topic_content_cache has 0 rows for topic:', topicId, '— not marking ready')
+        throw new Error(`topic_content_cache has 0 rows for topic ${topicId} — not marking ready`)
+      }
+
+      console.log(`[session-content-pipeline] verified ${count} cache row(s) for topic ${topicId} — marking session ready`)
+
       await supabase
         .from('sessions')
         .update({ content_status: 'ready' })

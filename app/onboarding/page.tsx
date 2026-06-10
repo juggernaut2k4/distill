@@ -14,8 +14,8 @@ import {
 
 // ─── Step definitions ─────────────────────────────────────────────────────────
 
-const TOTAL_STEPS = 6
-// 0: Level  1: Department → resolves roleId  2: Industry  3: AI Engagement  4: Domains  5: Goal (auto-advance)
+const TOTAL_STEPS = 7
+// 0: Level  1: Department → resolves roleId  2: Industry  3: AI Engagement  4: Domains  5: Proficiency  6: Goal
 
 // ─── Sub-domain lists per primary domain ──────────────────────────────────────
 
@@ -491,6 +491,7 @@ function OnboardingContent() {
   const [aiEngagement, setAiEngagement] = useState<'observer' | 'emerging' | 'practitioner' | 'leader' | ''>('')  // step 3
   const [selectedDomains, setSelectedDomains] = useState<string[]>([])
   const [customDomains, setCustomDomains] = useState<string[]>([])
+  const [domainProficiency, setDomainProficiency] = useState<Record<string, Proficiency>>({})
   const [learningGoal, setLearningGoal] = useState<LearningGoal | ''>('')
   const goalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -520,6 +521,7 @@ function OnboardingContent() {
         aiEngagement: (parsed.aiMaturity ?? '') as 'observer' | 'emerging' | 'practitioner' | 'leader' | '',
         selectedDomains: parsed.domains ?? [],
         customDomains: parsed.customDomains ?? [],
+        domainProficiency: (parsed.domainProficiency ?? {}) as Record<string, Proficiency>,
       }
       submitOnboarding(parsed.learningGoal as LearningGoal, snapshot)
     } catch {
@@ -535,9 +537,14 @@ function OnboardingContent() {
     if (step === 2) return industry !== ''
     if (step === 3) return aiEngagement !== ''
     if (step === 4) return selectedDomains.length > 0 || customDomains.length > 0
-    if (step === 5) return learningGoal !== ''
+    if (step === 5) {
+      // Every selected domain must have a proficiency level set
+      const allDomainKeys = [...selectedDomains, ...customDomains]
+      return allDomainKeys.length > 0 && allDomainKeys.every((k) => domainProficiency[k] !== undefined)
+    }
+    if (step === 6) return learningGoal !== ''
     return false
-  }, [step, roleLevel, role, industry, aiEngagement, selectedDomains, customDomains, learningGoal])
+  }, [step, roleLevel, role, industry, aiEngagement, selectedDomains, customDomains, domainProficiency, learningGoal])
 
   // ── Domain handlers ─────────────────────────────────────────────────────────
   function toggleDomain(id: string) {
@@ -550,6 +557,9 @@ function OnboardingContent() {
   }
   function removeCustomDomain(label: string) {
     setCustomDomains((prev) => prev.filter((x) => x !== label))
+  }
+  function handleProficiencyChange(domainKey: string, level: Proficiency) {
+    setDomainProficiency((prev) => ({ ...prev, [domainKey]: level }))
   }
 
   // ── Goal selection — just records the choice, Continue button triggers submit ─
@@ -564,7 +574,7 @@ function OnboardingContent() {
     // Last step: show spinner immediately, then fetch auth token and submit
     if (step === TOTAL_STEPS - 1) {
       setBuilding(true)
-      const snapshot = { role, roleLevel, industry, aiEngagement, selectedDomains, customDomains }
+      const snapshot = { role, roleLevel, industry, aiEngagement, selectedDomains, customDomains, domainProficiency }
       const goal = learningGoal as LearningGoal
       ;(async () => {
         let authToken: string | null = null
@@ -598,7 +608,7 @@ function OnboardingContent() {
   // Retries up to 3 times on session_not_ready (Clerk session propagation delay).
   async function submitOnboarding(
     finalGoal: LearningGoal | '',
-    snapshot?: { role: string; roleLevel: string; industry: string; aiEngagement: string; selectedDomains: string[]; customDomains: string[] },
+    snapshot?: { role: string; roleLevel: string; industry: string; aiEngagement: string; selectedDomains: string[]; customDomains: string[]; domainProficiency?: Record<string, Proficiency> },
     retryCount = 0,
     authToken?: string
   ) {
@@ -608,6 +618,7 @@ function OnboardingContent() {
     const eng = snapshot?.aiEngagement ?? aiEngagement
     const domains = snapshot?.selectedDomains ?? selectedDomains
     const custom = snapshot?.customDomains ?? customDomains
+    const proficiency = snapshot?.domainProficiency ?? domainProficiency
     const primaryDomain = domains[0] ?? custom[0] ?? 'ai-ml'
 
     const payload = {
@@ -621,7 +632,7 @@ function OnboardingContent() {
       domains,
       customDomains: custom,
       primaryDomain,
-      domainProficiency: {},
+      domainProficiency: proficiency,
       learningGoal: finalGoal,
       subDomain: ind,  // backward compat: same value as industry
     }
@@ -778,7 +789,16 @@ function OnboardingContent() {
               />
             )}
 
-            {step === 5 && <GoalStep value={learningGoal} onChange={(v) => setLearningGoal(v)} />}
+            {step === 5 && (
+              <ProficiencyStep
+                selectedDomainIds={selectedDomains}
+                customDomains={customDomains}
+                proficiencies={domainProficiency}
+                onChange={handleProficiencyChange}
+              />
+            )}
+
+            {step === 6 && <GoalStep value={learningGoal} onChange={(v) => setLearningGoal(v)} />}
           </motion.div>
         </AnimatePresence>
 
