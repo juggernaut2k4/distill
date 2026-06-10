@@ -156,7 +156,7 @@ export async function POST(request: NextRequest) {
   // ── Update user ───────────────────────────────────────────────────────────────
   await supabase
     .from('users')
-    .update({ plan_approved: true, active_plan_id: plan.id })
+    .update({ plan_approved: true, active_plan_id: plan.id, plan_approved_at: new Date().toISOString() })
     .eq('id', userId!)
 
   // ── Notify ────────────────────────────────────────────────────────────────────

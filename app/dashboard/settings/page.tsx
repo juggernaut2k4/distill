@@ -11,7 +11,7 @@ export default async function SettingsPage() {
   const supabase = createSupabaseAdminClient()
   const { data: user } = await supabase
     .from('users')
-    .select('id, email, plan_tier, subscription_status, stripe_subscription_id, plan_approved')
+    .select('id, email, plan_tier, subscription_status, stripe_subscription_id, plan_approved, scheduling_prefs')
     .eq('id', userId)
     .single()
 
@@ -24,6 +24,7 @@ export default async function SettingsPage() {
         planTier={user.plan_tier ?? 'free'}
         subscriptionStatus={user.subscription_status ?? 'inactive'}
         hasSubscription={!!user.stripe_subscription_id}
+        schedulingPrefs={user.scheduling_prefs ?? null}
       />
     </DashboardShell>
   )

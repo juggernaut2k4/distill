@@ -48,17 +48,28 @@ export async function POST(request: NextRequest) {
     .eq('user_id', userId!)
     .eq('status', 'scheduled')
 
-  // Insert new sessions
-  const rows = parsed.data.sessions.map((s) => ({
-    user_id: userId!,
-    session_index: s.sessionIndex,
-    session_title: s.title,
-    topic_id: s.topicId,
-    topics: s.topics,
-    scheduled_at: s.scheduledAt,
-    duration_mins: s.estimatedMinutes,
-    status: 'scheduled',
-  }))
+  // Fetch session indexes that are protected (completed or active) — skip on re-insert
+  const { data: protectedRows } = await supabase
+    .from('sessions')
+    .select('session_index')
+    .eq('user_id', userId!)
+    .in('status', ['completed', 'active'])
+
+  const protectedIndexes = new Set((protectedRows ?? []).map((r: { session_index: number }) => r.session_index))
+
+  // Insert new sessions, skipping any index already occupied by a protected session
+  const rows = parsed.data.sessions
+    .filter((s) => !protectedIndexes.has(s.sessionIndex))
+    .map((s) => ({
+      user_id: userId!,
+      session_index: s.sessionIndex,
+      session_title: s.title,
+      topic_id: s.topicId,
+      topics: s.topics,
+      scheduled_at: s.scheduledAt,
+      duration_mins: s.estimatedMinutes,
+      status: 'scheduled',
+    }))
 
   const { data: insertedRows, error: insertError } = await supabase
     .from('sessions')
@@ -66,6 +77,12 @@ export async function POST(request: NextRequest) {
     .select('id, session_index')
 
   if (insertError) {
+    if (insertError.code === '23505') {
+      return NextResponse.json(
+        { error: 'Schedule conflict — some sessions already exist at those indexes.' },
+        { status: 409 }
+      )
+    }
     console.error('[schedule] Insert error:', insertError)
     return NextResponse.json({ error: 'Failed to save sessions' }, { status: 500 })
   }
@@ -100,7 +117,7 @@ export async function POST(request: NextRequest) {
   // topicId is now always populated by lib/sessions/planner.ts — no fallback needed.
   const firstSessionId = indexToId.get(1)
   const firstSession = parsed.data.sessions.find((s) => s.sessionIndex === 1)
-  if (firstSessionId && firstSession?.topicId) {
+  if (firstSessionId && firstSession?.topicId && !protectedIndexes.has(1)) {
     inngest
       .send({
         name: 'distill/session.content.generate' as const,

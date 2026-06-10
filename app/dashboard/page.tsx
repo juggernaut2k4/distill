@@ -104,6 +104,7 @@ export default async function DashboardPage() {
         monthlyCount={monthlyCount ?? 0}
         todayDelivery={todayDelivery}
         nextSession={nextSession ?? null}
+        schedulingPrefsNull={user.scheduling_prefs === null || user.scheduling_prefs === undefined}
       />
     </DashboardShell>
   )

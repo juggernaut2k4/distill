@@ -4,15 +4,37 @@ import { useState } from 'react'
 import { useClerk } from '@clerk/nextjs'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { LogOut, AlertTriangle, CheckCircle, Loader, ShieldOff, User, Trash2 } from 'lucide-react'
+import { LogOut, AlertTriangle, CheckCircle, Loader, ShieldOff, User, Trash2, CalendarDays, Clock, Globe } from 'lucide-react'
+import Link from 'next/link'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
+
+interface SchedulingPrefsData {
+  selectedDays: number[]
+  preferredHour: number
+  preferredMinute: number
+  ampm: 'AM' | 'PM'
+  maxDurationMins: number
+  timezone: string
+}
 
 interface Props {
   email: string
   planTier: string
   subscriptionStatus: string
   hasSubscription: boolean
+  schedulingPrefs: SchedulingPrefsData | null
+}
+
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+function formatDays(days: number[]): string {
+  return [...days].sort((a, b) => a - b).map((d) => DAY_NAMES[d]).join(' · ')
+}
+
+function formatTime(prefs: SchedulingPrefsData): string {
+  const min = String(prefs.preferredMinute).padStart(2, '0')
+  return `${prefs.preferredHour}:${min} ${prefs.ampm}`
 }
 
 const PLAN_LABEL: Record<string, string> = {
@@ -22,7 +44,7 @@ const PLAN_LABEL: Record<string, string> = {
   executive: 'Executive',
 }
 
-export default function SettingsClient({ email, planTier, subscriptionStatus, hasSubscription }: Props) {
+export default function SettingsClient({ email, planTier, subscriptionStatus, hasSubscription, schedulingPrefs }: Props) {
   const { signOut } = useClerk()
   const router = useRouter()
 
@@ -85,8 +107,48 @@ export default function SettingsClient({ email, planTier, subscriptionStatus, ha
         <p className="text-sm text-[#475569]">Manage your account and subscription</p>
       </motion.div>
 
-      {/* Account */}
+      {/* Schedule */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
+        <p className="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-3">Schedule</p>
+        {schedulingPrefs ? (
+          <Card>
+            <div className="space-y-3 p-4">
+              <div className="flex items-center gap-3">
+                <CalendarDays size={14} className="text-[#475569]" />
+                <span className="text-xs text-[#475569] w-20">Days</span>
+                <span className="text-sm text-white">{formatDays(schedulingPrefs.selectedDays)}</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <Clock size={14} className="text-[#475569]" />
+                <span className="text-xs text-[#475569] w-20">Time</span>
+                <span className="text-sm text-white">{formatTime(schedulingPrefs)}</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <Clock size={14} className="text-[#475569]" />
+                <span className="text-xs text-[#475569] w-20">Duration</span>
+                <span className="text-sm text-white">{schedulingPrefs.maxDurationMins} min</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <Globe size={14} className="text-[#475569]" />
+                <span className="text-xs text-[#475569] w-20">Timezone</span>
+                <span className="text-sm text-white">{schedulingPrefs.timezone}</span>
+              </div>
+            </div>
+          </Card>
+        ) : (
+          <Card className="p-4">
+            <p className="text-sm text-[#475569]">
+              No schedule set yet.{' '}
+              <Link href="/dashboard/schedule-setup" className="text-[#7C3AED] underline">
+                Set up your schedule →
+              </Link>
+            </p>
+          </Card>
+        )}
+      </motion.div>
+
+      {/* Account */}
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
         <h2 className="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-3">Account</h2>
         <Card>
           <div className="divide-y divide-[#1A1A1A]">
@@ -118,7 +180,7 @@ export default function SettingsClient({ email, planTier, subscriptionStatus, ha
       </motion.div>
 
       {/* Sign out */}
-      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
         <h2 className="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-3">Session</h2>
         <Card className="p-4">
           <div className="flex items-center justify-between">

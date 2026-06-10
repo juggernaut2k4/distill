@@ -2,7 +2,7 @@
 
 import { motion } from 'framer-motion'
 import Link from 'next/link'
-import { Clock, ChevronRight, FlaskConical, Loader2, BookOpen, Link as LinkIcon, Loader, Zap } from 'lucide-react'
+import { Clock, ChevronRight, FlaskConical, Loader2, BookOpen, Link as LinkIcon, Loader, Zap, CalendarDays } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { TopUpModal } from '@/components/ui/TopUpModal'
 import { useState } from 'react'
@@ -23,6 +23,7 @@ interface SessionsClientProps {
   sessions: Session[]
   topicTitleMap: Record<string, string>
   minutesBalance?: number
+  schedulingPrefsNull?: boolean
 }
 
 const STATUS_STYLE: Record<string, { label: string; className: string }> = {
@@ -287,7 +288,7 @@ function TestSessionButton() {
   )
 }
 
-export default function SessionsClient({ sessions, topicTitleMap, minutesBalance = 0 }: SessionsClientProps) {
+export default function SessionsClient({ sessions, topicTitleMap, minutesBalance = 0, schedulingPrefsNull }: SessionsClientProps) {
   const [topUpOpen, setTopUpOpen] = useState(false)
   // Group sessions by curriculum topic
   const grouped: TopicGroup[] = []
@@ -324,6 +325,22 @@ export default function SessionsClient({ sessions, topicTitleMap, minutesBalance
   return (
     <div className="space-y-8 max-w-3xl">
       <TopUpModal open={topUpOpen} onClose={() => setTopUpOpen(false)} currentBalance={minutesBalance} />
+
+      {/* Schedule setup banner — shown when scheduling prefs not yet configured */}
+      {schedulingPrefsNull && (
+        <div className="flex items-center justify-between bg-amber-950/20 border border-amber-800/30 rounded-xl px-4 py-3 mb-6">
+          <div className="flex items-center gap-2">
+            <CalendarDays size={16} className="text-amber-400 flex-shrink-0" />
+            <span className="text-sm text-amber-300 font-medium">Set your schedule to see session dates</span>
+          </div>
+          <Link
+            href="/dashboard/schedule-setup"
+            className="text-xs font-medium text-white bg-[#7C3AED] hover:bg-[#6D28D9] px-3 py-1.5 rounded-lg transition-colors"
+          >
+            Set up schedule →
+          </Link>
+        </div>
+      )}
 
       {/* Page header */}
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>

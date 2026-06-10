@@ -263,7 +263,7 @@ export default function PlanClient({ user }: { user: User }) {
       const res = await fetch('/api/plan/approve', { method: 'POST' })
 
       if (res.ok) {
-        // Sessions are ready — reload plan and navigate
+        // Sessions are ready — reload plan and navigate to schedule setup
         const refreshed = await fetchPlan()
         if (refreshed?.plan?.visible_sessions) {
           setVisibleSessions(refreshed.plan.visible_sessions)
@@ -272,7 +272,7 @@ export default function PlanClient({ user }: { user: User }) {
         setViewState('active')
         setApproving(false)
         setApprovingMessage('')
-        router.push('/dashboard/sessions')
+        router.push('/dashboard/schedule-setup')
         return
       }
 

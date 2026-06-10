@@ -70,6 +70,7 @@ interface DashboardClientProps {
   monthlyCount: number
   todayDelivery: DeliveryEntry | null
   nextSession: NextSession | null
+  schedulingPrefsNull?: boolean
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -268,6 +269,7 @@ export default function DashboardClient({
   monthlyCount,
   todayDelivery,
   nextSession,
+  schedulingPrefsNull,
 }: DashboardClientProps) {
   const [deliveryPref, setDeliveryPref] = useState<'email' | 'sms' | 'both'>(
     (user.delivery_preference as 'email' | 'sms' | 'both') ?? 'email'
@@ -457,6 +459,27 @@ export default function DashboardClient({
             <Button size="sm" className="gap-1.5 whitespace-nowrap">
               Review plan <ArrowRight size={13} />
             </Button>
+          </Link>
+        </motion.div>
+      )}
+
+      {schedulingPrefsNull && user.plan_approved && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex items-center justify-between bg-amber-950/20 border border-amber-800/30 rounded-xl px-4 py-3"
+        >
+          <div className="flex items-center gap-2">
+            <CalendarDays size={16} className="text-amber-400 flex-shrink-0" />
+            <span className="text-sm text-amber-300 font-medium">
+              Your sessions have no dates yet — set your schedule now
+            </span>
+          </div>
+          <Link
+            href="/dashboard/schedule-setup"
+            className="text-xs font-medium text-white bg-[#7C3AED] hover:bg-[#6D28D9] px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap"
+          >
+            Set up schedule →
           </Link>
         </motion.div>
       )}

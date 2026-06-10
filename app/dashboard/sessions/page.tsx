@@ -12,7 +12,7 @@ export default async function SessionsPage() {
 
   const { data: user } = await supabase
     .from('users')
-    .select('id, email, plan_tier, plan_approved, minutes_balance')
+    .select('id, email, plan_tier, plan_approved, minutes_balance, scheduling_prefs')
     .eq('id', userId)
     .single()
 
@@ -42,7 +42,12 @@ export default async function SessionsPage() {
 
   return (
     <DashboardShell user={user} activeNav="/dashboard/sessions">
-      <SessionsClient sessions={sessions ?? []} topicTitleMap={topicTitleMap} minutesBalance={user.minutes_balance ?? 0} />
+      <SessionsClient
+        sessions={sessions ?? []}
+        topicTitleMap={topicTitleMap}
+        minutesBalance={user.minutes_balance ?? 0}
+        schedulingPrefsNull={user.scheduling_prefs === null || user.scheduling_prefs === undefined}
+      />
     </DashboardShell>
   )
 }
