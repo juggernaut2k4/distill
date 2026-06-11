@@ -10,6 +10,7 @@ import { TopicTree } from '@/components/plan/TopicTree'
 import { PlanSkeleton } from '@/components/plan/PlanSkeleton'
 import { ArcSection } from '@/components/plan/ArcSection'
 import { RecommendationCard, type RecommendationData } from '@/components/plan/RecommendationCard'
+import ScheduleCard, { type SchedulePrefs } from '@/components/dashboard/ScheduleCard'
 import { buildCurriculumFromSelection } from '@/lib/content/curriculum-from-selection'
 import { buildCurriculum, type CurriculumPlan } from '@/lib/content/curriculum'
 
@@ -23,6 +24,7 @@ interface User {
   plan_approved: boolean | null
   minutes_balance: number | null
   minutes_included: number | null
+  scheduling_prefs: SchedulePrefs | null
 }
 
 interface CurriculumSession {
@@ -62,6 +64,8 @@ export default function PlanClient({ user }: { user: User }) {
   const [approving, setApproving] = useState(false)
   const [approvingMessage, setApprovingMessage] = useState('')
   const [isFallback, setIsFallback] = useState(false)
+  const [hasSchedule, setHasSchedule] = useState(!!user.scheduling_prefs)
+  const [savedPrefs, setSavedPrefs] = useState<SchedulePrefs | null>(user.scheduling_prefs)
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Browse tab state
@@ -272,7 +276,7 @@ export default function PlanClient({ user }: { user: User }) {
         setViewState('active')
         setApproving(false)
         setApprovingMessage('')
-        router.push('/dashboard/schedule-setup')
+        router.push('/dashboard/sessions')
         return
       }
 
@@ -439,10 +443,15 @@ export default function PlanClient({ user }: { user: User }) {
                 <span className="text-sm font-semibold text-[#10B981]">Plan Approved</span>
               </div>
             ) : (
-              <Button onClick={handleApprove} disabled={approving} className="gap-2 whitespace-nowrap">
-                {approving ? (approvingMessage || 'Preparing…') : 'Approve plan — start learning'}
-                <ArrowRight size={16} />
-              </Button>
+              <div className="flex flex-col items-end gap-1">
+                <Button onClick={handleApprove} disabled={approving || !hasSchedule} className="gap-2 whitespace-nowrap">
+                  {approving ? (approvingMessage || 'Preparing…') : 'Approve plan — start learning'}
+                  <ArrowRight size={16} />
+                </Button>
+                {!hasSchedule && (
+                  <p className="text-xs text-[#475569]">Set your schedule above first ↑</p>
+                )}
+              </div>
             )
           )}
         </div>
@@ -512,6 +521,17 @@ export default function PlanClient({ user }: { user: User }) {
           transition={{ duration: 0.3 }}
           className="space-y-4"
         >
+          {/* Schedule card — shown before approval only */}
+          {!isPlanApproved && (
+            <ScheduleCard
+              initialPrefs={savedPrefs}
+              onSave={(prefs) => {
+                setSavedPrefs(prefs)
+                setHasSchedule(true)
+              }}
+            />
+          )}
+
           {/* Arc groups */}
           {Array.from(arcGroups.entries()).map(([arcName, { sessions, arcType }]) => (
             <ArcSection
@@ -577,18 +597,23 @@ export default function PlanClient({ user }: { user: User }) {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 0.4 }}
-              className="flex gap-4 items-center pt-2"
+              className="flex flex-col gap-2 pt-2"
             >
-              <Button onClick={handleApprove} disabled={approving} size="lg" className="gap-2">
-                {approving ? (approvingMessage || 'Preparing…') : 'Approve & start learning'}
-                <ArrowRight size={18} />
-              </Button>
-              <button
-                className="text-sm text-[#475569] hover:text-[#94A3B8] transition-colors"
-                onClick={() => router.push('/topics')}
-              >
-                Change topics →
-              </button>
+              <div className="flex gap-4 items-center">
+                <Button onClick={handleApprove} disabled={approving || !hasSchedule} size="lg" className="gap-2">
+                  {approving ? (approvingMessage || 'Preparing…') : 'Approve & start learning'}
+                  <ArrowRight size={18} />
+                </Button>
+                <button
+                  className="text-sm text-[#475569] hover:text-[#94A3B8] transition-colors"
+                  onClick={() => router.push('/topics')}
+                >
+                  Change topics →
+                </button>
+              </div>
+              {!hasSchedule && (
+                <p className="text-xs text-[#475569]">Set your schedule above to enable approval</p>
+              )}
             </motion.div>
           )}
 

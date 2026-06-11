@@ -12,7 +12,7 @@ export default async function PlanPage() {
 
   const { data: user } = await supabase
     .from('users')
-    .select('id, email, plan_tier, ai_maturity, topic_interests, curriculum_plan, plan_approved, minutes_balance, minutes_included')
+    .select('id, email, plan_tier, ai_maturity, topic_interests, curriculum_plan, plan_approved, minutes_balance, minutes_included, scheduling_prefs')
     .eq('id', userId)
     .single()
 

@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
   // ── Load user ────────────────────────────────────────────────────────────────
   const { data: user } = await supabase
     .from('users')
-    .select('id, email, role, industry, ai_maturity, phone, twilio_number_assigned, learning_goal')
+    .select('id, email, role, industry, ai_maturity, phone, twilio_number_assigned, learning_goal, scheduling_prefs')
     .eq('id', userId!)
     .single()
 
@@ -91,7 +91,7 @@ export async function POST(request: NextRequest) {
     for (const { cs, designed } of designResults) {
       for (const ds of designed) {
         globalOrder++
-        await supabase.from('sessions').insert({
+        const { error: insertErr } = await supabase.from('sessions').insert({
           user_id:               userId,
           session_title:         ds.session_title,
           topics:                [cs.session_id],
@@ -102,6 +102,7 @@ export async function POST(request: NextRequest) {
           session_index:         globalOrder,
           status:                'draft',
         })
+        if (insertErr) console.error('[plan/approve] session insert failed:', insertErr.message, insertErr.code, { index: globalOrder })
       }
     }
   }
@@ -114,6 +115,47 @@ export async function POST(request: NextRequest) {
     .eq('curriculum_plan_id', plan.id)
     .eq('status', 'draft')
     .select('id')
+
+  // ── Stamp scheduled_at from user's scheduling preferences ───────────────────
+  interface SchedulingPrefs {
+    selectedDays: number[]
+    preferredHour: number
+    preferredMinute: 0 | 15 | 30 | 45
+    ampm: 'AM' | 'PM'
+    maxDurationMins: 15 | 30
+    timezone: string
+  }
+  const schedPrefs = (user as { scheduling_prefs?: SchedulingPrefs | null }).scheduling_prefs ?? null
+  if (schedPrefs && activatedData && activatedData.length > 0) {
+    const hour24 = schedPrefs.ampm === 'PM'
+      ? (schedPrefs.preferredHour === 12 ? 12 : schedPrefs.preferredHour + 12)
+      : (schedPrefs.preferredHour === 12 ? 0 : schedPrefs.preferredHour)
+    const selectedDays = [...schedPrefs.selectedDays].sort((a, b) => a - b)
+
+    const now = new Date()
+    const dates: Date[] = []
+    let cursor = new Date(now)
+    cursor.setHours(hour24, schedPrefs.preferredMinute, 0, 0)
+    if (cursor <= now) { cursor.setDate(cursor.getDate() + 1); cursor.setHours(hour24, schedPrefs.preferredMinute, 0, 0) }
+
+    while (dates.length < activatedData.length) {
+      const dow = cursor.getDay()
+      const next = selectedDays.find((d) => d >= dow)
+      if (next !== undefined) {
+        const d = new Date(cursor)
+        d.setDate(cursor.getDate() + (next - dow))
+        d.setHours(hour24, schedPrefs.preferredMinute, 0, 0)
+        dates.push(d)
+        cursor = new Date(d); cursor.setDate(d.getDate() + 1)
+      } else {
+        cursor.setDate(cursor.getDate() + (7 - dow + selectedDays[0]))
+      }
+    }
+
+    for (let i = 0; i < activatedData.length; i++) {
+      await supabase.from('sessions').update({ scheduled_at: dates[i].toISOString() }).eq('id', activatedData[i].id)
+    }
+  }
 
   // ── Fire content generation for ALL sessions with subtopics ─────────────────
   // Session 1 gets high priority (user is waiting); the rest are background.

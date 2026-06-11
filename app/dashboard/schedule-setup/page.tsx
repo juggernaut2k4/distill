@@ -20,14 +20,6 @@ export default async function ScheduleSetupPage() {
   // Self-healing: if prefs already set, skip to sessions
   if (user.scheduling_prefs) redirect('/dashboard/sessions')
 
-  // Check for sessions — if none, redirect to plan with error
-  const { count } = await supabase
-    .from('sessions')
-    .select('id', { count: 'exact', head: true })
-    .eq('user_id', userId)
-    .neq('status', 'draft')
-  if (!count || count === 0) redirect('/dashboard/plan?error=no-sessions')
-
   return (
     <DashboardShell user={user} activeNav="/dashboard/sessions">
       <ScheduleSetupClient />
