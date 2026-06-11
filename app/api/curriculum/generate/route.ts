@@ -45,13 +45,15 @@ export async function POST(request: NextRequest) {
   const planTier = user.plan_tier ?? null
   const profileHash = buildProfileHash(role, maturity, topics, roleLevel)
 
-  // Return existing plan if profile has not changed AND it is not a fallback plan
+  // Use order+limit+maybeSingle so multiple rows (race condition) never silently return null
   const { data: existing } = await supabase
     .from('curriculum_plans')
     .select('id, visible_sessions, queue_sessions, is_approved, user_profile_hash, raw_llm_output')
     .eq('user_id', userId!)
     .is('superseded_at', null)
-    .single()
+    .order('generated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
 
   const existingIsFallback = existing?.raw_llm_output
     ? (existing.raw_llm_output as RawLlmOutput).fallback === true
@@ -72,12 +74,13 @@ export async function POST(request: NextRequest) {
     })
   }
 
-  // Supersede the old plan if profile changed
+  // Supersede ALL non-superseded plans (handles race where multiple rows exist)
   if (existing) {
     await supabase
       .from('curriculum_plans')
       .update({ superseded_at: new Date().toISOString() })
-      .eq('id', existing.id)
+      .eq('user_id', userId!)
+      .is('superseded_at', null)
 
     await supabase
       .from('users')

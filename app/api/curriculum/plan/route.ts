@@ -20,7 +20,9 @@ export async function GET(request: NextRequest) {
     .select('id, visible_sessions, queue_sessions, dismissed_recs, is_approved, approved_at, user_profile_hash, generated_at, raw_llm_output')
     .eq('user_id', userId!)
     .is('superseded_at', null)
-    .single()
+    .order('generated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
 
   if (!plan) {
     return NextResponse.json({ plan: null, completions: [], is_generating: false })

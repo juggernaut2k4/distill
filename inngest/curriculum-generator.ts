@@ -54,12 +54,15 @@ export const curriculumGenerator = inngest.createFunction(
 
     // ── Supersede existing plan if profile changed ────────────────────────────
     const existingPlanId = await step.run('supersede-old-plan', async () => {
+      // Use order+limit+maybeSingle so multiple rows (race condition) never silently return null
       const { data: existing } = await supabase
         .from('curriculum_plans')
         .select('id, user_profile_hash, raw_llm_output')
         .eq('user_id', userId)
         .is('superseded_at', null)
-        .single()
+        .order('generated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
 
       if (!existing) return null
 
@@ -74,11 +77,12 @@ export const curriculumGenerator = inngest.createFunction(
         return existing.id
       }
 
-      // Profile changed or was fallback — supersede
+      // Supersede ALL non-superseded plans (handles race where multiple rows exist)
       await supabase
         .from('curriculum_plans')
         .update({ superseded_at: new Date().toISOString() })
-        .eq('id', existing.id)
+        .eq('user_id', userId)
+        .is('superseded_at', null)
 
       await supabase
         .from('users')

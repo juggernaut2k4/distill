@@ -42,7 +42,9 @@ export async function POST(request: NextRequest) {
     .select('id, visible_sessions')
     .eq('user_id', userId!)
     .is('superseded_at', null)
-    .single()
+    .order('generated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
 
   if (!plan) return NextResponse.json({ error: 'No active plan' }, { status: 404 })
 
