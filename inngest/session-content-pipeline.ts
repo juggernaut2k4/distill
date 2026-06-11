@@ -96,9 +96,8 @@ export const sessionContentPipeline = inngest.createFunction(
 
     if (!session) throw new Error(`Session ${sessionId} not found`)
 
-    // Curriculum sessions have topic_id=NULL — use curriculum_session_id as the effective
-    // cache key so content is stored and retrieved under the right identifier.
-    const topicId = session.topic_id ?? session.curriculum_session_id ?? 'ai-fundamentals'
+    // Always key content by DB session UUID — each DB session owns its own scoped content.
+    const topicId = sessionId
     const topicTitle = session.session_title ?? 'AI Strategy Session'
 
     // Priority 1: session_plan.subtopics (old-style sessions — unchanged)

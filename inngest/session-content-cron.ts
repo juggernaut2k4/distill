@@ -32,10 +32,9 @@ export const sessionContentCron = inngest.createFunction(
     const recoveryResult = await step.run('reset-stale-ready-sessions', async () => {
       const { data: candidateSessions } = await supabase
         .from('sessions')
-        .select('id, curriculum_session_id')
+        .select('id')
         .eq('content_status', 'ready')
         .eq('status', 'scheduled')
-        .not('curriculum_session_id', 'is', null)
 
       if (!candidateSessions?.length) return { reset: 0 }
 
@@ -45,8 +44,7 @@ export const sessionContentCron = inngest.createFunction(
           const { count } = await supabase
             .from('topic_content_cache')
             .select('id', { count: 'exact', head: true })
-            .eq('topic_id', s.curriculum_session_id!)
-            .eq('pipeline_status', 'ready')
+            .eq('topic_id', s.id)
           if ((count ?? 0) === 0) staleIds.push(s.id)
         })
       )
@@ -78,14 +76,14 @@ export const sessionContentCron = inngest.createFunction(
       .gt('scheduled_at', new Date().toISOString())
       .order('session_index', { ascending: true })
 
-    // Branch B: curriculum sessions (no scheduled_at, have curriculum_session_id)
+    // Branch B: sessions with subtopics assigned (session designer has run)
     const { data: curriculumSessions, error: err2 } = await supabase
       .from('sessions')
       .select(SELECT_COLS)
       .eq('status', 'scheduled')
       .not('content_status', 'eq', 'ready')
       .not('content_status', 'eq', 'generating')
-      .not('curriculum_session_id', 'is', null)
+      .not('subtopics', 'is', null)
       .order('session_index', { ascending: true })
 
     if (err1) console.error('[session-content-cron] old-style query error:', err1.message)
@@ -156,11 +154,8 @@ export const sessionContentCron = inngest.createFunction(
         name: 'distill/session.content.generate' as const,
         data: {
           sessionId: session.id,
-          topicId: session.topic_id ?? session.curriculum_session_id ?? 'ai-fundamentals',
-          topicTitle: session.session_title ?? 'AI Session',
-          subtopics: (session.topics as string[] | null) ?? [],
           userId: session.user_id,
-          priority: 'background',
+          priority: 'background' as const,
         },
       }))
 

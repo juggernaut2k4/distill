@@ -5,7 +5,6 @@ import { z } from 'zod'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { sendSessionsConfirmedEmail, type User, type SessionSummary } from '@/lib/delivery/email'
 import { sendSMS } from '@/lib/delivery/sms'
-import { inngest } from '@/inngest/client'
 
 const ScheduledSessionSchema = z.object({
   sessionIndex: z.number().int().positive(),
@@ -41,97 +40,40 @@ export async function POST(request: NextRequest) {
 
   const supabase = createSupabaseAdminClient()
 
-  // Clear existing scheduled sessions (not completed/active ones)
-  await supabase
+  // UPDATE scheduled_at for each session — never delete/re-insert.
+  // Sessions are created once by plan/approve with full metadata.
+  // Skip sessions that are completed or active (protected).
+  const { data: existingSessions } = await supabase
     .from('sessions')
-    .delete()
+    .select('id, session_index, session_title, scheduled_at, duration_mins, status')
     .eq('user_id', userId!)
-    .eq('status', 'scheduled')
+    .order('session_index', { ascending: true })
 
-  // Fetch session indexes that are protected (completed or active) — skip on re-insert
-  const { data: protectedRows } = await supabase
-    .from('sessions')
-    .select('session_index')
-    .eq('user_id', userId!)
-    .in('status', ['completed', 'active'])
-
-  const protectedIndexes = new Set((protectedRows ?? []).map((r: { session_index: number }) => r.session_index))
-
-  // Insert new sessions, skipping any index already occupied by a protected session
-  const rows = parsed.data.sessions
-    .filter((s) => !protectedIndexes.has(s.sessionIndex))
-    .map((s) => ({
-      user_id: userId!,
-      session_index: s.sessionIndex,
-      session_title: s.title,
-      topic_id: s.topicId,
-      topics: s.topics,
-      scheduled_at: s.scheduledAt,
-      duration_mins: s.estimatedMinutes,
-      status: 'scheduled',
-    }))
-
-  const { data: insertedRows, error: insertError } = await supabase
-    .from('sessions')
-    .insert(rows)
-    .select('id, session_index')
-
-  if (insertError) {
-    if (insertError.code === '23505') {
-      return NextResponse.json(
-        { error: 'Schedule conflict — some sessions already exist at those indexes.' },
-        { status: 409 }
-      )
-    }
-    console.error('[schedule] Insert error:', insertError)
-    return NextResponse.json({ error: 'Failed to save sessions' }, { status: 500 })
-  }
-
-  // Build a map from session_index → uuid so email links use the real ID
-  const indexToId = new Map<number, string>(
-    (insertedRows ?? []).map((r: { id: string; session_index: number }) => [r.session_index, r.id])
+  const existingByIndex = new Map<number, { id: string; session_title: string; duration_mins: number; status: string }>(
+    (existingSessions ?? []).map((s: { id: string; session_index: number; session_title: string; duration_mins: number; status: string }) => [s.session_index, s])
   )
 
-  // Fire Inngest event for each session to pre-generate visual specs in background
-  const planEvents = parsed.data.sessions
-    .filter((s) => s.topicId && s.subtopics.length > 0)
-    .map((s) => ({
-      name: 'distill/session.scheduled' as const,
-      data: {
-        sessionId: indexToId.get(s.sessionIndex) ?? '',
-        topicId: s.topicId,
-        topicTitle: s.title,
-        subtopics: s.subtopics,
-        userId: userId!,
-      },
-    }))
-    .filter((e) => e.data.sessionId)
-
-  if (planEvents.length > 0) {
-    inngest.send(planEvents).catch((err) =>
-      console.error('[schedule] Failed to emit session.scheduled events:', err)
-    )
-  }
-
-  // Immediately trigger full content generation for Session 1 (user is waiting).
-  // topicId is now always populated by lib/sessions/planner.ts — no fallback needed.
-  const firstSessionId = indexToId.get(1)
-  const firstSession = parsed.data.sessions.find((s) => s.sessionIndex === 1)
-  if (firstSessionId && firstSession?.topicId && !protectedIndexes.has(1)) {
-    inngest
-      .send({
-        name: 'distill/session.content.generate' as const,
-        data: {
-          sessionId: firstSessionId,
-          topicId: firstSession.topicId,
-          topicTitle: firstSession.title,
-          subtopics: firstSession.subtopics,
-          userId: userId!,
-          priority: 'immediate',
-        },
-      })
-      .catch((err) => console.error('[schedule] Failed to emit content.generate for session 1:', err))
-    console.log(`[schedule] Triggered content generation for Session 1: ${firstSessionId} (topicId: ${firstSession.topicId})`)
+  let updatedCount = 0
+  for (const s of parsed.data.sessions) {
+    const existing = existingByIndex.get(s.sessionIndex)
+    if (!existing) {
+      console.warn(`[schedule] No session found at index ${s.sessionIndex} — skipping`)
+      continue
+    }
+    if (existing.status === 'completed' || existing.status === 'active') {
+      console.log(`[schedule] Skipping protected session at index ${s.sessionIndex} (status: ${existing.status})`)
+      continue
+    }
+    const { error: updateError } = await supabase
+      .from('sessions')
+      .update({ scheduled_at: s.scheduledAt })
+      .eq('user_id', userId!)
+      .eq('session_index', s.sessionIndex)
+    if (updateError) {
+      console.error(`[schedule] Failed to update session at index ${s.sessionIndex}:`, updateError)
+    } else {
+      updatedCount++
+    }
   }
 
   // Fire-and-forget confirmation email + SMS
@@ -142,13 +84,19 @@ export async function POST(request: NextRequest) {
     .single()
 
   if (userRow?.email) {
-    const sessionSummaries: SessionSummary[] = parsed.data.sessions.map((s) => ({
-      id: indexToId.get(s.sessionIndex),
-      sessionIndex: s.sessionIndex,
-      title: s.title,
-      scheduledAt: s.scheduledAt,
-      estimatedMinutes: s.estimatedMinutes,
-    }))
+    const sessionSummaries: SessionSummary[] = parsed.data.sessions
+      .map((s): SessionSummary | null => {
+        const existing = existingByIndex.get(s.sessionIndex)
+        if (!existing) return null
+        return {
+          id: existing.id,
+          sessionIndex: s.sessionIndex,
+          title: existing.session_title ?? s.title,
+          scheduledAt: s.scheduledAt,
+          estimatedMinutes: s.estimatedMinutes,
+        }
+      })
+      .filter((s): s is SessionSummary => s !== null)
 
     // Await before returning — Vercel kills fire-and-forget promises on response
     const notifySends: Promise<unknown>[] = [
@@ -173,7 +121,7 @@ export async function POST(request: NextRequest) {
     await Promise.all(notifySends)
   }
 
-  return NextResponse.json({ success: true, count: rows.length })
+  return NextResponse.json({ success: true, count: updatedCount })
 }
 
 /**

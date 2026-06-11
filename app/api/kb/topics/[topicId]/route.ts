@@ -86,9 +86,9 @@ export async function GET(request: NextRequest, { params }: Params) {
       .gt('expires_at', new Date().toISOString()),
     supabase
       .from('sessions')
-      .select('id, session_title, session_index, subtopics, status')
-      .eq('curriculum_session_id', params.topicId)
-      .order('session_index', { ascending: true }),
+      .select('id, session_title, session_index, subtopics, status, curriculum_session_id')
+      .eq('id', params.topicId)
+      .limit(1),
   ])
 
   if (cacheResult.error) {
@@ -96,12 +96,23 @@ export async function GET(request: NextRequest, { params }: Params) {
   }
 
   const rows = cacheResult.data ?? []
-  const sessions: SessionRow[] = (sessionsResult.data ?? []) as SessionRow[]
+  const thisSession = (sessionsResult.data?.[0] ?? null) as (SessionRow & { curriculum_session_id?: string | null }) | null
+
+  // Fetch sibling sessions for the arc overview (all sessions in the same curriculum topic)
+  let sessions: SessionRow[] = thisSession ? [thisSession] : []
+  if (thisSession?.curriculum_session_id) {
+    const { data: siblingData } = await supabase
+      .from('sessions')
+      .select('id, session_title, session_index, subtopics, status')
+      .eq('curriculum_session_id', thisSession.curriculum_session_id)
+      .order('session_index', { ascending: true })
+    sessions = (siblingData ?? []) as SessionRow[]
+  }
 
   // ── KB-02: Re-order sections by session_index + subtopic position ─────────
   let orderedRows = rows
-  if (sessions.length > 0) {
-    const orderedSlugs = buildOrderedSlugs(sessions)
+  if (thisSession) {
+    const orderedSlugs = buildOrderedSlugs([thisSession])
     const slugIndex = new Map(orderedSlugs.map((slug, i) => [slug, i]))
 
     orderedRows = [...rows].sort((a, b) => {
@@ -138,7 +149,7 @@ export async function GET(request: NextRequest, { params }: Params) {
           focus?: string
           [key: string]: unknown
         }>
-        const match = visibleSessions.find((s) => s.session_id === params.topicId)
+        const match = visibleSessions.find((s) => s.session_id === (thisSession?.curriculum_session_id ?? params.topicId))
         focus = match?.focus ?? null
       }
     } catch {
