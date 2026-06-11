@@ -3,7 +3,7 @@
 import { useState, useRef, Suspense, useMemo, useEffect } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useRouter } from 'next/navigation'
-import { useUser, useAuth } from '@clerk/nextjs'
+import { useUser } from '@clerk/nextjs'
 import { ProgressBar } from '@/components/onboarding/ProgressBar'
 import { ArrowRight, ArrowLeft, Plus, X, Search } from 'lucide-react'
 import {
@@ -475,10 +475,6 @@ function SubDomainStep({
 function OnboardingContent() {
   const router = useRouter()
   const { isLoaded: clerkLoaded, isSignedIn } = useUser()
-  const { getToken } = useAuth()
-  // Ref so the setTimeout async loop always sees the latest isSignedIn value
-  const isSignedInRef = useRef(false)
-  isSignedInRef.current = !!(clerkLoaded && isSignedIn)
 
   const [step, setStep] = useState(0)
   const [direction, setDirection] = useState<'right' | 'left'>('right')
@@ -571,27 +567,37 @@ function OnboardingContent() {
   // ── Navigation ──────────────────────────────────────────────────────────────
   function handleNext() {
     if (!canProceed) return
-    // Last step: show spinner immediately, then fetch auth token and submit
+    // Last step: branch on auth state
     if (step === TOTAL_STEPS - 1) {
-      setBuilding(true)
       const snapshot = { role, roleLevel, industry, aiEngagement, selectedDomains, customDomains, domainProficiency }
       const goal = learningGoal as LearningGoal
-      ;(async () => {
-        let authToken: string | null = null
-        let waited = 0
-        while (!authToken && waited < 4000) {
-          try { authToken = await getToken() } catch { /* not ready yet */ }
-          if (!authToken) {
-            await new Promise((resolve) => setTimeout(resolve, 500))
-            waited += 500
-          }
+
+      if (!isSignedIn) {
+        // Anonymous user — save answers and show sign-up screen immediately.
+        // After Clerk sign-up (redirect_url=/onboarding), the useEffect auto-submits.
+        const primaryDomain = selectedDomains[0] ?? customDomains[0] ?? 'ai-ml'
+        const payload = {
+          role,
+          roleLevel,
+          industry,
+          aiMaturity: aiEngagement,
+          worry: '',
+          deliveryPreference: 'email',
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          domains: selectedDomains,
+          customDomains,
+          primaryDomain,
+          domainProficiency,
+          learningGoal: goal,
+          subDomain: industry,
         }
-        if (!authToken && typeof document !== 'undefined') {
-          const m = document.cookie.match(/(?:^|;\s*)__clerk_db_jwt=([^;]+)/)
-          authToken = m ? m[1] : null
-        }
-        submitOnboarding(goal, snapshot, 0, authToken ?? undefined)
-      })()
+        localStorage.setItem('clio_onboarding', JSON.stringify(payload))
+        setSubmitError('__needs_auth__')
+        return
+      }
+
+      setBuilding(true)
+      submitOnboarding(goal, snapshot)
       return
     }
     setDirection('right')
@@ -604,13 +610,10 @@ function OnboardingContent() {
   }
 
   // ── Submit ──────────────────────────────────────────────────────────────────
-  // Accepts an explicit snapshot to prevent stale closure when called from setTimeout.
-  // Retries up to 3 times on session_not_ready (Clerk session propagation delay).
+  // Accepts an explicit snapshot to prevent stale closure when called from the auto-submit useEffect.
   async function submitOnboarding(
     finalGoal: LearningGoal | '',
     snapshot?: { role: string; roleLevel: string; industry: string; aiEngagement: string; selectedDomains: string[]; customDomains: string[]; domainProficiency?: Record<string, Proficiency> },
-    retryCount = 0,
-    authToken?: string
   ) {
     const r = snapshot?.role ?? role
     const rl = snapshot?.roleLevel ?? roleLevel
@@ -643,20 +646,12 @@ function OnboardingContent() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          // Pass Bearer token to bypass __client_uat=0 cookie issue after OAuth sign-up
-          ...(authToken ? { 'Authorization': `Bearer ${authToken}` } : {}),
         },
         body: JSON.stringify(payload),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
-        // Clerk session not yet propagated — retry up to 3 times with 1s delay
-        if (res.status === 401 && data?.error === 'session_not_ready' && retryCount < 3) {
-          console.log(`[onboarding] Session not ready, retrying (${retryCount + 1}/3)...`)
-          await new Promise((resolve) => setTimeout(resolve, 1000))
-          return submitOnboarding(finalGoal, snapshot, retryCount + 1, authToken)
-        }
-        // After retries exhausted on 401 — user needs to sign up / sign in first
+        // Safety net: 401 means session somehow not ready — show sign-up screen
         if (res.status === 401) {
           setBuilding(false)
           setSubmitError('__needs_auth__')
