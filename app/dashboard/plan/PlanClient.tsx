@@ -69,7 +69,7 @@ export default function PlanClient({ user }: { user: User }) {
   const [building, setBuilding] = useState(false)
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    { id: 'ai-plan', label: 'AI Plan', icon: <Sparkles size={14} /> },
+    { id: 'ai-plan', label: 'Plan', icon: <Sparkles size={14} /> },
     { id: 'browse', label: 'Browse Catalog', icon: <BookOpen size={14} /> },
   ]
 
