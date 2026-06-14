@@ -62,14 +62,15 @@ export async function POST(request: NextRequest) {
   const insertErrors: string[] = []
 
   if ((draftCount ?? 0) === 0) {
-    // Clear orphaned draft sessions from superseded plans — they would conflict with
-    // the unique index on (user_id, session_index) and silently block these inserts.
+    // Clear ALL orphaned draft sessions for this user before inserting — including
+    // those with curriculum_plan_id = NULL (SQL neq doesn't match NULLs, so a
+    // targeted neq filter silently misses them and the unique index on
+    // (user_id, session_index) keeps blocking new inserts).
     const { error: cleanupErr } = await supabase
       .from('sessions')
       .delete()
       .eq('user_id', userId!)
       .eq('status', 'draft')
-      .neq('curriculum_plan_id', plan.id)
     if (cleanupErr) console.error('[plan/approve] orphan cleanup failed:', cleanupErr.message)
     else console.log('[plan/approve] orphan draft sessions cleared')
 
