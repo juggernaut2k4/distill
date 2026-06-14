@@ -56,23 +56,30 @@ export async function POST(request: NextRequest) {
     .eq('curriculum_plan_id', plan.id)
     .eq('status', 'draft')
 
-  console.log(`[plan/approve] planId=${plan.id} draftCount=${draftCount ?? 0} visibleSessions=${(plan.visible_sessions as unknown[])?.length ?? 0}`)
+  // Snapshot all existing sessions for diagnostic purposes
+  const { data: existingSessions } = await supabase
+    .from('sessions')
+    .select('id, session_index, status, curriculum_plan_id')
+    .eq('user_id', userId!)
+    .order('session_index', { ascending: true })
+
+  console.log(`[plan/approve] planId=${plan.id} draftCount=${draftCount ?? 0} visibleSessions=${(plan.visible_sessions as unknown[])?.length ?? 0} existingSessions=${existingSessions?.length ?? 0}`)
 
   let insertedCount = 0
   const insertErrors: string[] = []
 
   if ((draftCount ?? 0) === 0) {
-    // Clear ALL orphaned draft sessions for this user before inserting — including
-    // those with curriculum_plan_id = NULL (SQL neq doesn't match NULLs, so a
-    // targeted neq filter silently misses them and the unique index on
-    // (user_id, session_index) keeps blocking new inserts).
+    // Clear ALL non-final sessions for this user before inserting — the unique index
+    // on (user_id, session_index) blocks inserts when any prior session occupies those
+    // indices regardless of curriculum_plan_id or status. We only preserve sessions
+    // that are completed or cancelled (terminal states worth keeping).
     const { error: cleanupErr } = await supabase
       .from('sessions')
       .delete()
       .eq('user_id', userId!)
-      .eq('status', 'draft')
+      .not('status', 'in', '("completed","cancelled")')
     if (cleanupErr) console.error('[plan/approve] orphan cleanup failed:', cleanupErr.message)
-    else console.log('[plan/approve] orphan draft sessions cleared')
+    else console.log('[plan/approve] orphan sessions cleared')
 
     const visibleSessions = (
       Array.isArray(plan.visible_sessions) ? plan.visible_sessions : []
@@ -262,6 +269,11 @@ export async function POST(request: NextRequest) {
       insertedCount,
       insertErrors,
       draftCountBefore: draftCount ?? 0,
+      existingSessionsBeforeCleanup: (existingSessions ?? []).map(s => ({
+        idx: s.session_index,
+        status: s.status,
+        planId: s.curriculum_plan_id ?? 'NULL',
+      })),
     },
   })
 }
