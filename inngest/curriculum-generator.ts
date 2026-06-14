@@ -89,13 +89,15 @@ export const curriculumGenerator = inngest.createFunction(
         .update({ active_plan_id: null, plan_approved: false })
         .eq('id', userId)
 
-      // Delete draft sessions belonging to the superseded plan
+      // Delete all non-final sessions from the superseded plan so they don't
+      // occupy (user_id, session_index) slots in the unique index and block
+      // inserts for the new plan.
       await supabase
         .from('sessions')
         .delete()
         .eq('user_id', userId)
         .eq('curriculum_plan_id', existing.id)
-        .eq('status', 'draft')
+        .not('status', 'in', '("completed","cancelled")')
 
       return null
     })

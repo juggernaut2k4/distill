@@ -56,17 +56,9 @@ export async function POST(request: NextRequest) {
     .eq('curriculum_plan_id', plan.id)
     .eq('status', 'draft')
 
-  // Snapshot all existing sessions for diagnostic purposes
-  const { data: existingSessions } = await supabase
-    .from('sessions')
-    .select('id, session_index, status, curriculum_plan_id')
-    .eq('user_id', userId!)
-    .order('session_index', { ascending: true })
-
-  console.log(`[plan/approve] planId=${plan.id} draftCount=${draftCount ?? 0} visibleSessions=${(plan.visible_sessions as unknown[])?.length ?? 0} existingSessions=${existingSessions?.length ?? 0}`)
+  console.log(`[plan/approve] planId=${plan.id} draftCount=${draftCount ?? 0} visibleSessions=${(plan.visible_sessions as unknown[])?.length ?? 0}`)
 
   let insertedCount = 0
-  const insertErrors: string[] = []
 
   if ((draftCount ?? 0) === 0) {
     // Clear ALL non-final sessions for this user before inserting — the unique index
@@ -132,7 +124,6 @@ export async function POST(request: NextRequest) {
         }).select('id').single()
         if (insertErr) {
           console.error('[plan/approve] session insert failed:', insertErr.message, insertErr.code, { index: globalOrder })
-          insertErrors.push(`idx${globalOrder}: ${insertErr.code} ${insertErr.message}`)
         } else {
           insertedCount++
           console.log(`[plan/approve] inserted session ${globalOrder} id=${inserted?.id}`)
@@ -260,21 +251,11 @@ export async function POST(request: NextRequest) {
 
   await Promise.all(sends)
 
-  console.log(`[plan/approve] flip activated=${activatedData?.length ?? 0} insertedCount=${insertedCount} insertErrors=${insertErrors.length}`)
+  console.log(`[plan/approve] flip activated=${activatedData?.length ?? 0} insertedCount=${insertedCount}`)
 
   return NextResponse.json({
     success:          true,
     sessions_created: activatedData?.length ?? 0,
-    _diag: {
-      insertedCount,
-      insertErrors,
-      draftCountBefore: draftCount ?? 0,
-      existingSessionsBeforeCleanup: (existingSessions ?? []).map(s => ({
-        idx: s.session_index,
-        status: s.status,
-        planId: s.curriculum_plan_id ?? 'NULL',
-      })),
-    },
   })
 }
 
