@@ -30,7 +30,9 @@ export default async function SessionsPage() {
       .select('visible_sessions')
       .eq('user_id', userId)
       .is('superseded_at', null)
-      .single(),
+      .order('generated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ])
 
   // Build a map from curriculum_session_id → topic title
