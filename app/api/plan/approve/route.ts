@@ -56,10 +56,28 @@ export async function POST(request: NextRequest) {
     .eq('curriculum_plan_id', plan.id)
     .eq('status', 'draft')
 
+  console.log(`[plan/approve] planId=${plan.id} draftCount=${draftCount ?? 0} visibleSessions=${(plan.visible_sessions as unknown[])?.length ?? 0}`)
+
+  let insertedCount = 0
+  const insertErrors: string[] = []
+
   if ((draftCount ?? 0) === 0) {
+    // Clear orphaned draft sessions from superseded plans — they would conflict with
+    // the unique index on (user_id, session_index) and silently block these inserts.
+    const { error: cleanupErr } = await supabase
+      .from('sessions')
+      .delete()
+      .eq('user_id', userId!)
+      .eq('status', 'draft')
+      .neq('curriculum_plan_id', plan.id)
+    if (cleanupErr) console.error('[plan/approve] orphan cleanup failed:', cleanupErr.message)
+    else console.log('[plan/approve] orphan draft sessions cleared')
+
     const visibleSessions = (
       Array.isArray(plan.visible_sessions) ? plan.visible_sessions : []
     ) as VisibleSession[]
+
+    console.log(`[plan/approve] designing ${visibleSessions.length} topics`)
 
     const maxMins = getSessionDuration((user as { learning_goal?: string }).learning_goal ?? null)
     const profile = {
@@ -87,11 +105,13 @@ export async function POST(request: NextRequest) {
       }))
     )
 
+    console.log(`[plan/approve] designResults: ${designResults.length} topics, total sessions: ${designResults.reduce((n, r) => n + r.designed.length, 0)}`)
+
     let globalOrder = 0
     for (const { cs, designed } of designResults) {
       for (const ds of designed) {
         globalOrder++
-        const { error: insertErr } = await supabase.from('sessions').insert({
+        const { data: inserted, error: insertErr } = await supabase.from('sessions').insert({
           user_id:               userId,
           session_title:         ds.session_title,
           topics:                [cs.session_id],
@@ -101,10 +121,17 @@ export async function POST(request: NextRequest) {
           duration_mins:         ds.duration_mins,
           session_index:         globalOrder,
           status:                'draft',
-        })
-        if (insertErr) console.error('[plan/approve] session insert failed:', insertErr.message, insertErr.code, { index: globalOrder })
+        }).select('id').single()
+        if (insertErr) {
+          console.error('[plan/approve] session insert failed:', insertErr.message, insertErr.code, { index: globalOrder })
+          insertErrors.push(`idx${globalOrder}: ${insertErr.code} ${insertErr.message}`)
+        } else {
+          insertedCount++
+          console.log(`[plan/approve] inserted session ${globalOrder} id=${inserted?.id}`)
+        }
       }
     }
+    console.log(`[plan/approve] inserted ${insertedCount}/${designResults.reduce((n, r) => n + r.designed.length, 0)} sessions`)
   }
 
   // ── Flip draft → scheduled ───────────────────────────────────────────────────
@@ -225,9 +252,16 @@ export async function POST(request: NextRequest) {
 
   await Promise.all(sends)
 
+  console.log(`[plan/approve] flip activated=${activatedData?.length ?? 0} insertedCount=${insertedCount} insertErrors=${insertErrors.length}`)
+
   return NextResponse.json({
     success:          true,
     sessions_created: activatedData?.length ?? 0,
+    _diag: {
+      insertedCount,
+      insertErrors,
+      draftCountBefore: draftCount ?? 0,
+    },
   })
 }
 
