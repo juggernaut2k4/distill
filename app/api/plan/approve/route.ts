@@ -195,22 +195,18 @@ export async function POST(request: NextRequest) {
       .eq('status', 'scheduled')
       .order('session_index', { ascending: true })
 
-    const sessionsWithSubtopics = (allSessions ?? []).filter(
+    // Only fire content generation for Session 1 on approve.
+    // Sessions 2–N are handled by the cron or triggered on-demand.
+    const firstSession = (allSessions ?? []).find(
       (s) => Array.isArray(s.subtopics) && (s.subtopics as unknown[]).length > 0
     )
 
-    if (sessionsWithSubtopics.length > 0) {
-      await inngest.send(
-        sessionsWithSubtopics.map((s, i) => ({
-          name: 'distill/session.content.generate' as const,
-          data: {
-            sessionId: s.id,
-            userId: userId!,
-            priority: i === 0 ? ('high' as const) : ('background' as const),
-          },
-        }))
-      )
-      console.log(`[plan/approve] Fired content generation for ${sessionsWithSubtopics.length} sessions (Session 1 = high priority, rest = background).`)
+    if (firstSession) {
+      await inngest.send({
+        name: 'distill/session.content.generate' as const,
+        data: { sessionId: firstSession.id, userId: userId!, priority: 'high' as const },
+      })
+      console.log(`[plan/approve] Fired content generation for Session 1 only (id=${firstSession.id}).`)
     }
   } catch (err) {
     console.error('[plan/approve] Content generation trigger failed (non-fatal):', err)
