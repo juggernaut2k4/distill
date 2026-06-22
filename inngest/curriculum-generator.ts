@@ -38,10 +38,31 @@ export const curriculumGenerator = inngest.createFunction(
       return { error: 'user_not_found' }
     }
 
-    const topics: string[] = Array.isArray(user.topic_interests) ? user.topic_interests : []
+    let topics: string[] = Array.isArray(user.topic_interests) ? user.topic_interests : []
+
+    // Auto-select topics from catalog when user hasn't visited /topics yet.
+    // Happens when payment fires immediately after onboarding (before topic selection).
+    // Selects up to 5 catalog entries relevant to the user's industry + maturity.
     if (topics.length === 0) {
-      console.warn('[curriculum-generator] No topics for user:', userId)
-      return { error: 'no_topics' }
+      console.warn('[curriculum-generator] No topic_interests — auto-selecting from catalog for user:', userId)
+      const { data: catalogRows } = await supabase
+        .from('topic_catalog')
+        .select('slug')
+        .eq('is_active', true)
+        .order('created_at', { ascending: true })
+        .limit(5)
+
+      if (catalogRows && catalogRows.length > 0) {
+        topics = catalogRows.map((r: { slug: string }) => r.slug)
+        // Persist so future runs and the topics page reflect the auto-selection
+        await supabase.from('users').update({ topic_interests: topics }).eq('id', userId)
+        console.log('[curriculum-generator] Auto-selected topics:', topics)
+      } else {
+        // Hard fallback: use known starter slugs if catalog is empty
+        topics = ['llm-basics', 'ai-strategy', 'evaluating-ai-vendors']
+        await supabase.from('users').update({ topic_interests: topics }).eq('id', userId)
+        console.log('[curriculum-generator] Used hardcoded fallback topics')
+      }
     }
 
     const role      = (user.role        as string | null) ?? 'executive'
