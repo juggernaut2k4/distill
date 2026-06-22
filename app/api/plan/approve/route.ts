@@ -114,6 +114,7 @@ export async function POST(request: NextRequest) {
         const { data: inserted, error: insertErr } = await supabase.from('sessions').insert({
           user_id:               userId,
           session_title:         ds.session_title,
+          topic_id:              cs.session_id,
           topics:                [cs.session_id],
           curriculum_plan_id:    plan.id,
           curriculum_session_id: cs.session_id,
