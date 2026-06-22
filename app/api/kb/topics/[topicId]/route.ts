@@ -38,7 +38,7 @@ interface Arc {
   title: string
   focus: string | null
   sessions: ArcSession[]
-  total_subtopics: number
+  total_sub_sessions: number
   total_sessions: number
   completed_sessions: number
 }
@@ -171,7 +171,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       title: arcTitle,
       focus,
       sessions: arcSessions,
-      total_subtopics: totalSubtopics,
+      total_sub_sessions: totalSubtopics,
       total_sessions: arcSessions.length,
       completed_sessions: completedSessions,
     }

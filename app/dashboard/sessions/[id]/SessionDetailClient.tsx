@@ -130,7 +130,7 @@ export default function SessionDetailClient({ session }: Props) {
 
   // ── Content pipeline state ──────────────────────────────────────────────────
   // ContentSubSession: one tab (sub-session) in the content pipeline
-  // (stored as sessions.subtopics in DB — column rename pending TERM-01)
+  // (stored as sessions.sub_sessions in DB — TERM-01 Phase 2 complete)
   interface ContentSubSession {
     title: string
     slug: string
@@ -161,7 +161,7 @@ export default function SessionDetailClient({ session }: Props) {
       return
     }
     contentFetchFailures.current = 0
-    const data = await res.json() as { content_status: string; subtopics: ContentSubSession[] }
+    const data = await res.json() as { content_status: string; sub_sessions: ContentSubSession[] }
     const status = data.content_status as typeof contentStatus
 
     // If page loads and DB already has 'generating' (stuck from a prior run),
@@ -169,13 +169,13 @@ export default function SessionDetailClient({ session }: Props) {
     if (isInitialLoadRef.current && status === 'generating') {
       isInitialLoadRef.current = false
       setContentStatus('failed')
-      setContentSubSessions(data.subtopics ?? [])
+      setContentSubSessions(data.sub_sessions ?? [])
       return
     }
     isInitialLoadRef.current = false
 
     setContentStatus(status)
-    setContentSubSessions(data.subtopics ?? [])
+    setContentSubSessions(data.sub_sessions ?? [])
     if (status === 'ready' || status === 'failed') {
       setIsGeneratingContent(false)
       setContentGenStartedAt(null)

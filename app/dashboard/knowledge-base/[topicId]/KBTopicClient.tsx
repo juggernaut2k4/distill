@@ -109,7 +109,7 @@ interface Arc {
   title: string
   focus: string | null
   sessions: ArcSession[]
-  total_subtopics: number
+  total_sub_sessions: number
   total_sessions: number
   completed_sessions: number
 }
@@ -425,7 +425,7 @@ export default function KBTopicClient({ topicId }: Props) {
           </div>
 
           <p className="text-xs text-[#475569] mt-4 pt-4 border-t border-[#222222]">
-            {arc.total_subtopics} subtopics · {arc.total_sessions} {arc.total_sessions === 1 ? 'session' : 'sessions'} · {arc.completed_sessions} of {arc.total_sessions} completed
+            {arc.total_sub_sessions} sub-sessions · {arc.total_sessions} {arc.total_sessions === 1 ? 'session' : 'sessions'} · {arc.completed_sessions} of {arc.total_sessions} completed
           </p>
         </div>
       )}

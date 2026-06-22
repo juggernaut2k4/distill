@@ -13,7 +13,7 @@ interface KBTopic {
   topic_title: string
   section_count: number
   last_updated: string
-  subtopics: Array<{ slug: string; title: string; type: string }>
+  sub_sessions: Array<{ slug: string; title: string; type: string }>
   avg_qa_score?: number | null
 }
 
@@ -229,14 +229,14 @@ export default function KBIndexClient() {
 
                   {/* Subtopic previews */}
                   <div className="space-y-1 mb-4">
-                    {topic.subtopics.slice(0, 3).map((sub) => (
+                    {topic.sub_sessions.slice(0, 3).map((sub) => (
                       <div key={sub.slug} className="flex items-center gap-2">
                         <div className="w-1 h-1 rounded-full bg-[#7C3AED] shrink-0" />
                         <span className="text-[#475569] text-xs truncate">{sub.title}</span>
                       </div>
                     ))}
-                    {topic.subtopics.length > 3 && (
-                      <p className="text-[#333333] text-xs pl-3">+{topic.subtopics.length - 3} more</p>
+                    {topic.sub_sessions.length > 3 && (
+                      <p className="text-[#333333] text-xs pl-3">+{topic.sub_sessions.length - 3} more</p>
                     )}
                   </div>
 

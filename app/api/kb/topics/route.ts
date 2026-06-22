@@ -63,7 +63,7 @@ export async function GET(request: NextRequest) {
     topic_title: string
     section_count: number
     last_updated: string
-    subtopics: Array<{ slug: string; title: string; type: string }>
+    sub_sessions: Array<{ slug: string; title: string; type: string }>
   }>()
 
   for (const row of (rows ?? [])) {
@@ -77,13 +77,13 @@ export async function GET(request: NextRequest) {
         topic_title: topicTitle,
         section_count: 0,
         last_updated: row.generated_at,
-        subtopics: [],
+        sub_sessions: [],
       })
     }
 
     const entry = topicMap.get(row.topic_id)!
     entry.section_count++
-    entry.subtopics.push({
+    entry.sub_sessions.push({
       slug: row.subtopic_slug,
       title: row.subtopic_title ?? row.subtopic_slug,
       type: row.template_type,

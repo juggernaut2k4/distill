@@ -107,7 +107,7 @@ export async function GET(req: NextRequest, { params }: Params) {
 
   return NextResponse.json({
     content_status: session.content_status ?? 'pending',
-    subtopics,
+    sub_sessions: subtopics,
   })
 }
 
