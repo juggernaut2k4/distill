@@ -424,8 +424,25 @@ export default function TopicsPage() {
       keepalive: true,
     }).catch(() => { /* non-fatal */ })
 
-    // Signed-in → go straight to plan; unauthenticated → sign up first
+    // Save topics to the server (triggers curriculum generator via Inngest).
+    // Only possible for signed-in users — unauthenticated users aren't in the DB yet.
     if (isSignedIn) {
+      try {
+        await fetch('/api/topics', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            topics: selectedTitles,
+            profile: {
+              role: profile.role,
+              primaryDomain: profile.primaryDomain,
+              domainProficiency: profile.domainProficiency,
+              learningGoal: profile.learningGoal,
+            },
+          }),
+        })
+      } catch { /* non-fatal — curriculum-generator has auto-select fallback */ }
+
       router.push('/plan')
     } else {
       router.push('/sign-up')
