@@ -30,10 +30,21 @@ import { signClioToken } from '@/lib/session-auth'
 export async function POST(request: NextRequest): Promise<NextResponse> {
   let userId: string | null = null
 
+  // 0. Admin bypass — x-admin-secret + userId body param (for programmatic/AI access)
+  const adminSecret = process.env.ADMIN_SECRET
+  const incomingSecret = request.headers.get('x-admin-secret')
+  if (adminSecret && incomingSecret && incomingSecret === adminSecret) {
+    let body: { userId?: string } = {}
+    try { body = await request.json() } catch { /* no body */ }
+    if (body.userId) {
+      userId = body.userId
+    }
+  }
+
   // 1. Try Clerk cookie session (browser)
-  const { userId: cookieId } = auth()
-  if (cookieId) {
-    userId = cookieId
+  if (!userId) {
+    const { userId: cookieId } = auth()
+    if (cookieId) userId = cookieId
   }
 
   // 2. Try Authorization: Bearer <clerk-jwt>
