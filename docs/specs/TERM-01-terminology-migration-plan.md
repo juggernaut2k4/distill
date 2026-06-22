@@ -1,6 +1,6 @@
 # TERM-01 — Terminology Migration Plan
 Version: 1.0
-Status: PHASE 1 COMPLETE — Phase 2 and 3 pending
+Status: PHASE 3 COMPLETE — Migration 034 pending (drop sessions.subtopics column, apply when ready)
 Author: Business Analyst Agent
 Date: 2026-06-22
 
