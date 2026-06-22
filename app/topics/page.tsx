@@ -382,7 +382,7 @@ export default function TopicsPage() {
       if (raw) existing = JSON.parse(raw) as Record<string, unknown>
     } catch { /* ignore */ }
 
-    const profile = existing as { role?: string; aiMaturity?: string; domainProficiency?: Record<string, string>; primaryDomain?: string }
+    const profile = existing as { role?: string; aiMaturity?: string; domainProficiency?: Record<string, string>; primaryDomain?: string; learningGoal?: string }
     localStorage.setItem('clio_onboarding', JSON.stringify({
       ...existing,
       selectedTopics: selectedTitles,
