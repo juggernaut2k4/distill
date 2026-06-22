@@ -8,6 +8,7 @@ import {
   type User,
 } from '@/lib/delivery/email'
 import { sendSMS } from '@/lib/delivery/sms'
+import { inngest } from '@/inngest/client'
 import type Stripe from 'stripe'
 
 /**
@@ -78,6 +79,11 @@ export async function POST(request: NextRequest) {
 
         if (user?.email) {
           sendWelcomeEmail(user as User, resolvedPlan, minutesBalance).catch(console.error)
+        }
+
+        // Auto-kick plan generation — no user navigation required
+        if (userId) {
+          inngest.send({ name: 'clio/topics.selected', data: { userId } }).catch(console.error)
         }
 
         break

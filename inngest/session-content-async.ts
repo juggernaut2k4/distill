@@ -279,7 +279,7 @@ async function processSubtopic(
       : generateTemplateData(templateType, subtopicTitle, topicTitle, userContext, undefined, contentSpec)
           .then((data) => {
             const newSection = { id: subtopicSlug, type: templateType, data, meta, status: 'pending' } as TemplateSection
-            setCachedSection(topicId, subtopicSlug, subtopicTitle, newSection).catch(() => {})
+            setCachedSection(topicId, subtopicSlug, subtopicTitle, newSection, { role: userContext.role, industry: userContext.industry }).catch(() => {})
             return newSection
           }),
     generateTrainingScript(subSessionOutline, userContextWithProfile, sessionCtx),

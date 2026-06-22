@@ -9,7 +9,10 @@ import {
 interface PlanGeneratedEvent {
   data: { planId: string; userId: string; cached: boolean }
 }
-type Step = { run: <T>(name: string, fn: () => Promise<T>) => Promise<T> }
+type Step = {
+  run: <T>(name: string, fn: () => Promise<T>) => Promise<T>
+  sendEvent: (id: string, event: { name: string; data: object }) => Promise<void>
+}
 
 interface VisibleSession extends CurriculumTopicInput {
   arc_name:        string
@@ -142,6 +145,16 @@ export const sessionDesignerAuto = inngest.createFunction(
         .update({ visible_sessions: updatedVisible })
         .eq('id', planId)
     })
+
+    // ── Fire Session 1 content generation immediately (don't wait for user approval) ──
+    const session1Id = updatedVisible[0]?.db_session_id
+    if (session1Id) {
+      await step.sendEvent('kickoff-session-1-content', {
+        name: 'distill/session.content.generate',
+        data: { sessionId: session1Id, userId },
+      })
+      console.log(`[session-designer-auto] Kicked off Session 1 content: ${session1Id}`)
+    }
 
     console.log(`[session-designer-auto] ${visibleSessions.length} topics → sessions drafted for plan ${planId}`)
     return { success: true, planId, topicsDesigned: visibleSessions.length }

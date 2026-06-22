@@ -68,7 +68,7 @@ async function generateSubtopicSection(
     const section = { id: sub.id, type: templateType, data, meta, status: 'pending' as const } as TemplateSection
 
     // Write to cache async — don't block returning the section to the caller
-    setCachedSection(topicId, sub.id, sub.title, section).catch(() => {})
+    setCachedSection(topicId, sub.id, sub.title, section, userContext).catch(() => {})
 
     return { ...sub, template_section: section, visual_status: 'ready' }
   } catch (err) {
