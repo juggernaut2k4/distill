@@ -15,6 +15,7 @@ import { generateTrainingScript, adaptScriptToDuration } from '@/lib/content/scr
 import { selectTemplate } from '@/lib/templates/selector'
 import { generateTemplateData } from '@/lib/templates/generator'
 import { getCachedSection, setCachedSection } from '@/lib/topic-cache'
+import { embedAndStoreSection } from '@/lib/embeddings'
 import { getUserLearningProfile, buildFullProfileContextForGeneration } from '@/lib/learning/user-profile'
 import type { TemplateSection, TemplateMeta } from '@/lib/templates/types'
 import type { SessionPlan } from '@/lib/session-plan'
@@ -287,6 +288,8 @@ async function processSubtopic(
           .then((data) => {
             const newSection = { id: subtopicSlug, type: templateType, data, meta, status: 'pending' } as TemplateSection
             setCachedSection(topicId, subtopicSlug, subtopicTitle, newSection, { role: userContext.role, industry: userContext.industry }).catch(() => {})
+            // Generate and store embedding for semantic search — fire-and-forget, never blocks pipeline
+            embedAndStoreSection(topicId, subtopicSlug, subtopicTitle, newSection, { role: userContext.role, industry: userContext.industry }).catch(() => {})
             return newSection
           }),
     generateTrainingScript(subSessionOutline, userContextWithProfile, sessionCtx),
