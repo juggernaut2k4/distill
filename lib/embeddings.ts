@@ -1,77 +1,74 @@
 /**
- * Semantic search via pgvector + OpenAI embeddings.
+ * Semantic search via pgvector + Voyage AI embeddings.
  *
- * Why openai package: @anthropic-ai/sdk does not provide an embeddings API.
- * OpenAI text-embedding-3-small is the industry-standard 1536-dimension model
- * and the only approved path to vector search on this stack.
- * Package: openai@4.x — 10M+ weekly downloads, actively maintained, no known CVEs.
+ * Why voyageai and not @anthropic-ai/sdk: Anthropic's Claude API has no embeddings
+ * endpoint — it is a text-generation-only API. Voyage AI is Anthropic's official
+ * recommended embeddings partner. Using the same ANTHROPIC ecosystem, different key.
+ * Package: voyageai — official Voyage AI SDK, actively maintained.
+ *
+ * Model: voyage-3-lite — 1024 dimensions, fast, low cost, high quality for retrieval.
+ * Required env var: VOYAGE_API_KEY (separate from ANTHROPIC_API_KEY)
  *
  * Usage:
  *   1. Generate: generateEmbedding(text) → number[] | null
- *   2. Store:    embedding column in topic_content_cache (migration 036)
- *   3. Search:   semanticSearchContent(query, userContext) → matching cache rows
+ *   2. Store:    embedding vector(1024) column in topic_content_cache (migration 036+037)
+ *   3. Search:   semanticSearchContent(query, userContext) → ranked cache rows
  *
  * Integration points:
- *   - session-content-async.ts: generates + stores embedding after each section
- *   - lib/session-ai.ts: calls semanticSearchContent for off-script user questions
- *   - lib/topic-cache.ts: getCachedSection falls back to semantic match when exact + adaptation miss
+ *   - inngest/session-content-async.ts: stores embedding after each section is generated
+ *   - lib/session-ai.ts: calls semanticSearchContent for off-script user questions during live sessions
  */
 
-import OpenAI from 'openai'
+import { VoyageAIClient } from 'voyageai'
 import { createSupabaseAdminClient } from './supabase'
 import type { TemplateSection } from './templates/types'
 
 const _isPlaceholder =
-  !process.env.OPENAI_API_KEY ||
-  process.env.OPENAI_API_KEY.startsWith('PLACEHOLDER')
+  !process.env.VOYAGE_API_KEY ||
+  process.env.VOYAGE_API_KEY.startsWith('PLACEHOLDER')
 
-const _openai = _isPlaceholder ? null : new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+const _voyage = _isPlaceholder ? null : new VoyageAIClient({ apiKey: process.env.VOYAGE_API_KEY })
 
-const EMBEDDING_MODEL = 'text-embedding-3-small'
-const EMBEDDING_DIMS = 1536
+const EMBEDDING_MODEL = 'voyage-3-lite'
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 
 /**
- * Converts a TemplateSection into a readable text string suitable for embedding.
- * Extracts the most semantically meaningful fields from the structured data
- * rather than embedding raw JSON noise.
+ * Converts a TemplateSection into readable text for embedding.
+ * Extracts the highest-signal fields rather than dumping raw JSON.
  */
 function sectionToText(section: TemplateSection, subtopicTitle: string): string {
   const data = section.data as unknown as Record<string, unknown>
   const parts: string[] = [subtopicTitle]
 
-  // Pull top-level string fields that carry meaning
   for (const key of ['title', 'term', 'question', 'headline_stat', 'topic_name', 'framework_name', 'company', 'challenge', 'central_concept']) {
     if (typeof data[key] === 'string') parts.push(data[key] as string)
   }
 
-  // Pull "so what" and summary fields — highest signal for relevance
-  for (const key of ['so_what', 'so_what_for_you', 'direct_answer', 'context', 'purpose', 'summary', 'one_line']) {
+  for (const key of ['so_what', 'so_what_for_you', 'direct_answer', 'context', 'purpose', 'one_line']) {
     if (typeof data[key] === 'string') parts.push(data[key] as string)
   }
 
-  return parts.join(' ').slice(0, 4000) // stay well under token limits
+  return parts.join(' ').slice(0, 4000)
 }
 
 // ─── GENERATE ─────────────────────────────────────────────────────────────────
 
 /**
- * Generates a 1536-dimension embedding for the given text.
- * Returns null if OPENAI_API_KEY is not configured — callers must handle gracefully.
+ * Generates a 1024-dimension Voyage AI embedding for the given text.
+ * Returns null if VOYAGE_API_KEY is not configured — callers handle gracefully.
  */
 export async function generateEmbedding(text: string): Promise<number[] | null> {
-  if (!_openai) {
-    console.log('[embeddings] Skipping — OPENAI_API_KEY not configured')
+  if (!_voyage) {
+    console.log('[embeddings] Skipping — VOYAGE_API_KEY not configured')
     return null
   }
   try {
-    const response = await _openai.embeddings.create({
+    const result = await _voyage.embed({
+      input: [text.slice(0, 8000)],
       model: EMBEDDING_MODEL,
-      input: text.slice(0, 8000), // model limit
-      dimensions: EMBEDDING_DIMS,
     })
-    return response.data[0].embedding
+    return result.data?.[0]?.embedding ?? null
   } catch (err) {
     console.warn('[embeddings] generateEmbedding failed (non-fatal):', err)
     return null
@@ -80,7 +77,7 @@ export async function generateEmbedding(text: string): Promise<number[] | null> 
 
 /**
  * Generates an embedding for a TemplateSection and stores it in topic_content_cache.
- * Called asynchronously after content generation — never blocks the main pipeline.
+ * Called asynchronously after content generation — never blocks the pipeline.
  */
 export async function embedAndStoreSection(
   topicId: string,
@@ -120,15 +117,17 @@ export interface SemanticSearchResult {
 
 /**
  * Finds the most semantically relevant cached sections for an arbitrary text query.
+ * Used when a user asks an off-script question during a live Recall.ai session
+ * and Clio needs to find the best matching content without an exact key lookup.
  *
- * Priority order:
- *   1. Exact industry+role match (personalised rows)
+ * Lookup order:
+ *   1. Personalised rows matching the user's exact industry + role
  *   2. Generic rows (industry='', role='') as fallback
  *
- * @param query     - Free-text query (e.g. a user question from a live session)
- * @param userContext - Used to prefer personalised rows
- * @param topicId   - Optional: restrict search to a specific topic
- * @param limit     - Max results (default 3)
+ * @param query       Free-text query (e.g. user question from live session)
+ * @param userContext Used to prefer personalised rows
+ * @param topicId     Optional: restrict search to a specific topic
+ * @param limit       Max results to return (default 3)
  */
 export async function semanticSearchContent(
   query: string,
@@ -136,8 +135,8 @@ export async function semanticSearchContent(
   topicId?: string,
   limit = 3
 ): Promise<SemanticSearchResult[]> {
-  if (!_openai) {
-    console.log('[embeddings] semanticSearch skipped — OPENAI_API_KEY not configured')
+  if (!_voyage) {
+    console.log('[embeddings] semanticSearch skipped — VOYAGE_API_KEY not configured')
     return []
   }
 
@@ -148,7 +147,7 @@ export async function semanticSearchContent(
     const supabase = createSupabaseAdminClient()
     const embeddingStr = `[${queryEmbedding.join(',')}]`
 
-    // Search personalised rows first
+    // 1. Personalised rows
     let q = supabase.rpc('match_topic_content', {
       query_embedding: embeddingStr,
       match_industry: userContext.industry,
@@ -158,12 +157,11 @@ export async function semanticSearchContent(
     if (topicId) q = q.eq('topic_id', topicId)
 
     const { data: personalised } = await q
-
     if (personalised && personalised.length > 0) {
       return personalised as SemanticSearchResult[]
     }
 
-    // Fallback: search generic rows
+    // 2. Generic fallback
     let gq = supabase.rpc('match_topic_content', {
       query_embedding: embeddingStr,
       match_industry: '',

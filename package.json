@@ -37,6 +37,7 @@
     "stripe": "^17.7.0",
     "svix": "^1.94.0",
     "twilio": "^5.5.1",
+    "voyageai": "^0.4.0",
     "zod": "^3.25.0"
   },
   "devDependencies": {
