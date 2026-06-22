@@ -240,8 +240,15 @@ async function processSubtopic(
   await supabase
     .from('topic_content_cache')
     .upsert(
-      { topic_id: topicId, subtopic_slug: subtopicSlug, subtopic_title: subtopicTitle, pipeline_status: 'generating' },
-      { onConflict: 'topic_id,subtopic_slug' }
+      {
+        topic_id: topicId,
+        subtopic_slug: subtopicSlug,
+        subtopic_title: subtopicTitle,
+        industry: userContext.industry,
+        role: userContext.role,
+        pipeline_status: 'generating',
+      },
+      { onConflict: 'topic_id,subtopic_slug,industry,role' }
     )
 
   const templateType = selectTemplate(subtopicTitle, subSessionOutline.position)
@@ -297,6 +304,8 @@ async function processSubtopic(
         topic_id: topicId,
         subtopic_slug: subtopicSlug,
         subtopic_title: subtopicTitle,
+        industry: userContext.industry,
+        role: userContext.role,
         template_type: templateType,
         section_data: section,
         content_outline: subSessionOutline,
@@ -306,7 +315,7 @@ async function processSubtopic(
         expires_at: expiresAt.toISOString(),
         use_count: 1,
       },
-      { onConflict: 'topic_id,subtopic_slug' }
+      { onConflict: 'topic_id,subtopic_slug,industry,role' }
     )
 
   const { data: currentSession } = await supabase
