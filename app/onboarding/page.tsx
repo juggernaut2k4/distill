@@ -859,7 +859,7 @@ function BuildingScreen() {
         transition={{ delay: 0.5 }}
         className="text-[#94A3B8] text-center"
       >
-        Calibrating your AI learning path...
+        Calibrating your learning path...
       </motion.p>
       <div className="mt-8 flex gap-2">
         {[0, 1, 2].map((i) => (
