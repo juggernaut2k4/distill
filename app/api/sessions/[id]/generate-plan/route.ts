@@ -238,7 +238,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   const [{ data: session }, { data: userRow }] = await Promise.all([
     supabase
       .from('sessions')
-      .select('id, session_title, topic_id, session_plan, subtopics')
+      .select('id, session_title, topic_id, session_plan, sub_sessions')
       .eq('id', params.id)
       .eq('user_id', userId!)
       .single(),
@@ -260,8 +260,8 @@ export async function POST(request: NextRequest, { params }: Params) {
   const topicTitle = session.session_title ?? ''
   // Prefer LLM-designed subtopics from the session designer (stored at approval time).
   // Fall back to hardcoded catalog only for sessions created before FB-005.
-  const designedSubtopics = Array.isArray(session.subtopics) && session.subtopics.length > 0
-    ? (session.subtopics as Array<{ title: string }>).map((s) => s.title)
+  const designedSubtopics = Array.isArray(session.sub_sessions) && session.sub_sessions.length > 0
+    ? (session.sub_sessions as Array<{ title: string }>).map((s) => s.title)
     : null
   const subtopics = designedSubtopics ?? findSubtopicsFromCatalog(topicId, topicTitle)
   const userProfile = userRow ?? {}

@@ -62,7 +62,7 @@ export const sessionContentCron = inngest.createFunction(
 
     // ── Task 2: Query pending sessions ───────────────────────────────────────
     // Fix 1: exclude 'generating' to prevent duplicate parallel pipeline runs.
-    const SELECT_COLS = 'id, user_id, session_index, session_title, topic_id, topics, duration_mins, curriculum_session_id, subtopics'
+    const SELECT_COLS = 'id, user_id, session_index, session_title, topic_id, topics, duration_mins, curriculum_session_id, sub_sessions'
 
     // Branch A: old-style sessions (have scheduled_at, session_index > 1)
     const { data: oldStyleSessions, error: err1 } = await supabase
@@ -83,7 +83,7 @@ export const sessionContentCron = inngest.createFunction(
       .eq('status', 'scheduled')
       .not('content_status', 'eq', 'ready')
       .not('content_status', 'eq', 'generating')
-      .not('subtopics', 'is', null)
+      .not('sub_sessions', 'is', null)
       .order('session_index', { ascending: true })
 
     if (err1) console.error('[session-content-cron] old-style query error:', err1.message)
@@ -99,7 +99,7 @@ export const sessionContentCron = inngest.createFunction(
       topic_id: string | null
       topics: unknown
       curriculum_session_id: string | null
-      subtopics: unknown
+      sub_sessions: unknown
     }> = []
     for (const s of [...(oldStyleSessions ?? []), ...(curriculumSessions ?? [])]) {
       if (!seen.has(s.id)) {
@@ -125,13 +125,13 @@ export const sessionContentCron = inngest.createFunction(
     for (const session of allPending) {
       if (session.curriculum_session_id) {
         const hasSubtopics =
-          Array.isArray(session.subtopics) && (session.subtopics as unknown[]).length > 0
+          Array.isArray(session.sub_sessions) && (session.sub_sessions as unknown[]).length > 0
         const hasTopics =
           Array.isArray(session.topics) && (session.topics as unknown[]).length > 0
         if (!hasSubtopics && !hasTopics) {
           skippedNoSubtopics.push(session.id)
           console.log(
-            `[session-content-cron] Skipping ${session.id} ("${session.session_title}") — no subtopics designed yet`
+            `[session-content-cron] Skipping ${session.id} ("${session.session_title}") — no sub_sessions designed yet`
           )
           continue
         }
@@ -145,7 +145,7 @@ export const sessionContentCron = inngest.createFunction(
     console.log(
       `[session-content-cron] Firing ${targets.length} sessions ` +
       `(${perUserOldStyle.size} old-style, ${curriculumTargets.length} curriculum, ` +
-      `${skippedNoSubtopics.length} skipped — no subtopics)`
+      `${skippedNoSubtopics.length} skipped — no sub_sessions)`
     )
 
     // ── Fire content generation events ───────────────────────────────────────

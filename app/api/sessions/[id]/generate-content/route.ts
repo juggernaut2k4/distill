@@ -54,7 +54,7 @@ export async function GET(req: NextRequest, { params }: Params) {
   // Get session to verify ownership and fetch content_status
   const { data: session } = await supabase
     .from('sessions')
-    .select('topic_id, content_status, topics, session_title, session_plan')
+    .select('topic_id, content_status, topics, session_title, session_plan, sub_sessions')
     .eq('id', params.id)
     .eq('user_id', userId!)
     .single()
@@ -66,7 +66,7 @@ export async function GET(req: NextRequest, { params }: Params) {
   const planSubtopics = (session.session_plan as SessionPlan | null)?.subtopics
     ?.filter((s: { skipped?: boolean }) => !s.skipped)
     ?.map((s: { title: string }) => s.title) ?? []
-  const rawSubtopicsGet = (session as unknown as { subtopics?: unknown }).subtopics
+  const rawSubtopicsGet = (session as unknown as { sub_sessions?: unknown }).sub_sessions
   const designedTitlesGet = Array.isArray(rawSubtopicsGet) && rawSubtopicsGet.length > 0
     ? (rawSubtopicsGet as Array<{ title: string }>).map((s) => s.title)
     : null

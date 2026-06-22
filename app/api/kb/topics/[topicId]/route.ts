@@ -22,7 +22,7 @@ interface SessionRow {
   id: string
   session_title: string | null
   session_index: number
-  subtopics: SessionSubtopic[] | null
+  sub_sessions: SessionSubtopic[] | null
   status: string | null
 }
 
@@ -51,8 +51,8 @@ interface Arc {
 function buildOrderedSlugs(sessions: SessionRow[]): string[] {
   const slugs: string[] = []
   for (const session of sessions) {
-    if (!Array.isArray(session.subtopics)) continue
-    for (const sub of session.subtopics) {
+    if (!Array.isArray(session.sub_sessions)) continue
+    for (const sub of session.sub_sessions) {
       if (sub.title) slugs.push(slugify(sub.title))
     }
   }
@@ -86,7 +86,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       .gt('expires_at', new Date().toISOString()),
     supabase
       .from('sessions')
-      .select('id, session_title, session_index, subtopics, status, curriculum_session_id')
+      .select('id, session_title, session_index, sub_sessions, status, curriculum_session_id')
       .eq('id', params.topicId)
       .limit(1),
   ])
@@ -103,7 +103,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   if (thisSession?.curriculum_session_id) {
     const { data: siblingData } = await supabase
       .from('sessions')
-      .select('id, session_title, session_index, subtopics, status')
+      .select('id, session_title, session_index, sub_sessions, status')
       .eq('curriculum_session_id', thisSession.curriculum_session_id)
       .order('session_index', { ascending: true })
     sessions = (siblingData ?? []) as SessionRow[]
@@ -160,7 +160,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       session_id: s.id,
       title: s.session_title ?? s.id,
       session_index: s.session_index,
-      subtopic_count: Array.isArray(s.subtopics) ? s.subtopics.length : 0,
+      subtopic_count: Array.isArray(s.sub_sessions) ? s.sub_sessions.length : 0,
       status: s.status ?? 'scheduled',
     }))
 

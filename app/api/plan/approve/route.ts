@@ -118,6 +118,7 @@ export async function POST(request: NextRequest) {
           curriculum_plan_id:    plan.id,
           curriculum_session_id: cs.session_id,
           subtopics:             ds.subtopics,
+          sub_sessions:          ds.subtopics,
           duration_mins:         ds.duration_mins,
           session_index:         globalOrder,
           status:                'draft',
@@ -189,7 +190,7 @@ export async function POST(request: NextRequest) {
   try {
     const { data: allSessions } = await supabase
       .from('sessions')
-      .select('id, session_index, subtopics')
+      .select('id, session_index, sub_sessions')
       .eq('user_id', userId!)
       .eq('curriculum_plan_id', plan.id)
       .eq('status', 'scheduled')
@@ -198,7 +199,7 @@ export async function POST(request: NextRequest) {
     // Only fire content generation for Session 1 on approve.
     // Sessions 2–N are handled by the cron or triggered on-demand.
     const firstSession = (allSessions ?? []).find(
-      (s) => Array.isArray(s.subtopics) && (s.subtopics as unknown[]).length > 0
+      (s) => Array.isArray(s.sub_sessions) && (s.sub_sessions as unknown[]).length > 0
     )
 
     if (firstSession) {

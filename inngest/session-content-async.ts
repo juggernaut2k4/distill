@@ -66,7 +66,7 @@ export const sessionContentAsync = inngest.createFunction(
       const [{ data: s }, { data: u }] = await Promise.all([
         supabase
           .from('sessions')
-          .select('id, session_title, topic_id, curriculum_session_id, topics, content_status, session_plan, duration_mins, subtopics')
+          .select('id, session_title, topic_id, curriculum_session_id, topics, content_status, session_plan, duration_mins, sub_sessions')
           .eq('id', sessionId)
           .eq('user_id', userId)
           .single(),
@@ -124,7 +124,7 @@ export const sessionContentAsync = inngest.createFunction(
     const planSubtopics = (session.session_plan as SessionPlan | null)?.subtopics
       ?.filter((s: { skipped?: boolean }) => !s.skipped)
       ?.map((s: { title: string }) => s.title) ?? []
-    const rawSubtopics = (session as unknown as { subtopics?: unknown }).subtopics
+    const rawSubtopics = (session as unknown as { sub_sessions?: unknown }).sub_sessions
     const designedTitles = Array.isArray(rawSubtopics) && rawSubtopics.length > 0
       ? (rawSubtopics as Array<{ title: string }>).map((s) => s.title)
       : null
