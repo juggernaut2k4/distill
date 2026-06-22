@@ -9,7 +9,9 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 
-export interface SubtopicOutline {
+// SubSessionOutline: content outline for one tab (sub-session) within a live session.
+// Stored as sessions.subtopics in DB — column rename pending TERM-01.
+export interface SubSessionOutline {
   subtopic_title: string
   subtopic_slug: string
   position: 'first' | 'middle' | 'last'
@@ -31,7 +33,7 @@ export interface SessionContentOutline {
   session_id: string
   topic_id: string
   topic_title: string
-  subtopics: SubtopicOutline[]
+  subtopics: SubSessionOutline[]
   previous_sessions_summarized: string
   generated_at: string
 }
@@ -102,7 +104,7 @@ async function getExistingTopicContent(topicId: string): Promise<string> {
     if (!data || data.length === 0) return ''
 
     const lines = data.map((row) => {
-      const outline = row.content_outline as SubtopicOutline | null
+      const outline = row.content_outline as SubSessionOutline | null
       const concepts = outline?.key_concepts?.join(', ') ?? ''
       return `  • ${row.subtopic_title}${concepts ? `: ${concepts}` : ''}`
     })
@@ -143,7 +145,8 @@ export async function generateSessionContentOutline(
   if (!anthropic) {
     // Mock mode — return realistic placeholder outlines
     console.log('[MOCK] session-content-generator: returning mock content outline')
-    const subtopics: SubtopicOutline[] = subtopicTitles.map((title, i) => ({
+    // subSessions: tabs within this session (stored as sessions.subtopics in DB — column rename pending TERM-01)
+    const subSessions: SubSessionOutline[] = subtopicTitles.map((title, i) => ({
       subtopic_title: title,
       subtopic_slug: slugify(title),
       position: i === 0 ? 'first' : i === subtopicTitles.length - 1 ? 'last' : 'middle',
@@ -172,7 +175,7 @@ export async function generateSessionContentOutline(
       session_id: sessionId,
       topic_id: topicId,
       topic_title: topicTitle,
-      subtopics,
+      subtopics: subSessions,
       previous_sessions_summarized: previousContext,
       generated_at: new Date().toISOString(),
     }
@@ -264,7 +267,8 @@ Return ONLY valid JSON matching this exact schema (no markdown, no commentary):
     previous_sessions_summarized: string
   }
 
-  const subtopics: SubtopicOutline[] = json.subtopics.map((s, i) => ({
+  // subSessions: tabs within this session (stored as sessions.subtopics in DB — column rename pending TERM-01)
+  const subSessions: SubSessionOutline[] = json.subtopics.map((s, i) => ({
     ...s,
     // Use the original input title for slug so GET endpoint lookups always match.
     // Claude may paraphrase the title slightly; anchoring on the input prevents slug drift.
@@ -286,7 +290,7 @@ Return ONLY valid JSON matching this exact schema (no markdown, no commentary):
     session_id: sessionId,
     topic_id: topicId,
     topic_title: topicTitle,
-    subtopics,
+    subtopics: subSessions,
     previous_sessions_summarized: json.previous_sessions_summarized,
     generated_at: new Date().toISOString(),
   }

@@ -1,6 +1,6 @@
 import { inngest } from './client'
 import { createSupabaseAdminClient } from '@/lib/supabase'
-import { sendSessionAgendaEmail, type User, type SessionSummary, type AgendaEmailSubtopic } from '@/lib/delivery/email'
+import { sendSessionAgendaEmail, type User, type SessionSummary, type AgendaEmailSubSession } from '@/lib/delivery/email'
 import type { SessionPlan } from '@/lib/session-plan'
 
 /**
@@ -51,9 +51,10 @@ export const sessionAgendaEmail = inngest.createFunction(
 
         if (!userRow?.email) return
 
-        // Extract subtopics from session_plan (respecting skipped flags)
+        // Extract sub-sessions from session_plan (respecting skipped flags)
+        // subSessions: tabs within this session (stored as sessions.subtopics in DB — column rename pending TERM-01)
         const plan = session.session_plan as SessionPlan | null
-        const subtopics: AgendaEmailSubtopic[] = plan?.subtopics?.map((s) => ({
+        const subSessions: AgendaEmailSubSession[] = plan?.subtopics?.map((s) => ({
           title: s.title,
           skipped: s.skipped ?? false,
         })) ?? []
@@ -69,7 +70,7 @@ export const sessionAgendaEmail = inngest.createFunction(
         await sendSessionAgendaEmail(
           userRow as User,
           sessionSummary,
-          subtopics,
+          subSessions,
           session.meeting_url as string
         )
 

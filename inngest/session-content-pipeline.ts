@@ -140,17 +140,18 @@ export const sessionContentPipeline = inngest.createFunction(
       )
     })
 
-    // ── Steps 2-5: For each subtopic — script + template + cache ────────────
-    for (const subtopicOutline of outline.subtopics) {
-      const subtopicTitle = subtopicOutline.subtopic_title
-      const subtopicSlug = subtopicOutline.subtopic_slug
+    // ── Steps 2-5: For each sub-session — script + template + cache ────────────
+    // subSessionOutline: content outline for one tab (stored as sessions.subtopics in DB — column rename pending TERM-01)
+    for (const subSessionOutline of outline.subtopics) {
+      const subtopicTitle = subSessionOutline.subtopic_title
+      const subtopicSlug = subSessionOutline.subtopic_slug
 
       await step.run(`process-subtopic-${subtopicSlug}`, async () => {
         // Step 2: Generate training script
-        const script = await generateTrainingScript(subtopicOutline, userContext)
+        const script = await generateTrainingScript(subSessionOutline, userContext)
 
         // Step 3: Select template
-        const templateType = selectTemplate(subtopicTitle, subtopicOutline.position)
+        const templateType = selectTemplate(subtopicTitle, subSessionOutline.position)
 
         // Step 4: Generate template data (use cache if available)
         let section: TemplateSection | null = await getCachedSection(topicId, subtopicSlug, {
@@ -218,7 +219,7 @@ export const sessionContentPipeline = inngest.createFunction(
               subtopic_title: subtopicTitle,
               template_type: templateType,
               section_data: section,
-              content_outline: subtopicOutline,
+              content_outline: subSessionOutline,
               training_script: script,
               pipeline_status: 'ready',
               // Automated QA: store pass/fail flag alongside content.

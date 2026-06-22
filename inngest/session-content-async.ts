@@ -18,7 +18,7 @@ import { getCachedSection, setCachedSection } from '@/lib/topic-cache'
 import { getUserLearningProfile, buildFullProfileContextForGeneration } from '@/lib/learning/user-profile'
 import type { TemplateSection, TemplateMeta } from '@/lib/templates/types'
 import type { SessionPlan } from '@/lib/session-plan'
-import type { SubtopicOutline } from '@/lib/content/session-content-generator'
+import type { SubSessionOutline } from '@/lib/content/session-content-generator'
 
 interface SessionContentRequestedEvent {
   data: {
@@ -177,8 +177,8 @@ export const sessionContentAsync = inngest.createFunction(
     for (let i = 0; i < outline.subtopics.length; i += BATCH_SIZE) {
       const batch = outline.subtopics.slice(i, i + BATCH_SIZE)
       await step.run(`process-batch-${i}`, async () => {
-        await Promise.all(batch.map((subtopicOutline: SubtopicOutline) =>
-          processSubtopic(subtopicOutline, {
+        await Promise.all(batch.map((subSessionOutline: SubSessionOutline) =>
+          processSubtopic(subSessionOutline, {
             sessionId,
             topicId,
             topicTitle,
@@ -230,12 +230,12 @@ interface ProcessSubtopicCtx {
 }
 
 async function processSubtopic(
-  subtopicOutline: SubtopicOutline,
+  subSessionOutline: SubSessionOutline,
   ctx: ProcessSubtopicCtx
 ): Promise<void> {
   const { sessionId, topicId, topicTitle, subtopicTitles, sessionDurationMins, userContext, profileContext, supabase } = ctx
-  const subtopicTitle = subtopicOutline.subtopic_title
-  const subtopicSlug = subtopicOutline.subtopic_slug
+  const subtopicTitle = subSessionOutline.subtopic_title
+  const subtopicSlug = subSessionOutline.subtopic_slug
 
   await supabase
     .from('topic_content_cache')
@@ -244,13 +244,13 @@ async function processSubtopic(
       { onConflict: 'topic_id,subtopic_slug' }
     )
 
-  const templateType = selectTemplate(subtopicTitle, subtopicOutline.position)
-  const contentSpec = subtopicOutline.visual_spec
+  const templateType = selectTemplate(subtopicTitle, subSessionOutline.position)
+  const contentSpec = subSessionOutline.visual_spec
     ? {
-        headline: subtopicOutline.visual_spec.headline,
-        items: subtopicOutline.visual_spec.items,
-        so_what: subtopicOutline.visual_spec.so_what,
-        summary: subtopicOutline.content_summary,
+        headline: subSessionOutline.visual_spec.headline,
+        items: subSessionOutline.visual_spec.items,
+        so_what: subSessionOutline.visual_spec.so_what,
+        summary: subSessionOutline.content_summary,
       }
     : undefined
 
@@ -282,7 +282,7 @@ async function processSubtopic(
             setCachedSection(topicId, subtopicSlug, subtopicTitle, newSection).catch(() => {})
             return newSection
           }),
-    generateTrainingScript(subtopicOutline, userContextWithProfile, sessionCtx),
+    generateTrainingScript(subSessionOutline, userContextWithProfile, sessionCtx),
   ])
 
   const adaptedScript = await adaptScriptToDuration(script, sessionDurationMins, subtopicTitles.length)
@@ -299,7 +299,7 @@ async function processSubtopic(
         subtopic_title: subtopicTitle,
         template_type: templateType,
         section_data: section,
-        content_outline: subtopicOutline,
+        content_outline: subSessionOutline,
         training_script: script,
         pipeline_status: 'ready',
         generated_at: new Date().toISOString(),

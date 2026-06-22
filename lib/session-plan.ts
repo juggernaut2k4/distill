@@ -11,7 +11,8 @@ import { generateTemplateData } from './templates/generator'
 import { getCachedSection, setCachedSection } from './topic-cache'
 import type { TemplateSection, TemplateMeta } from './templates/types'
 
-export interface SessionPlanSubtopic {
+// subSessions: tabs within this session (stored as sessions.subtopics in DB — column rename pending TERM-01)
+export interface SessionPlanSubSession {
   id: string
   title: string
   template_section: TemplateSection | null
@@ -22,7 +23,7 @@ export interface SessionPlanSubtopic {
 export interface SessionPlan {
   topic_id: string
   topic_title: string
-  subtopics: SessionPlanSubtopic[]
+  subtopics: SessionPlanSubSession[]
   plan_status: 'generating' | 'partial' | 'ready' | 'failed'
   generated_at: string
 }
@@ -32,13 +33,13 @@ export function subtopicToId(title: string): string {
 }
 
 async function generateSubtopicSection(
-  sub: SessionPlanSubtopic,
+  sub: SessionPlanSubSession,
   position: 'first' | 'middle' | 'last',
   sessionTitle: string,
   userContext: { role: string; industry: string; maturity: string },
   topicId: string,
   adjacentTopics?: { previous?: string; next?: string }
-): Promise<SessionPlanSubtopic> {
+): Promise<SessionPlanSubSession> {
   try {
     // Check cache before calling Claude
     const cached = await getCachedSection(topicId, sub.id, {
@@ -86,26 +87,27 @@ export async function generateFirstSubtopicVisual(
   userProfile: { role?: string | null; industry?: string | null; ai_maturity?: string | null },
   sessionTitle = '',
   topicId = ''
-): Promise<SessionPlanSubtopic[]> {
+): Promise<SessionPlanSubSession[]> {
   const userContext = {
     role: userProfile.role ?? 'executive',
     industry: userProfile.industry ?? 'business',
     maturity: userProfile.ai_maturity ?? 'beginner',
   }
 
-  const subtopics: SessionPlanSubtopic[] = subtopicTitles.map((title) => ({
+  // subSessions: tabs within this session (stored as sessions.subtopics in DB — column rename pending TERM-01)
+  const subSessions: SessionPlanSubSession[] = subtopicTitles.map((title) => ({
     id: subtopicToId(title),
     title,
     template_section: null,
     visual_status: 'pending' as const,
   }))
 
-  if (subtopics.length === 0) return subtopics
+  if (subSessions.length === 0) return subSessions
 
-  const position = subtopics.length === 1 ? 'first' : 'first'
-  const adjacentTopics = subtopics.length > 1 ? { next: subtopics[1].title } : undefined
-  const first = await generateSubtopicSection(subtopics[0], position, sessionTitle, userContext, topicId, adjacentTopics)
-  return [first, ...subtopics.slice(1)]
+  const position = subSessions.length === 1 ? 'first' : 'first'
+  const adjacentTopics = subSessions.length > 1 ? { next: subSessions[1].title } : undefined
+  const first = await generateSubtopicSection(subSessions[0], position, sessionTitle, userContext, topicId, adjacentTopics)
+  return [first, ...subSessions.slice(1)]
 }
 
 /**
@@ -113,12 +115,12 @@ export async function generateFirstSubtopicVisual(
  * Call after generateFirstSubtopicVisual so the rest complete in background.
  */
 export async function generateRemainingSubtopicVisuals(
-  subtopics: SessionPlanSubtopic[],
+  subSessions: SessionPlanSubSession[],
   userProfile: { role?: string | null; industry?: string | null; ai_maturity?: string | null },
   sessionTitle = '',
   topicId = ''
-): Promise<SessionPlanSubtopic[]> {
-  if (subtopics.length <= 1) return subtopics
+): Promise<SessionPlanSubSession[]> {
+  if (subSessions.length <= 1) return subSessions
 
   const userContext = {
     role: userProfile.role ?? 'executive',
@@ -127,19 +129,19 @@ export async function generateRemainingSubtopicVisuals(
   }
 
   const remaining = await Promise.all(
-    subtopics.slice(1).map((sub, idx) => {
+    subSessions.slice(1).map((sub, idx) => {
       if (sub.visual_status === 'ready') return Promise.resolve(sub)
       const absoluteIdx = idx + 1
-      const position = absoluteIdx === subtopics.length - 1 ? 'last' : 'middle'
+      const position = absoluteIdx === subSessions.length - 1 ? 'last' : 'middle'
       const adjacentTopics = {
-        previous: subtopics[absoluteIdx - 1]?.title,
-        next: subtopics[absoluteIdx + 1]?.title,
+        previous: subSessions[absoluteIdx - 1]?.title,
+        next: subSessions[absoluteIdx + 1]?.title,
       }
       return generateSubtopicSection(sub, position, sessionTitle, userContext, topicId, adjacentTopics)
     })
   )
 
-  return [subtopics[0], ...remaining]
+  return [subSessions[0], ...remaining]
 }
 
 /**
@@ -177,15 +179,17 @@ export function buildInitialPlan(
   topicTitle: string,
   subtopicTitles: string[]
 ): SessionPlan {
+  // subSessions: tabs within this session (stored as sessions.subtopics in DB — column rename pending TERM-01)
+  const subSessions: SessionPlanSubSession[] = subtopicTitles.map((title) => ({
+    id: subtopicToId(title),
+    title,
+    template_section: null,
+    visual_status: 'pending',
+  }))
   return {
     topic_id: topicId,
     topic_title: topicTitle,
-    subtopics: subtopicTitles.map((title) => ({
-      id: subtopicToId(title),
-      title,
-      template_section: null,
-      visual_status: 'pending',
-    })),
+    subtopics: subSessions,
     plan_status: 'generating',
     generated_at: new Date().toISOString(),
   }

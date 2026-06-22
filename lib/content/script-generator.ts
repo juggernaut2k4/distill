@@ -8,13 +8,13 @@
  * - CONTINUE: a bridge statement that connects to the next concept
  *
  * Both this script (Step 3) and the visual template (Step 2) are derived from
- * the enriched SubtopicOutline produced in Step 1. They share coaching_narrative
+ * the enriched SubSessionOutline produced in Step 1. They share coaching_narrative
  * and visual_spec as the single source of truth, ensuring Clio's words always
  * align with what appears on screen.
  */
 
 import Anthropic from '@anthropic-ai/sdk'
-import type { SubtopicOutline } from './session-content-generator'
+import type { SubSessionOutline } from './session-content-generator'
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 
@@ -44,7 +44,7 @@ const MODEL = 'claude-sonnet-4-6'
 
 // ─── MOCK DATA ────────────────────────────────────────────────────────────────
 
-function buildMockScript(outline: SubtopicOutline, sessionCtx?: { allSubtopics: string[]; nextSessionTopic?: string }): TrainingScript {
+function buildMockScript(outline: SubSessionOutline, sessionCtx?: { allSubtopics: string[]; nextSessionTopic?: string }): TrainingScript {
   const items = outline.visual_spec?.items ?? outline.key_concepts.slice(0, 2)
   const itemList = items.slice(0, 3).join(', ')
   const isLast = outline.position === 'last'
@@ -95,16 +95,16 @@ function buildMockScript(outline: SubtopicOutline, sessionCtx?: { allSubtopics: 
  * Canonical target: 10-12 minutes total per subtopic (for a 1-hour session with 5 subtopics).
  * The canonical script is condensed per-user to their session.duration_mins via adaptScriptToDuration.
  *
- * Uses coaching_narrative and visual_spec from the enriched SubtopicOutline
+ * Uses coaching_narrative and visual_spec from the enriched SubSessionOutline
  * produced in Step 1 — the same source that drives the visual template.
  * This guarantees Clio's words always align with what appears on screen.
  *
- * @param outline       - SubtopicOutline from Step 1
+ * @param outline       - SubSessionOutline from Step 1
  * @param userContext   - Role, industry, maturity for calibration
  * @param sessionCtx    - Optional: allSubtopics (for CLOSE summary) + nextSessionTopic (for teaser)
  */
 export async function generateTrainingScript(
-  outline: SubtopicOutline,
+  outline: SubSessionOutline,
   userContext: { role: string; industry: string; maturity: string; roleLevel?: string; profileContext?: string },
   sessionCtx?: { allSubtopics: string[]; nextSessionTopic?: string }
 ): Promise<TrainingScript> {
@@ -225,7 +225,7 @@ Return ONLY valid JSON (no markdown, no commentary):
  * Automatically builds sessionCtx so the last subtopic gets the CLOSE segment.
  */
 export async function generateAllTrainingScripts(
-  outlines: SubtopicOutline[],
+  outlines: SubSessionOutline[],
   userContext: { role: string; industry: string; maturity: string; roleLevel?: string; profileContext?: string },
   nextSessionTopic?: string
 ): Promise<TrainingScript[]> {

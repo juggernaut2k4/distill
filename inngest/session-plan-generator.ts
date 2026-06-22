@@ -47,8 +47,9 @@ export const sessionPlanGenerator = inngest.createFunction(
       return data ?? {}
     })
 
-    // Generate first subtopic visual — priority so session can start immediately
-    const subtopicsAfterFirst = await step.run('generate-first-visual', async () => {
+    // Generate first sub-session visual — priority so session can start immediately
+    // subSessionsAfterFirst: tabs within this session (stored as sessions.subtopics in DB — column rename pending TERM-01)
+    const subSessionsAfterFirst = await step.run('generate-first-visual', async () => {
       return generateFirstSubtopicVisual(subtopics, userProfile)
     })
 
@@ -57,7 +58,7 @@ export const sessionPlanGenerator = inngest.createFunction(
       const partialPlan: SessionPlan = {
         topic_id: topicId,
         topic_title: topicTitle,
-        subtopics: subtopicsAfterFirst,
+        subtopics: subSessionsAfterFirst,
         plan_status: 'partial',
         generated_at: new Date().toISOString(),
       }
@@ -67,18 +68,18 @@ export const sessionPlanGenerator = inngest.createFunction(
         .eq('id', sessionId)
     })
 
-    // Generate remaining subtopics in parallel
-    const allSubtopics = await step.run('generate-remaining-visuals', async () => {
-      return generateRemainingSubtopicVisuals(subtopicsAfterFirst, userProfile)
+    // Generate remaining sub-sessions in parallel
+    const allSubSessions = await step.run('generate-remaining-visuals', async () => {
+      return generateRemainingSubtopicVisuals(subSessionsAfterFirst, userProfile)
     })
 
     // Store the complete plan
     await step.run('store-complete-plan', async () => {
-      const allReady = allSubtopics.every((s) => s.visual_status === 'ready')
+      const allReady = allSubSessions.every((s) => s.visual_status === 'ready')
       const completePlan: SessionPlan = {
         topic_id: topicId,
         topic_title: topicTitle,
-        subtopics: allSubtopics,
+        subtopics: allSubSessions,
         plan_status: allReady ? 'ready' : 'partial',
         generated_at: new Date().toISOString(),
       }
@@ -88,8 +89,8 @@ export const sessionPlanGenerator = inngest.createFunction(
         .eq('id', sessionId)
     })
 
-    const readyCount = allSubtopics.filter((s) => s.visual_status === 'ready').length
-    console.log(`[session-plan-generator] Session ${sessionId}: ${readyCount}/${allSubtopics.length} visuals ready`)
-    return { sessionId, readyCount, total: allSubtopics.length }
+    const readyCount = allSubSessions.filter((s) => s.visual_status === 'ready').length
+    console.log(`[session-plan-generator] Session ${sessionId}: ${readyCount}/${allSubSessions.length} visuals ready`)
+    return { sessionId, readyCount, total: allSubSessions.length }
   }
 )

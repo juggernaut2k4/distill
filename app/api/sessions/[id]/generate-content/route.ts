@@ -14,8 +14,6 @@ import { requireSessionAuth } from '@/lib/session-auth'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { inngest } from '@/inngest/client'
 import type { SessionPlan } from '@/lib/session-plan'
-import type { SubtopicOutline } from '@/lib/content/session-content-generator'
-
 // These imports retained for the GET handler
 import { generateSessionContentOutline } from '@/lib/content/session-content-generator'
 import { generateTrainingScript, adaptScriptToDuration } from '@/lib/content/script-generator'

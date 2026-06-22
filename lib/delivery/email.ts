@@ -777,7 +777,9 @@ function buildSessionReminderEmailHtml(session: SessionSummary, appUrl: string):
 
 // ─── Session Agenda Email ─────────────────────────────────────────────────────
 
-export interface AgendaEmailSubtopic {
+// AgendaEmailSubSession: one tab/sub-session in the agenda email
+// (stored as sessions.subtopics in DB — column rename pending TERM-01)
+export interface AgendaEmailSubSession {
   title: string
   skipped?: boolean
 }
@@ -785,7 +787,7 @@ export interface AgendaEmailSubtopic {
 export async function sendSessionAgendaEmail(
   user: User,
   session: SessionSummary,
-  subtopics: AgendaEmailSubtopic[],
+  subSessions: AgendaEmailSubSession[],
   meetUrl: string
 ): Promise<EmailResult> {
   if (isPlaceholder || !resend) {
@@ -811,7 +813,7 @@ export async function sendSessionAgendaEmail(
       from: FROM,
       to: user.email,
       subject: `Starting in 30 min: ${session.title} · ${timeString}`,
-      html: buildAgendaEmailHtml(session, subtopics, meetUrl, dateString, timeString, appUrl),
+      html: buildAgendaEmailHtml(session, subSessions, meetUrl, dateString, timeString, appUrl),
       text: [
         `Your session starts in 30 minutes.`,
         ``,
@@ -822,7 +824,7 @@ export async function sendSessionAgendaEmail(
         `Join Google Meet: ${meetUrl}`,
         ``,
         `Agenda:`,
-        ...subtopics.filter((s) => !s.skipped).map((s, i) => `  ${i + 1}. ${s.title}`),
+        ...subSessions.filter((s) => !s.skipped).map((s, i) => `  ${i + 1}. ${s.title}`),
         ``,
         `View session: ${appUrl}/dashboard/sessions/${session.id}`,
       ].join('\n'),
@@ -932,14 +934,14 @@ export async function sendAdminAlert(params: {
 
 function buildAgendaEmailHtml(
   session: SessionSummary,
-  subtopics: AgendaEmailSubtopic[],
+  subSessions: AgendaEmailSubSession[],
   meetUrl: string,
   dateString: string,
   timeString: string,
   appUrl: string
 ): string {
-  const activeSubtopics = subtopics.filter((s) => !s.skipped)
-  const agendaRows = activeSubtopics.map((s, i) => `
+  const activeSubSessions = subSessions.filter((s) => !s.skipped)
+  const agendaRows = activeSubSessions.map((s, i) => `
     <tr>
       <td style="padding:10px 0;border-bottom:1px solid #1A1A1A;vertical-align:top;">
         <span style="display:inline-block;width:22px;height:22px;border-radius:50%;background:#1A1A1A;border:1px solid #7C3AED;color:#A855F7;font-size:10px;font-weight:700;text-align:center;line-height:22px;margin-right:12px;flex-shrink:0;">${i + 1}</span>
@@ -968,7 +970,7 @@ function buildAgendaEmailHtml(
       </div>
 
       <!-- Agenda -->
-      ${activeSubtopics.length > 0 ? `
+      ${activeSubSessions.length > 0 ? `
       <div style="background:#111111;border:1px solid #222222;border-radius:12px;padding:24px 32px;margin-bottom:16px;">
         <p style="color:#94A3B8;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin:0 0 16px;">Today's Agenda</p>
         <table width="100%" cellpadding="0" cellspacing="0">

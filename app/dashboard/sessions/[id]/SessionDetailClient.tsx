@@ -129,7 +129,9 @@ export default function SessionDetailClient({ session }: Props) {
   }, [session.id, sessionPlan, fetchPlan, triggerGeneration])
 
   // ── Content pipeline state ──────────────────────────────────────────────────
-  interface ContentSubtopic {
+  // ContentSubSession: one tab (sub-session) in the content pipeline
+  // (stored as sessions.subtopics in DB — column rename pending TERM-01)
+  interface ContentSubSession {
     title: string
     slug: string
     pipeline_status: string
@@ -139,7 +141,7 @@ export default function SessionDetailClient({ session }: Props) {
   }
 
   const [contentStatus, setContentStatus] = useState<'pending' | 'generating' | 'ready' | 'failed'>('pending')
-  const [contentSubtopics, setContentSubtopics] = useState<ContentSubtopic[]>([])
+  const [contentSubSessions, setContentSubSessions] = useState<ContentSubSession[]>([])
   const [isGeneratingContent, setIsGeneratingContent] = useState(false)
   const [expandedScript, setExpandedScript] = useState<string | null>(null)
   const [contentGenStartedAt, setContentGenStartedAt] = useState<number | null>(null)
@@ -159,7 +161,7 @@ export default function SessionDetailClient({ session }: Props) {
       return
     }
     contentFetchFailures.current = 0
-    const data = await res.json() as { content_status: string; subtopics: ContentSubtopic[] }
+    const data = await res.json() as { content_status: string; subtopics: ContentSubSession[] }
     const status = data.content_status as typeof contentStatus
 
     // If page loads and DB already has 'generating' (stuck from a prior run),
@@ -167,13 +169,13 @@ export default function SessionDetailClient({ session }: Props) {
     if (isInitialLoadRef.current && status === 'generating') {
       isInitialLoadRef.current = false
       setContentStatus('failed')
-      setContentSubtopics(data.subtopics ?? [])
+      setContentSubSessions(data.subtopics ?? [])
       return
     }
     isInitialLoadRef.current = false
 
     setContentStatus(status)
-    setContentSubtopics(data.subtopics ?? [])
+    setContentSubSessions(data.subtopics ?? [])
     if (status === 'ready' || status === 'failed') {
       setIsGeneratingContent(false)
       setContentGenStartedAt(null)
@@ -197,13 +199,13 @@ export default function SessionDetailClient({ session }: Props) {
     if (!contentGenStartedAt || contentStatus !== 'generating') return
     const check = setInterval(() => {
       const elapsed = Date.now() - contentGenStartedAt
-      const readyCount = contentSubtopics.filter((s) => s.pipeline_status === 'ready').length
+      const readyCount = contentSubSessions.filter((s) => s.pipeline_status === 'ready').length
       if (elapsed > 3 * 60 * 1000 && readyCount === 0) {
         setIsStuck(true)
       }
     }, 15000)
     return () => clearInterval(check)
-  }, [contentGenStartedAt, contentStatus, contentSubtopics])
+  }, [contentGenStartedAt, contentStatus, contentSubSessions])
 
   const handleGenerateContent = useCallback(() => {
     setIsGeneratingContent(true)
@@ -240,9 +242,9 @@ export default function SessionDetailClient({ session }: Props) {
     }
   }, [allVisualsSettled, contentStatus, isGeneratingContent, handleGenerateContent])
 
-  // Merge visual-phase subtopics with script-phase subtopics into one list
+  // Merge visual-phase sub-sessions with script-phase sub-sessions into one list
   const mergedSubtopics = (sessionPlan?.subtopics ?? []).map((sub) => {
-    const contentSub = contentSubtopics.find((c) => c.title === sub.title)
+    const contentSub = contentSubSessions.find((c) => c.title === sub.title)
     return {
       id: sub.id,
       title: sub.title,
@@ -568,9 +570,9 @@ export default function SessionDetailClient({ session }: Props) {
 
         {/* Content generation progress */}
         {contentStatus === 'generating' && (() => {
-          const total = contentSubtopics.length || topics.length || 1
-          const done = contentSubtopics.filter((s) => s.pipeline_status === 'ready').length
-          const inProgress = contentSubtopics.filter((s) => s.pipeline_status === 'generating').length
+          const total = contentSubSessions.length || topics.length || 1
+          const done = contentSubSessions.filter((s) => s.pipeline_status === 'ready').length
+          const inProgress = contentSubSessions.filter((s) => s.pipeline_status === 'generating').length
           const pct = Math.round((done / total) * 100)
 
           const stepLabel =
@@ -614,9 +616,9 @@ export default function SessionDetailClient({ session }: Props) {
                     />
                   </div>
                   {/* Per-topic chips */}
-                  {contentSubtopics.length > 0 && (
+                  {contentSubSessions.length > 0 && (
                     <div className="flex flex-col gap-1.5 pt-1">
-                      {contentSubtopics.map((sub) => (
+                      {contentSubSessions.map((sub) => (
                         <div key={sub.slug} className="flex items-center gap-2">
                           {sub.pipeline_status === 'ready' ? (
                             <CheckCircle size={11} className="text-[#10B981] flex-shrink-0" />
