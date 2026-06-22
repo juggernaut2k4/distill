@@ -62,8 +62,8 @@ export async function GET(req: NextRequest, { params }: Params) {
   if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 })
 
   const topicId = session.topic_id ?? 'ai-fundamentals'
-  // Prefer session_plan subtopics → LLM-designed subtopics from approval → hardcoded catalog
-  const planSubtopics = (session.session_plan as SessionPlan | null)?.subtopics
+  // Prefer session_plan sub_sessions → LLM-designed sub_sessions from approval → hardcoded catalog
+  const planSubtopics = (session.session_plan as SessionPlan | null)?.sub_sessions
     ?.filter((s: { skipped?: boolean }) => !s.skipped)
     ?.map((s: { title: string }) => s.title) ?? []
   const rawSubtopicsGet = (session as unknown as { sub_sessions?: unknown }).sub_sessions

@@ -11,7 +11,7 @@ import { generateTemplateData } from './templates/generator'
 import { getCachedSection, setCachedSection } from './topic-cache'
 import type { TemplateSection, TemplateMeta } from './templates/types'
 
-// subSessions: tabs within this session (stored as sessions.subtopics in DB — column rename pending TERM-01)
+// sub_sessions: tabs within this session (TERM-01 complete — stored as sessions.sub_sessions in DB)
 export interface SessionPlanSubSession {
   id: string
   title: string
@@ -23,7 +23,7 @@ export interface SessionPlanSubSession {
 export interface SessionPlan {
   topic_id: string
   topic_title: string
-  subtopics: SessionPlanSubSession[]
+  sub_sessions: SessionPlanSubSession[]
   plan_status: 'generating' | 'partial' | 'ready' | 'failed'
   generated_at: string
 }
@@ -149,8 +149,8 @@ export async function generateRemainingSubtopicVisuals(
  * Used to populate walkthrough_state.sections at session launch.
  */
 export function getAllReadySections(plan: SessionPlan | null): TemplateSection[] {
-  if (!plan?.subtopics) return []
-  return plan.subtopics
+  if (!plan?.sub_sessions) return []
+  return plan.sub_sessions
     .filter((s) => s.visual_status === 'ready' && s.template_section)
     .map((s) => s.template_section!)
 }
@@ -163,9 +163,9 @@ export function findPreGeneratedSection(
   plan: SessionPlan | null,
   topicTitle: string
 ): TemplateSection | null {
-  if (!plan?.subtopics) return null
+  if (!plan?.sub_sessions) return null
   const needle = topicTitle.toLowerCase()
-  const match = plan.subtopics.find((sub) => {
+  const match = plan.sub_sessions.find((sub) => {
     if (sub.visual_status !== 'ready' || !sub.template_section) return false
     const haystack = sub.title.toLowerCase()
     const needleWords = needle.split(' ').slice(0, 4).join(' ')
@@ -179,7 +179,6 @@ export function buildInitialPlan(
   topicTitle: string,
   subtopicTitles: string[]
 ): SessionPlan {
-  // subSessions: tabs within this session (stored as sessions.subtopics in DB — column rename pending TERM-01)
   const subSessions: SessionPlanSubSession[] = subtopicTitles.map((title) => ({
     id: subtopicToId(title),
     title,
@@ -189,7 +188,7 @@ export function buildInitialPlan(
   return {
     topic_id: topicId,
     topic_title: topicTitle,
-    subtopics: subSessions,
+    sub_sessions: subSessions,
     plan_status: 'generating',
     generated_at: new Date().toISOString(),
   }

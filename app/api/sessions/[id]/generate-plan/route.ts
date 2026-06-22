@@ -280,7 +280,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     const partialPlan: SessionPlan = {
       topic_id: topicId,
       topic_title: topicTitle,
-      subtopics: subtopicsAfterFirst,
+      sub_sessions: subtopicsAfterFirst,
       plan_status: 'partial',
       generated_at: new Date().toISOString(),
     }
@@ -298,7 +298,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     const completePlan: SessionPlan = {
       topic_id: topicId,
       topic_title: topicTitle,
-      subtopics: allSubtopics,
+      sub_sessions: allSubtopics,
       plan_status: allReady ? 'ready' : 'partial',
       generated_at: new Date().toISOString(),
     }
@@ -315,7 +315,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     const failedPlan: SessionPlan = {
       topic_id: topicId,
       topic_title: topicTitle,
-      subtopics: initialPlan.subtopics.map((s) => ({ ...s, visual_status: 'failed' as const })),
+      sub_sessions: initialPlan.sub_sessions.map((s) => ({ ...s, visual_status: 'failed' as const })),
       plan_status: 'failed',
       generated_at: new Date().toISOString(),
     }
@@ -357,7 +357,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   const plan = session.session_plan as SessionPlan
   const updatedPlan: SessionPlan = {
     ...plan,
-    subtopics: plan.subtopics.map((s) =>
+    sub_sessions: plan.sub_sessions.map((s) =>
       s.id === body.subtopicId ? { ...s, skipped: body.skipped } : s
     ),
   }

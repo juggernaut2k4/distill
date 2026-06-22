@@ -100,9 +100,9 @@ export const sessionContentPipeline = inngest.createFunction(
     const topicId = sessionId
     const topicTitle = session.session_title ?? 'AI Strategy Session'
 
-    // Priority 1: session_plan.subtopics (old-style sessions — unchanged)
-    const planSubtopics = (session.session_plan as { subtopics?: Array<{ title: string; skipped?: boolean }> } | null)
-      ?.subtopics?.filter((s) => !s.skipped)?.map((s) => s.title) ?? []
+    // Priority 1: session_plan.sub_sessions (TERM-01 complete)
+    const planSubtopics = (session.session_plan as { sub_sessions?: Array<{ title: string; skipped?: boolean }> } | null)
+      ?.sub_sessions?.filter((s) => !s.skipped)?.map((s) => s.title) ?? []
 
     // Priority 2: session.sub_sessions JSONB (curriculum sessions — [{title, type, ...}])
     const jsonbSubtopics = (session.sub_sessions as Array<{ title: string }> | null)

@@ -48,7 +48,6 @@ export const sessionPlanGenerator = inngest.createFunction(
     })
 
     // Generate first sub-session visual — priority so session can start immediately
-    // subSessionsAfterFirst: tabs within this session (stored as sessions.subtopics in DB — column rename pending TERM-01)
     const subSessionsAfterFirst = await step.run('generate-first-visual', async () => {
       return generateFirstSubtopicVisual(subtopics, userProfile)
     })
@@ -58,7 +57,7 @@ export const sessionPlanGenerator = inngest.createFunction(
       const partialPlan: SessionPlan = {
         topic_id: topicId,
         topic_title: topicTitle,
-        subtopics: subSessionsAfterFirst,
+        sub_sessions: subSessionsAfterFirst,
         plan_status: 'partial',
         generated_at: new Date().toISOString(),
       }
@@ -79,7 +78,7 @@ export const sessionPlanGenerator = inngest.createFunction(
       const completePlan: SessionPlan = {
         topic_id: topicId,
         topic_title: topicTitle,
-        subtopics: allSubSessions,
+        sub_sessions: allSubSessions,
         plan_status: allReady ? 'ready' : 'partial',
         generated_at: new Date().toISOString(),
       }

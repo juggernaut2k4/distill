@@ -233,8 +233,8 @@ export default function SessionDetailClient({ session }: Props) {
 
   // Auto-trigger content generation once all visual slots are settled
   const allVisualsSettled = !!sessionPlan &&
-    sessionPlan.subtopics.length > 0 &&
-    sessionPlan.subtopics.every((s) => s.skipped || s.visual_status === 'ready' || s.visual_status === 'failed')
+    sessionPlan.sub_sessions.length > 0 &&
+    sessionPlan.sub_sessions.every((s) => s.skipped || s.visual_status === 'ready' || s.visual_status === 'failed')
 
   useEffect(() => {
     if (allVisualsSettled && contentStatus === 'pending' && !isGeneratingContent) {
@@ -243,7 +243,7 @@ export default function SessionDetailClient({ session }: Props) {
   }, [allVisualsSettled, contentStatus, isGeneratingContent, handleGenerateContent])
 
   // Merge visual-phase sub-sessions with script-phase sub-sessions into one list
-  const mergedSubtopics = (sessionPlan?.subtopics ?? []).map((sub) => {
+  const mergedSubtopics = (sessionPlan?.sub_sessions ?? []).map((sub) => {
     const contentSub = contentSubSessions.find((c) => c.title === sub.title)
     return {
       id: sub.id,
@@ -359,7 +359,7 @@ export default function SessionDetailClient({ session }: Props) {
       return
     }
 
-    const skippedTopics = sessionPlan?.subtopics.filter((s) => s.skipped).map((s) => s.title) ?? []
+    const skippedTopics = sessionPlan?.sub_sessions.filter((s) => s.skipped).map((s) => s.title) ?? []
     try {
       const res = await fetch('/api/recall/bot', {
         method: 'POST',
@@ -728,7 +728,7 @@ export default function SessionDetailClient({ session }: Props) {
                         const newSkipped = !sub.skipped
                         setSessionPlan((prev) => prev ? {
                           ...prev,
-                          subtopics: prev.subtopics.map((s) =>
+                          sub_sessions: prev.sub_sessions.map((s) =>
                             s.id === sub.id ? { ...s, skipped: newSkipped } : s
                           ),
                         } : prev)

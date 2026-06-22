@@ -52,9 +52,8 @@ export const sessionAgendaEmail = inngest.createFunction(
         if (!userRow?.email) return
 
         // Extract sub-sessions from session_plan (respecting skipped flags)
-        // subSessions: tabs within this session (stored as sessions.subtopics in DB — column rename pending TERM-01)
         const plan = session.session_plan as SessionPlan | null
-        const subSessions: AgendaEmailSubSession[] = plan?.subtopics?.map((s) => ({
+        const subSessions: AgendaEmailSubSession[] = plan?.sub_sessions?.map((s) => ({
           title: s.title,
           skipped: s.skipped ?? false,
         })) ?? []

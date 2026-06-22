@@ -121,7 +121,7 @@ export const sessionContentAsync = inngest.createFunction(
 
     const topicTitle = session.session_title ?? 'AI Strategy Session'
     const sessionDurationMins: number = (session as { duration_mins?: number }).duration_mins ?? 30
-    const planSubtopics = (session.session_plan as SessionPlan | null)?.subtopics
+    const planSubtopics = (session.session_plan as SessionPlan | null)?.sub_sessions
       ?.filter((s: { skipped?: boolean }) => !s.skipped)
       ?.map((s: { title: string }) => s.title) ?? []
     const rawSubtopics = (session as unknown as { sub_sessions?: unknown }).sub_sessions
@@ -316,12 +316,12 @@ async function processSubtopic(
     .single()
   if (currentSession?.session_plan) {
     const plan = currentSession.session_plan as SessionPlan
-    const updatedSubtopics = plan.subtopics?.map((sub: { title: string; adapted_script?: unknown }) =>
+    const updatedSubtopics = plan.sub_sessions?.map((sub: { title: string; adapted_script?: unknown }) =>
       sub.title === subtopicTitle ? { ...sub, adapted_script: adaptedScript } : sub
     )
     await supabase
       .from('sessions')
-      .update({ session_plan: { ...plan, subtopics: updatedSubtopics } })
+      .update({ session_plan: { ...plan, sub_sessions: updatedSubtopics } })
       .eq('id', sessionId)
   }
 }

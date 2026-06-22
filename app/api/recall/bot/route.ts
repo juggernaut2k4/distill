@@ -84,8 +84,8 @@ export async function POST(request: NextRequest) {
     console.log(`[recall/bot] "${sessionTitle}" — ${readySections.length} ready sections, topicId=${topicId}`)
     if (readySections.length === 0 && sessionData?.session_plan) {
       const plan = sessionData.session_plan as SessionPlan
-      console.log(`[recall/bot] Plan status: ${plan.plan_status}, subtopics: ${plan.subtopics?.length ?? 0}`)
-      plan.subtopics?.forEach((s) => console.log(`  [recall/bot] subtopic: "${s.title}" visual_status=${s.visual_status} has_section=${!!s.template_section}`))
+      console.log(`[recall/bot] Plan status: ${plan.plan_status}, sub_sessions: ${plan.sub_sessions?.length ?? 0}`)
+      plan.sub_sessions?.forEach((s) => console.log(`  [recall/bot] sub_session: "${s.title}" visual_status=${s.visual_status} has_section=${!!s.template_section}`))
     }
 
     // ── Step 2: Build context docs ──────────────────────────────────────────
