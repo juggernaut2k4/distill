@@ -117,7 +117,6 @@ export const sessionDesignerAuto = inngest.createFunction(
               topics:                [cs.session_id],
               curriculum_plan_id:    planId,
               curriculum_session_id: cs.session_id,
-              subtopics:             ds.subtopics,
               sub_sessions:          ds.subtopics,
               duration_mins:         ds.duration_mins,
               session_index:         globalOrder,
