@@ -491,6 +491,11 @@ function OnboardingContent() {
   const [learningGoal, setLearningGoal] = useState<LearningGoal | ''>('')
   const goalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  // worry and deliveryPreference are not collected via UI steps in the current flow.
+  // They are stored as state so the payload always reads from state (never hardcoded),
+  // making the wiring correct for future UI additions.
+  const [worry] = useState<string>('')
+  const [deliveryPreference] = useState<'email' | 'sms' | 'both'>('email')
 
   // ── Auto-submit after sign-up return ─────────────────────────────────────────
   // When the user returns from Google sign-up, they land back on /onboarding.
@@ -581,8 +586,8 @@ function OnboardingContent() {
           roleLevel,
           industry,
           aiMaturity: aiEngagement,
-          worry: '',
-          deliveryPreference: 'email',
+          worry,
+          deliveryPreference,
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
           domains: selectedDomains,
           customDomains,
@@ -629,8 +634,8 @@ function OnboardingContent() {
       roleLevel: rl,
       industry: ind,
       aiMaturity: eng,
-      worry: '',
-      deliveryPreference: 'email',
+      worry,
+      deliveryPreference,
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       domains,
       customDomains: custom,
