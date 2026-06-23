@@ -56,7 +56,7 @@ function mapStringsToSubtopics(
 export async function POST(request: NextRequest) {
   // Admin auth: Clerk session OR x-admin-secret header
   const { userId: callerUserId } = auth()
-  const secret        = process.env.ELEVENLABS_CUSTOM_LLM_SECRET
+  const secret        = process.env.ADMIN_SECRET
   const providedSecret = request.headers.get('x-admin-secret')
   const secretOk      = secret && providedSecret === secret
 
