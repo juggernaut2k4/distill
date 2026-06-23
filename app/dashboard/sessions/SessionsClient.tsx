@@ -22,6 +22,10 @@ interface Session {
 interface SessionsClientProps {
   sessions: Session[]
   topicTitleMap: Record<string, string>
+  /** SESS-04: curriculum_session_id → arc name */
+  arcNameMap?: Record<string, string>
+  /** SESS-04: curriculum_session_id → arc type */
+  arcTypeMap?: Record<string, string>
   minutesBalance?: number
   schedulingPrefsNull?: boolean
 }
@@ -177,6 +181,12 @@ interface TopicGroup {
   sessions: Session[]
 }
 
+interface ArcGroup {
+  arcName: string
+  arcType: string
+  topics: TopicGroup[]
+}
+
 function TopicGroupCard({ group, startIndex }: { group: TopicGroup; startIndex: number }) {
   const sessionCount = group.sessions.length
   const totalMins = group.sessions.reduce((sum, s) => sum + s.duration_mins, 0)
@@ -213,6 +223,32 @@ function TopicGroupCard({ group, startIndex }: { group: TopicGroup; startIndex: 
         </div>
       </Card>
     </motion.div>
+  )
+}
+
+/** SESS-04: Arc header — rendered above each group of topic cards that share an arc. */
+function ArcHeader({ arcName, arcType, sessionCount, completedCount }: {
+  arcName: string
+  arcType: string
+  sessionCount: number
+  completedCount: number
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 pt-2 pb-1">
+      <div className="flex items-center gap-2 min-w-0">
+        {/* Accent line */}
+        <div className="w-1 h-5 rounded-full bg-[#7C3AED] flex-shrink-0" />
+        <span className="text-sm font-bold text-white truncate">{arcName}</span>
+        {arcType && arcType !== 'singleton' && (
+          <span className="text-xs px-1.5 py-0.5 rounded-full border border-[#333333] text-[#475569] capitalize">
+            {arcType}
+          </span>
+        )}
+      </div>
+      <span className="text-xs text-[#475569] flex-shrink-0">
+        {completedCount}/{sessionCount} sessions complete
+      </span>
+    </div>
   )
 }
 
@@ -288,37 +324,56 @@ function TestSessionButton() {
   )
 }
 
-export default function SessionsClient({ sessions, topicTitleMap, minutesBalance = 0, schedulingPrefsNull }: SessionsClientProps) {
+export default function SessionsClient({ sessions, topicTitleMap, arcNameMap = {}, arcTypeMap = {}, minutesBalance = 0, schedulingPrefsNull }: SessionsClientProps) {
   const [topUpOpen, setTopUpOpen] = useState(false)
-  // Group sessions by curriculum topic
-  const grouped: TopicGroup[] = []
+
+  // ── SESS-04: Group sessions by Arc → Topic → Sessions ────────────────────
+  // Step 1: build flat topic groups (same logic as before, but use session_title first)
+  const topicGroupMap: Record<string, Session[]> = {}
   const topicOrder: string[] = []
-  const topicMap: Record<string, Session[]> = {}
 
   for (const session of sessions) {
     const key = session.curriculum_session_id ?? '__ungrouped__'
-    if (!topicMap[key]) {
-      topicMap[key] = []
+    if (!topicGroupMap[key]) {
+      topicGroupMap[key] = []
       topicOrder.push(key)
     }
-    topicMap[key].push(session)
+    topicGroupMap[key].push(session)
   }
 
-  for (const key of topicOrder) {
-    const title = key === '__ungrouped__'
-      ? 'Other Sessions'
-      : (topicTitleMap[key] ?? key)
-    // Sort sessions within group by session_index
-    const sortedSessions = [...topicMap[key]].sort((a, b) => a.session_index - b.session_index)
-    grouped.push({ topicId: key, topicTitle: title, sessions: sortedSessions })
-  }
+  const flatTopicGroups: TopicGroup[] = topicOrder.map((key) => {
+    const groupSessions = [...topicGroupMap[key]].sort((a, b) => a.session_index - b.session_index)
+    // TITLE-01: prefer session_title of the first session in the group as the topic label.
+    // Fall back to topicTitleMap (curriculum plan title), then the key itself.
+    const firstSession = groupSessions[0]
+    const titleFromSession = firstSession?.session_title ?? null
+    const titleFromPlan = key !== '__ungrouped__' ? (topicTitleMap[key] ?? null) : null
+    const title = titleFromSession ?? titleFromPlan ?? (key === '__ungrouped__' ? 'Other Sessions' : key)
+    return { topicId: key, topicTitle: title, sessions: groupSessions }
+  })
 
-  // Sort groups by the lowest session_index in each group so overall order matches plan order
-  grouped.sort((a, b) => {
+  // Sort topic groups by lowest session_index so order matches plan
+  flatTopicGroups.sort((a, b) => {
     const aMin = Math.min(...a.sessions.map((s) => s.session_index))
     const bMin = Math.min(...b.sessions.map((s) => s.session_index))
     return aMin - bMin
   })
+
+  // Step 2: group topic groups by arc name (from arcNameMap)
+  const arcGroupMap: Map<string, ArcGroup> = new Map()
+  const arcOrder: string[] = []
+
+  for (const tg of flatTopicGroups) {
+    const arcName = arcNameMap[tg.topicId] ?? 'Your Learning Path'
+    const arcType = arcTypeMap[tg.topicId] ?? 'singleton'
+    if (!arcGroupMap.has(arcName)) {
+      arcGroupMap.set(arcName, { arcName, arcType, topics: [] })
+      arcOrder.push(arcName)
+    }
+    arcGroupMap.get(arcName)!.topics.push(tg)
+  }
+
+  const arcGroups: ArcGroup[] = arcOrder.map((name) => arcGroupMap.get(name)!)
 
   const anyMissingLink = sessions.some((s) => !s.meeting_url)
 
@@ -367,8 +422,8 @@ export default function SessionsClient({ sessions, topicTitleMap, minutesBalance
           </div>
         </div>
         <p className="text-[#94A3B8] text-sm">
-          {grouped.length > 0
-            ? `${grouped.filter(g => g.topicId !== '__ungrouped__').length} topic${grouped.filter(g => g.topicId !== '__ungrouped__').length !== 1 ? 's' : ''} · ${sessions.length} sessions`
+          {flatTopicGroups.length > 0
+            ? `${flatTopicGroups.filter(g => g.topicId !== '__ungrouped__').length} topic${flatTopicGroups.filter(g => g.topicId !== '__ungrouped__').length !== 1 ? 's' : ''} · ${sessions.length} sessions`
             : 'Your scheduled coaching sessions.'}
         </p>
 
@@ -385,8 +440,8 @@ export default function SessionsClient({ sessions, topicTitleMap, minutesBalance
         )}
       </motion.div>
 
-      {/* Topic groups */}
-      {grouped.length === 0 ? (
+      {/* Arc → Topic → Session groups (SESS-04) */}
+      {arcGroups.length === 0 ? (
         <Card className="p-8 flex flex-col items-center gap-3 text-center">
           <BookOpen size={32} className="text-[#333]" />
           <p className="text-[#475569] text-sm">No sessions yet.</p>
@@ -398,10 +453,36 @@ export default function SessionsClient({ sessions, topicTitleMap, minutesBalance
           </Link>
         </Card>
       ) : (
-        <div className="space-y-4">
-          {grouped.map((group, i) => (
-            <TopicGroupCard key={group.topicId} group={group} startIndex={i} />
-          ))}
+        <div className="space-y-6">
+          {(() => {
+            // Pre-compute a global topic index so TopicGroupCard stagger delays are correct
+            let globalTopicIndex = 0
+            return arcGroups.map((arc) => {
+              const allArcSessions = arc.topics.flatMap((t) => t.sessions)
+              const arcCompletedCount = allArcSessions.filter((s) => s.status === 'completed').length
+              // Only render the Arc header when there are multiple arcs, or when the arc
+              // has a real name from the curriculum plan (not the generic fallback)
+              const showArcHeader = arcGroups.length > 1 || arc.arcName !== 'Your Learning Path'
+              return (
+                <div key={arc.arcName} className="space-y-3">
+                  {showArcHeader && (
+                    <ArcHeader
+                      arcName={arc.arcName}
+                      arcType={arc.arcType}
+                      sessionCount={allArcSessions.length}
+                      completedCount={arcCompletedCount}
+                    />
+                  )}
+                  {arc.topics.map((group) => {
+                    const idx = globalTopicIndex++
+                    return (
+                      <TopicGroupCard key={group.topicId} group={group} startIndex={idx} />
+                    )
+                  })}
+                </div>
+              )
+            })
+          })()}
         </div>
       )}
     </div>

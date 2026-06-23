@@ -45,7 +45,12 @@ export const sessionContentPipeline = inngest.createFunction(
   {
     id: 'session-content-pipeline',
     retries: 2,
-    triggers: [{ event: 'distill/session.content.generate' }],
+    triggers: [
+      { event: 'distill/session.content.generate' },
+      // SESS-02: also fire when session designer finalises a session's subtopics.
+      // Both events carry the same { sessionId, userId } payload shape.
+      { event: 'distill/session.designer.completed' },
+    ],
     onFailure: async ({
       error,
       event,

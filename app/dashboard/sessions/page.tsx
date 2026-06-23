@@ -4,6 +4,14 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
 import SessionsClient from './SessionsClient'
 import DashboardShell from '@/components/dashboard/DashboardShell'
 
+// Shape of each entry in curriculum_plans.visible_sessions
+interface VisibleSession {
+  session_id: string
+  title: string
+  arc_name?: string
+  arc_type?: string
+}
+
 export default async function SessionsPage() {
   const { userId } = auth()
   if (!userId) redirect('/sign-in')
@@ -35,11 +43,21 @@ export default async function SessionsPage() {
       .maybeSingle(),
   ])
 
-  // Build a map from curriculum_session_id → topic title
+  const visibleSessions = (plan?.visible_sessions ?? []) as VisibleSession[]
+
+  // TITLE-01: topic title map — fallback only (sessions.session_title takes priority in client)
   const topicTitleMap: Record<string, string> = {}
-  const visibleSessions = (plan?.visible_sessions ?? []) as Array<{ session_id: string; title: string }>
   for (const vs of visibleSessions) {
     topicTitleMap[vs.session_id] = vs.title
+  }
+
+  // SESS-04: arc name map — curriculum_session_id → arc_name
+  // Used to render Arc headers above topic groups in the sessions list.
+  const arcNameMap: Record<string, string> = {}
+  const arcTypeMap: Record<string, string> = {}
+  for (const vs of visibleSessions) {
+    if (vs.arc_name) arcNameMap[vs.session_id] = vs.arc_name
+    if (vs.arc_type) arcTypeMap[vs.session_id] = vs.arc_type
   }
 
   return (
@@ -47,6 +65,8 @@ export default async function SessionsPage() {
       <SessionsClient
         sessions={sessions ?? []}
         topicTitleMap={topicTitleMap}
+        arcNameMap={arcNameMap}
+        arcTypeMap={arcTypeMap}
         minutesBalance={user.minutes_balance ?? 0}
         schedulingPrefsNull={user.scheduling_prefs === null || user.scheduling_prefs === undefined}
       />
