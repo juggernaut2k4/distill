@@ -318,18 +318,32 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
               setSessionComplete(true)
               return 'Session ended.'
             },
-            show_visual: async ({ topic_id, topic_title }: { topic_id: string; topic_title: string }) => {
-              console.log('[Walkthrough] show_visual called —', topic_title)
+            show_visual: async ({
+              section_index,
+              topic_id,
+              topic_title,
+            }: {
+              section_index?: number
+              topic_id?: string
+              topic_title?: string
+            }) => {
+              console.log('[Walkthrough] show_visual called — section_index:', section_index, 'title:', topic_title ?? '(none)')
               try {
                 // New flow: find matching section and scroll to it
                 const sections = sectionsRef.current
                 if (sections.length > 0) {
-                  const needle = topic_title.toLowerCase()
-                  const idx = sections.findIndex((s) => {
-                    const haystack = s.meta.subtopicTitle.toLowerCase()
-                    const words = needle.split(' ').slice(0, 4).join(' ')
-                    return haystack.includes(words) || needle.includes(haystack.split(' ').slice(0, 4).join(' '))
-                  })
+                  // Primary: use section_index directly (reliable, title-independent).
+                  // Fallback: exact string match on subtopicTitle for backwards compat
+                  // with older scripts that did not emit section_index.
+                  let idx: number
+                  if (typeof section_index === 'number') {
+                    idx = section_index
+                  } else {
+                    // Backwards-compat exact match — no fuzzy matching
+                    idx = sections.findIndex(
+                      (s) => s.meta.subtopicTitle === topic_title
+                    )
+                  }
                   if (idx >= 0) {
                     await fetch(`/api/walkthrough-state/${userId}`, {
                       method: 'POST',

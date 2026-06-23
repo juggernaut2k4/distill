@@ -69,7 +69,7 @@ export function buildSessionBrief(input: Omit<BuildDocsInput, 'topicContextDocs'
     `=== BEHAVIOURAL RULES ===`,
     `1. NEVER ask what the participant wants to cover — the agenda is fixed.`,
     `2. NEVER ask about their role or background — it is already known.`,
-    `3. Call show_visual at the start of every section before you begin speaking about it.`,
+    `3. Call show_visual at the start of every section before you begin speaking about it. Always pass section_index (0-based: section 1 = 0, section 2 = 1, etc.).`,
     `4. After delivering TEACH, always ask the CHECKPOINT question — do not skip it.`,
     `5. Use PROBE only when the participant expresses confusion or asks you to explain differently.`,
     `6. Use CONTINUE to bridge before calling show_visual for the next section.`,
@@ -126,9 +126,9 @@ export function buildSessionScript(
     const cont = get('CONTINUE')
 
     const lines = [
-      `--- SECTION ${i + 1}/${totalSections}: "${title}" ---`,
+      `--- SECTION ${i + 1}/${totalSections}: "${title}" --- [call show_visual({ section_index: ${i} })]`,
       ``,
-      `TEACH — say this after calling show_visual for this section:`,
+      `TEACH — say this after calling show_visual({ section_index: ${i} }) for this section:`,
       teach ?? `(No script — explain the key concepts from the knowledge base in plain language.)`,
       ``,
       `CHECKPOINT — ask this after TEACH to verify understanding:`,
@@ -151,6 +151,7 @@ export function buildSessionScript(
     ``,
     `SCREEN CONTROL:`,
     `- Call show_visual FIRST, then speak. Visual and voice must always be in sync.`,
+    `- Always pass section_index (0-based integer) — each section header above shows the exact value to use.`,
     `- While the visual loads (1–2 sec), say: "Let me pull that up — [one-sentence teaser]. There we go."`,
     `- If screen loads instantly: skip the bridge and go straight to TEACH.`,
     ``,

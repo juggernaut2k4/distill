@@ -217,6 +217,8 @@ export const sessionContentPipeline = inngest.createFunction(
               topic_id: topicId,
               subtopic_slug: subtopicSlug,
               subtopic_title: subtopicTitle,
+              industry: userContext.industry ?? '',
+              role: userContext.role ?? '',
               template_type: templateType,
               section_data: section,
               content_outline: subSessionOutline,
@@ -229,7 +231,7 @@ export const sessionContentPipeline = inngest.createFunction(
               expires_at: expiresAt.toISOString(),
               use_count: 1,
             },
-            { onConflict: 'topic_id,subtopic_slug' }
+            { onConflict: 'topic_id,subtopic_slug,industry,role' }
           )
 
         if (upsertError) {

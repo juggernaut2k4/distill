@@ -91,14 +91,18 @@ const CLIO_TOOLS: Anthropic.Tool[] = [
   {
     name: 'show_visual',
     description:
-      'Advance to the next section and display it to the participant. Call this when introducing each new topic section. The tool will return the exact coaching script to deliver for that section.',
+      'Advance to a specific section and display it to the participant. Call this when introducing each new topic section. Pass section_index as the 0-based position of the section in the agenda (0 = first, 1 = second, etc.). The tool will return the exact coaching script to deliver for that section.',
     input_schema: {
       type: 'object' as const,
       properties: {
-        topic_id: { type: 'string', description: 'The ID of the section to display' },
-        topic_title: { type: 'string', description: 'The title of the section to display' },
+        section_index: {
+          type: 'number',
+          description: '0-based index of the section to display (0 = first section, 1 = second, etc.). This is the primary lookup key — always provide it.',
+        },
+        topic_id: { type: 'string', description: 'The ID of the section (optional, for logging only)' },
+        topic_title: { type: 'string', description: 'The title of the section (optional, for logging only)' },
       },
-      required: ['topic_id', 'topic_title'],
+      required: ['section_index'],
     },
   },
   {
