@@ -120,10 +120,12 @@ const INDUSTRY_KEYWORDS: Record<string, string[]> = {
 
 // Criterion 2: seniority framing markers by role_level.
 const SENIORITY_MARKERS: Record<string, string[]> = {
-  'c-suite':   ['board', 'strategy', 'invest', 'approve'],
-  'vp-dir':    ['team', 'function', 'report', 'manage'],
-  'manager':   ['implement', 'deploy', 'execute', 'team'],
-  'specialist':['code', 'build', 'configure', 'analyse', 'analyze'],
+  'c-suite':        ['board', 'strategy', 'invest', 'approve'],
+  'vp-dir':         ['team', 'function', 'report', 'manage'],
+  'vp-technology':  ['infrastructure', 'engineer', 'architecture', 'api', 'security', 'build', 'deploy', 'integrate'],
+  'vp-product':     ['product', 'feature', 'roadmap', 'user', 'launch', 'priorit', 'ship', 'competitive'],
+  'manager':        ['implement', 'deploy', 'execute', 'team'],
+  'specialist':     ['code', 'build', 'configure', 'analyse', 'analyze'],
 }
 
 // Criterion 4: "too technical" markers that should NOT appear for beginner/observer users.
@@ -143,6 +145,71 @@ const TRANSITION_PHRASES = [
   'now that we', 'this connects to', 'in our next', 'which leads us to',
   'building on this', 'this will help when we',
 ]
+
+// ─── CURR-01: 7-Dimension session classification ──────────────────────────────
+
+type SessionDimensionId =
+  | 'strategic'
+  | 'operational'
+  | 'technical'
+  | 'compliance'
+  | 'competitive'
+  | 'team_management'
+  | 'personal_productivity'
+
+interface SessionDimensionResult {
+  evaluated_at: string
+  dimensions: Record<SessionDimensionId, { covered: boolean; match_count: number }>
+  covered_count: number
+}
+
+const SESSION_DIMENSION_KEYWORDS: Record<SessionDimensionId, string[]> = {
+  strategic:            ['strategy', 'vision', 'roadmap', 'board', 'competitive', 'market position', 'investment', 'priority'],
+  operational:          ['workflow', 'process', 'implement', 'deploy', 'rollout', 'team adoption', 'day-to-day', 'operationalise'],
+  technical:            ['model', 'api', 'architecture', 'infrastructure', 'integration', 'security', 'token', 'data pipeline'],
+  compliance:           ['compliance', 'regulatory', 'governance', 'risk', 'audit', 'legal', 'policy', 'gdpr', 'soc2', 'hipaa'],
+  competitive:          ['competitor', 'landscape', 'benchmark', 'vendor', 'alternative', 'openai', 'google', 'microsoft', 'market'],
+  team_management:      ['team', 'hire', 'upskill', 'enablement', 'culture', 'change management', 'train', 'staff', 'adoption'],
+  personal_productivity:['personal', 'my workflow', 'time', 'productivity', 'own use', 'daily', 'habit', 'prompt', 'assistant'],
+}
+
+const ALL_SESSION_DIMENSIONS: SessionDimensionId[] = [
+  'strategic', 'operational', 'technical', 'compliance',
+  'competitive', 'team_management', 'personal_productivity',
+]
+
+/**
+ * Runs the 7-dimension keyword classification over the Clio session transcript.
+ * Uses the same keyword map as the plan-level coverage check (CURR-01).
+ * Pure local function — no API calls.
+ */
+function checkSessionDimensions(
+  clioText: string,
+  sessionTitle: string,
+  _roleLevel: string,
+  _industry: string,
+): SessionDimensionResult {
+  const combined = (clioText + ' ' + sessionTitle).toLowerCase()
+  const dimensions = {} as Record<SessionDimensionId, { covered: boolean; match_count: number }>
+
+  let coveredCount = 0
+  for (const dimId of ALL_SESSION_DIMENSIONS) {
+    const keywords = SESSION_DIMENSION_KEYWORDS[dimId]
+    let matchCount = 0
+    for (const kw of keywords) {
+      if (combined.includes(kw.toLowerCase())) matchCount++
+    }
+    const covered = matchCount >= 2
+    dimensions[dimId] = { covered, match_count: matchCount }
+    if (covered) coveredCount++
+  }
+
+  return {
+    evaluated_at: new Date().toISOString(),
+    dimensions,
+    covered_count: coveredCount,
+  }
+}
 
 // ─── Word-overlap similarity (for checkpoint question matching) ────────────────
 
@@ -626,17 +693,42 @@ async function evaluateSession(
     }
   }
 
+  // ── CURR-01: Compute 7-dimension classification from transcript ──────────────
+  const dimensionResult: SessionDimensionResult = checkSessionDimensions(
+    clioText,
+    topicTitle,
+    roleLevel,
+    industry,
+  )
+
   // ── Step I: Mark session as quality-evaluated ─────────────────────────────
-  await supabase
-    .from('sessions')
-    .update({
-      quality_evaluated: true,
-      quality_error: transcriptError ?? null,
-      quality_criteria_results: criteriaResults.length > 0
-        ? criteriaResults
-        : [{ criterion: 0, result: 'fail' as const, evidence: transcriptError ?? 'no transcript' }],
-    })
-    .eq('id', session.id)
+  try {
+    await supabase
+      .from('sessions')
+      .update({
+        quality_evaluated: true,
+        quality_error: transcriptError ?? null,
+        quality_criteria_results: criteriaResults.length > 0
+          ? criteriaResults
+          : [{ criterion: 0, result: 'fail' as const, evidence: transcriptError ?? 'no transcript' }],
+        quality_dimension_result: dimensionResult,
+      })
+      .eq('id', session.id)
+  } catch (updateErr) {
+    // If the dimension result write fails (e.g. column not yet migrated), fall back to
+    // writing without it so the session is still marked evaluated (prevents re-evaluation).
+    console.error(`[quality-evaluator] Failed to write quality_dimension_result for session ${session.id} — retrying without it:`, updateErr)
+    await supabase
+      .from('sessions')
+      .update({
+        quality_evaluated: true,
+        quality_error: transcriptError ?? null,
+        quality_criteria_results: criteriaResults.length > 0
+          ? criteriaResults
+          : [{ criterion: 0, result: 'fail' as const, evidence: transcriptError ?? 'no transcript' }],
+      })
+      .eq('id', session.id)
+  }
 
   console.log(
     `[quality-evaluator] Session ${session.id} evaluated: ` +

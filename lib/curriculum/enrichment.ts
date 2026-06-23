@@ -71,6 +71,10 @@ interface ArcClassification {
   dependency: string | null
   bridge: string | null
   so_what: string
+  // CURR-01: Narrative fields
+  scene_narrative?: string
+  arc_throughline?: string
+  session_chapter_position?: 'opening' | 'building' | 'pivot' | 'climax' | 'resolution'
 }
 
 interface QualityClassification {
@@ -237,7 +241,10 @@ For each session return:
 - layer: one of L1_foundation | L2_core | L3_strategic
 - dependency: title of the session this builds on (null if none)
 - bridge: title of the session this enables next (null if none)
-- so_what: a single sentence specific to the user's role and industry explaining the immediate relevance${extraInstruction ? `\n\nADDITIONAL INSTRUCTION: ${extraInstruction}` : ''}
+- so_what: a single sentence specific to the user's role and industry explaining the immediate relevance
+- scene_narrative: one sentence (MAX 25 words) describing what this session reveals to the learner — written as a chapter teaser, not a topic summary. Example: "You discover why Constitutional AI matters more than any policy document your compliance team will write."
+- arc_throughline: a 1-2 sentence arc-level narrative answering "what story does this arc tell?" — the SAME string for ALL sessions in the same arc. Answers: what transformation does this arc give the learner?
+- session_chapter_position: this session's role in the arc narrative — one of: opening | building | pivot | climax | resolution. Assign based on the session's position and content within its arc.${extraInstruction ? `\n\nADDITIONAL INSTRUCTION: ${extraInstruction}` : ''}
 
 Return ONLY a valid JSON array. No markdown, no explanation.`
 
@@ -250,7 +257,7 @@ Return ONLY a valid JSON array. No markdown, no explanation.`
 Sessions to classify:
 ${sessionList}
 
-Return JSON array of { session_title, layer, dependency, bridge, so_what } for every session.`
+Return JSON array of { session_title, layer, dependency, bridge, so_what, scene_narrative, arc_throughline, session_chapter_position } for every session.`
 
   const message = await withTimeout(
     client.messages.create({
@@ -534,6 +541,37 @@ export async function enrichCurriculumPlan(input: EnrichmentInput): Promise<Enri
       // Completeness warning: only on L2 sessions when the overall check failed
       const completeness_warning = layer === 'L2_core' && !completenessPassedAfterRetry
 
+      // CURR-01: Narrative fields — use LLM values with fallbacks
+      let scene_narrative: string
+      let arc_throughline: string
+      let session_chapter_position: 'opening' | 'building' | 'pivot' | 'climax' | 'resolution'
+
+      if (arcClass?.scene_narrative) {
+        scene_narrative = arcClass.scene_narrative
+      } else {
+        console.warn(`[enrichment][WARN] narrative fields missing for session "${s.title}" — using fallback`)
+        scene_narrative = `${s.title} — a key part of your learning journey.`
+      }
+
+      if (arcClass?.arc_throughline) {
+        arc_throughline = arcClass.arc_throughline
+      } else {
+        arc_throughline = `This arc builds your understanding of ${arc.arc_name}.`
+      }
+
+      if (arcClass?.session_chapter_position) {
+        session_chapter_position = arcClass.session_chapter_position
+      } else {
+        // Derive from arc position
+        if (s.arc_position === 1) {
+          session_chapter_position = 'opening'
+        } else if (s.arc_position === s.arc_length) {
+          session_chapter_position = 'resolution'
+        } else {
+          session_chapter_position = 'building'
+        }
+      }
+
       return {
         // Base fields
         session_id: s.session_id,
@@ -558,6 +596,10 @@ export async function enrichCurriculumPlan(input: EnrichmentInput): Promise<Enri
         bridge_ref,
         so_what,
         completeness_warning,
+        // CURR-01: Narrative fields
+        scene_narrative,
+        arc_throughline,
+        session_chapter_position,
       }
     })
 
@@ -565,6 +607,231 @@ export async function enrichCurriculumPlan(input: EnrichmentInput): Promise<Enri
   })
 
   return { arcs: enrichedArcs }
+}
+
+// ─── CURR-01: 7-Dimension Coverage Check ─────────────────────────────────────
+
+type CurriculumDimensionId =
+  | 'strategic'
+  | 'operational'
+  | 'technical'
+  | 'compliance'
+  | 'competitive'
+  | 'team_management'
+  | 'personal_productivity'
+
+export interface DimensionCoverageResult {
+  checked_at: string
+  visible_session_count: number
+  dimensions: Record<CurriculumDimensionId, { covered: boolean; match_count: number }>
+  covered_count: number
+  missing_dimensions: string[]
+  gap_fill_triggered: boolean
+  gap_fill_sessions_added: number
+}
+
+const CURRICULUM_DIMENSION_KEYWORDS: Record<CurriculumDimensionId, string[]> = {
+  strategic:            ['strategy', 'vision', 'roadmap', 'board', 'competitive', 'market position', 'investment', 'priority'],
+  operational:          ['workflow', 'process', 'implement', 'deploy', 'rollout', 'team adoption', 'day-to-day', 'operationalise'],
+  technical:            ['model', 'api', 'architecture', 'infrastructure', 'integration', 'security', 'token', 'data pipeline'],
+  compliance:           ['compliance', 'regulatory', 'governance', 'risk', 'audit', 'legal', 'policy', 'gdpr', 'soc2', 'hipaa'],
+  competitive:          ['competitor', 'landscape', 'benchmark', 'vendor', 'alternative', 'openai', 'google', 'microsoft', 'market'],
+  team_management:      ['team', 'hire', 'upskill', 'enablement', 'culture', 'change management', 'train', 'staff', 'adoption'],
+  personal_productivity:['personal', 'my workflow', 'time', 'productivity', 'own use', 'daily', 'habit', 'prompt', 'assistant'],
+}
+
+const ALL_CURRICULUM_DIMENSIONS: CurriculumDimensionId[] = [
+  'strategic', 'operational', 'technical', 'compliance',
+  'competitive', 'team_management', 'personal_productivity',
+]
+
+/**
+ * Checks keyword presence (case-insensitive) for each of 7 learning dimensions
+ * across all visible sessions. A dimension is "covered" for a session if it has
+ * ≥2 keyword matches. A dimension is "covered" overall if at least one session covers it.
+ * Returns DimensionCoverageResult (no Claude call — purely local).
+ * If < 5 dimensions are covered AND an API key is available, calls runGapFill.
+ */
+export async function checkDimensionCoverage(
+  visibleSessions: EnrichedSession[],
+  userProfile: { role: string; roleLevel: string; industry: string; maturity: string },
+): Promise<DimensionCoverageResult> {
+  const dimensions = {} as Record<CurriculumDimensionId, { covered: boolean; match_count: number }>
+
+  for (const dimId of ALL_CURRICULUM_DIMENSIONS) {
+    const keywords = CURRICULUM_DIMENSION_KEYWORDS[dimId]
+    let totalMatches = 0
+    let coveredByAnySession = false
+
+    for (const session of visibleSessions) {
+      const combined = [
+        session.title,
+        ...session.subtopics,
+        session.so_what,
+      ].join(' ').toLowerCase()
+
+      let sessionMatchCount = 0
+      for (const kw of keywords) {
+        if (combined.includes(kw.toLowerCase())) sessionMatchCount++
+      }
+      totalMatches += sessionMatchCount
+      if (sessionMatchCount >= 2) coveredByAnySession = true
+    }
+
+    dimensions[dimId] = { covered: coveredByAnySession, match_count: totalMatches }
+  }
+
+  const missingDimensions = ALL_CURRICULUM_DIMENSIONS.filter((d) => !dimensions[d].covered)
+  const coveredCount = ALL_CURRICULUM_DIMENSIONS.length - missingDimensions.length
+
+  const result: DimensionCoverageResult = {
+    checked_at: new Date().toISOString(),
+    visible_session_count: visibleSessions.length,
+    dimensions,
+    covered_count: coveredCount,
+    missing_dimensions: missingDimensions,
+    gap_fill_triggered: false,
+    gap_fill_sessions_added: 0,
+  }
+
+  // Gap-fill: only if < 5 dimensions covered and API key is available
+  if (coveredCount < 5 && visibleSessions.length > 0) {
+    const apiKey = process.env.ANTHROPIC_API_KEY ?? ''
+    if (apiKey && !apiKey.startsWith('PLACEHOLDER_')) {
+      try {
+        const gapSessions = await runGapFill(visibleSessions, missingDimensions, userProfile, apiKey)
+        result.gap_fill_triggered = true
+        result.gap_fill_sessions_added = gapSessions.length
+
+        // Merge gap-fill sessions into visibleSessions in-place so the caller
+        // (curriculum-generator step) can see them on the returned array.
+        for (const gs of gapSessions) {
+          visibleSessions.push(gs)
+        }
+      } catch (err) {
+        console.error('[curriculum-generator][ERROR] gap-fill call failed — plan saved without gap-fill sessions:', err)
+        result.gap_fill_triggered = true
+        result.gap_fill_sessions_added = 0
+      }
+    }
+  }
+
+  return result
+}
+
+/**
+ * Makes a single Claude call to generate gap-fill sessions for missing dimensions.
+ * Each returned session is validated with SessionSchema before insertion.
+ * Sessions that fail validation are silently dropped.
+ */
+async function runGapFill(
+  visibleSessions: EnrichedSession[],
+  missingDimensions: string[],
+  userProfile: { role: string; roleLevel: string; industry: string; maturity: string },
+  apiKey: string,
+): Promise<EnrichedSession[]> {
+  const { SessionSchema } = await import('./planner')
+
+  const sessionSummary = visibleSessions.map((s) =>
+    `- "${s.title}": ${s.subtopics.slice(0, 3).join('; ')}`
+  ).join('\n')
+
+  const systemPrompt = `You are an expert curriculum designer for executive AI learning.
+A curriculum plan has been generated but is missing coverage of key learning dimensions.
+Generate the minimum number of sessions needed to cover the missing dimensions — one session per dimension that cannot be covered by extending existing sessions.
+
+Return a JSON array of session objects. Each session must exactly match this schema:
+{
+  "session_id": string (unique, use format "gap-[dimension]-s1"),
+  "title": string,
+  "focus": string (min 10 chars),
+  "arc_position": number,
+  "arc_length": number,
+  "depth_level": "beginner" | "intermediate" | "advanced",
+  "role_hint": string (min 5 chars),
+  "subtopics": string[] (3–8 items, each min 3 chars),
+  "is_visible": true,
+  "queue_rationale": string (describe gap-fill purpose, e.g. "gap-fill: compliance")
+}
+
+Return ONLY a valid JSON array. No markdown, no explanation.`
+
+  const userMessage = `User profile:
+- Role: ${userProfile.role}
+- Seniority: ${userProfile.roleLevel}
+- Industry: ${userProfile.industry}
+- AI maturity: ${userProfile.maturity}
+
+Current visible sessions:
+${sessionSummary}
+
+Missing dimensions (generate a session for each): ${missingDimensions.join(', ')}
+
+For each missing dimension, create one session that:
+- Covers at least 2 keywords from that dimension's keyword set
+- Is framed for the user's specific role and industry
+- Has queue_rationale starting with "gap-fill: [dimension_id]"
+- Sets is_visible: true`
+
+  const client = new Anthropic({ apiKey })
+  const message = await withTimeout(
+    client.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 2048,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userMessage }],
+    }),
+    CALL_TIMEOUT_MS
+  )
+
+  const raw = message.content[0].type === 'text' ? message.content[0].text : '[]'
+  const parsed = JSON.parse(extractJson(raw)) as unknown[]
+
+  // Get the last arc from visible sessions to anchor gap-fill sessions
+  const lastSession = visibleSessions[visibleSessions.length - 1]
+  const anchorArcName = lastSession?.arc_name ?? 'supplementary'
+  const anchorArcType = lastSession?.arc_type ?? 'singleton'
+
+  const validSessions: EnrichedSession[] = []
+  for (const raw_session of parsed) {
+    const validationResult = SessionSchema.safeParse(raw_session)
+    if (!validationResult.success) {
+      console.warn('[enrichment][WARN] gap-fill session failed Zod validation — dropping:', validationResult.error.flatten())
+      continue
+    }
+
+    const s = validationResult.data
+    // Build a minimal EnrichedSession for the gap-fill session
+    const gapSession: EnrichedSession = {
+      session_id: s.session_id,
+      title: s.title,
+      focus: s.focus,
+      arc_position: s.arc_position,
+      arc_length: s.arc_length,
+      depth_level: s.depth_level,
+      role_hint: s.role_hint,
+      subtopics: s.subtopics,
+      is_visible: true,
+      queue_rationale: s.queue_rationale,
+      estimated_minutes: Math.ceil(s.subtopics.length / 4) * 15,
+      arc_name: anchorArcName,
+      arc_type: anchorArcType,
+      layer: 'L2_core',
+      skip: false,
+      quality_score: { role_relevance: 7, industry_specificity: 7, narrative_cohesion: 7, dimension_coverage: 7, composite: 7 },
+      dimension_coverage: null,
+      dependency_ref: null,
+      bridge_ref: null,
+      so_what: `This session ensures your curriculum covers ${s.queue_rationale?.replace('gap-fill: ', '') ?? 'an important dimension'}.`,
+      completeness_warning: false,
+      scene_narrative: `${s.title} — a key part of your learning journey.`,
+      arc_throughline: `This arc builds your understanding of ${anchorArcName}.`,
+      session_chapter_position: 'building',
+    }
+    validSessions.push(gapSession)
+  }
+
+  return validSessions
 }
 
 /**

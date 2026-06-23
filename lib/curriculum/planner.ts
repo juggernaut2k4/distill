@@ -125,17 +125,21 @@ function buildSystemPrompt(
   })()
 
   const roleLevelLabel: Record<string, string> = {
-    'c-suite':   'Executive / C-Suite (owns P&L, accountable to board)',
-    'vp-dir':    'VP / Director (leads a function, reports to C-Suite, accountable for team outcomes)',
-    'manager':   'Manager / Team Lead (manages a team, executes strategy set above them)',
-    'specialist':'Specialist / Individual Contributor (expert practitioner)',
+    'c-suite':        'Executive / C-Suite (owns P&L, accountable to board)',
+    'vp-dir':         'VP / Director (leads a function, reports to C-Suite, accountable for team outcomes)',
+    'vp-technology':  'VP of Technology (owns engineering team adoption, technical infrastructure decisions, and AI vendor evaluation)',
+    'vp-product':     'VP of Product (owns AI feature strategy, model integration in product, and competitive differentiation through AI)',
+    'manager':        'Manager / Team Lead (manages a team, executes strategy set above them)',
+    'specialist':     'Specialist / Individual Contributor (expert practitioner)',
   }
 
   const roleLevelInstruction: Record<string, string> = {
-    'c-suite':   'Frame all content for a leader who approves budgets, sponsors AI initiatives, and answers to the board. Examples must involve strategic decisions, not implementation choices.',
-    'vp-dir':    'Frame all content for a function leader who owns team adoption and reports outcomes to the C-Suite. Examples must involve managing upward (presenting to executives) and downward (enabling their team). Do NOT use board-level or P&L-authority framing.',
-    'manager':   'Frame all content for a team lead implementing AI tools day-to-day. Examples should be hands-on and practical. Avoid board-level or C-Suite strategic framing.',
-    'specialist':'Frame all content for a practitioner who uses AI tools directly. Examples should be technical and applied.',
+    'c-suite':       'Frame all content for a leader who approves budgets, sponsors AI initiatives, and answers to the board. Examples must involve strategic decisions, not implementation choices.',
+    'vp-dir':        'Frame all content for a function leader who owns team adoption and reports outcomes to the C-Suite. Examples must involve managing upward (presenting to executives) and downward (enabling their team). Do NOT use board-level or P&L-authority framing.',
+    'vp-technology': 'Frame all content for a VP of Technology who owns engineering team adoption, infrastructure decisions, and technical risk. Examples must involve: API procurement vs SaaS tradeoffs, security architecture for AI systems, how to evaluate model quality for production use cases, and how to present build-vs-buy recommendations upward to the CTO or CFO. Do NOT use board-level P&L framing. Do NOT use product roadmap or feature prioritisation framing.',
+    'vp-product':    'Frame all content for a VP of Product who owns AI-assisted feature strategy, model integration in the product, and competitive differentiation through AI capability. Examples must involve: when to use AI in the product vs when it is over-engineering, how to frame AI features for users without technical backgrounds, managing model latency and cost as product constraints, and presenting AI roadmap trade-offs to engineering and leadership. Do NOT use infrastructure or procurement framing. Do NOT use board-level P&L framing.',
+    'manager':       'Frame all content for a team lead implementing AI tools day-to-day. Examples should be hands-on and practical. Avoid board-level or C-Suite strategic framing.',
+    'specialist':    'Frame all content for a practitioner who uses AI tools directly. Examples should be technical and applied.',
   }
 
   const maturityFramingInstruction = normalisedMaturity === 'expert'

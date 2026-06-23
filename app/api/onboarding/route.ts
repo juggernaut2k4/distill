@@ -4,10 +4,11 @@ import { auth } from '@clerk/nextjs/server'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { getUserContentPlan } from '@/lib/content/personalizer'
 import { assignPhoneNumber } from '@/lib/delivery/sms'
+import { normaliseMaturity } from '@/lib/curriculum/planner'
 
 const OnboardingSchema = z.object({
   role: z.string().min(1, 'Role is required'),
-  roleLevel: z.enum(['c-suite', 'vp-dir', 'manager', 'specialist']).default('c-suite'),
+  roleLevel: z.enum(['c-suite', 'vp-dir', 'vp-technology', 'vp-product', 'manager', 'specialist']).default('c-suite'),
   industry: z.string().default(''),
   aiMaturity: z.enum([
     // UI values (current onboarding page)
@@ -87,6 +88,9 @@ export async function POST(request: NextRequest) {
 
     const supabase = createSupabaseAdminClient()
 
+    // Normalise to canonical DB value before saving (CURR-01)
+    const canonicalMaturity = normaliseMaturity(data.aiMaturity)
+
     // Upsert user record
     const userRecord = {
       id: userId ?? `anon_${Date.now()}`,
@@ -95,7 +99,7 @@ export async function POST(request: NextRequest) {
       role: data.role,
       role_level: data.roleLevel,
       industry: data.industry,
-      ai_maturity: data.aiMaturity,
+      ai_maturity: canonicalMaturity,
       worry_tags: data.worry ? [data.worry] : [],
       delivery_preference: data.deliveryPreference,
       timezone: data.timezone,
@@ -113,7 +117,7 @@ export async function POST(request: NextRequest) {
       sub_domain: data.subDomain ?? null,
     }
 
-    console.log('[onboarding] upsert — role:', data.role, '| roleLevel:', data.roleLevel, '| industry:', data.industry, '| aiMaturity:', data.aiMaturity)
+    console.log('[onboarding] upsert — role:', data.role, '| roleLevel:', data.roleLevel, '| industry:', data.industry, '| aiMaturity:', data.aiMaturity, '→', canonicalMaturity)
 
     const { error: upsertError } = await supabase
       .from('users')

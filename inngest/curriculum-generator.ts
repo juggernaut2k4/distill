@@ -1,6 +1,7 @@
 import { inngest } from './client'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { generateCurriculumPlan, buildProfileHash } from '@/lib/curriculum/planner'
+import { checkDimensionCoverage } from '@/lib/curriculum/enrichment'
 
 interface TopicsSelectedEvent {
   data: { userId: string }
@@ -140,6 +141,48 @@ export const curriculumGenerator = inngest.createFunction(
       return generateCurriculumPlan({ userId, role, industry, maturity, worry, topics, planTier, roleLevel })
     })
 
+    // ── CURR-01: 7-Dimension Coverage Check ──────────────────────────────────
+    // Runs after enrichment, before save. Mutates visibleSessionsForCoverage in-place
+    // if gap-fill sessions are added. Result is stored in raw_llm_output.
+    const enrichedRawLlmOutput = await step.run('check-dimension-coverage', async () => {
+      // Extract visible EnrichedSession objects from output.arcs
+      // (enrichedPlan is embedded in rawLlmOutput by generateCurriculumPlan)
+      const visibleSessions = output.arcs.flatMap((a) =>
+        a.sessions
+          .filter((s) => s.is_visible)
+          .map((s) => ({ ...s, arc_name: a.arc_name, arc_type: a.arc_type }))
+      )
+
+      const coverageResult = await checkDimensionCoverage(
+        // Cast to EnrichedSession[] — visibleSessions have the same shape
+        visibleSessions as Parameters<typeof checkDimensionCoverage>[0],
+        { role, roleLevel, industry, maturity },
+      )
+
+      // If gap-fill sessions were added, splice them into output.arcs
+      // (gap-fill sessions are appended to visibleSessions in-place inside checkDimensionCoverage)
+      if (coverageResult.gap_fill_sessions_added > 0) {
+        const gapSessions = visibleSessions.slice(
+          visibleSessions.length - coverageResult.gap_fill_sessions_added
+        )
+        for (const gs of gapSessions) {
+          // Append gap-fill sessions to their arc (or create a new arc entry if arc not found)
+          const targetArc = output.arcs.find((a) => a.arc_name === gs.arc_name)
+          if (targetArc) {
+            targetArc.sessions.push({ ...gs })
+          } else {
+            output.arcs.push({
+              arc_name: gs.arc_name,
+              arc_type: (gs.arc_type as 'domain' | 'integrated' | 'singleton') ?? 'singleton',
+              sessions: [{ ...gs }],
+            })
+          }
+        }
+      }
+
+      return { ...rawLlmOutput, dimension_coverage_result: coverageResult }
+    })
+
     // ── Save to DB ────────────────────────────────────────────────────────────
     const newPlanId = await step.run('save-plan', async () => {
       const visibleSessions = output.arcs.flatMap((a) =>
@@ -153,7 +196,7 @@ export const curriculumGenerator = inngest.createFunction(
         .from('curriculum_plans')
         .insert({
           user_id:           userId,
-          raw_llm_output:    { ...rawLlmOutput, is_fallback: isFallback },
+          raw_llm_output:    { ...enrichedRawLlmOutput, is_fallback: isFallback },
           visible_sessions:  visibleSessions,
           queue_sessions:    queueSessions,
           user_profile_hash: profileHash,

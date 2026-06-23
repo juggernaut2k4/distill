@@ -68,6 +68,10 @@ export interface EnrichedSession {
   bridge_ref: string | null              // session_id this session enables
   so_what: string                        // role+industry specific "so what" sentence
   completeness_warning: boolean          // true if L2 check found >2 missing dims after retry
+  // CURR-01: Narrative curriculum fields
+  scene_narrative: string              // max 25 words: what this session reveals, written as chapter teaser
+  arc_throughline: string              // arc-level narrative, same value for all sessions in the same arc
+  session_chapter_position: 'opening' | 'building' | 'pivot' | 'climax' | 'resolution'
 }
 
 export interface EnrichedArc {
