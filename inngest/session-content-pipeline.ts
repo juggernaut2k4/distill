@@ -1,17 +1,21 @@
 /**
- * Inngest background function: runs the full 6-step content pipeline for a session.
+ * Inngest background function: runs the full atomic content pipeline for a session.
  * Triggered when a user approves their session plan.
  *
- * Step 1 — Generate content outlines (referencing previous sessions)
- * Step 2 — Generate training scripts (TEACH/CHECKPOINT/PROBE/CONTINUE)
- * Step 3 — Select the right template type per subtopic
- * Step 4 — Generate template data (Claude fills in the visual schema)
- * Step 5 — Save everything to topic_content_cache
- * Step 6 — Mark session content_status = 'ready'
+ * Step A — Fetch session + user profile
+ * Step B — Mark session as 'generating'
+ * Step C — generateContentArticles: one LLM call → ContentArticle[] (source of truth)
+ * Step D — Per subtopic: generateScriptAndVisualization (atomic: script + viz in one call)
+ * Step E — Per subtopic: selectTemplate
+ * Step F — Per subtopic: generateTemplateData (receives visualization_spec from Step D)
+ * Step G — Per subtopic: upsert to topic_content_cache
+ * Step H — Guard: verify rows exist, mark session content_status = 'ready'
  */
 
 import { inngest } from './client'
 import { createSupabaseAdminClient } from '@/lib/supabase'
+import { generateContentArticles } from '@/lib/content/session-content-generator'
+import { generateScriptAndVisualization } from '@/lib/content/script-generator'
 import { generateSessionContentOutline } from '@/lib/content/session-content-generator'
 import { generateTrainingScript } from '@/lib/content/script-generator'
 import { selectTemplate } from '@/lib/templates/selector'
@@ -74,7 +78,7 @@ export const sessionContentPipeline = inngest.createFunction(
     const { sessionId, userId } = event.data
     const supabase = createSupabaseAdminClient()
 
-    // ── Fetch session + user profile ────────────────────────────────────────
+    // ── Step A: Fetch session + user profile ───────────────────────────────────
     const { session, userProfile } = await step.run('fetch-session-data', async () => {
       const [{ data: sessionRow }, { data: userRow }] = await Promise.all([
         supabase
@@ -113,6 +117,7 @@ export const sessionContentPipeline = inngest.createFunction(
       : jsonbSubtopics.length > 0
         ? jsonbSubtopics
         : getSubtopicsForSession(topicId, session.topics)
+
     const userContext = {
       role: userProfile?.role ?? 'executive',
       industry: userProfile?.industry ?? 'business',
@@ -120,7 +125,7 @@ export const sessionContentPipeline = inngest.createFunction(
       roleLevel: userProfile?.role_level ?? 'c-suite',
     }
 
-    // Mark session as generating immediately so UI shows progress
+    // ── Step B: Mark session as generating ────────────────────────────────────
     await step.run('mark-generating', async () => {
       await supabase
         .from('sessions')
@@ -128,9 +133,10 @@ export const sessionContentPipeline = inngest.createFunction(
         .eq('id', sessionId)
     })
 
-    // ── Step 1: Generate content outlines for ALL subtopics in one Claude call ──
-    const outline = await step.run('generate-content-outlines', async () => {
-      return generateSessionContentOutline(
+    // ── Step C: Generate ContentArticles — one LLM call, all subtopics ────────
+    // This is the single source of truth: script + visualization both derive from here.
+    const articles = await step.run('generate-content-articles', async () => {
+      return generateContentArticles(
         sessionId,
         topicId,
         topicTitle,
@@ -140,20 +146,27 @@ export const sessionContentPipeline = inngest.createFunction(
       )
     })
 
-    // ── Steps 2-5: For each sub-session — script + template + cache ────────────
-    // subSessionOutline: content outline for one tab (stored as sessions.subtopics in DB — column rename pending TERM-01)
-    for (const subSessionOutline of outline.subtopics) {
-      const subtopicTitle = subSessionOutline.subtopic_title
-      const subtopicSlug = subSessionOutline.subtopic_slug
+    // ── Steps D–G: Per subtopic — atomic script+viz, template, cache upsert ───
+    for (let i = 0; i < articles.length; i++) {
+      const article = articles[i]
+      const subtopicSlug = article.subtopic_slug
+      const subtopicTitle = article.subtopic_title
+      const isLast = i === articles.length - 1
 
       await step.run(`process-subtopic-${subtopicSlug}`, async () => {
-        // Step 2: Generate training script
-        const script = await generateTrainingScript(subSessionOutline, userContext)
+        // Step D: Single atomic LLM call → script segments + visualization spec
+        const scriptAndViz = await generateScriptAndVisualization(
+          article,
+          userContext,
+          isLast,
+          i,
+          articles.length
+        )
 
-        // Step 3: Select template
-        const templateType = selectTemplate(subtopicTitle, subSessionOutline.position)
+        // Step E: Select template type
+        const templateType = selectTemplate(subtopicTitle, i === 0 ? 'first' : isLast ? 'last' : 'middle')
 
-        // Step 4: Generate template data (use cache if available)
+        // Step F: Generate template data — contentSpec is now from the atomic viz spec
         let section: TemplateSection | null = await getCachedSection(topicId, subtopicSlug, {
           role: userContext.role,
           industry: userContext.industry,
@@ -166,6 +179,8 @@ export const sessionContentPipeline = inngest.createFunction(
             userRole: userContext.role,
             userIndustry: userContext.industry,
           }
+          // Pass visualization_spec headline + items + so_what as the content spec
+          // so template data stays in sync with what TEACH names on screen.
           const data = await generateTemplateData(
             templateType,
             subtopicTitle,
@@ -175,8 +190,7 @@ export const sessionContentPipeline = inngest.createFunction(
           section = { id: subtopicSlug, type: templateType, data, meta, status: 'pending' } as TemplateSection
         }
 
-        // Step 4.5: Run automated QA rules (word count, So what?, jargon, sentence count)
-        // Logs issues but does NOT block the pipeline — content still saves.
+        // Step F.5: Run automated QA (non-blocking)
         const sectionData = section.data as unknown as Record<string, unknown>
         const textToQA: string =
           (typeof sectionData?.body === 'string' ? sectionData.body : '') ||
@@ -205,7 +219,8 @@ export const sessionContentPipeline = inngest.createFunction(
           )
         }
 
-        // Step 5: Save script + outline + template data to topic_content_cache
+        // Step G: Upsert to topic_content_cache
+        // onConflict key must match the unique index: (topic_id, subtopic_slug, industry, role)
         const ttlDays = 60
         const expiresAt = new Date()
         expiresAt.setDate(expiresAt.getDate() + ttlDays)
@@ -221,11 +236,18 @@ export const sessionContentPipeline = inngest.createFunction(
               role: userContext.role ?? '',
               template_type: templateType,
               section_data: section,
-              content_outline: subSessionOutline,
-              training_script: script,
+              // content_outline stores the source ContentArticle for reference and KB display
+              content_outline: { content_article: article },
+              // training_script now comes from the atomic generateScriptAndVisualization call
+              training_script: {
+                subtopic_title: subtopicTitle,
+                subtopic_slug: subtopicSlug,
+                segments: scriptAndViz.segments,
+                total_duration_seconds: scriptAndViz.total_duration_seconds,
+                // Store viz spec inline so callers can always reconstruct what's on screen
+                visualization_spec: scriptAndViz.visualization_spec,
+              },
               pipeline_status: 'ready',
-              // Automated QA: store pass/fail flag alongside content.
-              // qa_passed=false means the content saved but has quality issues to fix.
               qa_passed: qaResult.passed,
               generated_at: new Date().toISOString(),
               expires_at: expiresAt.toISOString(),
@@ -241,7 +263,7 @@ export const sessionContentPipeline = inngest.createFunction(
       })
     }
 
-    // ── Step 6: Mark session as ready ───────────────────────────────────────
+    // ── Step H: Guard + mark session ready ────────────────────────────────────
     await step.run('mark-session-ready', async () => {
       // Guard: verify the DB actually has rows for this topic before marking ready.
       // This prevents silent-failure loops where all upserts fail but the session
@@ -269,6 +291,11 @@ export const sessionContentPipeline = inngest.createFunction(
         .eq('id', sessionId)
     })
 
-    return { sessionId, subtopicsProcessed: outline.subtopics.length }
+    return { sessionId, subtopicsProcessed: articles.length }
   }
 )
+
+// ─── BACKWARD COMPATIBILITY EXPORTS ──────────────────────────────────────────
+// These re-export the old functions so any other files importing from this module
+// continue to compile. The old pipeline functions still exist in their own files.
+export { generateSessionContentOutline, generateTrainingScript }

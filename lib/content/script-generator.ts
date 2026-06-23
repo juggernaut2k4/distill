@@ -14,11 +14,11 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk'
-import type { SubSessionOutline } from './session-content-generator'
+import type { SubSessionOutline, ContentArticle, UserContext } from './session-content-generator'
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 
-export type ScriptSegmentType = 'TEACH' | 'CHECKPOINT' | 'PROBE' | 'CONTINUE' | 'CLOSE'
+export type ScriptSegmentType = 'TEACH' | 'CHECKPOINT' | 'ICE_BREAKER' | 'PROBE' | 'CONTINUE' | 'CLOSE'
 
 export interface ScriptSegment {
   type: ScriptSegmentType
@@ -30,6 +30,28 @@ export interface TrainingScript {
   subtopic_title: string
   subtopic_slug: string
   segments: ScriptSegment[]
+  total_duration_seconds: number
+}
+
+// ─── CONTENT-01: NEW ATOMIC PIPELINE TYPES ────────────────────────────────────
+
+/**
+ * VisualizationSpec — exactly 3 items (enforced as TypeScript 3-tuple).
+ * Produced atomically alongside the script segments in generateScriptAndVisualization.
+ */
+export interface VisualizationSpec {
+  headline: string                       // max 8 words — visual section title
+  items: [string, string, string]        // exactly 3 items — typed 3-tuple
+  so_what: string                        // max 30 words, personalised to role/industry
+}
+
+/**
+ * ScriptAndVisualizationOutput — result of the single atomic LLM call per subtopic.
+ * Replaces the separate generateTrainingScript + generateTemplateData calls.
+ */
+export interface ScriptAndVisualizationOutput {
+  segments: ScriptSegment[]
+  visualization_spec: VisualizationSpec
   total_duration_seconds: number
 }
 
@@ -335,5 +357,248 @@ Return ONLY valid JSON (no markdown):
     ...canonicalScript,
     segments: adaptedSegments,
     total_duration_seconds: adaptedSegments.reduce((sum, s) => sum + (s.duration_seconds ?? 30), 0),
+  }
+}
+
+// ─── CONTENT-01: generateScriptAndVisualization ───────────────────────────────
+
+/**
+ * Single atomic LLM call that produces BOTH training script segments AND
+ * visualization spec from a ContentArticle.
+ *
+ * Segment order: TEACH → CHECKPOINT → ICE_BREAKER → PROBE → CONTINUE
+ * (last subtopic: TEACH → CHECKPOINT → ICE_BREAKER → PROBE → CLOSE)
+ *
+ * TEACH embeds [NAV:tab_0], [NAV:tab_1], [NAV:tab_2] inline at the moment each
+ * visualization item is named — the WalkthroughClient watches these to advance tabs.
+ *
+ * VP calibration: vp-dir / c-suite roles skip definitions, open on
+ * competitive/compliance/procurement framing.
+ */
+export async function generateScriptAndVisualization(
+  article: ContentArticle,
+  userContext: UserContext,
+  isLastSubtopic: boolean,
+  subtopicIndex: number,
+  totalSubtopics: number
+): Promise<ScriptAndVisualizationOutput> {
+  if (!anthropic) {
+    console.log('[MOCK] script-generator: returning mock ScriptAndVisualizationOutput for', article.subtopic_title)
+    return buildMockScriptAndVisualization(article, userContext, isLastSubtopic)
+  }
+
+  // VP / C-Suite calibration rules
+  const isVpOrAbove = userContext.roleLevel === 'vp-dir' || userContext.roleLevel === 'c-suite'
+
+  const vpCalibrationBlock = isVpOrAbove ? `
+VP/C-SUITE CALIBRATION — MANDATORY:
+DO NOT include in TEACH:
+- Any definition of what an LLM or AI is
+- Phrases: "enterprise-grade", "AI is not a toy", "let me explain what [term] means", "at a basic level", "to understand AI you need to know"
+- Analogies explaining foundational tech ("think of AI like...")
+- "Here are the players" competitive overview from scratch
+
+DO start TEACH with one of these frames:
+- Competitive positioning ("You're probably evaluating X alongside Y...")
+- Procurement implications ("The contract terms that matter here are...")
+- Regulatory/compliance framing ("The regulatory exposure in ${userContext.industry} is...")
+- Risk differentiation between vendors
+- Team adoption strategy` : userContext.roleLevel === 'manager' ? `
+MANAGER CALIBRATION: Include one explanatory sentence per concept — functional, not definitional. Bridge from concept to team implementation.` : `
+SPECIALIST CALIBRATION: Full technical depth. Edge cases, implementation nuance, architectural trade-offs.`
+
+  const continueOrClose = isLastSubtopic
+    ? `5. CLOSE (120 seconds — MANDATORY, replaces CONTINUE on final subtopic)
+   Session wrap-up. Structure exactly:
+   - 3 sentences summarising what was learned today across all subtopics (subtopic ${subtopicIndex + 1} of ${totalSubtopics})
+   - 1 sentence of genuine encouragement tied to their role as a ${userContext.role} ("You now have...")
+   - 1 sentence preview: what to think about before the next session
+   No new information. Pure close. Warm, confident, brief.`
+    : `5. CONTINUE (45-60 seconds — bridge to next concept)
+   Lock in the key insight from this subtopic. Create anticipation for the next section without giving it away. End with a forward-leaning sentence.`
+
+  const prompt = `You are Clio — an AI executive coach. Generate a complete coaching script AND visualization spec for one subtopic.
+
+EXECUTIVE PROFILE
+Role: ${userContext.role}
+Industry: ${userContext.industry}
+AI Maturity: ${userContext.maturity}
+Role Level: ${userContext.roleLevel}
+${vpCalibrationBlock}
+
+CONTENT ARTICLE (source of truth — derive everything from this, do not invent new content)
+Subtopic: ${article.subtopic_title}
+Overview: ${article.sections.overview}
+Key Facts: ${article.sections.key_facts.join(' | ')}
+How It Works: ${article.sections.how_it_works}
+Enterprise Implications: ${article.sections.enterprise_implications}
+Common Misconceptions: ${article.sections.common_misconceptions.join(' | ')}
+Decision Questions: ${article.sections.decision_questions.join(' | ')}
+Role Relevance: ${article.role_relevance}
+Industry Angle: ${article.industry_angle}
+
+SUBTOPIC POSITION: ${subtopicIndex + 1} of ${totalSubtopics}${isLastSubtopic ? ' (FINAL — include CLOSE segment)' : ''}
+
+SCRIPT SEGMENTS — write in this exact order:
+
+1. TEACH (~240 words spoken, ~120 seconds)
+   - Open immediately with the frame specified in calibration rules above
+   - Name EXACTLY 3 items that will appear on screen — say "On your screen you'll see three items: [item 1], [item 2], [item 3]"
+   - Walk through each item by name. At the EXACT moment you name each item, embed the nav directive INLINE:
+     First item → embed [NAV:tab_0] immediately before or after the item name
+     Second item → embed [NAV:tab_1] immediately before or after the item name
+     Third item → embed [NAV:tab_2] immediately before or after the item name
+   - The 3 items named in TEACH MUST match visualization_spec.items exactly
+   - End with the single most important takeaway for a ${userContext.role} in ${userContext.industry}
+
+2. CHECKPOINT (60-75 seconds)
+   A single targeted question that reveals whether the user can APPLY the concept — not just recall it.
+   Draw from the article's decision_questions. Not a yes/no question.
+
+3. ICE_BREAKER (30-45 seconds)
+   ONE open situational question about the user's context, motivation, or use case.
+   Rules:
+   - Must NOT be a comprehension check
+   - Must be open-ended (not yes/no)
+   - Must reference ONE of: their evaluation context, their team's current status, a specific driving use case, or a stakeholder they need to address
+   - Example pattern: "What's the specific context driving this for you right now — is it [scenario A], or more [scenario B]?"
+
+4. PROBE (45-60 seconds)
+   Reframing fallback if the user seems uncertain on CHECKPOINT. Try a different angle.
+   Reference something from a different section of the article. Keep it brief.
+
+${continueOrClose}
+
+VISUALIZATION SPEC
+Choose 3 items that are the most concrete, memorable, and actionable from this subtopic.
+These 3 items are what appear on screen during TEACH — they MUST match what TEACH names.
+- headline: max 8 words — what appears as the visual section title
+- items: exactly 3 strings — the items shown on screen (must match TEACH exactly)
+- so_what: max 30 words, personalised to ${userContext.role} in ${userContext.industry}
+
+Return ONLY valid JSON (no markdown, no commentary):
+{
+  "segments": [
+    { "type": "TEACH", "content": "...", "duration_seconds": 120 },
+    { "type": "CHECKPOINT", "content": "...", "duration_seconds": 65 },
+    { "type": "ICE_BREAKER", "content": "...", "duration_seconds": 40 },
+    { "type": "PROBE", "content": "...", "duration_seconds": 50 }${isLastSubtopic
+      ? ',\n    { "type": "CLOSE", "content": "...", "duration_seconds": 120 }'
+      : ',\n    { "type": "CONTINUE", "content": "...", "duration_seconds": 50 }'}
+  ],
+  "visualization_spec": {
+    "headline": "...",
+    "items": ["item 1", "item 2", "item 3"],
+    "so_what": "..."
+  }
+}`
+
+  const message = await anthropic.messages.create({
+    model: MODEL,
+    max_tokens: 3000,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  let raw = (message.content[0] as { type: string; text: string }).text.trim()
+  raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
+
+  const json = JSON.parse(raw) as {
+    segments: ScriptSegment[]
+    visualization_spec: {
+      headline: string
+      items: string[]
+      so_what: string
+    }
+  }
+
+  // Runtime correction: enforce exactly 3 items in visualization_spec
+  const rawItems = json.visualization_spec.items ?? []
+  if (rawItems.length !== 3) {
+    console.warn(
+      `[script-generator][WARN] visualization_spec item count corrected from ${rawItems.length} to 3 for subtopic: ${article.subtopic_title}`
+    )
+    while (rawItems.length < 3) rawItems.push(rawItems[rawItems.length - 1] ?? 'Key insight')
+    rawItems.splice(3)
+  }
+  const items: [string, string, string] = [rawItems[0], rawItems[1], rawItems[2]]
+
+  const vizSpec: VisualizationSpec = {
+    headline: json.visualization_spec.headline ?? article.subtopic_title.slice(0, 50),
+    items,
+    so_what: json.visualization_spec.so_what ?? article.role_relevance,
+  }
+
+  const total = json.segments.reduce((sum, s) => sum + (s.duration_seconds ?? 30), 0)
+
+  return {
+    segments: json.segments,
+    visualization_spec: vizSpec,
+    total_duration_seconds: total,
+  }
+}
+
+/**
+ * Mock implementation for generateScriptAndVisualization when ANTHROPIC_API_KEY is a placeholder.
+ * Returns a realistic ScriptAndVisualizationOutput with all required segment types.
+ */
+function buildMockScriptAndVisualization(
+  article: ContentArticle,
+  userContext: UserContext,
+  isLastSubtopic: boolean
+): ScriptAndVisualizationOutput {
+  const item1 = article.sections.key_facts[0]?.slice(0, 60) ?? 'Strategic framing'
+  const item2 = article.sections.key_facts[1]?.slice(0, 60) ?? 'Implementation reality'
+  const item3 = article.sections.key_facts[2]?.slice(0, 60) ?? 'Decision leverage points'
+
+  const segments: ScriptSegment[] = [
+    {
+      type: 'TEACH',
+      content: `${article.role_relevance} Let me show you what that means in practice. On your screen you'll see three items: [NAV:tab_0] ${item1}, [NAV:tab_1] ${item2}, and [NAV:tab_2] ${item3}. ${article.sections.overview} ${article.sections.how_it_works} The single most important takeaway: ${article.sections.enterprise_implications.split('.')[0]}.`,
+      duration_seconds: 120,
+    },
+    {
+      type: 'CHECKPOINT',
+      content: article.sections.decision_questions[0] ?? `How does this change the way you'd approach the next AI decision in your organisation?`,
+      duration_seconds: 65,
+    },
+    {
+      type: 'ICE_BREAKER',
+      content: `What's the specific context driving this evaluation for you right now — is it a use case your team is already experimenting with, or more "I need to speak to this intelligently with my leadership"?`,
+      duration_seconds: 40,
+    },
+    {
+      type: 'PROBE',
+      content: article.sections.common_misconceptions[0]
+        ? `Let me try a different angle. ${article.sections.common_misconceptions[0]} Does that reframing help?`
+        : `Let me reframe this. The question isn't whether to act — it's how to act without creating more risk than you solve. Does that land differently?`,
+      duration_seconds: 50,
+    },
+  ]
+
+  if (isLastSubtopic) {
+    segments.push({
+      type: 'CLOSE',
+      content: `That wraps up today's session on ${article.subtopic_title}. You've covered the key facts, the mechanism, and the enterprise implications — and you now have a clear framework for making decisions here without needing to be the technical expert in the room. As a ${userContext.role}, you're now better positioned to ask the right questions and set the right conditions for your team. Think about: ${article.sections.decision_questions[article.sections.decision_questions.length - 1] ?? 'what one decision this changes for you'} — and we'll pick that thread up next time.`,
+      duration_seconds: 120,
+    })
+  } else {
+    segments.push({
+      type: 'CONTINUE',
+      content: `Good. ${article.role_relevance} Keep that in mind — it's the through-line for everything we'll cover next.`,
+      duration_seconds: 50,
+    })
+  }
+
+  const items: [string, string, string] = [item1, item2, item3]
+  const total = segments.reduce((sum, s) => sum + (s.duration_seconds ?? 30), 0)
+
+  return {
+    segments,
+    visualization_spec: {
+      headline: article.subtopic_title.split(' ').slice(0, 6).join(' '),
+      items,
+      so_what: article.role_relevance,
+    },
+    total_duration_seconds: total,
   }
 }
