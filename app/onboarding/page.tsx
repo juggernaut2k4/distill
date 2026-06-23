@@ -14,8 +14,8 @@ import {
 
 // ─── Step definitions ─────────────────────────────────────────────────────────
 
-const TOTAL_STEPS = 7
-// 0: Level  1: Department → resolves roleId  2: Industry  3: AI Engagement  4: Domains  5: Proficiency  6: Goal
+const TOTAL_STEPS = 9
+// 0: Level  1: Department → resolves roleId  2: Industry  3: AI Engagement  4: Domains  5: Proficiency  6: Goal  7: Worry  8: Delivery preference
 
 // ─── Sub-domain lists per primary domain ──────────────────────────────────────
 
@@ -491,11 +491,8 @@ function OnboardingContent() {
   const [learningGoal, setLearningGoal] = useState<LearningGoal | ''>('')
   const goalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
-  // worry and deliveryPreference are not collected via UI steps in the current flow.
-  // They are stored as state so the payload always reads from state (never hardcoded),
-  // making the wiring correct for future UI additions.
-  const [worry] = useState<string>('')
-  const [deliveryPreference] = useState<'email' | 'sms' | 'both'>('email')
+  const [worry, setWorry] = useState<string>('')
+  const [deliveryPreference, setDeliveryPreference] = useState<'email' | 'sms' | 'both'>('email')
 
   // ── Auto-submit after sign-up return ─────────────────────────────────────────
   // When the user returns from Google sign-up, they land back on /onboarding.
@@ -544,8 +541,10 @@ function OnboardingContent() {
       return allDomainKeys.length > 0 && allDomainKeys.every((k) => domainProficiency[k] !== undefined)
     }
     if (step === 6) return learningGoal !== ''
+    if (step === 7) return worry !== ''
+    if (step === 8) return true  // deliveryPreference always has a valid default
     return false
-  }, [step, roleLevel, role, industry, aiEngagement, selectedDomains, customDomains, domainProficiency, learningGoal])
+  }, [step, roleLevel, role, industry, aiEngagement, selectedDomains, customDomains, domainProficiency, learningGoal, worry, deliveryPreference])
 
   // ── Domain handlers ─────────────────────────────────────────────────────────
   function toggleDomain(id: string) {
@@ -799,6 +798,47 @@ function OnboardingContent() {
             )}
 
             {step === 6 && <GoalStep value={learningGoal} onChange={(v) => setLearningGoal(v)} />}
+
+            {step === 7 && (
+              <div className="w-full max-w-sm mx-auto">
+                <StepHeading title="What's your biggest AI concern right now?" />
+                <div className="flex flex-col gap-2">
+                  {[
+                    "Keeping up with how fast AI is moving",
+                    "Not knowing enough to evaluate vendors or tools",
+                    "My team adopting AI faster than I can govern it",
+                    "Missing competitive opportunities while we debate strategy",
+                  ].map((option) => (
+                    <SingleOptionButton
+                      key={option}
+                      label={option}
+                      selected={worry === option}
+                      onClick={() => setWorry(option)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {step === 8 && (
+              <div className="w-full max-w-sm mx-auto">
+                <StepHeading title="How do you prefer to receive your daily insight?" />
+                <div className="flex flex-col gap-2">
+                  {[
+                    { label: 'Email', value: 'email' as const },
+                    { label: 'SMS text', value: 'sms' as const },
+                    { label: 'Both', value: 'both' as const },
+                  ].map((opt) => (
+                    <SingleOptionButton
+                      key={opt.value}
+                      label={opt.label}
+                      selected={deliveryPreference === opt.value}
+                      onClick={() => setDeliveryPreference(opt.value)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
           </motion.div>
         </AnimatePresence>
 
