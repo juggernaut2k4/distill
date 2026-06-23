@@ -192,6 +192,22 @@ Extract 5 structured signals from this response. Return ONLY valid JSON (no mark
         console.error('[ice-breaker-analyzer] Failed to upsert user_learning_profiles:', error.message)
         // Non-fatal: the insight was already captured, profile update can retry next session
       }
+
+      // Emit plan adaptation trigger if signals warrant it.
+      // Condition: urgency is medium or high — low-urgency sessions with no strong driver
+      // do not produce enough signal to justify reordering the plan.
+      if (extractedSignals.urgency === 'medium' || extractedSignals.urgency === 'high') {
+        await inngest.send({
+          name: 'distill/session.plan.adapt',
+          data: {
+            userId,
+            sessionId,
+            insightId,
+            primaryDriver: extractedSignals.primary_driver,
+            urgency: extractedSignals.urgency,
+          },
+        })
+      }
     })
 
     return { insightId, userId, analysisStatus: 'complete' }

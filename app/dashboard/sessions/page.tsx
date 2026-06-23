@@ -20,13 +20,13 @@ export default async function SessionsPage() {
 
   const { data: user } = await supabase
     .from('users')
-    .select('id, email, plan_tier, plan_approved, minutes_balance, scheduling_prefs')
+    .select('id, email, plan_tier, plan_approved, minutes_balance, scheduling_prefs, plan_adapted_at, plan_adaptation_acknowledged_at')
     .eq('id', userId)
     .single()
 
   if (!user) redirect('/onboarding')
 
-  const [{ data: sessions }, { data: plan }] = await Promise.all([
+  const [{ data: sessions }, { data: plan }, { data: latestAdaptation }] = await Promise.all([
     supabase
       .from('sessions')
       .select('id, session_index, session_title, scheduled_at, status, topics, duration_mins, curriculum_session_id, meeting_url')
@@ -39,6 +39,13 @@ export default async function SessionsPage() {
       .eq('user_id', userId)
       .is('superseded_at', null)
       .order('generated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from('plan_adaptations')
+      .select('sessions_reordered')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle(),
   ])
@@ -69,6 +76,9 @@ export default async function SessionsPage() {
         arcTypeMap={arcTypeMap}
         minutesBalance={user.minutes_balance ?? 0}
         schedulingPrefsNull={user.scheduling_prefs === null || user.scheduling_prefs === undefined}
+        planAdaptedAt={user.plan_adapted_at ?? null}
+        planAdaptationAcknowledgedAt={user.plan_adaptation_acknowledged_at ?? null}
+        sessionsReorderedCount={latestAdaptation?.sessions_reordered ?? null}
       />
     </DashboardShell>
   )

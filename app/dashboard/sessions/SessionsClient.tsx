@@ -2,7 +2,7 @@
 
 import { motion } from 'framer-motion'
 import Link from 'next/link'
-import { Clock, ChevronRight, FlaskConical, Loader2, BookOpen, Link as LinkIcon, Loader, Zap, CalendarDays } from 'lucide-react'
+import { Clock, ChevronRight, FlaskConical, Loader2, BookOpen, Link as LinkIcon, Loader, Zap, CalendarDays, Sparkles, X } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { TopUpModal } from '@/components/ui/TopUpModal'
 import { useState } from 'react'
@@ -28,6 +28,12 @@ interface SessionsClientProps {
   arcTypeMap?: Record<string, string>
   minutesBalance?: number
   schedulingPrefsNull?: boolean
+  /** SCR-01: timestamp of most recent plan adaptation, for notification banner */
+  planAdaptedAt?: string | null
+  /** SCR-01: timestamp user last acknowledged the adaptation banner */
+  planAdaptationAcknowledgedAt?: string | null
+  /** SCR-01: count of sessions reordered in the most recent adaptation */
+  sessionsReorderedCount?: number | null
 }
 
 const STATUS_STYLE: Record<string, { label: string; className: string }> = {
@@ -324,8 +330,16 @@ function TestSessionButton() {
   )
 }
 
-export default function SessionsClient({ sessions, topicTitleMap, arcNameMap = {}, arcTypeMap = {}, minutesBalance = 0, schedulingPrefsNull }: SessionsClientProps) {
+export default function SessionsClient({ sessions, topicTitleMap, arcNameMap = {}, arcTypeMap = {}, minutesBalance = 0, schedulingPrefsNull, planAdaptedAt, planAdaptationAcknowledgedAt, sessionsReorderedCount }: SessionsClientProps) {
   const [topUpOpen, setTopUpOpen] = useState(false)
+  const [bannerDismissed, setBannerDismissed] = useState(false)
+
+  // SCR-01: show the banner when plan_adapted_at is set and newer than the last acknowledgement
+  const showBanner = !!(
+    planAdaptedAt &&
+    (!planAdaptationAcknowledgedAt ||
+      new Date(planAdaptedAt) > new Date(planAdaptationAcknowledgedAt))
+  )
 
   // ── SESS-04: Group sessions by Arc → Topic → Sessions ────────────────────
   // Step 1: build flat topic groups (same logic as before, but use session_title first)
@@ -380,6 +394,32 @@ export default function SessionsClient({ sessions, topicTitleMap, arcNameMap = {
   return (
     <div className="space-y-8 max-w-3xl">
       <TopUpModal open={topUpOpen} onClose={() => setTopUpOpen(false)} currentBalance={minutesBalance} />
+
+      {/* SCR-01: Plan adaptation notification banner */}
+      {showBanner && !bannerDismissed && (
+        <div className="w-full bg-[#111111] border border-[#222222] rounded-lg px-4 py-3 mb-6 flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <Sparkles className="w-5 h-5 text-[#7C3AED] mt-0.5 shrink-0" />
+            <div>
+              <p className="text-white font-semibold text-sm">Clio updated your learning path</p>
+              <p className="text-[#94A3B8] text-sm mt-0.5">
+                Based on what you shared in your last session,{' '}
+                {sessionsReorderedCount ?? 'some'} sessions have been reordered to match what matters most to you right now.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={async () => {
+              setBannerDismissed(true)
+              await fetch('/api/sessions/acknowledge-adaptation', { method: 'POST' })
+            }}
+            className="text-[#475569] hover:text-[#94A3B8] shrink-0 mt-0.5"
+            aria-label="Dismiss"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Schedule setup banner — shown when scheduling prefs not yet configured */}
       {schedulingPrefsNull && (
