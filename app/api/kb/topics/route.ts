@@ -46,13 +46,13 @@ export async function GET(request: NextRequest) {
   if (distinctTopicIds.length > 0) {
     const { data: sessionRows } = await supabase
       .from('sessions')
-      .select('id, session_title, session_index')
-      .in('id', distinctTopicIds)
+      .select('id, topic_id, session_title, session_index')
+      .in('topic_id', distinctTopicIds)
       .order('session_index', { ascending: true })
 
     for (const s of (sessionRows ?? [])) {
-      if (s.id && !arcTitleMap.has(s.id)) {
-        arcTitleMap.set(s.id, s.session_title ?? s.id)
+      if (s.topic_id && !arcTitleMap.has(s.topic_id)) {
+        arcTitleMap.set(s.topic_id, s.session_title ?? s.topic_id)
       }
     }
   }
