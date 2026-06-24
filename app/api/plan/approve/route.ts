@@ -185,29 +185,43 @@ export async function POST(request: NextRequest) {
   }
 
   // ── Fire content generation for ALL sessions with subtopics ─────────────────
-  // Session 1 gets high priority (user is waiting); the rest are background.
+  // Session 1 may already be 'ready' (pre-generated before approval) — skip it.
+  // Sessions 2–N fire immediately so KB is populated before user reaches the page.
   // Content pipeline keys its cache by sessionId (DB UUID) — no topicId needed.
   try {
     const { data: allSessions } = await supabase
       .from('sessions')
-      .select('id, session_index, sub_sessions')
+      .select('id, session_index, sub_sessions, content_status')
       .eq('user_id', userId!)
       .eq('curriculum_plan_id', plan.id)
       .eq('status', 'scheduled')
       .order('session_index', { ascending: true })
 
-    // Only fire content generation for Session 1 on approve.
-    // Sessions 2–N are handled by the cron or triggered on-demand.
-    const firstSession = (allSessions ?? []).find(
-      (s) => Array.isArray(s.sub_sessions) && (s.sub_sessions as unknown[]).length > 0
+    const sessionsToGenerate = (allSessions ?? []).filter(
+      (s) =>
+        Array.isArray(s.sub_sessions) &&
+        (s.sub_sessions as unknown[]).length > 0 &&
+        s.content_status !== 'ready' &&
+        s.content_status !== 'generating'
     )
 
-    if (firstSession) {
-      await inngest.send({
-        name: 'distill/session.content.generate' as const,
-        data: { sessionId: firstSession.id, userId: userId!, priority: 'high' as const },
-      })
-      console.log(`[plan/approve] Fired content generation for Session 1 only (id=${firstSession.id}).`)
+    if (sessionsToGenerate.length > 0) {
+      await inngest.send(
+        sessionsToGenerate.map((s, i) => ({
+          name: 'distill/session.content.generate' as const,
+          data: {
+            sessionId: s.id,
+            userId: userId!,
+            priority: i === 0 ? ('high' as const) : ('background' as const),
+          },
+        }))
+      )
+      console.log(
+        `[plan/approve] Fired content generation for ${sessionsToGenerate.length} session(s): ` +
+        sessionsToGenerate.map((s) => `S${s.session_index}(${s.id})`).join(', ')
+      )
+    } else {
+      console.log('[plan/approve] All sessions already ready or generating — no content gen needed.')
     }
   } catch (err) {
     console.error('[plan/approve] Content generation trigger failed (non-fatal):', err)
