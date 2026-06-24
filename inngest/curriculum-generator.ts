@@ -88,6 +88,18 @@ export const curriculumGenerator = inngest.createFunction(
 
       if (!existing) return null
 
+      // Never supersede an already-approved plan. This guards against a duplicate
+      // clio/topics.selected event arriving after the user has approved their plan.
+      const { data: userRow } = await supabase
+        .from('users')
+        .select('plan_approved, active_plan_id')
+        .eq('id', userId)
+        .single()
+      if (userRow?.plan_approved && userRow.active_plan_id === existing.id) {
+        console.log('[curriculum-generator] Plan already approved — skipping regeneration', { userId, planId: existing.id })
+        return existing.id
+      }
+
       const isFallback = existing.raw_llm_output
         ? (existing.raw_llm_output as { is_fallback?: boolean }).is_fallback === true
         : false

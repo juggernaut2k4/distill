@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
 
         const { data: user } = await supabase
           .from('users')
-          .select('id, email, role, industry, ai_maturity')
+          .select('id, email, role, industry, ai_maturity, topic_interests')
           .eq('id', userId)
           .single()
 
@@ -81,8 +81,11 @@ export async function POST(request: NextRequest) {
           sendWelcomeEmail(user as User, resolvedPlan, minutesBalance).catch(console.error)
         }
 
-        // Auto-kick plan generation — no user navigation required
-        if (userId) {
+        // Only fire curriculum generation if topics haven't been selected yet.
+        // When the user went through /topics before paying, that route already fired
+        // this event — firing it again creates a duplicate plan.
+        const hasTopics = Array.isArray(user?.topic_interests) && (user.topic_interests as string[]).length > 0
+        if (userId && !hasTopics) {
           inngest.send({ name: 'clio/topics.selected', data: { userId } }).catch(console.error)
         }
 
@@ -166,7 +169,11 @@ export async function POST(request: NextRequest) {
           .single()
 
         if (user) {
-          await sendTrialEndingEmail(user as User)
+          if (!user.email) {
+            console.warn('[stripe/trial_will_end] user email is null, skipping trial email', { userId })
+          } else {
+            await sendTrialEndingEmail(user as User)
+          }
         }
 
         break
