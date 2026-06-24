@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
     const [{ data: sessionData }, { data: userRow }, learningProfile] = await Promise.all([
       supabase
         .from('sessions')
-        .select('session_title, topic_id, session_plan, session_index, curriculum_session_id')
+        .select('session_title, topic_id, session_plan, session_index, curriculum_session_id, duration_mins')
         .eq('id', sessionId)
         .single(),
       supabase
@@ -68,10 +68,11 @@ export async function POST(request: NextRequest) {
     ])
 
     const sessionTitle = sessionData?.session_title ?? 'AI Coaching Session'
-    // Curriculum sessions have topic_id=NULL — use curriculum_session_id as the effective
-    // cache key so sections and training scripts are found in topic_content_cache.
+    // topicId is used for context/labelling only (walkthrough_state.topic_id, logs).
+    // Cache lookups always use sessionId (the DB UUID) — that is what the pipeline writes.
     const topicId = sessionData?.topic_id ?? sessionData?.curriculum_session_id ?? null
     const isCurriculumSession = !sessionData?.topic_id && !!sessionData?.curriculum_session_id
+    const sessionDurationMins = (sessionData?.duration_mins as number | null) ?? 15
     const sessionIndex = (sessionData?.session_index as number | null) ?? null
     const readySections = getAllReadySections(sessionData?.session_plan as SessionPlan | null)
     const userRole = userRow?.role ?? 'executive'
@@ -95,14 +96,13 @@ export async function POST(request: NextRequest) {
     // Starts as the session-plan snapshot; overwritten with fresh cache data below when available.
     let freshSections: TemplateSection[] = readySections
 
-    if (topicId && (readySections.length > 0 || isCurriculumSession)) {
-      // Old-style sessions: filter by known slugs from session_plan.
-      // Curriculum sessions: load ALL cache rows for this curriculum_session_id
-      // (no session_plan slug list — the pipeline owns the ordering via generated_at).
+    if (readySections.length > 0 || isCurriculumSession) {
+      // The content pipeline always stores cache rows with topic_id = sessionId (the DB UUID).
+      // topicId (catalog slug / curriculum_session_id) is for context/labelling only.
       const cacheQuery = supabase
         .from('topic_content_cache')
         .select('subtopic_slug, training_script, content_outline, topic_context_doc, section_data')
-        .eq('topic_id', topicId)
+        .eq('topic_id', sessionId)   // always use the session UUID — pipeline key
         .eq('pipeline_status', 'ready')
 
       const { data: cacheRows } = isCurriculumSession
@@ -198,7 +198,7 @@ export async function POST(request: NextRequest) {
             supabase
               .from('topic_content_cache')
               .update({ topic_context_doc: doc })
-              .eq('topic_id', topicId)
+              .eq('topic_id', sessionId)   // pipeline stored under sessionId UUID
               .eq('subtopic_slug', slug)
           )
         ).catch((err) => console.error('[recall/bot] context doc cache write failed:', err))
@@ -215,6 +215,7 @@ export async function POST(request: NextRequest) {
         userRole,
         userIndustry,
         learnerProfile,
+        sessionDurationMins,
       })
 
       console.log(

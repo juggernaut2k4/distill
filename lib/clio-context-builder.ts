@@ -43,12 +43,13 @@ interface BuildDocsInput {
   userRole?: string
   userIndustry?: string
   learnerProfile?: string | null        // Document 4 — from buildProfileContextForClio()
+  sessionDurationMins?: number          // effective duration after minutes-balance cap
 }
 
 // ─── DOCUMENT 1: SESSION BRIEF ────────────────────────────────────────────────
 
 export function buildSessionBrief(input: Omit<BuildDocsInput, 'topicContextDocs' | 'trainingScripts'>): string {
-  const { sessionTitle, sessionIndex, sections, skippedTopics = [], userRole, userIndustry } = input
+  const { sessionTitle, sessionIndex, sections, skippedTopics = [], userRole, userIndustry, sessionDurationMins } = input
   const sessionLabel = sessionIndex != null ? `Session ${sessionIndex}` : 'Session'
 
   const agendaLines = sections.map((s, i) => {
@@ -56,12 +57,19 @@ export function buildSessionBrief(input: Omit<BuildDocsInput, 'topicContextDocs'
     return `  ${i + 1}. ${s.meta.subtopicTitle}${skipped ? '  [SKIP — say "We\'re skipping this one today" and move on immediately]' : ''}`
   })
 
+  const timePerSection = sessionDurationMins && sections.length > 0
+    ? Math.round(sessionDurationMins / sections.length)
+    : null
+
   return [
     `=== SESSION BRIEF ===`,
     ``,
     `${sessionLabel}: ${sessionTitle}`,
     userRole ? `Executive: ${userRole}${userIndustry ? ` in ${userIndustry}` : ''}` : '',
     `Sections: ${sections.length}`,
+    sessionDurationMins != null
+      ? `Available time: ${sessionDurationMins} minutes total${timePerSection ? ` (~${timePerSection} min per section)` : ''}. Keep TEACH tight — deliver every concept, cut elaboration.`
+      : '',
     ``,
     `TODAY'S AGENDA — follow this order exactly, no deviations:`,
     ...agendaLines,

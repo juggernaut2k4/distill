@@ -20,7 +20,6 @@ import { generateSessionContentOutline } from '@/lib/content/session-content-gen
 import { generateTrainingScript } from '@/lib/content/script-generator'
 import { selectTemplate } from '@/lib/templates/selector'
 import { generateTemplateData } from '@/lib/templates/generator'
-import { getCachedSection } from '@/lib/topic-cache'
 import { sendAdminAlert } from '@/lib/delivery/email'
 import { runAutomatedQA } from '@/lib/kb-qa-agent'
 import type { TemplateSection, TemplateMeta } from '@/lib/templates/types'
@@ -171,29 +170,29 @@ export const sessionContentPipeline = inngest.createFunction(
         // Step E: Select template type
         const templateType = selectTemplate(subtopicTitle, i === 0 ? 'first' : isLast ? 'last' : 'middle')
 
-        // Step F: Generate template data — contentSpec is now from the atomic viz spec
-        let section: TemplateSection | null = await getCachedSection(topicId, subtopicSlug, {
-          role: userContext.role,
-          industry: userContext.industry,
-        })
-
-        if (!section) {
-          const meta: TemplateMeta = {
-            subtopicTitle,
-            sessionTitle: topicTitle,
-            userRole: userContext.role,
-            userIndustry: userContext.industry,
-          }
-          // Pass visualization_spec headline + items + so_what as the content spec
-          // so template data stays in sync with what TEACH names on screen.
-          const data = await generateTemplateData(
-            templateType,
-            subtopicTitle,
-            topicTitle,
-            userContext
-          )
-          section = { id: subtopicSlug, type: templateType, data, meta, status: 'pending' } as TemplateSection
+        // Step F: Generate template data — always regenerated in sync with Step D script.
+        // getCachedSection is NOT called here: the cache is the DESTINATION (Step G), not the
+        // source. Using a prior cached section would desync the visual items from what TEACH names.
+        const meta: TemplateMeta = {
+          subtopicTitle,
+          sessionTitle: topicTitle,
+          userRole: userContext.role,
+          userIndustry: userContext.industry,
         }
+        const data = await generateTemplateData(
+          templateType,
+          subtopicTitle,
+          topicTitle,
+          userContext,
+          undefined,
+          {
+            headline: scriptAndViz.visualization_spec.headline,
+            items: [...scriptAndViz.visualization_spec.items],
+            so_what: scriptAndViz.visualization_spec.so_what,
+            summary: '',
+          }
+        )
+        const section: TemplateSection = { id: subtopicSlug, type: templateType, data, meta, status: 'pending' } as TemplateSection
 
         // Step F.5: Run automated QA (non-blocking)
         const sectionData = section.data as unknown as Record<string, unknown>

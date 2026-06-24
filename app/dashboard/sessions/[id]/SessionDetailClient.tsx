@@ -910,9 +910,16 @@ export default function SessionDetailClient({ session }: Props) {
                         variant="primary"
                         className="w-full gap-2"
                         onClick={handleLaunchBot}
+                        disabled={
+                          !meetingUrl.trim() ||
+                          contentSubSessions.length === 0 ||
+                          !contentSubSessions.every((s) => s.pipeline_status === 'ready')
+                        }
                       >
                         <Video size={15} />
-                        Launch AI Coach
+                        {contentSubSessions.length > 0 && !contentSubSessions.every((s) => s.pipeline_status === 'ready')
+                          ? 'Preparing content...'
+                          : 'Launch AI Coach'}
                       </Button>
                     </>
                   )}
