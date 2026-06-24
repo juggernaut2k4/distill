@@ -15,7 +15,7 @@
 import { inngest } from './client'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { generateContentArticles } from '@/lib/content/session-content-generator'
-import { generateScriptAndVisualization } from '@/lib/content/script-generator'
+import { generateScriptAndVisualization, adaptScriptToDuration } from '@/lib/content/script-generator'
 import { generateSessionContentOutline } from '@/lib/content/session-content-generator'
 import { generateTrainingScript } from '@/lib/content/script-generator'
 import { selectTemplate } from '@/lib/templates/selector'
@@ -87,7 +87,7 @@ export const sessionContentPipeline = inngest.createFunction(
       const [{ data: sessionRow }, { data: userRow }] = await Promise.all([
         supabase
           .from('sessions')
-          .select('id, session_title, topic_id, topics, session_plan, curriculum_session_id, sub_sessions')
+          .select('id, session_title, topic_id, topics, session_plan, curriculum_session_id, sub_sessions, duration_mins')
           .eq('id', sessionId)
           .single(),
         supabase
@@ -107,6 +107,7 @@ export const sessionContentPipeline = inngest.createFunction(
     // Always key content by DB session UUID — each DB session owns its own scoped content.
     const topicId = sessionId
     const topicTitle = session.session_title ?? 'AI Strategy Session'
+    const sessionDurationMins: number | null = (session as unknown as { duration_mins?: number | null }).duration_mins ?? null
 
     // Priority 1: session_plan.sub_sessions (TERM-01 complete)
     const planSubtopics = (session.session_plan as { sub_sessions?: Array<{ title: string; skipped?: boolean }> } | null)
@@ -159,13 +160,33 @@ export const sessionContentPipeline = inngest.createFunction(
 
       await step.run(`process-subtopic-${subtopicSlug}`, async () => {
         // Step D: Single atomic LLM call → script segments + visualization spec
-        const scriptAndViz = await generateScriptAndVisualization(
+        const rawScriptAndViz = await generateScriptAndVisualization(
           article,
           userContext,
           isLast,
           i,
           articles.length
         )
+
+        // Step D.5: Adapt script to session duration if duration_mins is set.
+        // adaptScriptToDuration handles BOTH compression (short session) and expansion
+        // (long session). With the 2-minute canonical TEACH, expansion is the common case
+        // for 30-min sessions with 3 subtopics (~10 min/subtopic vs 2-min canonical).
+        const scriptAndViz = sessionDurationMins
+          ? {
+              ...rawScriptAndViz,
+              segments: (await adaptScriptToDuration(
+                {
+                  subtopic_title: article.subtopic_title,
+                  subtopic_slug: article.subtopic_slug,
+                  segments: rawScriptAndViz.segments,
+                  total_duration_seconds: rawScriptAndViz.total_duration_seconds,
+                },
+                sessionDurationMins,
+                articles.length
+              )).segments,
+            }
+          : rawScriptAndViz
 
         // Step E: Select template type
         const templateType = selectTemplate(subtopicTitle, i === 0 ? 'first' : isLast ? 'last' : 'middle')

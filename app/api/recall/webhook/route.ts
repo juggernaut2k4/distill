@@ -231,6 +231,42 @@ async function handleEvent(event: RecallWebhookEvent, userIdFromQuery?: string) 
         }).catch((err) => console.error('[recall/webhook] Failed to emit session.completed:', err))
       }
 
+      // Emit ice breaker response events — one per subtopic where the user spoke during
+      // the ICE_BREAKER segment. The walkthrough_state stores a pending_transcript from
+      // transcript.data events; we use that as the raw response.
+      // This is best-effort: if the transcript is empty or no session exists, no event fires.
+      // The analyzeIceBreakerResponse Inngest function handles the async signal extraction.
+      if (sessionId && userId) {
+        const { data: walkthroughForIceBrk } = await supabase
+          .from('walkthrough_state')
+          .select('pending_transcript, current_section_index, sections')
+          .eq('user_id', userId)
+          .maybeSingle()
+
+        const rawTranscript = (walkthroughForIceBrk?.pending_transcript as string | null) ?? ''
+        if (rawTranscript && rawTranscript.trim().length > 10) {
+          // Derive subtopic slug from the last active section index
+          const sectionIndex = (walkthroughForIceBrk?.current_section_index as number | null) ?? 0
+          const sections = walkthroughForIceBrk?.sections as Array<{ id?: string; subtopic_slug?: string }> | null
+          const activeSection = sections?.[sectionIndex]
+          const subtopicSlug = activeSection?.id ?? activeSection?.subtopic_slug ?? `subtopic-${sectionIndex}`
+
+          inngest.send({
+            name: 'distill/session.ice-breaker.response',
+            data: {
+              sessionId,
+              userId,
+              subtopicSlug,
+              rawTranscript: rawTranscript.trim(),
+            },
+          }).catch((err) => console.error('[recall/webhook] Failed to emit ice-breaker.response:', err))
+
+          console.log('[recall/webhook] Emitted ice-breaker.response for subtopic:', subtopicSlug, '| transcript length:', rawTranscript.length)
+        } else {
+          console.log('[recall/webhook] No ice breaker transcript captured — skipping emission')
+        }
+      }
+
       console.log('[recall/webhook] Call ended', { botId, userId })
       break
     }

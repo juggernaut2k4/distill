@@ -318,10 +318,40 @@ export async function adaptScriptToDuration(
   const nonCloseSegments = canonicalScript.segments.filter((s) => s.type !== 'CLOSE')
   const closeSegment = canonicalScript.segments.find((s) => s.type === 'CLOSE')
 
-  const prompt = `You are condensing a coaching script to fit a shorter session duration.
+  const isExpanding = availableSeconds > canonicalSeconds
+  const direction = isExpanding ? 'expanding' : 'condensing'
+  const targetMin = Math.round(availableSeconds / 60)
+  const canonicalMin = Math.round(canonicalSeconds / 60)
+
+  const prompt = isExpanding
+    ? `You are expanding a coaching script to fill a longer session duration.
 
 ORIGINAL SCRIPT (for subtopic: "${canonicalScript.subtopic_title}")
-Target: ${Math.round(availableSeconds / 60)} minutes for this subtopic (condensed from ${Math.round(canonicalSeconds / 60)} min canonical)
+Target: ${targetMin} minutes for this subtopic (expanded from ${canonicalMin} min canonical)
+
+SEGMENTS TO EXPAND:
+${nonCloseSegments.map((s) => `[${s.type}]\n${s.content}`).join('\n\n')}
+
+EXPANSION RULES:
+- TEACH: add a concrete example or brief case study relevant to the role/industry context already in the script; elaborate each on-screen item with one additional sentence of practical implication
+- CHECKPOINT: add a second follow-up angle ("And if your team raised X, how would you respond?")
+- ICE_BREAKER: add a brief framing sentence before the question to contextualise why you're asking
+- PROBE: expand the reframe with a more detailed analogy or second angle
+- CONTINUE: keep short — no expansion needed (bridge statements stay under 30 seconds)
+- Keep the confident, peer-to-peer tone throughout
+- TEACH must still name every on-screen item explicitly
+- Each segment must remain coherent on its own
+
+Return ONLY valid JSON (no markdown):
+{
+  "segments": [
+    ${nonCloseSegments.map((s) => `{ "type": "${s.type}", "content": "...", "duration_seconds": ${Math.round((s.duration_seconds ?? 30) * availableSeconds / canonicalSeconds)} }`).join(',\n    ')}
+  ]
+}`
+    : `You are condensing a coaching script to fit a shorter session duration.
+
+ORIGINAL SCRIPT (for subtopic: "${canonicalScript.subtopic_title}")
+Target: ${targetMin} minutes for this subtopic (condensed from ${canonicalMin} min canonical)
 
 SEGMENTS TO CONDENSE:
 ${nonCloseSegments.map((s) => `[${s.type}]\n${s.content}`).join('\n\n')}
@@ -339,6 +369,8 @@ Return ONLY valid JSON (no markdown):
     ${nonCloseSegments.map((s) => `{ "type": "${s.type}", "content": "...", "duration_seconds": ${Math.round((s.duration_seconds ?? 30) * availableSeconds / canonicalSeconds)} }`).join(',\n    ')}
   ]
 }`
+
+  console.log(`[adaptScriptToDuration] ${direction} subtopic "${canonicalScript.subtopic_title}" from ${canonicalMin}min canonical to ${targetMin}min target`)
 
   const message = await anthropic.messages.create({
     model: MODEL,
