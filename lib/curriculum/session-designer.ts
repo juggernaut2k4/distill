@@ -151,7 +151,7 @@ Respond ONLY with valid JSON (no markdown, no explanation):
       try {
         const response = await client.messages.create({
           model:      'claude-sonnet-4-6',
-          max_tokens: 1024,
+          max_tokens: 2048,
           messages:   [{ role: 'user', content: prompt }],
         })
 
@@ -167,7 +167,9 @@ Respond ONLY with valid JSON (no markdown, no explanation):
           sessions.push({ ...result.data.sessions[0], duration_mins: maxMins })
           break
         }
-        console.error('[session-designer] pre-planned chunk validation failed, attempt', attempt + 1)
+        console.error('[session-designer] pre-planned chunk validation failed, attempt', attempt + 1,
+          result.success ? 'no sessions' : result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')
+        )
       } catch (err) {
         console.error('[session-designer] pre-planned chunk error, attempt', attempt + 1, err)
       }
