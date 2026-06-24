@@ -16,15 +16,15 @@ export function getSessionDuration(learningGoal: string | null | undefined): num
 // ─── Zod schemas ──────────────────────────────────────────────────────────────
 
 const SubtopicSchema = z.object({
-  title:              z.string().min(3).max(120),
+  title:              z.string().min(3).max(200),
   type:               z.enum(['concept', 'example', 'application', 'pitfalls', 'practice', 'summary']),
   duration_mins:      z.number().int().min(2).max(20),
-  learning_objective: z.string().min(5).max(300),
+  learning_objective: z.string().min(5).max(500),
 })
 
 const DesignedSessionSchema = z.object({
-  session_title:   z.string().min(5).max(120),
-  session_summary: z.string().min(10).max(400),
+  session_title:   z.string().min(5).max(200),
+  session_summary: z.string().min(10).max(600),
   duration_mins:   z.number().int().min(3).max(60),
   subtopics:       z.array(SubtopicSchema).min(1).max(6),
 })
