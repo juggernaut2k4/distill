@@ -24,7 +24,7 @@ const SubtopicSchema = z.object({
 
 const DesignedSessionSchema = z.object({
   session_title:   z.string().min(5).max(200),
-  session_summary: z.string().min(10).max(600),
+  session_summary: z.string().min(10).max(1000),
   duration_mins:   z.number().int().min(3).max(60),
   subtopics:       z.array(SubtopicSchema).min(1).max(6),
 })
