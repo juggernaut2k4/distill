@@ -262,7 +262,7 @@ Return JSON array of { session_title, layer, dependency, bridge, so_what, scene_
   const message = await withTimeout(
     client.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 2048,
+      max_tokens: 4096,
       system: systemPrompt,
       messages: [{ role: 'user', content: userMessage }],
     }),
@@ -311,7 +311,7 @@ Return JSON array of { session_title, role_relevance, industry_specificity, narr
   const message = await withTimeout(
     client.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 2048,
+      max_tokens: 4096,
       system: systemPrompt,
       messages: [{ role: 'user', content: userMessage }],
     }),
@@ -777,7 +777,7 @@ For each missing dimension, create one session that:
   const message = await withTimeout(
     client.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 2048,
+      max_tokens: 4096,
       system: systemPrompt,
       messages: [{ role: 'user', content: userMessage }],
     }),
