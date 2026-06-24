@@ -737,17 +737,23 @@ function OnboardingContent() {
             )}
 
             {step === 1 && (
-              <DepartmentStep levelId={roleLevel} value={role} onChange={(v) => {
-                setRole(v)
-                // vp-technology and vp-product get their own roleLevel so the curriculum engine
-                // can distinguish them from generic vp-dir users
-                if (v === 'vp-technology' || v === 'vp-product') {
-                  setRoleLevel(v)
-                } else if (roleLevel === 'vp-technology' || roleLevel === 'vp-product') {
-                  // switching to a non-specific VP sub-role — revert to generic vp-dir
-                  setRoleLevel('vp-dir')
+              <DepartmentStep
+                levelId={
+                  // DepartmentStep needs the base level to know which options to show.
+                  // 'vp-technology'/'vp-product' are sub-roles — always show vp-dir options.
+                  roleLevel === 'vp-technology' || roleLevel === 'vp-product' ? 'vp-dir' : roleLevel
                 }
-              }} />
+                value={role}
+                onChange={(v) => {
+                  setRole(v)
+                  // Track VP sub-roles separately so the API payload sends the right value
+                  if (v === 'vp-technology' || v === 'vp-product') {
+                    setRoleLevel(v)
+                  } else if (roleLevel === 'vp-technology' || roleLevel === 'vp-product') {
+                    setRoleLevel('vp-dir')
+                  }
+                }}
+              />
             )}
 
             {step === 2 && (
