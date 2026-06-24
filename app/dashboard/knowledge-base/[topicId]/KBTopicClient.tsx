@@ -95,6 +95,22 @@ interface ContentOutline {
   subtopic_slug?: string
   subtopic_title?: string
   builds_on?: string[]
+  // CONTENT-01 new format: full article nested under content_article
+  content_article?: {
+    subtopic_title?: string
+    subtopic_slug?: string
+    sections?: {
+      overview?: string
+      key_facts?: string[]
+      how_it_works?: string
+      enterprise_implications?: string
+      common_misconceptions?: string[]
+      decision_questions?: string[]
+    }
+    role_relevance?: string
+    industry_angle?: string
+    source_concepts?: string[]
+  }
 }
 
 interface ArcSession {
@@ -658,21 +674,109 @@ export default function KBTopicClient({ topicId }: Props) {
           {/* Box 1 — Content (content_outline: Step 1 pipeline output) */}
           {activeSection.row.content_outline && (() => {
             const outline = activeSection.row.content_outline as ContentOutline
-            const soWhat = outline.visual_spec?.so_what
+            // CONTENT-01 new format stores the article under content_article.sections
+            const art = outline.content_article
+            const s = art?.sections
 
+            // New format: render rich article sections
+            if (art && s) {
+              const soWhat = [art.role_relevance, art.industry_angle].filter(Boolean).join(' ')
+              return (
+                <div className="bg-[#111111] border border-[#222222] rounded-xl p-5">
+                  <p className="text-[#475569] text-xs font-medium uppercase tracking-wider mb-4">Content</p>
+                  <div className="space-y-4">
+
+                    {/* overview — intro paragraph */}
+                    {s.overview && (
+                      <p className="text-[#94A3B8] text-sm leading-relaxed italic">{s.overview}</p>
+                    )}
+
+                    {/* key_facts — bullet list */}
+                    {s.key_facts && s.key_facts.length > 0 && (
+                      <div>
+                        <p className="text-[#475569] text-xs font-semibold uppercase tracking-wider mb-2">Key Facts</p>
+                        <ul className="space-y-1">
+                          {s.key_facts.map((fact, i) => (
+                            <li key={i} className="text-[#94A3B8] text-sm flex gap-2">
+                              <span className="text-[#7C3AED] shrink-0 mt-0.5">•</span>
+                              <span>{fact}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* how_it_works — flowing paragraph */}
+                    {s.how_it_works && (
+                      <div>
+                        <p className="text-[#475569] text-xs font-semibold uppercase tracking-wider mb-2">How It Works</p>
+                        <p className="text-[#94A3B8] text-sm leading-relaxed">{s.how_it_works}</p>
+                      </div>
+                    )}
+
+                    {/* enterprise_implications — paragraph */}
+                    {s.enterprise_implications && (
+                      <div>
+                        <p className="text-[#475569] text-xs font-semibold uppercase tracking-wider mb-2">Enterprise Implications</p>
+                        <p className="text-[#94A3B8] text-sm leading-relaxed">{s.enterprise_implications}</p>
+                      </div>
+                    )}
+
+                    {/* common_misconceptions — myth/reality list */}
+                    {s.common_misconceptions && s.common_misconceptions.length > 0 && (
+                      <div>
+                        <p className="text-[#475569] text-xs font-semibold uppercase tracking-wider mb-2">Common Misconceptions</p>
+                        <ul className="space-y-1.5">
+                          {s.common_misconceptions.map((m, i) => (
+                            <li key={i} className="text-[#94A3B8] text-sm flex gap-2">
+                              <span className="text-[#F59E0B] shrink-0 mt-0.5">→</span>
+                              <span>{m}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* role_relevance + industry_angle — so what callout */}
+                    {soWhat && (
+                      <div className="bg-[#7C3AED]/10 border border-[#7C3AED]/25 rounded-xl px-4 py-3">
+                        <p className="text-[#475569] text-xs font-semibold uppercase tracking-wider mb-1.5">So What</p>
+                        <p className="text-[#A855F7] text-sm leading-relaxed">{soWhat}</p>
+                      </div>
+                    )}
+
+                    {/* decision_questions — cyan callout */}
+                    {s.decision_questions && s.decision_questions.length > 0 && (
+                      <div className="bg-[#06B6D4]/10 border border-[#06B6D4]/25 rounded-xl px-4 py-3">
+                        <p className="text-[#475569] text-xs font-semibold uppercase tracking-wider mb-2">Check Your Understanding</p>
+                        <ul className="space-y-1.5">
+                          {s.decision_questions.map((q, i) => (
+                            <li key={i} className="text-[#06B6D4] text-sm leading-relaxed italic">
+                              &ldquo;{q}&rdquo;
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                  </div>
+                </div>
+              )
+            }
+
+            // Legacy format fallback (pre-CONTENT-01)
+            const soWhat = outline.visual_spec?.so_what
             return (
               <div className="bg-[#111111] border border-[#222222] rounded-xl p-5">
                 <p className="text-[#475569] text-xs font-medium uppercase tracking-wider mb-4">Content</p>
                 <div className="space-y-4">
 
-                  {/* content_summary — intro paragraph */}
                   {outline.content_summary && (
                     <p className="text-[#94A3B8] text-sm leading-relaxed italic mb-4">
                       {outline.content_summary}
                     </p>
                   )}
 
-                  {/* coaching_narrative — flowing paragraphs, strip screen-direction phrases */}
                   {outline.coaching_narrative && (
                     <div className="space-y-2">
                       {outline.coaching_narrative
@@ -685,20 +789,15 @@ export default function KBTopicClient({ topicId }: Props) {
                         )
                         .filter((para) => para.length > 0)
                         .map((para, i) => (
-                          <p key={i} className="text-[#94A3B8] text-sm leading-relaxed">
-                            {para}
-                          </p>
+                          <p key={i} className="text-[#94A3B8] text-sm leading-relaxed">{para}</p>
                         ))
                       }
                     </div>
                   )}
 
-                  {/* key_concepts — bullet list */}
                   {outline.key_concepts && outline.key_concepts.length > 0 && (
                     <div>
-                      <p className="text-[#475569] text-xs font-semibold uppercase tracking-wider mb-2">
-                        Key Concepts
-                      </p>
+                      <p className="text-[#475569] text-xs font-semibold uppercase tracking-wider mb-2">Key Concepts</p>
                       <ul className="space-y-1">
                         {outline.key_concepts.map((concept, i) => (
                           <li key={i} className="text-[#94A3B8] text-sm flex gap-2">
@@ -710,22 +809,16 @@ export default function KBTopicClient({ topicId }: Props) {
                     </div>
                   )}
 
-                  {/* visual_spec.so_what — purple callout */}
                   {soWhat && (
                     <div className="bg-[#7C3AED]/10 border border-[#7C3AED]/25 rounded-xl px-4 py-3">
-                      <p className="text-[#475569] text-xs font-semibold uppercase tracking-wider mb-1.5">
-                        So What
-                      </p>
+                      <p className="text-[#475569] text-xs font-semibold uppercase tracking-wider mb-1.5">So What</p>
                       <p className="text-[#A855F7] text-sm leading-relaxed">{soWhat}</p>
                     </div>
                   )}
 
-                  {/* checkpoint_question — cyan callout */}
                   {outline.checkpoint_question && (
                     <div className="bg-[#06B6D4]/10 border border-[#06B6D4]/25 rounded-xl px-4 py-3">
-                      <p className="text-[#475569] text-xs font-semibold uppercase tracking-wider mb-1.5">
-                        Check Your Understanding
-                      </p>
+                      <p className="text-[#475569] text-xs font-semibold uppercase tracking-wider mb-1.5">Check Your Understanding</p>
                       <p className="text-[#06B6D4] text-sm leading-relaxed italic">
                         &ldquo;{outline.checkpoint_question}&rdquo;
                       </p>
