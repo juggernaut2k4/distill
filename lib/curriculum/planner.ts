@@ -150,7 +150,30 @@ function buildSystemPrompt(
     ? '- Frame content with practical focus: explain mechanisms briefly, then move quickly to application and decisions. Some analogies are helpful; avoid deep technical theory.'
     : '- Frame content with maximum accessibility: generous analogies, concrete examples before abstract concepts, explicit "why this matters" for each idea. Never assume prior AI knowledge.'
 
-  return `You are an expert learning curriculum designer for senior business executives.
+  // Role-adaptive learner label — used in the opening sentence and singleton rule
+  // so the LLM never defaults to "executives" framing for ICs or managers.
+  const learnerLabel: Record<string, string> = {
+    'c-suite':       'senior business executives',
+    'vp-dir':        'senior functional leaders',
+    'vp-technology': 'technology leaders',
+    'vp-product':    'product leaders',
+    'manager':       'managers and team leads',
+    'specialist':    'individual contributors and specialist practitioners',
+  }
+  const audienceLabel = learnerLabel[roleLevel] ?? 'working professionals'
+
+  // For singleton Rule 5, the session 1 title needs a short audience word
+  const singletonAudienceWord: Record<string, string> = {
+    'c-suite':       'Executives',
+    'vp-dir':        'Leaders',
+    'vp-technology': 'Tech Leaders',
+    'vp-product':    'Product Leaders',
+    'manager':       'Managers',
+    'specialist':    'Practitioners',
+  }
+  const audienceWord = singletonAudienceWord[roleLevel] ?? 'Professionals'
+
+  return `You are an expert learning curriculum designer for ${audienceLabel}.
 
 Your task: design a personalised learning curriculum in JSON format based on the user's profile and topic selections.
 
@@ -189,7 +212,7 @@ For intermediate+ users, skip these unless explicitly selected.
 
 Rule 5 — Singleton handling
 If the user selects only 1 topic, arc_type is "singleton". Minimum 5 sessions. Structure:
-Session 1: "Introducing [Topic] — Why It Matters for Executives" — 15-20 min
+Session 1: "Introducing [Topic] — Why It Matters for ${audienceWord}" — 15-20 min
 Session 2: "Core Concepts in [Topic]" — 20-25 min
 Session 3: "[Topic] in Practice — [role-specific application]" — 20-25 min
 Session 4: "Advanced [Topic]: [role-specific challenge]" — 25-30 min
@@ -330,6 +353,7 @@ function buildFallbackPlan(
   maturity: string,
   profileHash: string,
   planTier: string | null,
+  roleLevel: string = 'manager',
 ): CurriculumOutput {
   const { visible: visibleLimit, queue: queueLimit } = getTierLimits(planTier)
   const normMaturity = normaliseMaturity(maturity)
@@ -393,7 +417,9 @@ function buildFallbackPlan(
       arc_position: sessionIndex + 1,
       arc_length: 4,
       depth_level: tmpl.depth_level,
-      role_hint: 'Frame for a senior executive with practical AI interest.',
+      role_hint: roleLevel === 'specialist' ? 'Frame for a practitioner who uses AI tools directly. Keep examples technical and hands-on.'
+        : roleLevel === 'manager' ? 'Frame for a team lead applying AI tools day-to-day. Keep examples practical and team-focused.'
+        : 'Frame for a senior leader with strategic AI interest.',
       subtopics: tmpl.subtopics,
       estimated_minutes: 15,
       // is_visible and queue_rationale assigned after interleaving
@@ -483,7 +509,7 @@ export async function generateCurriculumPlan(input: PlannerInput): Promise<Plann
   const apiKey = process.env.ANTHROPIC_API_KEY ?? ''
   if (!apiKey || apiKey.startsWith('PLACEHOLDER_')) {
     console.error('[planner] ANTHROPIC_API_KEY not set — returning fallback plan')
-    const fallback = buildFallbackPlan(topics, maturity, profileHash, planTier)
+    const fallback = buildFallbackPlan(topics, maturity, profileHash, planTier, roleLevel)
     return { output: fallback, isFallback: true, rawLlmOutput: { fallback: true, reason: 'ANTHROPIC_API_KEY not set' }, enrichedPlan: null }
   }
 
@@ -567,7 +593,7 @@ export async function generateCurriculumPlan(input: PlannerInput): Promise<Plann
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err)
     console.error('[curriculum/planner] LLM plan generation failed — using fallback:', errMsg)
-    const fallback = buildFallbackPlan(topics, maturity, profileHash, planTier)
+    const fallback = buildFallbackPlan(topics, maturity, profileHash, planTier, roleLevel)
     return { output: fallback, isFallback: true, rawLlmOutput: { fallback: true, reason: errMsg }, enrichedPlan: null }
   } finally {
     clearTimeout(callTimeout)
@@ -589,7 +615,14 @@ export async function generateQueueExtension(
 
   const completedList = completedTitles.length > 0 ? completedTitles.map((t) => `- ${t}`).join('\n') : '(none yet)'
 
-  const systemPrompt = `You are an expert learning curriculum designer for senior executives.
+  const queueAudienceLabel = roleLevel === 'specialist' ? 'individual contributors and specialist practitioners'
+    : roleLevel === 'manager' ? 'managers and team leads'
+    : roleLevel === 'vp-technology' ? 'technology leaders'
+    : roleLevel === 'vp-product' ? 'product leaders'
+    : roleLevel === 'vp-dir' ? 'senior functional leaders'
+    : 'senior business executives'
+
+  const systemPrompt = `You are an expert learning curriculum designer for ${queueAudienceLabel}.
 
 The user has already completed these sessions:
 ${completedList}

@@ -40,7 +40,17 @@ export async function POST(request: NextRequest) {
   const role = user.role ?? 'executive'
   const industry = user.industry ?? 'general'
   const maturity = user.ai_maturity ?? 'intermediate'
-  const roleLevel = user.role_level ?? 'c-suite'
+  // Infer roleLevel from role name when role_level is missing — avoids defaulting
+  // everyone to 'c-suite' which produces executive framing for ICs and managers.
+  const inferRoleLevel = (role: string): string => {
+    const r = role.toLowerCase()
+    if (/engineer|developer|analyst|scientist|designer|specialist|architect|researcher|consultant/.test(r)) return 'specialist'
+    if (/manager|team.lead|lead/.test(r)) return 'manager'
+    if (/vp |vice.president|director/.test(r)) return 'vp-dir'
+    if (/ceo|cto|cfo|coo|cmo|chief/.test(r)) return 'c-suite'
+    return 'manager' // safest neutral default
+  }
+  const roleLevel = (user.role_level as string | null) ?? inferRoleLevel(user.role ?? '')
   const worry = Array.isArray(user.worry_tags) ? user.worry_tags.join(', ') : ''
   const planTier = user.plan_tier ?? null
   const profileHash = buildProfileHash(role, maturity, topics, roleLevel)
