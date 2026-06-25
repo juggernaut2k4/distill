@@ -61,6 +61,8 @@ export async function GET(req: NextRequest, { params }: Params) {
 
   if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 })
 
+  // The pipeline always writes topic_content_cache rows with topic_id = DB session UUID (params.id).
+  // session.topic_id is the curriculum plan session_id — different value. Always use params.id here.
   const topicId = session.topic_id ?? 'ai-fundamentals'
   // Prefer session_plan sub_sessions → LLM-designed sub_sessions from approval → hardcoded catalog
   const planSubtopics = (session.session_plan as SessionPlan | null)?.sub_sessions
@@ -75,12 +77,13 @@ export async function GET(req: NextRequest, { params }: Params) {
     : (designedTitlesGet ?? getSubtopics(topicId, session.topics as string[] | null))
 
   // Fetch per-subtopic pipeline state from cache.
+  // Always query by DB session UUID (params.id) — that is what the pipeline writes.
   // Query by topic_id only; match in memory by both stored slug AND title-derived slug
   // so that sessions generated before the slug-anchoring fix still resolve correctly.
   const { data: cacheRows } = await supabase
     .from('topic_content_cache')
     .select('subtopic_slug, subtopic_title, pipeline_status, training_script, content_outline, template_type')
-    .eq('topic_id', topicId)
+    .eq('topic_id', params.id)
 
   const slugify = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/, '').slice(0, 60)
 

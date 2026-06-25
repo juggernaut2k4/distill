@@ -19,6 +19,13 @@ interface DeferredQuestion {
   deferred_at: string
 }
 
+interface SubSessionRecord {
+  title: string
+  type: string
+  duration_mins: number
+  learning_objective: string
+}
+
 interface Session {
   id: string
   session_index: number
@@ -31,6 +38,8 @@ interface Session {
   session_plan: SessionPlan | null
   deferred_questions: DeferredQuestion[] | null
   meeting_url: string | null
+  curriculum_session_id: string | null
+  sub_sessions: SubSessionRecord[] | null
 }
 
 type BotStatus = 'idle' | 'joining' | 'active' | 'ending'
@@ -96,7 +105,11 @@ export default function SessionDetailClient({ session }: Props) {
   const topics = session.topics ?? []
   const { user } = useUser()
 
-  // Session plan state — polls until all visuals are ready
+  // Curriculum sessions (created via plan approval) use sub_sessions JSONB + topic_content_cache.
+  // They do NOT use the old session_plan / generate-plan visual pipeline.
+  const isCurriculumSession = !!session.curriculum_session_id
+
+  // Session plan state — polls until all visuals are ready (old-style sessions only)
   const [sessionPlan, setSessionPlan] = useState<SessionPlan | null>(session.session_plan)
   const planFetchFailures = useRef(0)
 
@@ -118,15 +131,17 @@ export default function SessionDetailClient({ session }: Props) {
     fetch(`/api/sessions/${session.id}/generate-plan`, { method: 'POST' }).catch(() => {})
   }, [session.id])
 
-  // Trigger generation if no plan exists; poll until complete or failed
+  // Trigger generation if no plan exists; poll until complete or failed.
+  // Skip entirely for curriculum sessions — they don't use the session_plan pipeline.
   useEffect(() => {
+    if (isCurriculumSession) return
     if (!sessionPlan) {
       triggerGeneration()
     }
     if (sessionPlan?.plan_status === 'ready' || sessionPlan?.plan_status === 'failed') return
     const interval = setInterval(fetchPlan, 4000)
     return () => clearInterval(interval)
-  }, [session.id, sessionPlan, fetchPlan, triggerGeneration])
+  }, [isCurriculumSession, session.id, sessionPlan, fetchPlan, triggerGeneration])
 
   // ── Content pipeline state ──────────────────────────────────────────────────
   // ContentSubSession: one tab (sub-session) in the content pipeline
@@ -231,8 +246,10 @@ export default function SessionDetailClient({ session }: Props) {
       })
   }, [session.id])
 
-  // Auto-trigger content generation once all visual slots are settled
-  const allVisualsSettled = !!sessionPlan &&
+  // Auto-trigger content generation once all visual slots are settled (old-style sessions only).
+  // Curriculum sessions skip this — Inngest fires their content pipeline on approval.
+  const allVisualsSettled = !isCurriculumSession &&
+    !!sessionPlan &&
     sessionPlan.sub_sessions.length > 0 &&
     sessionPlan.sub_sessions.every((s) => s.skipped || s.visual_status === 'ready' || s.visual_status === 'failed')
 
@@ -662,7 +679,27 @@ export default function SessionDetailClient({ session }: Props) {
           </div>
         )}
 
-        {!sessionPlan || sessionPlan.plan_status === 'generating' ? (
+        {isCurriculumSession ? (
+          // Curriculum sessions: show sub_sessions from JSONB with content pipeline status dots.
+          // No session_plan visuals needed — topic_content_cache is the source of truth.
+          <div className="space-y-2">
+            {(session.sub_sessions ?? []).map((sub, i) => {
+              const contentSub = contentSubSessions.find((c) => c.title === sub.title)
+              const scriptStatus = contentSub?.pipeline_status ?? 'pending'
+              return (
+                <div key={i} className="rounded-xl border border-[#1A1A1A] overflow-hidden">
+                  <div className="flex items-center gap-3 px-4 py-3 bg-[#111111]">
+                    <div className="w-5 h-5 rounded-full bg-purple-950/50 border border-purple-800/40 flex items-center justify-center flex-shrink-0">
+                      <span className="text-[9px] font-bold text-[#A855F7]">{i + 1}</span>
+                    </div>
+                    <p className="text-sm flex-1 leading-snug text-[#94A3B8]">{sub.title}</p>
+                    <StatusDot status={scriptStatus} />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        ) : !sessionPlan || sessionPlan.plan_status === 'generating' ? (
           <Card className="p-4 flex items-center gap-3">
             <Loader size={15} className="text-[#7C3AED] animate-spin flex-shrink-0" />
             <p className="text-sm text-[#475569]">Generating your session agenda and pre-building visuals...</p>
@@ -850,8 +887,12 @@ export default function SessionDetailClient({ session }: Props) {
 
       {/* ── LIVE SESSION LAUNCHER ── */}
       {session.status !== 'cancelled' && (() => {
-        const planReady = sessionPlan?.plan_status === 'partial' || sessionPlan?.plan_status === 'ready'
-        const planFailed = sessionPlan?.plan_status === 'failed'
+        // Curriculum sessions don't use session_plan — treat them as always visually ready.
+        // Their readiness is gated solely by contentSubSessions (topic_content_cache pipeline).
+        const planReady = isCurriculumSession ||
+          sessionPlan?.plan_status === 'partial' ||
+          sessionPlan?.plan_status === 'ready'
+        const planFailed = !isCurriculumSession && sessionPlan?.plan_status === 'failed'
         return (
         <motion.div
           initial={{ opacity: 0, y: 16 }}
