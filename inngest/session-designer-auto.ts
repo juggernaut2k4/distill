@@ -116,7 +116,7 @@ export const sessionDesignerAuto = inngest.createFunction(
             .from('sessions')
             .insert({
               user_id:               userId,
-              session_title:         cs.title,   // use approved plan title, not LLM-invented title
+              session_title:         ds.session_title,
               topic_id:              cs.session_id,
               topics:                [cs.session_id],
               curriculum_plan_id:    planId,
