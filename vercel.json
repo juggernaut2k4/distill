@@ -12,6 +12,9 @@
     },
     "app/api/curriculum/generate/route.ts": {
       "maxDuration": 120
+    },
+    "app/api/curriculum/generate-preview/route.ts": {
+      "maxDuration": 300
     }
   },
   "headers": [
