@@ -424,7 +424,7 @@ Article requirements:
 - overview: 100-150 words — what this is and why it matters NOW. No fluff. Lead with the strategic relevance.
 - key_facts: 4-6 specific, citable facts. Use real numbers and timeframes where possible. Not generic platitudes.
 - how_it_works: 100-150 words — mechanism over theory. How does this actually work in practice?
-- enterprise_implications: 100-150 words — what it means for the buyer and decision-maker at this seniority level.
+- enterprise_implications: 100-150 words — what it means for the buyer and decision-maker at this seniority level. You MUST end this field with exactly one sentence starting with "So what this means for you:" followed by a specific implication for their role and industry. This sentence is non-negotiable. Format: "So what this means for you: [one sentence about the concrete implication for their specific role and industry]"
 - common_misconceptions: 2-4 myths with concise corrections. Each is one sentence myth + one sentence correction.
 - decision_questions: 3-5 questions the user should be able to answer confidently after this subtopic.
 - role_relevance: ONE sentence — why this matters to this specific role.

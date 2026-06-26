@@ -88,12 +88,15 @@ function countSentences(text: string): number {
 /**
  * Check for a "So what?" sentence.
  * Accepts:
+ *   - A sentence starting with "So what this means for you:" (enforced format in generation prompt)
  *   - A sentence starting with "So what?" (any casing)
  *   - A sentence containing "so what" as a clause (e.g. "Here's the so what:")
  */
 function hasSoWhatSentence(text: string): boolean {
   const lower = text.toLowerCase()
-  // Direct "so what?" at the start of a sentence
+  // Enforced format: "So what this means for you:" prefix
+  if (/(?:^|[.!?]\s+)so what this means for you:/i.test(text)) return true
+  // Legacy format: direct "so what?" at the start of a sentence
   if (/(?:^|[.!?]\s+)so what\?/i.test(text)) return true
   // "so what" used as a distinct clause or introduced phrase
   if (/\bso what\b/i.test(lower)) return true
