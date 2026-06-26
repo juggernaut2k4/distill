@@ -11,10 +11,46 @@
       "maxDuration": 30
     },
     "app/api/curriculum/generate/route.ts": {
-      "maxDuration": 120
+      "maxDuration": 300
     },
     "app/api/curriculum/generate-preview/route.ts": {
       "maxDuration": 300
+    },
+    "app/api/plan/approve/route.ts": {
+      "maxDuration": 300
+    },
+    "app/api/sessions/[id]/generate-content/route.ts": {
+      "maxDuration": 300
+    },
+    "app/api/sessions/[id]/generate-plan/route.ts": {
+      "maxDuration": 120
+    },
+    "app/api/admin/seed-topics/route.ts": {
+      "maxDuration": 300
+    },
+    "app/api/admin/qa-session-context/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/clio/chat/completions/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/kb/admin/regenerate-topic-heroes/route.ts": {
+      "maxDuration": 120
+    },
+    "app/api/kb/qa/run/route.ts": {
+      "maxDuration": 120
+    },
+    "app/api/kb/topics/[topicId]/regenerate-all/route.ts": {
+      "maxDuration": 120
+    },
+    "app/api/recall/bot/route.ts": {
+      "maxDuration": 120
+    },
+    "app/api/topics/catalog/add/route.ts": {
+      "maxDuration": 45
+    },
+    "app/api/topics/recommendations/route.ts": {
+      "maxDuration": 45
     }
   },
   "headers": [
