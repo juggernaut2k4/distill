@@ -219,13 +219,12 @@ export const sessionContentPipeline = inngest.createFunction(
         const section: TemplateSection = { id: subtopicSlug, type: templateType, data, meta, status: 'pending' } as TemplateSection
 
         // Step F.5: Run automated QA (non-blocking)
-        const sectionData = section.data as unknown as Record<string, unknown>
-        const textToQA: string =
-          (typeof sectionData?.body === 'string' ? sectionData.body : '') ||
-          (typeof sectionData?.bodyText === 'string' ? sectionData.bodyText : '') ||
-          (typeof sectionData?.summary === 'string' ? sectionData.summary : '') ||
-          (typeof sectionData?.description === 'string' ? sectionData.description : '') ||
-          ''
+        // QA checks the TEACH segment content — the primary coaching text delivered to the
+        // user. section.data holds visual template data (headline, items, so_what for the
+        // infographic card), which has no body/bodyText fields and would always produce
+        // wordCount=0. The adapted script's TEACH segment is the correct target.
+        const teachSegment = scriptAndViz.segments.find((s) => s.type === 'TEACH')
+        const textToQA: string = teachSegment?.content ?? ''
 
         const qaResult = runAutomatedQA(textToQA)
         if (!qaResult.passed) {
