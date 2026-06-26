@@ -8,6 +8,7 @@ const inter = Inter({ subsets: ['latin'] })
 export const metadata: Metadata = {
   title: 'Clio — AI Learning for Executives',
   description: 'Personalized AI micro-learning for busy executives. 15 seconds a day. Zero jargon. Total confidence.',
+  manifest: '/manifest.webmanifest',
   openGraph: {
     title: 'Clio — AI Learning for Executives',
     description: 'Personalized AI micro-learning for busy executives. 15 seconds a day. Zero jargon. Total confidence.',
