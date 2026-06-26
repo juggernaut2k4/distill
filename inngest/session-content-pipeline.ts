@@ -22,7 +22,39 @@ import { selectTemplate } from '@/lib/templates/selector'
 import { generateTemplateData } from '@/lib/templates/generator'
 import { sendAdminAlert } from '@/lib/delivery/email'
 import { runAutomatedQA } from '@/lib/kb-qa-agent'
-import type { TemplateSection, TemplateMeta } from '@/lib/templates/types'
+import type { TemplateSection, TemplateMeta, TabManifest, VisualizationTab } from '@/lib/templates/types'
+
+// ─── TAB MANIFEST BUILDER ─────────────────────────────────────────────────────
+
+/**
+ * Builds a TabManifest for a single subtopic from its rendered TemplateSection.
+ *
+ * Each TemplateSection is a single visual card — it represents one "tab" in the
+ * WalkthroughClient's tab panel. `mapped_segments` is left empty: runtime tab
+ * navigation is driven by [NAV:tab_N] directives embedded in the TEACH script,
+ * not by segment mapping (which was aspirational).
+ *
+ * @param subtopicSlug  - Identifies the subtopic this manifest belongs to
+ * @param section       - The rendered TemplateSection produced by generateTemplateData
+ * @param sectionIndex  - 0-based position of this subtopic in the session
+ */
+export function buildTabManifest(
+  subtopicSlug: string,
+  section: TemplateSection,
+  sectionIndex: number
+): TabManifest {
+  const tab: VisualizationTab = {
+    tab_id: section.id,
+    tab_index: sectionIndex + 1,   // 1-based
+    tab_name: section.type,
+    section,
+    mapped_segments: [],           // NAV directives handle runtime navigation
+  }
+  return {
+    subtopic_slug: subtopicSlug,
+    tabs: [tab],
+  }
+}
 
 // Re-use the same catalog lookup as generate-plan to get subtopics
 function getSubtopicsForSession(topicId: string, subtopicsFromDb: string[] | null): string[] {
@@ -324,6 +356,56 @@ export const sessionContentPipeline = inngest.createFunction(
         .from('sessions')
         .update({ content_status: 'ready' })
         .eq('id', sessionId)
+    })
+
+    // ── Step I: Build tab manifests + write to walkthrough_state ─────────────
+    // Read back the section_data rows we just upserted (ordered by subtopic position)
+    // and build a Record<string, TabManifest> keyed by string subtopic index ("0", "1", …).
+    // This step runs after the loop so it never races with per-subtopic upserts.
+    await step.run('write-tab-manifests', async () => {
+      const { data: cacheRows, error: fetchErr } = await supabase
+        .from('topic_content_cache')
+        .select('subtopic_slug, section_data')
+        .eq('topic_id', topicId)
+
+      if (fetchErr || !cacheRows || cacheRows.length === 0) {
+        console.warn('[session-content-pipeline] write-tab-manifests: no cache rows found for topic:', topicId, fetchErr?.message)
+        return
+      }
+
+      // Order by the article array so indexes match the subtopic sequence.
+      const slugOrder = articles.map((a) => a.subtopic_slug)
+      const tabManifests: Record<string, TabManifest> = {}
+
+      for (const row of cacheRows) {
+        const idx = slugOrder.indexOf(row.subtopic_slug)
+        if (idx === -1) continue
+        const section = row.section_data as TemplateSection | null
+        if (!section) continue
+        tabManifests[String(idx)] = buildTabManifest(row.subtopic_slug, section, idx)
+      }
+
+      if (Object.keys(tabManifests).length === 0) {
+        console.warn('[session-content-pipeline] write-tab-manifests: no manifests built for topic:', topicId)
+        return
+      }
+
+      // Write into walkthrough_state for this user. The row is keyed by user_id and
+      // created when the Recall.ai bot is launched; we update only tab_manifests here
+      // so we don't disturb any live session state.
+      const { error: wsErr } = await supabase
+        .from('walkthrough_state')
+        .update({ tab_manifests: tabManifests })
+        .eq('user_id', userId)
+
+      if (wsErr) {
+        // Non-fatal: log and continue. The pipeline result (content_status=ready) is
+        // already committed in Step H. Missing tab_manifests degrades tab navigation
+        // but does not break the session.
+        console.warn('[session-content-pipeline] write-tab-manifests: walkthrough_state update failed:', wsErr.message)
+      } else {
+        console.log(`[session-content-pipeline] wrote ${Object.keys(tabManifests).length} tab manifest(s) to walkthrough_state for user:`, userId)
+      }
     })
 
     return { sessionId, subtopicsProcessed: articles.length }
