@@ -310,6 +310,30 @@ async function processSubtopic(
   const expiresAt = new Date()
   expiresAt.setDate(expiresAt.getDate() + 60)
 
+  // Atomic write: section_data and pipeline_status='ready' are written together in one
+  // upsert so pipeline_status is never 'ready' without section_data being present.
+  // If section is somehow null, keep status as 'generating' rather than silently
+  // producing a ready row with null section_data (which the bot route would drop).
+  if (!section) {
+    console.error(`[session-content-async] section is null for slug="${subtopicSlug}" — skipping ready upsert to avoid corrupted cache row`)
+    await supabase
+      .from('topic_content_cache')
+      .upsert(
+        {
+          topic_id: topicId,
+          subtopic_slug: subtopicSlug,
+          subtopic_title: subtopicTitle,
+          industry: userContext.industry,
+          role: userContext.role,
+          pipeline_status: 'failed',
+          content_outline: subSessionOutline,
+          generated_at: new Date().toISOString(),
+        },
+        { onConflict: 'topic_id,subtopic_slug,industry,role' }
+      )
+    return
+  }
+
   await supabase
     .from('topic_content_cache')
     .upsert(

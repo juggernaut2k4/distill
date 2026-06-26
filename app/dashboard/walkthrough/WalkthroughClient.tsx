@@ -344,6 +344,16 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
                       (s) => s.meta.subtopicTitle === topic_title
                     )
                   }
+                  // Bounds check: clamp idx to a valid range rather than falling through
+                  // to the legacy generate-visual path with an undefined section.
+                  if (idx < 0) {
+                    // Title not matched and no index given — show the current section.
+                    idx = Math.max(0, currentSectionIndexRef.current)
+                    console.log(`[Walkthrough] show_visual: idx resolved to -1, clamping to current section ${idx}`)
+                  } else if (idx >= sections.length) {
+                    idx = sections.length - 1
+                    console.log(`[Walkthrough] show_visual: idx ${section_index} out of bounds, clamping to ${idx}`)
+                  }
                   if (idx >= 0) {
                     await fetch(`/api/walkthrough-state/${userId}`, {
                       method: 'POST',

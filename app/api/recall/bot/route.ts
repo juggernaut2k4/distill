@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
     // topicId is used for context/labelling only (walkthrough_state.topic_id, logs).
     // Cache lookups always use sessionId (the DB UUID) — that is what the pipeline writes.
     const topicId = sessionData?.topic_id ?? sessionData?.curriculum_session_id ?? null
-    const isCurriculumSession = !sessionData?.topic_id && !!sessionData?.curriculum_session_id
+    const isCurriculumSession = !!sessionData?.curriculum_session_id
     const sessionDurationMins = (sessionData?.duration_mins as number | null) ?? 15
     const sessionIndex = (sessionData?.session_index as number | null) ?? null
     const readySections = getAllReadySections(sessionData?.session_plan as SessionPlan | null)
@@ -154,6 +154,21 @@ export async function POST(request: NextRequest) {
           } as TemplateSection
         })
         trainingScripts = freshSections.map((s) => scriptMap.get(s.id) ?? null)
+
+        // Fallback: if readySections was empty (e.g. session_plan had no ready sub-sessions)
+        // but the pipeline already wrote section_data to the cache, use those rows directly.
+        // This prevents a blank walkthrough when isCurriculumSession was previously misevaluated
+        // and content was written but readySections came back empty.
+        if (freshSections.length === 0 && freshSectionMap.size > 0) {
+          console.log(`[recall/bot] readySections empty but cache has ${freshSectionMap.size} section_data rows — using cache as fallback`)
+          freshSections = (cacheRows ?? [])
+            .filter((r) => r.section_data)
+            .map((r) => ({
+              ...(r.section_data as TemplateSection),
+              meta: { ...(r.section_data as TemplateSection).meta, userRole, userIndustry },
+            }))
+          trainingScripts = freshSections.map((s) => scriptMap.get(s.id) ?? null)
+        }
       }
 
       const contentOutlines = slugs.map((slug) => outlineMap.get(slug) ?? null)
