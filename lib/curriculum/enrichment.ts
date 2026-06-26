@@ -37,7 +37,7 @@ import { normaliseMaturity } from './planner'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const CALL_TIMEOUT_MS = 45_000
+const CALL_TIMEOUT_MS = 90_000
 
 const L2_DIMENSION_KEYWORDS: Record<L2Dimension, string[]> = {
   how_it_works:          ['how', 'mechanism', 'works', 'process', 'architecture', 'generates', 'training'],
