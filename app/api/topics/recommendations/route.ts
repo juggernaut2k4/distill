@@ -431,11 +431,24 @@ const SECTION_METADATA: Record<string, { label: string; icon: string }> = {
  * Returns null if the value does not match the expected shape.
  */
 function shapeResponse(parsed: unknown): RecommendationsResponse | null {
-  if (!parsed || typeof parsed !== 'object' || !Array.isArray((parsed as Record<string, unknown>).sections)) {
-    return null
-  }
+  if (!parsed || typeof parsed !== 'object') return null
 
-  const rawSections = (parsed as { sections: unknown[] }).sections
+  const obj = parsed as Record<string, unknown>
+
+  // Claude returns { trending: [...], role: [...] } — normalise to the internal sections format
+  const KNOWN_SECTION_KEYS = ['trending', 'role', 'tools', 'goal']
+  let rawSections: unknown[]
+
+  if (Array.isArray(obj.sections)) {
+    rawSections = obj.sections
+  } else {
+    // Map top-level named keys → [{ id, topics }]
+    const fromKeys = KNOWN_SECTION_KEYS
+      .filter((k) => Array.isArray(obj[k]))
+      .map((k) => ({ id: k, topics: obj[k] }))
+    if (fromKeys.length === 0) return null
+    rawSections = fromKeys
+  }
 
   const sections: Section[] = rawSections
     .filter(
