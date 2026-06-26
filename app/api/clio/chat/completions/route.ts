@@ -120,13 +120,32 @@ const CLIO_TOOLS: Anthropic.Tool[] = [
 /**
  * Converts the OpenAI-format conversation history from ElevenLabs into
  * Anthropic MessageParam format, including tool_calls and tool_results.
+ *
+ * Claude's API requires the last message to be a user message — it does not
+ * support "assistant message prefill". ElevenLabs frequently sends histories
+ * where the final message is an assistant turn (e.g. the welcome message Clio
+ * just delivered). We strip any trailing assistant messages before sending so
+ * Claude never sees a conversation ending on an assistant role.
  */
 function toAnthropicMessages(messages: OAIMessage[]): Anthropic.MessageParam[] {
+  // Strip trailing system and assistant messages before conversion.
+  // ElevenLabs sends the full history including Clio's most recent utterance
+  // as the last message, which causes Claude to reject with:
+  // "This model does not support assistant message prefill."
+  const filtered = [...messages]
+  while (
+    filtered.length > 0 &&
+    (filtered[filtered.length - 1].role === 'assistant' ||
+      filtered[filtered.length - 1].role === 'system')
+  ) {
+    filtered.pop()
+  }
+
   const result: Anthropic.MessageParam[] = []
 
   let i = 0
-  while (i < messages.length) {
-    const msg = messages[i]
+  while (i < filtered.length) {
+    const msg = filtered[i]
 
     if (msg.role === 'system') {
       i++
@@ -136,11 +155,11 @@ function toAnthropicMessages(messages: OAIMessage[]): Anthropic.MessageParam[] {
     if (msg.role === 'tool') {
       // Batch consecutive tool results into one user message
       const toolResults: Anthropic.ToolResultBlockParam[] = []
-      while (i < messages.length && messages[i].role === 'tool') {
+      while (i < filtered.length && filtered[i].role === 'tool') {
         toolResults.push({
           type: 'tool_result',
-          tool_use_id: messages[i].tool_call_id ?? `tool_${i}`,
-          content: messages[i].content ?? '',
+          tool_use_id: filtered[i].tool_call_id ?? `tool_${i}`,
+          content: filtered[i].content ?? '',
         })
         i++
       }
@@ -211,10 +230,16 @@ export async function POST(request: NextRequest) {
   const messages = body.messages ?? []
 
   // The ElevenLabs agent system prompt template contains "DISTILL_USER_ID: {{user_id}}"
-  // which gets substituted when WalkthroughClient passes dynamicVariables: { user_id: userId }
-  const systemMsg = messages.find((m) => m.role === 'system')
-  const userIdMatch = systemMsg?.content?.match(/DISTILL_USER_ID:\s*(\S+)/)
+  // which gets substituted when WalkthroughClient passes dynamicVariables: { user_id: userId }.
+  // ElevenLabs may place this in a system message OR embed it in the first user/assistant
+  // message in the history — search all messages so we never miss it.
+  const userIdMatch =
+    messages
+      .map((m) => m.content ?? '')
+      .join('\n')
+      .match(/DISTILL_USER_ID:\s*(\S+)/)
   const userId = userIdMatch?.[1] ?? null
+  console.log(`[clio/llm] userId extracted: ${userId ?? '(none)'} from ${messages.length} messages`)
 
   // Resolve session context — cached after first turn, validated every 5 min
   let systemPrompt = 'You are Clio, an expert AI business coach running a live coaching session.'
