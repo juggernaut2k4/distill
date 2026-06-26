@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import Anthropic from '@anthropic-ai/sdk'
+import { getRoleTier } from '@/lib/curriculum/role-utils'
+import type { RoleTier } from '@/lib/curriculum/role-utils'
 
 export const maxDuration = 45
 
@@ -13,6 +15,9 @@ const RecommendationsSchema = z.object({
   subDomain: z.string().max(100).optional().default(''),
   learningGoal: z.string().max(200).optional().default(''),
   aiMaturity: z.string().max(50).optional().default('intermediate'),
+  roleLevel: z.enum(['c-suite', 'vp-dir', 'vp-technology', 'vp-product', 'manager', 'specialist'])
+             .optional()
+             .default('manager'),
 })
 
 // ─── Response types ────────────────────────────────────────────────────────────
@@ -41,34 +46,35 @@ interface FallbackResponse {
 
 // ─── Mock data ─────────────────────────────────────────────────────────────────
 
-// Generic AI/ML fallback — shown when Claude is unavailable or profile data is incomplete.
-// Domain-neutral so it's useful regardless of the user's specific field.
-const MOCK_RESPONSE: RecommendationsResponse = {
+// Three role-differentiated fallback objects — shown when Claude is unavailable or times out.
+// Selected by getRoleTier(roleLevel) at each fallback return site.
+
+const MOCK_RESPONSE_EXECUTIVE: RecommendationsResponse = {
   sections: [
     {
       id: 'trending',
-      label: 'Trending right now',
+      label: 'Trending in your field',
       icon: 'TrendingUp',
       topics: [
         {
-          id: 'llm-enterprise-apps',
-          title: 'LLMs in Enterprise Applications',
-          description: 'How organisations are embedding large language models into existing workflows.',
-        },
-        {
-          id: 'agentic-ai',
-          title: 'Agentic AI & Autonomous Systems',
-          description: 'AI that plans, executes, and self-corrects without constant human direction.',
-        },
-        {
           id: 'ai-governance-leaders',
           title: 'AI Governance for Leaders',
-          description: 'Building oversight structures that satisfy regulators and your board.',
+          description: 'Building oversight structures that satisfy your board, regulators, and risk teams.',
         },
         {
-          id: 'multimodal-ai',
-          title: 'Multimodal AI in Practice',
-          description: 'Models that combine text, images, and audio are reshaping product workflows.',
+          id: 'agentic-ai-enterprise',
+          title: 'Agentic AI in the Enterprise',
+          description: 'What autonomous AI systems mean for your operations, risk exposure, and workforce.',
+        },
+        {
+          id: 'ai-competitive-intelligence',
+          title: 'AI Competitive Intelligence',
+          description: 'How to read what your competitors are doing with AI before it becomes a threat.',
+        },
+        {
+          id: 'ai-investment-decisions',
+          title: 'Making AI Investment Decisions',
+          description: 'A framework for deciding which AI bets to fund and which to defer.',
         },
       ],
     },
@@ -78,19 +84,19 @@ const MOCK_RESPONSE: RecommendationsResponse = {
       icon: 'Briefcase',
       topics: [
         {
-          id: 'ai-strategy',
-          title: 'Building an AI Strategy',
-          description: 'A framework for deciding where AI creates competitive advantage for your organisation.',
+          id: 'ai-strategy-leaders',
+          title: 'AI Strategy for Leaders',
+          description: 'How to define, communicate, and execute an AI strategy your organisation can act on.',
         },
         {
-          id: 'ai-vendor-pitches',
+          id: 'evaluating-ai-vendors',
           title: 'Evaluating AI Vendor Pitches',
-          description: 'The 5 questions that separate real AI capability from a polished demo.',
+          description: 'The five questions that separate real AI capability from a polished sales demo.',
         },
         {
-          id: 'ai-team-enablement',
-          title: 'Enabling Your Team with AI',
-          description: 'How executives accelerate adoption without becoming the AI bottleneck.',
+          id: 'ai-roi-frameworks',
+          title: 'Measuring AI ROI',
+          description: 'Proven methods to quantify and communicate the return on AI investments.',
         },
       ],
     },
@@ -100,45 +106,290 @@ const MOCK_RESPONSE: RecommendationsResponse = {
       icon: 'Wrench',
       topics: [
         {
-          id: 'anthropic-claude-work',
-          title: 'Anthropic Claude for Work',
-          description: 'Using Claude for analysis, writing, and decision support in your daily workflow.',
+          id: 'anthropic-claude-executives',
+          title: 'Anthropic Claude for Executives',
+          description: 'Using Claude for analysis, briefing preparation, and decision support.',
         },
         {
-          id: 'chatgpt-executive-use',
-          title: 'ChatGPT for Executives',
-          description: 'Prompting strategies that turn raw information into board-ready insights.',
+          id: 'chatgpt-enterprise',
+          title: 'ChatGPT Enterprise',
+          description: 'What the enterprise tier offers and whether it fits your organisation.',
         },
         {
-          id: 'copilot-productivity',
-          title: 'Microsoft Copilot Productivity',
-          description: 'Automating documents, presentations, and email drafts across the Office suite.',
+          id: 'microsoft-copilot-leadership',
+          title: 'Microsoft Copilot for Leadership',
+          description: 'Automating executive documents, presentations, and communications.',
         },
       ],
     },
     {
       id: 'goal',
-      label: 'To reach your goal',
+      label: 'Based on your goal',
       icon: 'Target',
       topics: [
         {
-          id: 'ai-fundamentals-leaders',
-          title: 'AI Fundamentals for Leaders',
-          description: 'What every executive needs to understand about how AI models actually work.',
+          id: 'ai-fluency-executives',
+          title: 'AI Fluency for Executives',
+          description: 'What every senior leader needs to know to hold their own in any AI conversation.',
         },
         {
-          id: 'ai-roi',
-          title: 'Measuring AI ROI',
-          description: 'Proven methods to quantify and communicate the return on AI investments.',
+          id: 'board-ai-communication',
+          title: 'Communicating AI to Your Board',
+          description: 'How to present AI risk, opportunity, and progress at board level.',
         },
         {
-          id: 'prompt-engineering-basics',
-          title: 'Prompt Engineering Basics',
-          description: 'The skill that immediately multiplies the quality of every AI interaction you have.',
+          id: 'ai-team-enablement',
+          title: 'Enabling Your Team with AI',
+          description: 'How leaders accelerate AI adoption without becoming the bottleneck.',
         },
       ],
     },
   ],
+}
+
+const MOCK_RESPONSE_TECHNICAL: RecommendationsResponse = {
+  sections: [
+    {
+      id: 'trending',
+      label: 'Trending in your field',
+      icon: 'TrendingUp',
+      topics: [
+        {
+          id: 'agentic-systems-production',
+          title: 'Agentic Systems in Production',
+          description: 'Building, evaluating, and safely deploying autonomous AI agents in real systems.',
+        },
+        {
+          id: 'rag-pipelines-engineers',
+          title: 'RAG Pipelines for Engineers',
+          description: 'Retrieval-augmented generation: architecture, chunking, retrieval, and evaluation.',
+        },
+        {
+          id: 'llm-evaluation-practitioner',
+          title: 'LLM Evaluation for Practitioners',
+          description: 'How to measure model quality systematically — beyond vibe checks.',
+        },
+        {
+          id: 'multimodal-apis',
+          title: 'Multimodal APIs in Practice',
+          description: 'Using vision, audio, and document capabilities in production AI applications.',
+        },
+      ],
+    },
+    {
+      id: 'role',
+      label: 'Based on your role',
+      icon: 'Briefcase',
+      topics: [
+        {
+          id: 'prompt-engineering-engineers',
+          title: 'Prompt Engineering for Engineers',
+          description: 'Systematic prompt design, chaining, and evaluation for production use cases.',
+        },
+        {
+          id: 'building-ai-features',
+          title: 'Building AI-Powered Features',
+          description: 'End-to-end patterns for integrating LLMs into product features safely.',
+        },
+        {
+          id: 'ai-code-review',
+          title: 'AI-Assisted Code Review',
+          description: 'Using LLMs to catch bugs, suggest refactors, and enforce patterns at PR time.',
+        },
+      ],
+    },
+    {
+      id: 'tools',
+      label: 'Tools to master',
+      icon: 'Wrench',
+      topics: [
+        {
+          id: 'anthropic-claude-developers',
+          title: 'Anthropic Claude API for Developers',
+          description: 'Messages API, tool use, streaming, and context management in production.',
+        },
+        {
+          id: 'github-copilot-engineers',
+          title: 'GitHub Copilot for Engineers',
+          description: 'Beyond autocomplete: using Copilot for architecture, tests, and debugging.',
+        },
+        {
+          id: 'cursor-ai-ide',
+          title: 'Cursor AI IDE',
+          description: 'The AI-native editor and how to use it for complex multi-file refactors.',
+        },
+      ],
+    },
+    {
+      id: 'goal',
+      label: 'Based on your goal',
+      icon: 'Target',
+      topics: [
+        {
+          id: 'llm-fundamentals-engineers',
+          title: 'LLM Fundamentals for Engineers',
+          description: 'Tokens, context windows, temperature, and inference — what every builder must know.',
+        },
+        {
+          id: 'ai-safety-practitioners',
+          title: 'AI Safety for Practitioners',
+          description: 'Prompt injection, jailbreaks, and output validation in production systems.',
+        },
+        {
+          id: 'mlops-llm-era',
+          title: 'MLOps in the LLM Era',
+          description: 'Deploying, monitoring, and updating LLM-powered systems in production.',
+        },
+      ],
+    },
+  ],
+}
+
+const MOCK_RESPONSE_MANAGER: RecommendationsResponse = {
+  sections: [
+    {
+      id: 'trending',
+      label: 'Trending in your field',
+      icon: 'TrendingUp',
+      topics: [
+        {
+          id: 'ai-team-adoption',
+          title: 'AI Adoption Playbook for Teams',
+          description: 'A practical guide to rolling out AI tools across a team of 5–20 people.',
+        },
+        {
+          id: 'ai-productivity-measurement',
+          title: 'Measuring AI Productivity Gains',
+          description: 'How to quantify and report AI impact at team level without complex tooling.',
+        },
+        {
+          id: 'ai-tools-landscape',
+          title: 'AI Tools Landscape for Managers',
+          description: 'What is actually useful right now versus what is vendor hype.',
+        },
+        {
+          id: 'agentic-ai-teams',
+          title: 'Agentic AI and Your Team',
+          description: 'What autonomous AI workflows mean for how your team operates day to day.',
+        },
+      ],
+    },
+    {
+      id: 'role',
+      label: 'Based on your role',
+      icon: 'Briefcase',
+      topics: [
+        {
+          id: 'evaluating-ai-tools-function',
+          title: 'Evaluating AI Tools for Your Function',
+          description: 'A structured approach to trialling, selecting, and deploying AI tools for your team.',
+        },
+        {
+          id: 'coaching-team-ai',
+          title: 'Coaching Your Team on AI',
+          description: 'How to build AI habits across a team without mandating a specific tool.',
+        },
+        {
+          id: 'ai-workflows-operations',
+          title: 'AI Workflows for Operations',
+          description: 'The highest-leverage AI use cases for operational and cross-functional teams.',
+        },
+      ],
+    },
+    {
+      id: 'tools',
+      label: 'Tools to master',
+      icon: 'Wrench',
+      topics: [
+        {
+          id: 'anthropic-claude-managers',
+          title: 'Anthropic Claude for Managers',
+          description: 'Using Claude for performance reviews, status reports, and team communications.',
+        },
+        {
+          id: 'notion-ai-teams',
+          title: 'Notion AI for Teams',
+          description: 'Building shared AI-powered docs, templates, and wikis your team actually uses.',
+        },
+        {
+          id: 'microsoft-copilot-managers',
+          title: 'Microsoft Copilot for Managers',
+          description: 'Automating meeting notes, action tracking, and reporting across your team.',
+        },
+      ],
+    },
+    {
+      id: 'goal',
+      label: 'Based on your goal',
+      icon: 'Target',
+      topics: [
+        {
+          id: 'ai-fluency-managers',
+          title: 'AI Fluency for Managers',
+          description: 'What every manager needs to understand to lead an AI-enabled team.',
+        },
+        {
+          id: 'prompt-skills-managers',
+          title: 'Practical Prompt Skills',
+          description: 'The prompting techniques that deliver the most value with the least effort.',
+        },
+        {
+          id: 'ai-change-management',
+          title: 'AI Change Management',
+          description: 'How to handle team resistance, upskilling gaps, and workflow disruption.',
+        },
+      ],
+    },
+  ],
+}
+
+// Lookup map for fallback selection by tier
+const MOCK_RESPONSES: Record<RoleTier, RecommendationsResponse> = {
+  executive: MOCK_RESPONSE_EXECUTIVE,
+  technical:  MOCK_RESPONSE_TECHNICAL,
+  manager:    MOCK_RESPONSE_MANAGER,
+}
+
+// Three system prompts — selected by getRoleTier(roleLevel) before each Claude call.
+const SYSTEM_PROMPTS: Record<RoleTier, string> = {
+  executive: `You are a senior AI learning advisor for business leaders and executives. Your audience holds titles such as CEO, CFO, COO, CMO, CTO, VP, SVP, and Director. They are accountable for AI decisions at organisational scale — budgets, risk, competitive positioning, and team capability — but they do not write code or build models themselves.
+
+Generate personalised AI topic recommendations for this leader based on their profile. Every topic you suggest must be immediately relevant to someone making strategic, operational, or leadership decisions about AI.
+
+Rules for topic selection and framing:
+- Frame every topic at the decision-maker level: what do they need to know to lead, evaluate, govern, or invest in AI — not how to build it.
+- Prioritise topics that build confidence in AI conversations at board level, with vendors, with regulators, and with their own teams.
+- Include topics on AI governance, risk, ROI, vendor evaluation, and competitive strategy — these are the executive's primary AI responsibilities.
+- Do NOT suggest topics on prompt engineering mechanics, API integration, model fine-tuning, MLOps, or any hands-on technical skill. These belong to their team, not to them.
+- Vocabulary: use "AI strategy", "AI governance", "competitive intelligence", "team enablement", "ROI", "risk framework" — not "tokens", "embeddings", "inference", "fine-tuning", "RAG".
+
+Return ONLY valid JSON matching the specified schema. Be specific and practical — every topic must be immediately relevant to someone in their exact role and sub-domain.`,
+
+  technical: `You are a senior AI learning advisor for technical practitioners. Your audience holds titles such as Software Engineer, Senior Engineer, Data Scientist, Data Analyst, ML Engineer, Platform Engineer, and other individual contributor or specialist roles. They build and integrate AI systems as part of their daily work — writing code, calling APIs, evaluating models, and shipping AI-powered features.
+
+Generate personalised AI topic recommendations for this practitioner based on their profile. Every topic you suggest must deliver hands-on, implementable knowledge that makes them more effective at building with AI.
+
+Rules for topic selection and framing:
+- Frame every topic at the implementation level: how to build, integrate, evaluate, optimise, or operate AI systems.
+- Prioritise topics on Claude API, prompt engineering, agentic systems, RAG pipelines, model evaluation, AI tooling, and applied ML in production.
+- Include topics that are immediately applicable: skills they can use in their next sprint, pull request, or architecture decision.
+- Do NOT suggest topics on AI governance, board communication, vendor procurement, ROI frameworks, or organisational strategy — these belong to their leadership, not to them.
+- Vocabulary: use "API", "prompt engineering", "context window", "embeddings", "RAG", "fine-tuning", "agentic systems", "LLM", "inference", "latency", "evaluation" — not "board-ready", "executive briefing", "governance", "stakeholder".
+
+Return ONLY valid JSON matching the specified schema. Be specific and practical — every topic must be immediately relevant to someone in their exact role and sub-domain.`,
+
+  manager: `You are a senior AI learning advisor for team managers and team leads. Your audience holds titles such as Manager, Senior Manager, Team Lead, and Engineering Manager. They are responsible for the productivity and AI adoption of teams of 3–20 people. They need to evaluate and deploy AI tools for their function, coach their team on AI use, and report impact upward — without needing to build AI systems themselves or make board-level governance decisions.
+
+Generate personalised AI topic recommendations for this manager based on their profile. Every topic you suggest must be practical and operational — things they can implement with their team in the next 30–60 days.
+
+Rules for topic selection and framing:
+- Frame every topic at the team-operations level: how to adopt, evaluate, deploy, and measure AI tools for a specific function or team.
+- Prioritise topics on AI productivity tools, team adoption playbooks, evaluating AI tools for a function, measuring AI impact at team level, and practical prompt skills.
+- Include topics that help them have credible AI conversations with both their team and their leadership.
+- Do NOT suggest topics on hands-on model implementation, API integration, or MLOps — those are for their engineers. Do NOT suggest board-level governance, procurement, or investor framing — those are for their leadership.
+- Vocabulary: use "AI adoption", "team productivity", "tool evaluation", "practical AI", "AI workflow", "measuring impact" — avoid both deep technical jargon and board-level strategic language.
+
+Return ONLY valid JSON matching the specified schema. Be specific and practical — every topic must be immediately relevant to someone in their exact role and sub-domain.`,
 }
 
 // ─── Claude prompt builder ─────────────────────────────────────────────────────
@@ -254,23 +505,26 @@ export async function POST(
     const parsed = RecommendationsSchema.safeParse(body)
 
     if (!parsed.success) {
-      return NextResponse.json({ fallback: true, sections: MOCK_RESPONSE.sections } as FallbackResponse)
+      // roleLevel is unavailable when Zod parse fails — use manager as safe default (EC-06)
+      return NextResponse.json({ fallback: true, sections: MOCK_RESPONSE_MANAGER.sections } as FallbackResponse)
     }
 
-    const { role, primaryDomain, subDomain, learningGoal, aiMaturity } = parsed.data
+    const { role, primaryDomain, subDomain, learningGoal, aiMaturity, roleLevel } = parsed.data
+
+    // Derive the three-tier bucket once — used for both prompt selection and fallback selection
+    const tier = getRoleTier(roleLevel)
 
     // ── Mock guard (PLACEHOLDER_ key) ───────────────────────────────────────────
     const apiKey = process.env.ANTHROPIC_API_KEY ?? ''
     if (!apiKey || apiKey.startsWith('PLACEHOLDER_')) {
-      console.log('[MOCK Anthropic] /api/topics/recommendations — returning mock data')
-      return NextResponse.json(MOCK_RESPONSE)
+      console.log('[MOCK Anthropic] /api/topics/recommendations — returning mock data for tier:', tier)
+      return NextResponse.json(MOCK_RESPONSES[tier])
     }
 
     // ── Live Claude path ─────────────────────────────────────────────────────────
     const anthropic = new Anthropic({ apiKey })
 
-    const systemPrompt =
-      'You are a senior AI learning advisor for executives. Generate personalised AI topic recommendations for a business leader based on their profile. Return ONLY valid JSON matching the specified schema. Be specific and practical — every topic must be immediately relevant to someone in their exact role and sub-domain.'
+    const systemPrompt = SYSTEM_PROMPTS[tier]
 
     const userPrompt = buildUserPrompt(
       role,
@@ -301,7 +555,7 @@ export async function POST(
     } catch (err) {
       // Covers both timeout (AbortError) and network errors
       console.error('[topics/recommendations] Claude API error:', (err as Error).message)
-      return NextResponse.json({ fallback: true, sections: MOCK_RESPONSE.sections } as FallbackResponse)
+      return NextResponse.json({ fallback: true, sections: MOCK_RESPONSES[tier].sections } as FallbackResponse)
     } finally {
       clearTimeout(timeoutId)
     }
@@ -309,13 +563,14 @@ export async function POST(
     const result = parseClaudeResponse(rawText)
     if (!result) {
       console.error('[topics/recommendations] Failed to parse Claude JSON response')
-      return NextResponse.json({ fallback: true, sections: MOCK_RESPONSE.sections } as FallbackResponse)
+      return NextResponse.json({ fallback: true, sections: MOCK_RESPONSES[tier].sections } as FallbackResponse)
     }
 
     return NextResponse.json(result)
   } catch (err) {
-    // Unhandled errors — never let this route return 500
+    // Unhandled errors — never let this route return 500.
+    // roleLevel is unknown here (outer catch fires before Zod parse); use manager as safe default.
     console.error('[topics/recommendations] Unexpected error:', err)
-    return NextResponse.json({ fallback: true, sections: MOCK_RESPONSE.sections } as FallbackResponse)
+    return NextResponse.json({ fallback: true, sections: MOCK_RESPONSE_MANAGER.sections } as FallbackResponse)
   }
 }

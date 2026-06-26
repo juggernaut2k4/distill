@@ -3,6 +3,7 @@ import { requireSessionAuth } from '@/lib/session-auth'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { generateCurriculumPlan, buildProfileHash } from '@/lib/curriculum/planner'
 import { applyEnrichmentVisibility } from '@/lib/curriculum/enrichment'
+import { inferRoleLevel } from '@/lib/curriculum/role-utils'
 import type { RawLlmOutput } from '@/lib/curriculum/types'
 
 // 1 plan call (90s cap) + up to 3 enrichment calls (15s each) = ~135s max
@@ -42,14 +43,7 @@ export async function POST(request: NextRequest) {
   const maturity = user.ai_maturity ?? 'intermediate'
   // Infer roleLevel from role name when role_level is missing — avoids defaulting
   // everyone to 'c-suite' which produces executive framing for ICs and managers.
-  const inferRoleLevel = (role: string): string => {
-    const r = role.toLowerCase()
-    if (/engineer|developer|analyst|scientist|designer|specialist|architect|researcher|consultant/.test(r)) return 'specialist'
-    if (/manager|team.lead|lead/.test(r)) return 'manager'
-    if (/vp |vice.president|director/.test(r)) return 'vp-dir'
-    if (/ceo|cto|cfo|coo|cmo|chief/.test(r)) return 'c-suite'
-    return 'manager' // safest neutral default
-  }
+  // inferRoleLevel is imported from lib/curriculum/role-utils (shared with topics page).
   const roleLevel = (user.role_level as string | null) ?? inferRoleLevel(user.role ?? '')
   const worry = Array.isArray(user.worry_tags) ? user.worry_tags.join(', ') : ''
   const planTier = user.plan_tier ?? null

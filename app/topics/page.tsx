@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   TrendingUp, Briefcase, Wrench, Target, Plus, ArrowRight,
 } from 'lucide-react'
+import { inferRoleLevel } from '@/lib/curriculum/role-utils'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -234,8 +235,25 @@ export default function TopicsPage() {
   // ── Load recommendations on mount ─────────────────────────────────────────────
 
   useEffect(() => {
-    // Check sessionStorage cache first (avoid re-calling Claude on re-visit)
-    const cached = sessionStorage.getItem('clio_topic_recs')
+    // Read profile from localStorage first so we can derive roleLevel for the cache key
+    let profile: StoredProfile = {}
+    let rawDomain = ''
+    try {
+      const raw = localStorage.getItem('clio_onboarding')
+      if (raw) {
+        profile = JSON.parse(raw) as StoredProfile
+        rawDomain = profile.primaryDomain ?? ''
+      }
+    } catch { /* ignore */ }
+
+    // Derive roleLevel from free-text role string (FR-04).
+    // This is a pure synchronous call — no async work needed.
+    const roleLevel = inferRoleLevel(profile.role ?? '')
+
+    // Check sessionStorage cache first (avoid re-calling Claude on re-visit).
+    // Cache key is role-scoped so a role change produces a fresh fetch (FR-06, AC-07).
+    const cacheKey = `clio_topic_recs_${roleLevel}`
+    const cached = sessionStorage.getItem(cacheKey)
     if (cached) {
       try {
         const parsed = JSON.parse(cached) as RecommendationSection[]
@@ -246,17 +264,6 @@ export default function TopicsPage() {
         }
       } catch { /* ignore */ }
     }
-
-    // Read profile from localStorage
-    let profile: StoredProfile = {}
-    let rawDomain = ''
-    try {
-      const raw = localStorage.getItem('clio_onboarding')
-      if (raw) {
-        profile = JSON.parse(raw) as StoredProfile
-        rawDomain = profile.primaryDomain ?? ''
-      }
-    } catch { /* ignore */ }
 
     // Derive a human-readable domain label for empty state
     setDomainLabel(
@@ -286,6 +293,7 @@ export default function TopicsPage() {
             subDomain: profile.subDomain ?? '',
             learningGoal,
             aiMaturity,
+            roleLevel,   // FR-05: pass derived roleLevel to the API
           }),
         })
 
@@ -293,13 +301,14 @@ export default function TopicsPage() {
 
         // If Claude returned sections (either real or mock)
         if (!data.fallback && data.sections && data.sections.length > 0) {
-          sessionStorage.setItem('clio_topic_recs', JSON.stringify(data.sections))
+          sessionStorage.setItem(cacheKey, JSON.stringify(data.sections))
           setSections(data.sections)
           setPageState('loaded')
           return
         }
 
-        // Fallback: try to use sections from fallback response
+        // Fallback: try to use sections from fallback response (FR-07).
+        // The API already selects the correct role-differentiated fallback server-side.
         if (data.fallback && data.sections && data.sections.length > 0) {
           setSections(data.sections)
           setPageState('loaded')
