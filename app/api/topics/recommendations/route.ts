@@ -179,12 +179,17 @@ const SECTION_METADATA: Record<string, { label: string; icon: string }> = {
 
 /**
  * Parses and normalises Claude's raw JSON output into a RecommendationsResponse.
- * Returns null if parsing fails.
+ * Returns null if parsing fails (caller is responsible for logging the raw string).
  */
 function parseClaudeResponse(raw: string): RecommendationsResponse | null {
   try {
-    // Strip any stray markdown fences Claude may emit despite instructions
-    const cleaned = raw.replace(/```(?:json)?/g, '').trim()
+    // 1. Strip markdown code fences — both opening (```json / ```) and closing (```)
+    let cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim()
+
+    // 2. Strip trailing commas before } or ] (common Claude formatting quirk)
+    //    Handles both single and repeated trailing commas.
+    cleaned = cleaned.replace(/,(\s*[}\]])/g, '$1')
+
     const parsed = JSON.parse(cleaned) as unknown
 
     if (!parsed || typeof parsed !== 'object' || !Array.isArray((parsed as Record<string, unknown>).sections)) {
@@ -225,6 +230,8 @@ function parseClaudeResponse(raw: string): RecommendationsResponse | null {
 
     return { sections }
   } catch {
+    // Log the raw string so the exact Claude output is visible in production logs
+    console.error('[topics/recommendations] JSON.parse failed. Raw Claude response:\n', raw)
     return null
   }
 }
