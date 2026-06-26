@@ -408,15 +408,13 @@ function buildUserPrompt(
 - AI experience: ${aiMaturity}
 - Learning goal: ${learningGoal}
 
-Return exactly 4 sections:
-1. "trending" — 4 topics: current AI trends and use cases in ${subDomain} within ${primaryDomain}
+Return exactly 2 sections:
+1. "trending" — 3 topics: current AI trends and use cases in ${subDomain} within ${primaryDomain}
 2. "role" — 3 topics: what ${role}-level professionals in ${primaryDomain} are learning about AI right now
-3. "tools" — 3 topics: specific AI tools relevant to ${subDomain}. MUST include Anthropic Claude as one of the tools, named specifically as "Anthropic Claude for ${subDomain}" with a one-line description of how it is used in that sub-domain. Also include 2 other relevant tools (ChatGPT, Microsoft Copilot, GitHub Copilot, Glean, Notion AI — choose based on domain relevance).
-4. "goal" — 3 topics: topics that directly help someone who wants to "${learningGoal}"
 
 Each topic must have: { "id": "kebab-case-slug", "title": "max 6 words", "description": "one sentence, max 15 words, specific to their domain" }
 
-Return JSON only — no markdown, no explanation, no code fences.`
+Return JSON only — no markdown, no explanation, no code fences. Return exactly 2 sections: "trending" (3 items) and "role" (3 items). No other sections.`
 }
 
 // ─── JSON response shaping ─────────────────────────────────────────────────────
@@ -602,7 +600,7 @@ export async function POST(
       const response = await anthropic.messages.create(
         {
           model: 'claude-sonnet-4-6',
-          max_tokens: 1500,
+          max_tokens: 4000,
           system: systemPrompt,
           messages: [{ role: 'user', content: userPrompt }],
         },
