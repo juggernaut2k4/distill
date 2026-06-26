@@ -193,11 +193,11 @@ SCRIPT REQUIREMENTS
 
 Write ${isLastSubtopic ? '5' : '4'} segments in this exact order:
 
-1. TEACH (300-420 seconds of spoken content — 5-7 minutes, ~600-840 words)
+1. TEACH (exactly 140 words — hard limit)
+   You have 140 words. Write with full confidence and precision.
+   No filler, no hedging. Every sentence must teach something.
    - Open with why this matters specifically to a ${userContext.role} in ${userContext.industry}
-   - Walk through each on-screen item by name — explain it fully with examples, don't skip any
-   - Use at least one concrete story or scenario from their industry
-   - Go deep: give nuance, edge cases, real-world implications
+   - Walk through each on-screen item by name — explain it fully, don't skip any
    - End with the single most important takeaway
 
 2. CHECKPOINT (60-90 seconds — probe for real understanding, not recall)
@@ -215,7 +215,7 @@ ${closeInstruction}
 Return ONLY valid JSON (no markdown, no commentary):
 {
   "segments": [
-    { "type": "TEACH", "content": "...", "duration_seconds": 360 },
+    { "type": "TEACH", "content": "...", "duration_seconds": 60 },
     { "type": "CHECKPOINT", "content": "...", "duration_seconds": 75 },
     { "type": "PROBE", "content": "...", "duration_seconds": 75 },
     { "type": "CONTINUE", "content": "...", "duration_seconds": 75 }${isLastSubtopic ? ',\n    { "type": "CLOSE", "content": "...", "duration_seconds": 120 }' : ''}
@@ -425,9 +425,9 @@ export async function generateScriptAndVisualization(
     return buildMockScriptAndVisualization(article, userContext, isLastSubtopic)
   }
 
-  // Proactive word budget: 140 words/min spoken pace, spread evenly across subtopics.
-  // This drives generation density upfront — not a post-hoc truncation.
-  const wordsPerSubtopic = Math.round((durationMins * 140) / totalSubtopics)
+  // PACE-01: fixed 140-word TEACH budget per subtopic regardless of duration or count.
+  // Each section is ~2 minutes: 1 min TEACH (140 words) + 1 min Q&A.
+  const wordsPerSubtopic = 140
 
   // VP / C-Suite calibration rules
   const isVpOrAbove = userContext.roleLevel === 'vp-dir' || userContext.roleLevel === 'c-suite'
@@ -483,10 +483,12 @@ SUBTOPIC POSITION: ${subtopicIndex + 1} of ${totalSubtopics}${isLastSubtopic ? '
 
 SCRIPT SEGMENTS — write in this exact order:
 
-1. TEACH (approximately ${wordsPerSubtopic} words spoken)
-   You have ${wordsPerSubtopic} words for this segment. Write with confidence and precision.
+1. TEACH (exactly 140 words — hard limit, no exceptions)
+   You have 140 words for this segment. Count carefully. If your draft exceeds 140 words,
+   cut from the least important sentence first. Never cut the final takeaway sentence.
+   Write with confidence and precision. No filler, no hedging, no padding.
+   Every sentence must teach something new.
    Prioritise the insight that will most change how this ${userContext.role} thinks or acts.
-   No filler, no hedging, no padding. Every sentence must teach something.
    - Open immediately with the frame specified in calibration rules above
    - Name EXACTLY 3 items that will appear on screen — say "On your screen you'll see three items: [item 1], [item 2], [item 3]"
    - Walk through each item by name. At the EXACT moment you name each item, embed the nav directive INLINE:
@@ -524,7 +526,7 @@ These 3 items are what appear on screen during TEACH — they MUST match what TE
 Return ONLY valid JSON (no markdown, no commentary):
 {
   "segments": [
-    { "type": "TEACH", "content": "...", "duration_seconds": ${Math.round(wordsPerSubtopic / 140 * 60)} },
+    { "type": "TEACH", "content": "...", "duration_seconds": 60 },
     { "type": "CHECKPOINT", "content": "...", "duration_seconds": 65 },
     { "type": "ICE_BREAKER", "content": "...", "duration_seconds": 40 },
     { "type": "PROBE", "content": "...", "duration_seconds": 50 }${isLastSubtopic

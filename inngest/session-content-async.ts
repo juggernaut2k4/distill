@@ -307,6 +307,18 @@ async function processSubtopic(
 
   const adaptedScript = await adaptScriptToDuration(script, sessionDurationMins, subtopicTitles.length)
 
+  // PACE-01: enforce 140-word TEACH budget post-generation
+  const teachSegment = adaptedScript?.segments?.find((s: { type: string }) => s.type === 'TEACH')
+  if (teachSegment && typeof teachSegment.content === 'string') {
+    const words = teachSegment.content.trim().split(/\s+/)
+    if (words.length > 140) {
+      console.warn(`[session-content-async] TEACH word count ${words.length} exceeds 140 — truncating at sentence boundary`)
+      const truncated = words.slice(0, 140).join(' ')
+      const lastSentence = truncated.lastIndexOf('.')
+      teachSegment.content = lastSentence > 0 ? truncated.slice(0, lastSentence + 1) : truncated
+    }
+  }
+
   const expiresAt = new Date()
   expiresAt.setDate(expiresAt.getDate() + 60)
 

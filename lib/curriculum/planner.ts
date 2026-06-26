@@ -289,9 +289,10 @@ ROLE HINT RULES:
 - Focus on the user's ${worry ? `stated worry: "${worry}"` : 'professional context'}.
 
 SUBTOPICS RULES:
-- For each session, list every subtopic the learner must understand to genuinely grasp this topic.
-- There is no fixed count — use as many as the topic actually requires.
-- Simple concepts may need 2–4 subtopics. Complex strategic topics may need 8–12.
+- For each session, generate enough subtopics to fill the session duration at 2 minutes per subtopic.
+  For a 15-minute session: at least 6 subtopics. For a 30-minute session: at least 14 subtopics.
+  Minimum 2 subtopics per session regardless of duration.
+  Formula: floor((session_duration_mins - 2) / 2), minimum 2.
 - Write each subtopic as a specific, concrete learning point (not a vague category name).
 - Bad example: "Overview of AI" — too vague.
 - Good example: "How transformer models process language without understanding meaning" — specific.

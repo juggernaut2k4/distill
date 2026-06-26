@@ -57,34 +57,41 @@ export interface DesignerUserProfile {
 
 function buildFallbackSessions(topic: CurriculumTopicInput, maxMins: number): DesignedSession[] {
   const dur = Math.max(maxMins, 5)
-  const conceptMins  = Math.round(dur * 0.5)
-  const applyMins    = Math.round(dur * 0.3)
-  const summaryMins  = dur - conceptMins - applyMins
+  // PACE-01: compute sectionCount from duration formula, minimum 2
+  const sectionCount = Math.max(2, Math.floor((dur - 2) / 2))
+  const minsPerSection = Math.max(2, Math.floor(dur / sectionCount))
+
+  const subtopics: Subtopic[] = []
+  for (let i = 0; i < sectionCount; i++) {
+    if (i === 0) {
+      subtopics.push({
+        title:              'Context and relevance',
+        type:               'concept',
+        duration_mins:      minsPerSection,
+        learning_objective: `Understand why ${topic.title} matters to your role right now`,
+      })
+    } else if (i === sectionCount - 1) {
+      subtopics.push({
+        title:              'Practical application and next steps',
+        type:               'application',
+        duration_mins:      minsPerSection,
+        learning_objective: `Apply ${topic.title} concepts with one concrete action you can take today`,
+      })
+    } else {
+      subtopics.push({
+        title:              `Core concept ${i}`,
+        type:               'concept',
+        duration_mins:      minsPerSection,
+        learning_objective: `Understand core concept ${i} of ${topic.title}`,
+      })
+    }
+  }
 
   return [{
     session_title:   topic.title,
     session_summary: `Understand and apply the core concepts of ${topic.title}.`,
     duration_mins:   dur,
-    subtopics: [
-      {
-        title:              'Core concepts',
-        type:               'concept',
-        duration_mins:      conceptMins,
-        learning_objective: `Understand the fundamentals of ${topic.title}`,
-      },
-      {
-        title:              'Real-world application',
-        type:               'application',
-        duration_mins:      applyMins,
-        learning_objective: `Apply ${topic.title} concepts in your day-to-day work`,
-      },
-      {
-        title:              'Key takeaways',
-        type:               'summary',
-        duration_mins:      Math.max(summaryMins, 2),
-        learning_objective: `Summarise what matters most from ${topic.title}`,
-      },
-    ],
+    subtopics,
   }]
 }
 
@@ -99,9 +106,9 @@ async function designFromPreplannedSubtopics(
   apiKey:  string,
 ): Promise<DesignedSession[]> {
   const subtopics = topic.subtopics!
-  // 4 subtopics per session → ~10 min content (2.5 min each) + 5 min Q&A = 15 min total
-  const SUBTOPICS_PER_SESSION = 4
-  const chunks = chunkArray(subtopics, SUBTOPICS_PER_SESSION)
+  // PACE-01: derive section count from duration formula, minimum 2
+  const sectionCount = Math.max(2, Math.floor((maxMins - 2) / 2))
+  const chunks = chunkArray(subtopics, sectionCount)
   const client = new Anthropic({ apiKey })
 
   const sessions: DesignedSession[] = []
@@ -127,6 +134,29 @@ Rules:
 5. Types: concept | example | application | pitfalls | practice | summary
 6. Total subtopic duration_mins must sum to approximately ${maxMins - 5} (the 10 min teaching window)
 7. Session titles must be specific — never "Part 1", "Introduction", or generic phrases
+
+FOUNDATIONAL FRAMING RULE — applies to every session:
+The first subtopic in this session is a context anchor. It must establish foundational framing
+for the topic — why it matters to this user's role — before any technical detail.
+Do not start with a concept definition. Start with relevance to the user's role and situation.
+
+SECTION STRUCTURE RULES — MANDATORY
+Section 1 — Context anchor (always first):
+  Do NOT open with the topic name or a definition.
+  Open with: "Here is why this is on your radar right now as a [role] in [industry]."
+  Connect to something the user already knows or a decision they currently face.
+
+Sections 2 to N-1 — Core concepts in dependency order:
+  Each section covers exactly one concept.
+  Order them so each concept unlocks the next.
+
+Section N — Practical application (always last):
+  Do NOT introduce any new concept.
+  Give one specific action or decision the user can take based on what was covered.
+  Name it explicitly. Connect it to the user's role.
+
+When sectionCount = 2: Section 2 serves as both core concept and practical application.
+Give one concrete action at the end of Section 2.
 
 Respond ONLY with valid JSON (no markdown, no explanation):
 {
@@ -210,6 +240,8 @@ export async function designSessionsForTopic(
   }
 
   // ── Legacy path: LLM invents subtopics from scratch (for sessions without pre-planned subtopics) ──
+  // PACE-01: compute sectionCount from duration formula, minimum 2
+  const legacySectionCount = Math.max(2, Math.floor((maxMins - 2) / 2))
   const floor   = Math.round(maxMins * 0.8)
   const ceiling = Math.round(maxMins * 1.15)
 
@@ -223,17 +255,35 @@ Design learning session(s) for this topic:
 
 Rules:
 1. Each session MUST be between ${floor} and ${ceiling} minutes
-2. If concepts run short of ${floor} min, ADD depth segments — never send the learner away early
+2. Each session must have exactly ${legacySectionCount} subtopics (computed from session duration: floor((${maxMins} - 2) / 2) = ${legacySectionCount}, minimum 2)
 3. Each session ends at a complete thought — learner stops feeling satisfied, not cut off
 4. Session titles must be specific and descriptive, never "Part 1" or "Introduction"
-5. 2–5 subtopics or depth segments per session
 
-Depth segment types you may add when sessions run short:
-- example: a worked real-world scenario relevant to ${profile.industry} (3–4 min)
-- application: how this applies specifically to a ${profile.role} (2–3 min)
-- pitfalls: common mistakes executives make and how to avoid them (2–3 min)
-- practice: a concrete action the learner can take today (2 min)
-- summary: key takeaways and a decision framework (2–3 min)
+Subtopic types available:
+- concept: a core idea or mechanism
+- example: a worked real-world scenario relevant to ${profile.industry}
+- application: how this applies specifically to a ${profile.role}
+- pitfalls: common mistakes executives make and how to avoid them
+- practice: a concrete action the learner can take today
+- summary: key takeaways and a decision framework
+
+SECTION STRUCTURE RULES — MANDATORY
+Section 1 — Context anchor (always first):
+  Do NOT open with the topic name or a definition.
+  Open with: "Here is why this is on your radar right now as a [role] in [industry]."
+  Connect to something the user already knows or a decision they currently face.
+
+Sections 2 to N-1 — Core concepts in dependency order:
+  Each section covers exactly one concept.
+  Order them so each concept unlocks the next.
+
+Section N — Practical application (always last):
+  Do NOT introduce any new concept.
+  Give one specific action or decision the user can take based on what was covered.
+  Name it explicitly. Connect it to the user's role.
+
+When sectionCount = 2: Section 2 serves as both core concept and practical application.
+Give one concrete action at the end of Section 2.
 
 Respond ONLY with valid JSON matching this exact schema (no markdown, no explanation):
 {

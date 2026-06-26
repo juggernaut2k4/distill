@@ -239,6 +239,27 @@ SESSION TOPIC: ${topicTitle}
 SUBTOPICS TO COVER (in order):
 ${subtopicTitles.map((t, i) => `${i + 1}. ${t}`).join('\n')}
 
+SECTION STRUCTURE RULES — MANDATORY
+The subtopic list above is ordered. Follow this arc exactly:
+
+Section 1 — Context anchor (always first, regardless of topic):
+  Do NOT open with the topic name or a definition of what is being taught.
+  Instead, open with: "Here is why this is on your radar right now as a [role] in [industry]."
+  Connect to something the user already knows or a decision they are currently facing.
+  The goal is to give the user a frame before any detail arrives.
+
+Sections 2 to N-1 — Core concepts in dependency order:
+  Each section covers exactly one concept.
+  Order them so understanding each one unlocks the next.
+  Do not reorder the subtopics from the list — the list is already in dependency order.
+
+Section N — Practical application (always last):
+  Do not introduce any new concept in this section.
+  Give one specific action or decision the user can take based on what was covered today.
+  Name the action explicitly. Connect it to the user's role.
+
+When there are exactly 2 sections: Section 2 serves as both core concept and practical application.
+
 LEARNING HISTORY
 ${previousContext}
 
