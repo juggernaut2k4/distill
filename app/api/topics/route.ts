@@ -172,7 +172,9 @@ async function handleTopicsPost(request: NextRequest, userId: string): Promise<N
   // If first save or pure deletion: standard full regeneration.
   // If addition: generate new topic arc + bridging sessions.
   try {
+    const topicsHash = [...newTopics].sort().join('-').slice(0, 40)
     await inngest.send({
+      id: `topics-selected-${userId}-${topicsHash}`,
       name: 'clio/topics.selected',
       data: {
         userId,

@@ -60,7 +60,12 @@ export async function POST(request: NextRequest) {
     // Template missing — either it was never cached (fallback case from generate-preview)
     // or it expired. Fire clio/topics.selected so curriculum-generator kicks off a real
     // LLM plan in the background.
-    await inngest.send({ name: 'clio/topics.selected', data: { userId: userId! } })
+    const topicsHash = profile_hash.slice(0, 40)
+    await inngest.send({
+      id: `topics-selected-${userId!}-${topicsHash}`,
+      name: 'clio/topics.selected',
+      data: { userId: userId! },
+    })
     return NextResponse.json(
       { code: 'TEMPLATE_NOT_FOUND', generating: true },
       { status: 202 }
@@ -71,7 +76,12 @@ export async function POST(request: NextRequest) {
   // Fire clio/topics.selected so curriculum-generator produces a real LLM plan in the
   // background, then return 202 so the dashboard knows generation is in progress.
   if (template.is_fallback) {
-    await inngest.send({ name: 'clio/topics.selected', data: { userId: userId! } })
+    const topicsHash = profile_hash.slice(0, 40)
+    await inngest.send({
+      id: `topics-selected-${userId!}-${topicsHash}`,
+      name: 'clio/topics.selected',
+      data: { userId: userId! },
+    })
     return NextResponse.json(
       { code: 'TEMPLATE_FALLBACK', generating: true },
       { status: 202 }

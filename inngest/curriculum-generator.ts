@@ -74,6 +74,24 @@ export const curriculumGenerator = inngest.createFunction(
     const planTier  = (user.plan_tier   as string | null) ?? null
     const profileHash = buildProfileHash(role, maturity, topics, roleLevel)
 
+    // ── Early-exit guard (second line of defence against duplicate runs) ──────
+    // Inngest idempotency keys prevent two runs from starting, but if two events
+    // slip through (e.g. different idempotency keys), this guard ensures the
+    // second run exits immediately once it sees a non-fallback plan already saved.
+    const { data: existingGuard } = await supabase
+      .from('curriculum_plans')
+      .select('id, raw_llm_output')
+      .eq('user_id', userId)
+      .is('superseded_at', null)
+      .order('generated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (existingGuard && !(existingGuard.raw_llm_output as { is_fallback?: boolean } | null)?.is_fallback) {
+      console.log('[curriculum-generator] plan already exists, skipping duplicate run', { userId, planId: existingGuard.id })
+      return { skipped: true }
+    }
+
     // ── Supersede existing plan if profile changed ────────────────────────────
     const existingPlanId = await step.run('supersede-old-plan', async () => {
       // Use order+limit+maybeSingle so multiple rows (race condition) never silently return null
