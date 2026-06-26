@@ -197,7 +197,9 @@ async function handleEvent(event: RecallWebhookEvent, userIdFromQuery?: string) 
           clio_session_context: null,
           current_section_index: 0,
         })
-        .eq('bot_id', botId)
+        // Use user_id (always resolved from walkthroughRow) rather than bot_id,
+        // which may already be null if the row was partially cleared before this event fires.
+        .eq('user_id', userId)
 
       if (sessionId) {
         await supabase

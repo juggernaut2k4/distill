@@ -54,6 +54,10 @@ export async function createBot(
     body: JSON.stringify({
       meeting_url: meetingUrl,
       bot_name: 'Clio AI Coach',
+      // bot_webhook_url receives all bot status events (bot.joining_call, bot.call_ended, etc.).
+      // We embed userId so the webhook handler can look up walkthrough_state by user_id
+      // when bot_id is absent from the payload (which varies by event type).
+      bot_webhook_url: `${process.env.NEXT_PUBLIC_APP_URL}/api/recall/webhook?userId=${userId}`,
       // web_4_core required for Output Media to properly capture audio from the webpage
       // and relay it to meeting participants. Default "web" variant drops audio.
       variant: {

@@ -378,11 +378,16 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
                     return `Now showing: ${sections[idx].meta.subtopicTitle}`
                   }
                 }
-                // Legacy fallback: generate a VisualSpec and display it
+                // Legacy fallback: generate a VisualSpec and display it.
+                // topic_id and topic_title are optional in the show_visual schema —
+                // guard against undefined so /api/generate-visual never receives an
+                // empty topicId that fails Zod validation.
+                const fallbackTopicId = topic_id ?? `section-${section_index ?? 0}`
+                const fallbackTopicTitle = topic_title ?? `Section ${(section_index ?? 0) + 1}`
                 const res = await fetch('/api/generate-visual', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ userId, topicId: topic_id, topicTitle: topic_title }),
+                  body: JSON.stringify({ userId, topicId: fallbackTopicId, topicTitle: fallbackTopicTitle }),
                 })
                 const data = await res.json() as { ok: boolean }
                 return data.ok ? 'Visual is now showing on screen.' : 'Visual could not be loaded.'
