@@ -281,6 +281,16 @@ async function processSubtopic(
     ? { ...userContext, profileContext }
     : userContext
 
+  // NOTE: This path uses generateTrainingScript(SubSessionOutline) rather than
+  // generateScriptAndVisualization(ContentArticle). A swap is not possible without
+  // replacing Step 1 (generateSessionContentOutline → SubSessionOutline) with
+  // generateContentArticles (→ ContentArticle), which is a full re-architecture of
+  // this async path. SubSessionOutline and ContentArticle are incompatible shapes:
+  // SubSessionOutline carries key_concepts/coaching_narrative/visual_spec/checkpoint_question,
+  // while ContentArticle carries rich 6-section prose (overview, how_it_works,
+  // enterprise_implications, etc.). The primary pipeline (session-content-pipeline.ts)
+  // already uses the correct generateScriptAndVisualization flow. This path is legacy
+  // and should be migrated to match in a dedicated refactor.
   const [section, script] = await Promise.all([
     cachedSection
       ? Promise.resolve(cachedSection)
