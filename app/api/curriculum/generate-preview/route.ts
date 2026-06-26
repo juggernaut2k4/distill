@@ -88,22 +88,28 @@ export async function POST(request: NextRequest) {
     a.sessions.filter((s) => !s.is_visible).map((s) => ({ ...s, arc_name: a.arc_name, arc_type: a.arc_type }))
   )
 
-  // Upsert — handles the race condition where two users generate at the same time
-  await supabase
-    .from('curriculum_plan_templates')
-    .upsert(
-      {
-        profile_hash:     profileHash,
-        visible_sessions: visibleSessions,
-        queue_sessions:   queueSessions,
-        generated_at:     new Date().toISOString(),
-        use_count:        1,
-        is_fallback:      isFallback,
-      },
-      { onConflict: 'profile_hash' }
-    )
+  // Only cache successful LLM plans. Fallbacks have skeleton content (1 session per topic)
+  // and would poison the shared cache for all future users with the same profile hash.
+  // save-preview will fire clio/topics.selected when it sees no valid template, triggering
+  // a real LLM generation via curriculum-generator in the background.
+  if (!isFallback) {
+    // Upsert — handles the race condition where two users generate at the same time
+    await supabase
+      .from('curriculum_plan_templates')
+      .upsert(
+        {
+          profile_hash:     profileHash,
+          visible_sessions: visibleSessions,
+          queue_sessions:   queueSessions,
+          generated_at:     new Date().toISOString(),
+          use_count:        1,
+          is_fallback:      false,
+        },
+        { onConflict: 'profile_hash' }
+      )
+  }
 
-  console.log(`[generate-preview] Template ${isFallback ? '(fallback)' : 'generated'} for hash ${profileHash}`, { rawLlmOutput })
+  console.log(`[generate-preview] Template ${isFallback ? '(fallback — not cached)' : 'generated'} for hash ${profileHash}`, { rawLlmOutput })
 
   return NextResponse.json({
     profile_hash:     profileHash,

@@ -57,13 +57,25 @@ export async function POST(request: NextRequest) {
     .maybeSingle()
 
   if (!template) {
-    return NextResponse.json({ error: 'Template not found', code: 'TEMPLATE_NOT_FOUND' }, { status: 404 })
+    // Template missing — either it was never cached (fallback case from generate-preview)
+    // or it expired. Fire clio/topics.selected so curriculum-generator kicks off a real
+    // LLM plan in the background.
+    await inngest.send({ name: 'clio/topics.selected', data: { userId: userId! } })
+    return NextResponse.json(
+      { code: 'TEMPLATE_NOT_FOUND', generating: true },
+      { status: 202 }
+    )
   }
 
   // Never copy a fallback template — it has 1 session per topic (no LLM expansion).
-  // Return 404 so the caller falls through to the normal Inngest-based generation.
+  // Fire clio/topics.selected so curriculum-generator produces a real LLM plan in the
+  // background, then return 202 so the dashboard knows generation is in progress.
   if (template.is_fallback) {
-    return NextResponse.json({ error: 'Template is a fallback — skipping', code: 'TEMPLATE_FALLBACK' }, { status: 404 })
+    await inngest.send({ name: 'clio/topics.selected', data: { userId: userId! } })
+    return NextResponse.json(
+      { code: 'TEMPLATE_FALLBACK', generating: true },
+      { status: 202 }
+    )
   }
 
   // ── Check if user already has a valid plan with the same hash ─────────────
