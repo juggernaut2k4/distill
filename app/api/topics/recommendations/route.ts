@@ -429,62 +429,121 @@ const SECTION_METADATA: Record<string, { label: string; icon: string }> = {
 }
 
 /**
- * Parses and normalises Claude's raw JSON output into a RecommendationsResponse.
- * Returns null if parsing fails (caller is responsible for logging the raw string).
+ * Attempts to shape a parsed JSON value into a RecommendationsResponse.
+ * Returns null if the value does not match the expected shape.
  */
-function parseClaudeResponse(raw: string): RecommendationsResponse | null {
-  try {
-    // 1. Strip markdown code fences — both opening (```json / ```) and closing (```)
-    let cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim()
-
-    // 2. Strip trailing commas before } or ] (common Claude formatting quirk)
-    //    Handles both single and repeated trailing commas.
-    cleaned = cleaned.replace(/,(\s*[}\]])/g, '$1')
-
-    const parsed = JSON.parse(cleaned) as unknown
-
-    if (!parsed || typeof parsed !== 'object' || !Array.isArray((parsed as Record<string, unknown>).sections)) {
-      return null
-    }
-
-    const rawSections = (parsed as { sections: unknown[] }).sections
-
-    const sections: Section[] = rawSections
-      .filter(
-        (s): s is { id: string; topics: unknown[] } =>
-          typeof s === 'object' &&
-          s !== null &&
-          typeof (s as Record<string, unknown>).id === 'string' &&
-          Array.isArray((s as Record<string, unknown>).topics)
-      )
-      .map((s) => {
-        const meta = SECTION_METADATA[s.id] ?? { label: s.id, icon: 'Circle' }
-        const topics: Topic[] = (s.topics as unknown[])
-          .filter(
-            (t): t is { id: string; title: string; description: string } =>
-              typeof t === 'object' &&
-              t !== null &&
-              typeof (t as Record<string, unknown>).id === 'string' &&
-              typeof (t as Record<string, unknown>).title === 'string' &&
-              typeof (t as Record<string, unknown>).description === 'string'
-          )
-          .map((t) => ({
-            id: t.id,
-            title: t.title,
-            description: t.description,
-          }))
-
-        return { id: s.id, label: meta.label, icon: meta.icon, topics }
-      })
-
-    if (sections.length === 0) return null
-
-    return { sections }
-  } catch {
-    // Log the raw string so the exact Claude output is visible in production logs
-    console.error('[topics/recommendations] JSON.parse failed. Raw Claude response:\n', raw)
+function shapeResponse(parsed: unknown): RecommendationsResponse | null {
+  if (!parsed || typeof parsed !== 'object' || !Array.isArray((parsed as Record<string, unknown>).sections)) {
     return null
   }
+
+  const rawSections = (parsed as { sections: unknown[] }).sections
+
+  const sections: Section[] = rawSections
+    .filter(
+      (s): s is { id: string; topics: unknown[] } =>
+        typeof s === 'object' &&
+        s !== null &&
+        typeof (s as Record<string, unknown>).id === 'string' &&
+        Array.isArray((s as Record<string, unknown>).topics)
+    )
+    .map((s) => {
+      const meta = SECTION_METADATA[s.id] ?? { label: s.id, icon: 'Circle' }
+      const topics: Topic[] = (s.topics as unknown[])
+        .filter(
+          (t): t is { id: string; title: string; description: string } =>
+            typeof t === 'object' &&
+            t !== null &&
+            typeof (t as Record<string, unknown>).id === 'string' &&
+            typeof (t as Record<string, unknown>).title === 'string' &&
+            typeof (t as Record<string, unknown>).description === 'string'
+        )
+        .map((t) => ({
+          id: t.id,
+          title: t.title,
+          description: t.description,
+        }))
+
+      return { id: s.id, label: meta.label, icon: meta.icon, topics }
+    })
+
+  if (sections.length === 0) return null
+
+  return { sections }
+}
+
+/**
+ * Tries JSON.parse on a candidate string and shapes the result.
+ * Returns null on any parse or shape failure.
+ */
+function tryParse(candidate: string): RecommendationsResponse | null {
+  try {
+    return shapeResponse(JSON.parse(candidate) as unknown)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Parses and normalises Claude's raw JSON output into a RecommendationsResponse.
+ * Uses multiple extraction strategies in sequence so that any valid JSON buried in
+ * Claude's response (prose prefix, markdown fences, trailing commas, etc.) is recovered.
+ * Returns null only when every strategy fails — caller logs the full raw string.
+ */
+function parseClaudeResponse(raw: string): RecommendationsResponse | null {
+  // Log the first 500 chars BEFORE any parse attempt so production logs always show
+  // exactly what Claude returned, even when parsing fails.
+  console.log('[topics/recommendations] raw Claude response:', raw.slice(0, 500))
+
+  // Strategy A — try the raw string as-is (Claude may already return clean JSON)
+  const stratA = tryParse(raw)
+  if (stratA) return stratA
+
+  // Strategy B — strip everything before the first { or [ and after the last } or ]
+  const firstBracket = Math.min(
+    raw.indexOf('{') === -1 ? Infinity : raw.indexOf('{'),
+    raw.indexOf('[') === -1 ? Infinity : raw.indexOf('['),
+  )
+  const lastClose = Math.max(raw.lastIndexOf('}'), raw.lastIndexOf(']'))
+  if (firstBracket !== Infinity && lastClose > firstBracket) {
+    const sliced = raw.slice(firstBracket, lastClose + 1)
+    const stratB = tryParse(sliced)
+    if (stratB) return stratB
+
+    // Strategy C — remove trailing commas before } or ] on the sliced string
+    const noTrailing = sliced.replace(/,(\s*[}\]])/g, '$1')
+    const stratC = tryParse(noTrailing)
+    if (stratC) return stratC
+  }
+
+  // Strategy D — strip markdown fences (``` or ```json ... ```) then retry B+C
+  const fenceStripped = raw
+    .replace(/^```(?:json)?\s*/im, '')  // opening fence (may have leading whitespace)
+    .replace(/\s*```\s*$/im, '')        // closing fence (may have trailing whitespace)
+    .trim()
+  const stratD = tryParse(fenceStripped)
+  if (stratD) return stratD
+
+  // Strategy D2 — fence-strip then also strip trailing commas
+  const fenceNoTrailing = fenceStripped.replace(/,(\s*[}\]])/g, '$1')
+  const stratD2 = tryParse(fenceNoTrailing)
+  if (stratD2) return stratD2
+
+  // Strategy E — regex extraction: pull largest {...} or [...] block from the raw string
+  const regexMatch = raw.match(/(\{[\s\S]*\}|\[[\s\S]*\])/)
+  if (regexMatch) {
+    const extracted = regexMatch[1]
+    const stratE = tryParse(extracted)
+    if (stratE) return stratE
+
+    // Strategy E2 — same extracted block but with trailing commas removed
+    const stratE2 = tryParse(extracted.replace(/,(\s*[}\]])/g, '$1'))
+    if (stratE2) return stratE2
+  }
+
+  // All strategies exhausted — log the full raw string so we can diagnose
+  console.error('[topics/recommendations] All JSON parse strategies failed. Full raw Claude response:\n', raw)
+  return null
 }
 
 // ─── Route handler ─────────────────────────────────────────────────────────────
