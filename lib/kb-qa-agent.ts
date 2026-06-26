@@ -101,13 +101,15 @@ function hasSoWhatSentence(text: string): boolean {
 }
 
 /**
- * Runs the 4 automated quality rules against a text string.
+ * Runs the automated quality rules against a content article text string.
  * Never throws — all errors are caught and returned as a failure result.
  *
- * Rule 1: word count ≤ 80 (error)
- * Rule 2: "So what?" sentence present (error)
- * Rule 3: no jargon (warning)
- * Rule 4: ≥ 3 sentences (error)
+ * Rule 1: "So what?" sentence present (error) — articles have no word-count ceiling
+ * Rule 2: no jargon (warning)
+ * Rule 3: ≥ 3 sentences (error)
+ *
+ * Note: the 80-word maximum was removed — content articles are cached and can be
+ * as long as needed. The generation prompt controls quality; no ceiling is enforced here.
  */
 export function runAutomatedQA(text: string): AutomatedQAResult {
   try {
@@ -118,21 +120,14 @@ export function runAutomatedQA(text: string): AutomatedQAResult {
     const sentenceCount = countSentences(text)
     const hasSoWhat = hasSoWhatSentence(text)
 
-    // Rule 1 — Word count ≤ 80
-    if (wordCount > 80) {
-      errors.push(
-        `Content is ${wordCount} words — must be 80 or fewer. Trim to the most impactful sentences.`
-      )
-    }
-
-    // Rule 2 — "So what?" sentence
+    // Rule 1 — "So what?" sentence
     if (!hasSoWhat) {
       errors.push(
         `Missing 'So what?' sentence. Every insight must end with one sentence explaining what this means for the reader's specific role.`
       )
     }
 
-    // Rule 3 — Jargon check (warning only)
+    // Rule 2 — Jargon check (warning only)
     const foundJargon: string[] = []
     const lowerText = text.toLowerCase()
     for (const phrase of JARGON_PHRASES) {
@@ -149,7 +144,7 @@ export function runAutomatedQA(text: string): AutomatedQAResult {
       )
     }
 
-    // Rule 4 — Minimum substance (≥ 3 sentences)
+    // Rule 3 — Minimum substance (≥ 3 sentences)
     if (sentenceCount < 3) {
       errors.push(
         `Content has only ${sentenceCount} sentence(s). An insight needs setup, evidence, and a So what? — at least 3 sentences.`

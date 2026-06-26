@@ -219,12 +219,20 @@ export const sessionContentPipeline = inngest.createFunction(
         const section: TemplateSection = { id: subtopicSlug, type: templateType, data, meta, status: 'pending' } as TemplateSection
 
         // Step F.5: Run automated QA (non-blocking)
-        // QA checks the TEACH segment content — the primary coaching text delivered to the
-        // user. section.data holds visual template data (headline, items, so_what for the
-        // infographic card), which has no body/bodyText fields and would always produce
-        // wordCount=0. The adapted script's TEACH segment is the correct target.
-        const teachSegment = scriptAndViz.segments.find((s) => s.type === 'TEACH')
-        const textToQA: string = teachSegment?.content ?? ''
+        // QA checks the content ARTICLE body — the cached, long-form source-of-truth text
+        // for this subtopic. Articles have NO word-count ceiling (they are cached, not
+        // regenerated per request). The TEACH script is NOT checked here — its quality is
+        // controlled by the generation prompt, and its word budget varies by session duration.
+        // We concatenate the three primary prose sections: overview, how_it_works, and
+        // enterprise_implications. These are the substantive fields that must contain a
+        // "So what?" orientation and have minimum substance (≥ 3 sentences combined).
+        const textToQA: string = [
+          article.sections.overview,
+          article.sections.how_it_works,
+          article.sections.enterprise_implications,
+        ]
+          .filter(Boolean)
+          .join(' ')
 
         const qaResult = runAutomatedQA(textToQA)
         if (!qaResult.passed) {
