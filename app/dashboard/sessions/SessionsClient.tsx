@@ -357,12 +357,12 @@ export default function SessionsClient({ sessions, topicTitleMap, arcNameMap = {
 
   const flatTopicGroups: TopicGroup[] = topicOrder.map((key) => {
     const groupSessions = [...topicGroupMap[key]].sort((a, b) => a.session_index - b.session_index)
-    // TITLE-01: prefer session_title of the first session in the group as the topic label.
-    // Fall back to topicTitleMap (curriculum plan title), then the key itself.
+    // Group header shows the plan topic title (what the user approved).
+    // Individual sessions within the group have their own distinct LLM-designed titles.
     const firstSession = groupSessions[0]
     const titleFromSession = firstSession?.session_title ?? null
     const titleFromPlan = key !== '__ungrouped__' ? (topicTitleMap[key] ?? null) : null
-    const title = titleFromSession ?? titleFromPlan ?? (key === '__ungrouped__' ? 'Other Sessions' : key)
+    const title = titleFromPlan ?? titleFromSession ?? (key === '__ungrouped__' ? 'Other Sessions' : key)
     return { topicId: key, topicTitle: title, sessions: groupSessions }
   })
 
