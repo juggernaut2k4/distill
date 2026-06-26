@@ -445,6 +445,7 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
             if (!cancelled && reconnectAttemptsRef.current < MAX_RECONNECT) {
               reconnectAttemptsRef.current++
               setRetryCount(reconnectAttemptsRef.current)
+              console.log('[walkthrough] WebSocket reconnect attempt', reconnectAttemptsRef.current, '| userId recovered:', !!userId, '| timestamp:', new Date().toISOString())
               const delay = Math.min(3000 * reconnectAttemptsRef.current, 20000)
               console.log(`[Walkthrough] Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current}/${MAX_RECONNECT})`)
               reconnectTimerRef.current = setTimeout(connect, delay)

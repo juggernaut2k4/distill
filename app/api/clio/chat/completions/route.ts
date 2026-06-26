@@ -270,6 +270,7 @@ export async function POST(request: NextRequest) {
       const send = (data: string) =>
         controller.enqueue(encoder.encode(`data: ${data}\n\n`))
 
+      let tokensSent = 0
       try {
         const responseId = `chatcmpl-clio-${Date.now()}`
         const created = Math.floor(Date.now() / 1000)
@@ -318,6 +319,7 @@ export async function POST(request: NextRequest) {
 
           if (event.type === 'content_block_delta') {
             if (event.delta.type === 'text_delta') {
+              tokensSent++
               send(JSON.stringify({
                 id: responseId, object: 'chat.completion.chunk', created, model: 'claude-sonnet-4-6',
                 choices: [{ index: 0, delta: { content: event.delta.text }, finish_reason: null }],
@@ -350,7 +352,7 @@ export async function POST(request: NextRequest) {
 
         send('[DONE]')
       } catch (err) {
-        console.error('[clio/llm] Stream error:', err)
+        console.error('[clio/llm] Stream error causing early [DONE]:', err instanceof Error ? err.message : String(err), '| tokens sent before error:', tokensSent)
         send('[DONE]')
       } finally {
         controller.close()

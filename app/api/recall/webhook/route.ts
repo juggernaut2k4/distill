@@ -132,6 +132,7 @@ async function handleEvent(event: RecallWebhookEvent, userIdFromQuery?: string) 
 
       // Skip the bot's own speech
       const speaker = transcriptObj.speaker ?? ''
+      console.log('[recall/webhook] transcript.data speaker raw:', JSON.stringify(speaker), '| filtered out?', speaker.toLowerCase().includes('clio'))
       if (speaker.toLowerCase().includes('clio')) break
 
       // Write transcript to DB — WalkthroughClient polls this and feeds it
