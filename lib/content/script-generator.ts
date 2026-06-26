@@ -324,20 +324,21 @@ export async function adaptScriptToDuration(
   const canonicalMin = Math.round(canonicalSeconds / 60)
 
   const prompt = isExpanding
-    ? `You are expanding a coaching script to fill a longer session duration.
+    ? `You are deepening a coaching script to fill a longer session — not padding it.
 
 ORIGINAL SCRIPT (for subtopic: "${canonicalScript.subtopic_title}")
-Target: ${targetMin} minutes for this subtopic (expanded from ${canonicalMin} min canonical)
+Target: ${targetMin} minutes for this subtopic (deepened from ${canonicalMin} min original)
 
-SEGMENTS TO EXPAND:
+SEGMENTS TO DEEPEN:
 ${nonCloseSegments.map((s) => `[${s.type}]\n${s.content}`).join('\n\n')}
 
-EXPANSION RULES:
-- TEACH: add a concrete example or brief case study relevant to the role/industry context already in the script; elaborate each on-screen item with one additional sentence of practical implication
-- CHECKPOINT: add a second follow-up angle ("And if your team raised X, how would you respond?")
+DEEPENING RULES — only add if it teaches something:
+- TEACH: add a concrete example or brief case study relevant to the role/industry context already in the script; add one additional sentence of practical implication per on-screen item
+- CHECKPOINT: add a second follow-up angle that tests application ("And if your team raised X, how would you respond?")
 - ICE_BREAKER: add a brief framing sentence before the question to contextualise why you're asking
-- PROBE: expand the reframe with a more detailed analogy or second angle
-- CONTINUE: keep short — no expansion needed (bridge statements stay under 30 seconds)
+- PROBE: deepen the reframe with a more detailed analogy or a second angle that approaches the concept differently
+- CONTINUE: keep short — no expansion needed (bridge statements stay tight)
+- Do not pad — every added sentence must teach or illuminate something concrete
 - Keep the confident, peer-to-peer tone throughout
 - TEACH must still name every on-screen item explicitly
 - Each segment must remain coherent on its own
@@ -348,19 +349,20 @@ Return ONLY valid JSON (no markdown):
     ${nonCloseSegments.map((s) => `{ "type": "${s.type}", "content": "...", "duration_seconds": ${Math.round((s.duration_seconds ?? 30) * availableSeconds / canonicalSeconds)} }`).join(',\n    ')}
   ]
 }`
-    : `You are condensing a coaching script to fit a shorter session duration.
+    : `You are rephrasing a coaching script to be stronger and more confident within a tighter time budget.
 
 ORIGINAL SCRIPT (for subtopic: "${canonicalScript.subtopic_title}")
-Target: ${targetMin} minutes for this subtopic (condensed from ${canonicalMin} min canonical)
+Target: ${targetMin} minutes for this subtopic (rephrased from ${canonicalMin} min original)
 
-SEGMENTS TO CONDENSE:
+SEGMENTS TO REPHRASE:
 ${nonCloseSegments.map((s) => `[${s.type}]\n${s.content}`).join('\n\n')}
 
-CONDENSATION RULES:
-- Preserve EVERY key concept — do not remove any topic or idea
-- Reduce by shortening sentences, removing repetition, and tightening elaborations
+REPHRASING RULES:
+- Preserve EVERY key concept — nothing important gets dropped
+- Eliminate filler phrases, hedging language ("it's worth noting", "you might consider", "in some cases"), and repetition
+- Rephrase for sharpness and confidence — a shorter script should feel more expert, not incomplete
 - TEACH must still reference every on-screen item by name
-- Keep the confident, peer-to-peer tone
+- Keep the peer-to-peer, trusted-colleague tone throughout
 - Each segment must remain coherent on its own — no mid-sentence cuts
 
 Return ONLY valid JSON (no markdown):
@@ -370,7 +372,7 @@ Return ONLY valid JSON (no markdown):
   ]
 }`
 
-  console.log(`[adaptScriptToDuration] ${direction} subtopic "${canonicalScript.subtopic_title}" from ${canonicalMin}min canonical to ${targetMin}min target`)
+  console.log(`[adaptScriptToDuration] ${direction} subtopic "${canonicalScript.subtopic_title}" — rephrasing from ${canonicalMin}min to ${targetMin}min target`)
 
   const message = await anthropic.messages.create({
     model: MODEL,
@@ -406,18 +408,26 @@ Return ONLY valid JSON (no markdown):
  *
  * VP calibration: vp-dir / c-suite roles skip definitions, open on
  * competitive/compliance/procurement framing.
+ *
+ * @param durationMins - Session duration in minutes. Used to set a proactive per-subtopic
+ *   word budget so generation targets the right density from the start. Defaults to 30.
  */
 export async function generateScriptAndVisualization(
   article: ContentArticle,
   userContext: UserContext,
   isLastSubtopic: boolean,
   subtopicIndex: number,
-  totalSubtopics: number
+  totalSubtopics: number,
+  durationMins: number = 30
 ): Promise<ScriptAndVisualizationOutput> {
   if (!anthropic) {
     console.log('[MOCK] script-generator: returning mock ScriptAndVisualizationOutput for', article.subtopic_title)
     return buildMockScriptAndVisualization(article, userContext, isLastSubtopic)
   }
+
+  // Proactive word budget: 140 words/min spoken pace, spread evenly across subtopics.
+  // This drives generation density upfront — not a post-hoc truncation.
+  const wordsPerSubtopic = Math.round((durationMins * 140) / totalSubtopics)
 
   // VP / C-Suite calibration rules
   const isVpOrAbove = userContext.roleLevel === 'vp-dir' || userContext.roleLevel === 'c-suite'
@@ -473,7 +483,10 @@ SUBTOPIC POSITION: ${subtopicIndex + 1} of ${totalSubtopics}${isLastSubtopic ? '
 
 SCRIPT SEGMENTS — write in this exact order:
 
-1. TEACH (~240 words spoken, ~120 seconds)
+1. TEACH (approximately ${wordsPerSubtopic} words spoken)
+   You have ${wordsPerSubtopic} words for this segment. Write with confidence and precision.
+   Prioritise the insight that will most change how this ${userContext.role} thinks or acts.
+   No filler, no hedging, no padding. Every sentence must teach something.
    - Open immediately with the frame specified in calibration rules above
    - Name EXACTLY 3 items that will appear on screen — say "On your screen you'll see three items: [item 1], [item 2], [item 3]"
    - Walk through each item by name. At the EXACT moment you name each item, embed the nav directive INLINE:
@@ -511,7 +524,7 @@ These 3 items are what appear on screen during TEACH — they MUST match what TE
 Return ONLY valid JSON (no markdown, no commentary):
 {
   "segments": [
-    { "type": "TEACH", "content": "...", "duration_seconds": 120 },
+    { "type": "TEACH", "content": "...", "duration_seconds": ${Math.round(wordsPerSubtopic / 140 * 60)} },
     { "type": "CHECKPOINT", "content": "...", "duration_seconds": 65 },
     { "type": "ICE_BREAKER", "content": "...", "duration_seconds": 40 },
     { "type": "PROBE", "content": "...", "duration_seconds": 50 }${isLastSubtopic

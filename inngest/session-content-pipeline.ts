@@ -159,13 +159,16 @@ export const sessionContentPipeline = inngest.createFunction(
       const isLast = i === articles.length - 1
 
       await step.run(`process-subtopic-${subtopicSlug}`, async () => {
-        // Step D: Single atomic LLM call → script segments + visualization spec
+        // Step D: Single atomic LLM call → script segments + visualization spec.
+        // durationMins drives proactive word-budget in the prompt so generation
+        // targets the right density upfront — not a post-hoc truncation.
         const rawScriptAndViz = await generateScriptAndVisualization(
           article,
           userContext,
           isLast,
           i,
-          articles.length
+          articles.length,
+          sessionDurationMins ?? 30
         )
 
         // Step D.5: Adapt script to session duration if duration_mins is set.
