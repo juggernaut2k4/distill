@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createHash } from 'crypto'
 import { z } from 'zod'
 import Anthropic from '@anthropic-ai/sdk'
 import { getRoleTier } from '@/lib/curriculum/role-utils'
 import type { RoleTier } from '@/lib/curriculum/role-utils'
+import { createSupabaseAdminClient } from '@/lib/supabase'
 
 export const maxDuration = 45
 
@@ -79,8 +81,8 @@ const MOCK_RESPONSE_EXECUTIVE: RecommendationsResponse = {
       ],
     },
     {
-      id: 'role',
-      label: 'Based on your role',
+      id: 'decisions',
+      label: 'Decisions you need to own',
       icon: 'Briefcase',
       topics: [
         {
@@ -98,11 +100,16 @@ const MOCK_RESPONSE_EXECUTIVE: RecommendationsResponse = {
           title: 'Measuring AI ROI',
           description: 'Proven methods to quantify and communicate the return on AI investments.',
         },
+        {
+          id: 'board-ai-communication',
+          title: 'Communicating AI to Your Board',
+          description: 'How to present AI risk, opportunity, and progress at board level.',
+        },
       ],
     },
     {
       id: 'tools',
-      label: 'Tools to master',
+      label: 'Tools to be fluent in',
       icon: 'Wrench',
       topics: [
         {
@@ -119,28 +126,6 @@ const MOCK_RESPONSE_EXECUTIVE: RecommendationsResponse = {
           id: 'microsoft-copilot-leadership',
           title: 'Microsoft Copilot for Leadership',
           description: 'Automating executive documents, presentations, and communications.',
-        },
-      ],
-    },
-    {
-      id: 'goal',
-      label: 'Based on your goal',
-      icon: 'Target',
-      topics: [
-        {
-          id: 'ai-fluency-executives',
-          title: 'AI Fluency for Executives',
-          description: 'What every senior leader needs to know to hold their own in any AI conversation.',
-        },
-        {
-          id: 'board-ai-communication',
-          title: 'Communicating AI to Your Board',
-          description: 'How to present AI risk, opportunity, and progress at board level.',
-        },
-        {
-          id: 'ai-team-enablement',
-          title: 'Enabling Your Team with AI',
-          description: 'How leaders accelerate AI adoption without becoming the bottleneck.',
         },
       ],
     },
@@ -174,12 +159,17 @@ const MOCK_RESPONSE_TECHNICAL: RecommendationsResponse = {
           title: 'Multimodal APIs in Practice',
           description: 'Using vision, audio, and document capabilities in production AI applications.',
         },
+        {
+          id: 'structured-outputs-llm',
+          title: 'Structured Outputs from LLMs',
+          description: 'Reliably extracting typed JSON and validated data from language model responses.',
+        },
       ],
     },
     {
-      id: 'role',
-      label: 'Based on your role',
-      icon: 'Briefcase',
+      id: 'skills',
+      label: 'Skills to build',
+      icon: 'Code2',
       topics: [
         {
           id: 'prompt-engineering-engineers',
@@ -196,6 +186,16 @@ const MOCK_RESPONSE_TECHNICAL: RecommendationsResponse = {
           title: 'AI-Assisted Code Review',
           description: 'Using LLMs to catch bugs, suggest refactors, and enforce patterns at PR time.',
         },
+        {
+          id: 'llm-fundamentals-engineers',
+          title: 'LLM Fundamentals for Engineers',
+          description: 'Tokens, context windows, temperature, and inference — what every builder must know.',
+        },
+        {
+          id: 'ai-safety-practitioners',
+          title: 'AI Safety for Practitioners',
+          description: 'Prompt injection, jailbreaks, and output validation in production systems.',
+        },
       ],
     },
     {
@@ -209,31 +209,14 @@ const MOCK_RESPONSE_TECHNICAL: RecommendationsResponse = {
           description: 'Messages API, tool use, streaming, and context management in production.',
         },
         {
-          id: 'github-copilot-engineers',
-          title: 'GitHub Copilot for Engineers',
-          description: 'Beyond autocomplete: using Copilot for architecture, tests, and debugging.',
-        },
-        {
           id: 'cursor-ai-ide',
           title: 'Cursor AI IDE',
           description: 'The AI-native editor and how to use it for complex multi-file refactors.',
         },
-      ],
-    },
-    {
-      id: 'goal',
-      label: 'Based on your goal',
-      icon: 'Target',
-      topics: [
         {
-          id: 'llm-fundamentals-engineers',
-          title: 'LLM Fundamentals for Engineers',
-          description: 'Tokens, context windows, temperature, and inference — what every builder must know.',
-        },
-        {
-          id: 'ai-safety-practitioners',
-          title: 'AI Safety for Practitioners',
-          description: 'Prompt injection, jailbreaks, and output validation in production systems.',
+          id: 'github-copilot-engineers',
+          title: 'GitHub Copilot for Engineers',
+          description: 'Beyond autocomplete: using Copilot for architecture, tests, and debugging.',
         },
         {
           id: 'mlops-llm-era',
@@ -275,9 +258,9 @@ const MOCK_RESPONSE_MANAGER: RecommendationsResponse = {
       ],
     },
     {
-      id: 'role',
-      label: 'Based on your role',
-      icon: 'Briefcase',
+      id: 'team',
+      label: 'Enabling your team',
+      icon: 'Users',
       topics: [
         {
           id: 'evaluating-ai-tools-function',
@@ -293,6 +276,11 @@ const MOCK_RESPONSE_MANAGER: RecommendationsResponse = {
           id: 'ai-workflows-operations',
           title: 'AI Workflows for Operations',
           description: 'The highest-leverage AI use cases for operational and cross-functional teams.',
+        },
+        {
+          id: 'ai-change-management',
+          title: 'AI Change Management',
+          description: 'How to handle team resistance, upskilling gaps, and workflow disruption.',
         },
       ],
     },
@@ -315,28 +303,6 @@ const MOCK_RESPONSE_MANAGER: RecommendationsResponse = {
           id: 'microsoft-copilot-managers',
           title: 'Microsoft Copilot for Managers',
           description: 'Automating meeting notes, action tracking, and reporting across your team.',
-        },
-      ],
-    },
-    {
-      id: 'goal',
-      label: 'Based on your goal',
-      icon: 'Target',
-      topics: [
-        {
-          id: 'ai-fluency-managers',
-          title: 'AI Fluency for Managers',
-          description: 'What every manager needs to understand to lead an AI-enabled team.',
-        },
-        {
-          id: 'prompt-skills-managers',
-          title: 'Practical Prompt Skills',
-          description: 'The prompting techniques that deliver the most value with the least effort.',
-        },
-        {
-          id: 'ai-change-management',
-          title: 'AI Change Management',
-          description: 'How to handle team resistance, upskilling gaps, and workflow disruption.',
         },
       ],
     },
@@ -394,43 +360,96 @@ Return ONLY valid JSON matching the specified schema. Be specific and practical 
 
 // ─── Claude prompt builder ─────────────────────────────────────────────────────
 
-function buildUserPrompt(
-  role: string,
-  primaryDomain: string,
-  subDomain: string,
-  aiMaturity: string,
-  learningGoal: string
-): string {
-  return `Generate AI learning topic recommendations for:
+const USER_PROMPTS: Record<RoleTier, (role: string, primaryDomain: string, subDomain: string, aiMaturity: string, learningGoal: string) => string> = {
+  technical: (role, primaryDomain, subDomain, aiMaturity, learningGoal) =>
+    `Generate AI learning topic recommendations for:
 - Role: ${role}
 - Domain: ${primaryDomain}
 - Sub-domain: ${subDomain}
 - AI experience: ${aiMaturity}
 - Learning goal: ${learningGoal}
 
-Return exactly 4 sections:
-1. "trending" — 4 topics: the most relevant AI trends and emerging use cases in ${subDomain} within ${primaryDomain} right now
-2. "role" — 4 topics: what ${role}-level professionals in ${primaryDomain} are actively learning to stay ahead in AI
-3. "tools" — 3 topics: the specific AI tools, APIs, or platforms that ${role}s in ${primaryDomain} are adopting or need to master
-4. "goal" — 3 topics: topics that directly address their learning goal "${learningGoal}" and AI experience level "${aiMaturity}"
+Return exactly 3 sections. Think from this developer's perspective — what do they actually need to build great AI systems?
+
+1. "trending" — 5 topics: what is happening RIGHT NOW in AI engineering that someone in ${subDomain} must know about. Urgent and specific.
+2. "skills" — 5 topics: the concrete implementation skills and techniques a ${role} in ${primaryDomain} needs to build and ship AI systems. Things they can use in their next sprint.
+3. "tools" — 4 topics: the exact AI tools, APIs, IDEs, or platforms that ${role}s in ${subDomain} are investing time in right now.
 
 Rules:
-- Every topic must be specific to this person's exact role, domain, and sub-domain — never generic
-- Topics should feel like "I need to know this NOW for my career" not "this might be useful someday"
-- No duplicates across sections
-- Each topic: { "id": "kebab-case-slug", "title": "max 7 words, specific and concrete", "description": "one sentence, max 18 words, what they will be able to DO" }
+- Every topic must be specific to this exact role and sub-domain — never generic
+- Titles: max 7 words, concrete and specific (never "Introduction to X" or "Overview of Y")
+- Descriptions: one sentence, max 18 words, what they can DO after learning this
 
-Return JSON only — no markdown, no explanation, no code fences.
-Format: { "trending": [...], "role": [...], "tools": [...], "goal": [...] }`
+Return JSON only — no markdown, no explanation.
+Format: { "trending": [...], "skills": [...], "tools": [...] }`,
+
+  executive: (role, primaryDomain, subDomain, aiMaturity, learningGoal) =>
+    `Generate AI learning topic recommendations for:
+- Role: ${role}
+- Domain: ${primaryDomain}
+- Sub-domain: ${subDomain}
+- AI experience: ${aiMaturity}
+- Learning goal: ${learningGoal}
+
+Return exactly 3 sections. Think from this executive's perspective — what do they need to own, decide, and understand about AI?
+
+1. "trending" — 4 topics: urgent AI developments in ${subDomain} within ${primaryDomain} that this leader must be aware of right now.
+2. "decisions" — 4 topics: the specific AI decisions, governance choices, and strategic calls that a ${role} in ${primaryDomain} needs to own. Frame each as a decision they must make.
+3. "tools" — 3 topics: the AI tools this executive should be personally fluent in — not their team's tools, theirs.
+
+Rules:
+- Frame topics at the decision-maker level — not "how to build", but "how to evaluate, govern, fund, or lead"
+- Titles: max 7 words, concrete and specific
+- Descriptions: one sentence, max 18 words, what they can decide or do after learning this
+
+Return JSON only — no markdown, no explanation.
+Format: { "trending": [...], "decisions": [...], "tools": [...] }`,
+
+  manager: (role, primaryDomain, subDomain, aiMaturity, learningGoal) =>
+    `Generate AI learning topic recommendations for:
+- Role: ${role}
+- Domain: ${primaryDomain}
+- Sub-domain: ${subDomain}
+- AI experience: ${aiMaturity}
+- Learning goal: ${learningGoal}
+
+Return exactly 3 sections. Think from this manager's perspective — what do they need to adopt AI for themselves and enable it for their team?
+
+1. "trending" — 4 topics: what is happening in AI right now that directly affects a ${role} managing a team in ${subDomain}.
+2. "team" — 4 topics: the specific AI adoption, coaching, and workflow topics a ${role} needs to enable their team. Each topic should result in a concrete action they take with their team.
+3. "tools" — 3 topics: the AI tools this manager should master — to use personally and to evaluate for their team.
+
+Rules:
+- Topics should be operational, not strategic (board-level) and not technical (implementation-level)
+- Titles: max 7 words, concrete and specific
+- Descriptions: one sentence, max 18 words, what they can do or change after learning this
+
+Return JSON only — no markdown, no explanation.
+Format: { "trending": [...], "team": [...], "tools": [...] }`,
+}
+
+function buildUserPrompt(
+  tier: RoleTier,
+  role: string,
+  primaryDomain: string,
+  subDomain: string,
+  aiMaturity: string,
+  learningGoal: string
+): string {
+  return USER_PROMPTS[tier](role, primaryDomain, subDomain, aiMaturity, learningGoal)
 }
 
 // ─── JSON response shaping ─────────────────────────────────────────────────────
 
 const SECTION_METADATA: Record<string, { label: string; icon: string }> = {
-  trending: { label: 'Trending in your field', icon: 'TrendingUp' },
-  role: { label: 'Based on your role', icon: 'Briefcase' },
-  tools: { label: 'Tools to master', icon: 'Wrench' },
-  goal: { label: 'Based on your goal', icon: 'Target' },
+  trending:  { label: 'Trending in your field',    icon: 'TrendingUp' },
+  skills:    { label: 'Skills to build',           icon: 'Code2'      },
+  decisions: { label: 'Decisions you need to own', icon: 'Briefcase'  },
+  team:      { label: 'Enabling your team',        icon: 'Users'      },
+  tools:     { label: 'Tools to master',           icon: 'Wrench'     },
+  // legacy keys — kept so any cached/in-flight responses still render
+  role: { label: 'Based on your role',  icon: 'Briefcase' },
+  goal: { label: 'Based on your goal',  icon: 'Target'    },
 }
 
 /**
@@ -442,8 +461,8 @@ function shapeResponse(parsed: unknown): RecommendationsResponse | null {
 
   const obj = parsed as Record<string, unknown>
 
-  // Claude returns { trending: [...], role: [...] } — normalise to the internal sections format
-  const KNOWN_SECTION_KEYS = ['trending', 'role', 'tools', 'goal']
+  // Claude returns { trending: [...], skills: [...] } — normalise to the internal sections format
+  const KNOWN_SECTION_KEYS = ['trending', 'skills', 'decisions', 'team', 'tools', 'role', 'goal']
   let rawSections: unknown[]
 
   if (Array.isArray(obj.sections)) {
@@ -564,6 +583,84 @@ function parseClaudeResponse(raw: string): RecommendationsResponse | null {
   return null
 }
 
+// ─── Cache helpers ─────────────────────────────────────────────────────────────
+
+function buildCacheKey(
+  tier: string,
+  role: string,
+  primaryDomain: string,
+  subDomain: string,
+  aiMaturity: string,
+  learningGoal: string
+): string {
+  const canonical = [tier, role, primaryDomain, subDomain, aiMaturity, learningGoal]
+    .map((s) => s.trim().toLowerCase())
+    .join('|')
+  return createHash('sha256').update(canonical).digest('hex')
+}
+
+async function getCachedRecommendations(hash: string): Promise<Section[] | null> {
+  try {
+    const supabase = createSupabaseAdminClient()
+    const { data } = await supabase
+      .from('topic_recommendations_cache')
+      .select('sections, hit_count')
+      .eq('profile_hash', hash)
+      .single()
+    if (!data) return null
+    // Bump hit count + last_used_at in background — don't block the response
+    void supabase
+      .from('topic_recommendations_cache')
+      .update({ hit_count: (data.hit_count as number) + 1, last_used_at: new Date().toISOString() } as never)
+      .eq('profile_hash', hash)
+    return data.sections as Section[]
+  } catch {
+    return null
+  }
+}
+
+/** Union-merge two section arrays. Existing topics are never removed; only new IDs are appended. */
+function mergeSections(existing: Section[], incoming: Section[]): Section[] {
+  const result = existing.map((s) => ({ ...s, topics: [...s.topics] }))
+  for (const inc of incoming) {
+    const match = result.find((s) => s.id === inc.id)
+    if (!match) {
+      result.push({ ...inc })
+    } else {
+      const existingIds = new Set(match.topics.map((t) => t.id))
+      for (const topic of inc.topics) {
+        if (!existingIds.has(topic.id)) match.topics.push(topic)
+      }
+    }
+  }
+  return result
+}
+
+async function saveToCache(hash: string, tier: string, newSections: Section[]): Promise<void> {
+  try {
+    const supabase = createSupabaseAdminClient()
+    const { data: existing } = await supabase
+      .from('topic_recommendations_cache')
+      .select('sections')
+      .eq('profile_hash', hash)
+      .single()
+
+    if (existing) {
+      const merged = mergeSections(existing.sections as Section[], newSections)
+      await supabase
+        .from('topic_recommendations_cache')
+        .update({ sections: merged, last_used_at: new Date().toISOString() } as never)
+        .eq('profile_hash', hash)
+    } else {
+      await supabase
+        .from('topic_recommendations_cache')
+        .insert({ profile_hash: hash, tier, sections: newSections })
+    }
+  } catch (err) {
+    console.error('[topic-rec-cache] save failed:', err)
+  }
+}
+
 // ─── Route handler ─────────────────────────────────────────────────────────────
 
 /**
@@ -588,8 +685,17 @@ export async function POST(
 
     const { role, primaryDomain, subDomain, learningGoal, aiMaturity, roleLevel } = parsed.data
 
-    // Derive the three-tier bucket once — used for both prompt selection and fallback selection
+    // Derive the three-tier bucket once — used for prompt selection, fallback selection, and cache key
     const tier = getRoleTier(roleLevel)
+
+    // ── Cache lookup ─────────────────────────────────────────────────────────────
+    const cacheKey = buildCacheKey(tier, role, primaryDomain, subDomain, aiMaturity, learningGoal)
+    const cached = await getCachedRecommendations(cacheKey)
+    if (cached) {
+      console.log('[topic-rec-cache] HIT for key:', cacheKey.slice(0, 12))
+      return NextResponse.json({ sections: cached })
+    }
+    console.log('[topic-rec-cache] MISS — calling Claude for tier:', tier)
 
     // ── Mock guard (PLACEHOLDER_ key) ───────────────────────────────────────────
     const apiKey = process.env.ANTHROPIC_API_KEY ?? ''
@@ -604,6 +710,7 @@ export async function POST(
     const systemPrompt = SYSTEM_PROMPTS[tier]
 
     const userPrompt = buildUserPrompt(
+      tier,
       role,
       primaryDomain,
       subDomain,
@@ -642,6 +749,9 @@ export async function POST(
       console.error('[topics/recommendations] Failed to parse Claude JSON response')
       return NextResponse.json({ fallback: true, sections: MOCK_RESPONSES[tier].sections } as FallbackResponse)
     }
+
+    // Save to cache — awaited so it completes before the cold path returns (~50ms, negligible vs 3-5s Claude)
+    await saveToCache(cacheKey, tier, result.sections)
 
     return NextResponse.json(result)
   } catch (err) {

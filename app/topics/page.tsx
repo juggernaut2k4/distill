@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useUser } from '@clerk/nextjs'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  TrendingUp, Briefcase, Wrench, Target, Plus, ArrowRight,
+  TrendingUp, Briefcase, Wrench, Target, Code2, Users, Plus, ArrowRight,
 } from 'lucide-react'
 import { inferRoleLevel } from '@/lib/curriculum/role-utils'
 
@@ -57,12 +57,18 @@ const SECTION_ICON_MAP: Record<string, LucideIconComponent> = {
   Briefcase,
   Wrench,
   Target,
+  Code2,
+  Users,
 }
 
 const FALLBACK_SECTION_ICONS: Record<string, string> = {
-  trending: 'TrendingUp',
+  trending:  'TrendingUp',
+  skills:    'Code2',
+  decisions: 'Briefcase',
+  team:      'Users',
+  tools:     'Wrench',
+  // legacy
   role: 'Briefcase',
-  tools: 'Wrench',
   goal: 'Target',
 }
 
