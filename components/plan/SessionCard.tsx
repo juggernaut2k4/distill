@@ -96,7 +96,7 @@ export function SessionCard({ session, isCompleted, isCurrent, completedAt, isNe
             className="text-xs font-medium px-2 py-0.5 rounded-full"
             style={{ color: depth.text, backgroundColor: depth.bg }}
           >
-            {session.depth_level.charAt(0).toUpperCase() + session.depth_level.slice(1)}
+            {(session.depth_level ?? 'intermediate').charAt(0).toUpperCase() + (session.depth_level ?? 'intermediate').slice(1)}
           </span>
           {isCurrent && onStart && (
             <Button size="sm" onClick={onStart} className="mt-1 text-xs gap-1">
