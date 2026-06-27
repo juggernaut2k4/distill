@@ -81,12 +81,13 @@ export async function POST(request: NextRequest) {
     roleLevel,
   })
 
-  const visibleSessions = output.arcs.flatMap((a) =>
-    a.sessions.filter((s) => s.is_visible).map((s) => ({ ...s, arc_name: a.arc_name, arc_type: a.arc_type }))
-  )
-  const queueSessions = output.arcs.flatMap((a) =>
-    a.sessions.filter((s) => !s.is_visible).map((s) => ({ ...s, arc_name: a.arc_name, arc_type: a.arc_type }))
-  )
+  // CURR-01 v2: arcs have comprehensive_subtopics[], not sessions[]. Store arc objects directly.
+  const visibleSessions = output.arcs
+    .filter((a) => a.is_visible)
+    .map((a) => ({ arc_name: a.arc_name, arc_type: a.arc_type, arc_description: a.arc_description, comprehensive_subtopics: a.comprehensive_subtopics }))
+  const queueSessions = output.arcs
+    .filter((a) => !a.is_visible)
+    .map((a) => ({ arc_name: a.arc_name, arc_type: a.arc_type, arc_description: a.arc_description, comprehensive_subtopics: a.comprehensive_subtopics, queue_rationale: a.queue_rationale }))
 
   // Only cache successful LLM plans. Fallbacks have skeleton content (1 session per topic)
   // and would poison the shared cache for all future users with the same profile hash.

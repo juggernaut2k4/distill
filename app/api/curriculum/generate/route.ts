@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
 
   const { data: user, error: dbError } = await supabase
     .from('users')
-    .select('id, role, industry, ai_maturity, role_level, topic_interests, plan_tier, worry_tags')
+    .select('id, role, industry, ai_maturity, role_level, topic_interests, plan_tier, worry_tags, learning_goal')
     .eq('id', userId!)
     .single()
 
@@ -101,6 +101,7 @@ export async function POST(request: NextRequest) {
     topics,
     planTier,
     roleLevel,
+    learningGoal: (user as { learning_goal?: string }).learning_goal ?? undefined,
   })
 
   // FB-007: when enrichment succeeded, apply layer-based visibility rules
@@ -114,12 +115,14 @@ export async function POST(request: NextRequest) {
     visibleSessions = visible
     queueSessions = queued
   } else {
-    visibleSessions = output.arcs.flatMap((a) =>
-      a.sessions.filter((s) => s.is_visible).map((s) => ({ ...s, arc_name: a.arc_name, arc_type: a.arc_type }))
-    )
-    queueSessions = output.arcs.flatMap((a) =>
-      a.sessions.filter((s) => !s.is_visible).map((s) => ({ ...s, arc_name: a.arc_name, arc_type: a.arc_type }))
-    )
+    // CURR-01 v2: arcs have comprehensive_subtopics[], not sessions[].
+    // Store arcs directly — the session organizer divides them into sessions at approve time.
+    visibleSessions = output.arcs
+      .filter((a) => a.is_visible)
+      .map((a) => ({ arc_name: a.arc_name, arc_type: a.arc_type, arc_description: a.arc_description, comprehensive_subtopics: a.comprehensive_subtopics }))
+    queueSessions = output.arcs
+      .filter((a) => !a.is_visible)
+      .map((a) => ({ arc_name: a.arc_name, arc_type: a.arc_type, arc_description: a.arc_description, comprehensive_subtopics: a.comprehensive_subtopics, queue_rationale: a.queue_rationale }))
   }
 
   // Store enriched_plan inside raw_llm_output JSONB — no new DB column needed.

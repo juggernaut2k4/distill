@@ -20,18 +20,24 @@ export const SessionSchema = z.object({
   queue_rationale: z.string().max(2000).nullable(),
 })
 
+// ArcSchema v2 — comprehensive_subtopics replaces sessions[].
+// SessionSchema (below) is retained for generateQueueExtension only.
 export const ArcSchema = z.object({
-  arc_name: z.string().min(1).max(100),
-  arc_type: z.enum(['domain', 'integrated', 'singleton']),
-  sessions: z.array(SessionSchema).min(1).max(30),
+  arc_name:                z.string().min(1).max(100),
+  arc_type:                z.enum(['domain', 'integrated', 'singleton']),
+  arc_description:         z.string().min(10).max(1000),
+  comprehensive_subtopics: z.array(z.string().min(3).max(1000)).min(1).max(100),
+  is_visible:              z.boolean(),
+  queue_rationale:         z.string().max(2000).nullable(),
 })
 
 export const CurriculumOutputSchema = z.object({
-  arcs: z.array(ArcSchema).min(1).max(10),
-  total_visible: z.number().int().min(1).max(10),
-  total_queued: z.number().int().min(0).max(50),
-  generated_at: z.string(),
+  arcs:              z.array(ArcSchema).min(1).max(10),
+  total_visible:     z.number().int().min(0).max(10),   // count of visible arcs
+  total_queued:      z.number().int().min(0).max(50),   // count of queued arcs
+  generated_at:      z.string(),
   user_profile_hash: z.string().optional().default(''),
+  schema_version:    z.literal('v2').default('v2'),
 })
 
 export type Session = z.infer<typeof SessionSchema> & { estimated_minutes: number }
@@ -288,34 +294,47 @@ ROLE HINT RULES:
 - Write it as a specific instruction: "Frame this as [specific angle] for a ${role} in ${industry}."
 - Focus on the user's ${worry ? `stated worry: "${worry}"` : 'professional context'}.
 
-SUBTOPICS RULES:
-- For each session, generate enough subtopics to fill the session duration at 2 minutes per subtopic.
-  For a 15-minute session: at least 6 subtopics. For a 30-minute session: at least 14 subtopics.
-  Minimum 2 subtopics per session regardless of duration.
-  Formula: floor((session_duration_mins - 2) / 2), minimum 2.
-- Write each subtopic as a specific, concrete learning point (not a vague category name).
-- Bad example: "Overview of AI" — too vague.
-- Good example: "How transformer models process language without understanding meaning" — specific.
-- Do NOT pad with subtopics that are not genuinely needed. Every subtopic must earn its place.
+ARC SUBTOPICS:
+For each arc, generate a COMPREHENSIVE list of ALL sub-topics the learner needs to understand
+this arc completely. Do NOT divide sub-topics by session — session division happens automatically
+after you respond. Do NOT cap, limit, or pad the sub-topic count artificially.
 
-SUBTOPIC ORDERING (within each session):
-Order subtopics from most foundational to most advanced — the learner should be able to follow them in sequence without skipping:
-1. Context / why it matters — the one thing that makes the rest meaningful
-2. Core concept — the fundamental mechanism or idea
-3. How it works in practice — a concrete application in their role or industry
-4. The nuance or pitfall — what trips executives up, what to watch for
-5. The decision or action — what they can do or decide differently after this session
-Not every session needs all five layers. Use the layers that the topic genuinely requires. The key rule: each subtopic should assume the previous one is understood.
+Every sub-topic that earns its place must appear. A sub-topic earns its place if skipping it
+would leave the learner with a gap in their understanding of this arc.
 
-SESSION ID FORMAT: {arc-slug}-s{n} where arc-slug is a kebab-case version of the arc name.
-Example: "ai-governance-arc-s1", "tools-integration-s2"
-All session_ids must be unique within the entire output.
+Typical arc subtopic counts:
+- A focused, single-concept arc: 8–12 sub-topics
+- A broad, multi-concept arc: 20–35 sub-topics
+There is no required count. Coverage completeness is the only criterion.
+
+SUBTOPIC ORDERING within each arc:
+Order sub-topics from most foundational to most advanced so the learner can follow them
+in sequence without back-referencing. Follow this structure:
+
+1. Context anchor (always first): why this arc matters specifically to this user's role.
+   Do NOT open with a definition or the arc name. Open with: "Here is the decision or
+   pressure you face right now as a [role] that makes this arc immediately relevant."
+   Connect to something the user already knows or a situation they currently face.
+
+2. Core concepts (middle sub-topics): one concept per sub-topic, in dependency order.
+   Each sub-topic should assume the previous one is understood. Earlier sub-topics unlock later ones.
+
+3. Practical action (always last): one specific thing the user can do or decide differently
+   after completing this arc. Name it explicitly. Connect it to their role and industry.
+
+SUBTOPIC FORMAT:
+Write each sub-topic as a specific, concrete learning point — not a vague category name.
+Bad:  "Overview of Claude"
+Good: "How to choose between claude-haiku-4-5 and claude-sonnet-4-6 based on latency and cost requirements for your team's production use case"
+
+Do NOT pad with sub-topics that are not genuinely needed. Every sub-topic must earn its place.
 
 IMPORTANT CONSTRAINTS:
-- total_visible must exactly equal the count of sessions where is_visible is true
-- total_queued must exactly equal the count of sessions where is_visible is false
-- queue_rationale must be null for is_visible: true sessions
-- queue_rationale must be a non-empty string for is_visible: false sessions
+- total_visible must exactly equal the count of arcs where is_visible is true
+- total_queued must exactly equal the count of arcs where is_visible is false
+- queue_rationale must be null for is_visible: true arcs
+- queue_rationale must be a non-empty string for is_visible: false arcs
+- schema_version must always be "v2"
 
 Return ONLY valid JSON matching this TypeScript type. No explanation, no markdown, no code block — raw JSON only:
 
@@ -324,26 +343,17 @@ Return ONLY valid JSON matching this TypeScript type. No explanation, no markdow
     {
       "arc_name": string,
       "arc_type": "domain" | "integrated" | "singleton",
-      "sessions": [
-        {
-          "session_id": string,
-          "title": string,
-          "focus": string,
-          "arc_position": number,
-          "arc_length": number,
-          "depth_level": "beginner" | "intermediate" | "advanced",
-          "role_hint": string,
-          "subtopics": string[],
-          "is_visible": boolean,
-          "queue_rationale": string | null
-        }
-      ]
+      "arc_description": "one sentence: what this arc teaches and why it matters for this user",
+      "comprehensive_subtopics": ["string", "string", "..."],
+      "is_visible": boolean,
+      "queue_rationale": string | null
     }
   ],
   "total_visible": number,
   "total_queued": number,
   "generated_at": string,
-  "user_profile_hash": "computed-server-side"
+  "user_profile_hash": "computed-server-side",
+  "schema_version": "v2"
 }`
 }
 
@@ -356,132 +366,53 @@ function buildFallbackPlan(
   planTier: string | null,
   roleLevel: string = 'manager',
 ): CurriculumOutput {
-  const { visible: visibleLimit, queue: queueLimit } = getTierLimits(planTier)
-  const normMaturity = normaliseMaturity(maturity)
+  const { visible: visibleLimit } = getTierLimits(planTier)
 
-  // 1. Build 4 sessions per topic using a deterministic template
-  const sessionsByTopic: Session[][] = topics.map((topic, topicIndex) => {
-    const advancedDepth: 'intermediate' | 'advanced' =
-      normMaturity === 'beginner' ? 'intermediate' : 'advanced'
-
-    const templates: Array<{
-      title: string
-      subtopics: string[]
-      depth_level: 'beginner' | 'intermediate' | 'advanced'
-    }> = [
-      {
-        title: `${topic}: Why It Matters`,
-        subtopics: [
-          'What this topic means for your role',
-          'Why this is on every executive agenda now',
-          'The business risk of ignoring it',
-          'One question to ask in your next AI meeting',
-        ],
-        depth_level: 'beginner',
-      },
-      {
-        title: `${topic}: Core Concepts`,
-        subtopics: [
-          'The fundamental mechanism',
-          "How it differs from what you've heard",
-          'A concrete analogy for non-technical leaders',
-          'What practitioners actually do with it',
-        ],
-        depth_level: 'beginner',
-      },
-      {
-        title: `${topic}: Applying It in Your Role`,
-        subtopics: [
-          'How your peers are already using this',
-          'The decision you can make differently now',
-          'What to ask your team',
-          'How to evaluate vendors on this capability',
-        ],
-        depth_level: 'intermediate',
-      },
-      {
-        title: `${topic}: Advanced Decisions`,
-        subtopics: [
-          'The tradeoffs most leaders miss',
-          'What separates good from great in this area',
-          'Your 90-day action step',
-          'How to measure progress',
-        ],
-        depth_level: advancedDepth,
-      },
+  // Build one v2 arc per topic with comprehensive_subtopics (flat list, no sessions).
+  // The session organizer divides these into sessions at approve time.
+  const arcs: Arc[] = topics.map((topic, topicIndex) => {
+    const isVisible = topicIndex < visibleLimit
+    const subtopics = [
+      `Why ${topic} is on your agenda right now as a ${roleLevel === 'specialist' ? 'practitioner' : 'leader'}`,
+      'The fundamental mechanism — how it actually works',
+      'A concrete analogy that makes this immediately clear',
+      'How your peers in the industry are already applying this',
+      'The common mistake — what trips most people up here',
+      'The decision you can make differently after understanding this',
+      'What to ask your team or vendor to evaluate their approach',
+      'Your 90-day action step to apply this in your role',
     ]
-
-    return templates.map((tmpl, sessionIndex) => ({
-      session_id: `fallback-t${topicIndex}-s${sessionIndex}`,
-      title: tmpl.title,
-      focus: tmpl.title,
-      arc_position: sessionIndex + 1,
-      arc_length: 4,
-      depth_level: tmpl.depth_level,
-      role_hint: roleLevel === 'specialist' ? 'Frame for a practitioner who uses AI tools directly. Keep examples technical and hands-on.'
-        : roleLevel === 'manager' ? 'Frame for a team lead applying AI tools day-to-day. Keep examples practical and team-focused.'
-        : 'Frame for a senior leader with strategic AI interest.',
-      subtopics: tmpl.subtopics,
-      estimated_minutes: 15,
-      // is_visible and queue_rationale assigned after interleaving
-      is_visible: true,
-      queue_rationale: null,
-    }))
+    return {
+      arc_name:                topic,
+      arc_type:                'singleton' as const,
+      arc_description:         `A comprehensive introduction to ${topic} tailored for ${roleLevel === 'specialist' ? 'practitioners' : 'senior leaders'}.`,
+      comprehensive_subtopics: subtopics,
+      is_visible:              isVisible,
+      queue_rationale:         isVisible ? null : 'Available after completing earlier arcs in your plan.',
+    }
   })
 
-  // 2. Interleave across topics: position 0..3, then each topic at that position
-  const interleaved: Array<{ topicIndex: number; session: Session }> = []
-  for (let pos = 0; pos < 4; pos++) {
-    for (let t = 0; t < topics.length; t++) {
-      const s = sessionsByTopic[t][pos]
-      if (s !== undefined) {
-        interleaved.push({ topicIndex: t, session: s })
-      }
-    }
-  }
-
-  // 3. Apply tier limits
-  const totalAllowed = visibleLimit + queueLimit
-  const trimmed = interleaved.slice(0, totalAllowed)
-
-  const withVisibility = trimmed.map((item, idx): typeof item => ({
-    topicIndex: item.topicIndex,
-    session: {
-      ...item.session,
-      is_visible: idx < visibleLimit,
-      queue_rationale: idx < visibleLimit
-        ? null
-        : 'Available after completing earlier sessions in your plan.',
-    },
-  }))
-
-  // 4. Group back into one arc per topic
-  const arcs: Array<z.infer<typeof ArcSchema>> = topics.map((topic, topicIndex) => {
-    const topicSessions = withVisibility
-      .filter((item) => item.topicIndex === topicIndex)
-      .map((item) => item.session)
-    return {
-      arc_name: topic,
-      arc_type: 'singleton' as const,
-      sessions: topicSessions,
-    }
-  }).filter((arc) => arc.sessions.length > 0)
-
-  // 5. Compute totals
-  const allSessions = withVisibility.map((item) => item.session)
-  const totalVisible = allSessions.filter((s) => s.is_visible).length
-  const totalQueued = allSessions.filter((s) => !s.is_visible).length
+  const totalVisible = arcs.filter((a) => a.is_visible).length
+  const totalQueued  = arcs.filter((a) => !a.is_visible).length
 
   return {
     arcs,
-    total_visible: totalVisible,
-    total_queued: totalQueued,
-    generated_at: new Date().toISOString(),
+    total_visible:    totalVisible,
+    total_queued:     totalQueued,
+    generated_at:     new Date().toISOString(),
     user_profile_hash: profileHash,
+    schema_version:   'v2',
   }
 }
 
 // ─── Main planner function ─────────────────────────────────────────────────────
+
+// Maps learningGoal to session minutes — mirrors LEARNING_GOAL_MINUTES in session-designer.ts.
+const PLANNER_SESSION_MINS: Record<string, number> = {
+  quick_wins:      5,
+  steady_progress: 15,
+  deep_dive:       30,
+}
 
 export interface PlannerInput {
   userId: string
@@ -492,6 +423,7 @@ export interface PlannerInput {
   topics: string[]
   planTier: string | null
   roleLevel: string  // 'c-suite' | 'vp-dir' | 'manager' | 'specialist'
+  learningGoal?: string  // 'quick_wins' | 'steady_progress' | 'deep_dive'
 }
 
 export interface PlannerResult {
@@ -541,54 +473,30 @@ export async function generateCurriculumPlan(input: PlannerInput): Promise<Plann
     const parsed = JSON.parse(jsonText)
     const validated = CurriculumOutputSchema.parse(parsed)
 
-    // Enforce tier limits: cap visible sessions
+    // CURR-01: Tier limits are enforced at the arc level (not session level).
+    // Cap visible arcs to visibleLimit; excess visible arcs are moved to queue.
     let visibleCount = 0
-    const capped = {
+    const capped: CurriculumOutput = {
       ...validated,
-      arcs: validated.arcs.map((arc) => ({
-        ...arc,
-        sessions: arc.sessions.map((s) => {
-          if (s.is_visible && visibleCount < visibleLimit) {
-            visibleCount++
-            return s
-          } else if (s.is_visible) {
-            return { ...s, is_visible: false, queue_rationale: s.queue_rationale ?? 'Deferred to queue due to plan tier limit.' }
-          }
-          return s
-        }),
-      })),
+      arcs: validated.arcs.map((arc) => {
+        if (arc.is_visible && visibleCount < visibleLimit) {
+          visibleCount++
+          return arc
+        } else if (arc.is_visible) {
+          return { ...arc, is_visible: false, queue_rationale: arc.queue_rationale ?? 'Deferred to queue due to plan tier limit.' }
+        }
+        return arc
+      }),
+      user_profile_hash: profileHash,
     }
-    const finalVisible = capped.arcs.flatMap((a) => a.sessions).filter((s) => s.is_visible).length
-    const finalQueued = capped.arcs.flatMap((a) => a.sessions).filter((s) => !s.is_visible).length
+    const finalVisible = capped.arcs.filter((a) => a.is_visible).length
+    const finalQueued  = capped.arcs.filter((a) => !a.is_visible).length
+    const final = { ...capped, total_visible: finalVisible, total_queued: finalQueued }
 
-    // Compute estimated_minutes from subtopic count: ceil(n / 4) * 15
-    const withDuration = {
-      ...capped,
-      arcs: capped.arcs.map((arc) => ({
-        ...arc,
-        sessions: arc.sessions.map((s) => ({
-          ...s,
-          estimated_minutes: Math.ceil(s.subtopics.length / 4) * 15,
-        })),
-      })),
-    }
-    const final = { ...withDuration, total_visible: finalVisible, total_queued: finalQueued, user_profile_hash: profileHash }
-
-    // ── FB-007: 3-layer narrative enrichment (2-call pipeline) ─────────────
-    // Run after plan is successfully generated. Failure falls back gracefully.
-    let enrichedPlan: EnrichedPlan | null = null
-    try {
-      enrichedPlan = await enrichCurriculumPlan({
-        role,
-        roleLevel,
-        industry,
-        maturity,
-        arcs: withDuration.arcs,
-      })
-    } catch (enrichErr) {
-      console.error('[planner] 3-layer enrichment threw unexpectedly — using unenriched plan:', enrichErr)
-      enrichedPlan = null
-    }
+    // CURR-01: Skip enrichment for v2 plans — enrichment.ts references arc.sessions[]
+    // which no longer exists. The session organizer (session-organizer.ts) divides
+    // comprehensive_subtopics into sessions at approve time; enrichment runs after that.
+    const enrichedPlan: EnrichedPlan | null = null
 
     return { output: final, isFallback: false, rawLlmOutput: parsed, enrichedPlan }
   } catch (err) {
@@ -662,9 +570,10 @@ Return raw JSON array only.`
     const trimmed = rawText.trim()
     const jsonText = trimmed.startsWith('```') ? trimmed.replace(/^```[a-z]*\n?/, '').replace(/\n?```$/, '') : trimmed
     const parsed = JSON.parse(jsonText) as unknown[]
+    const queueSessionMins = PLANNER_SESSION_MINS[input.learningGoal ?? ''] ?? 15
     return z.array(SessionSchema).parse(parsed).slice(0, queueLimit).map((s) => ({
       ...s,
-      estimated_minutes: Math.ceil(s.subtopics.length / 4) * 15,
+      estimated_minutes: queueSessionMins,
     }))
   } catch (err) {
     console.error('[curriculum/planner] Queue extension failed:', err)

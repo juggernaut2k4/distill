@@ -26,7 +26,7 @@ const DesignedSessionSchema = z.object({
   session_title:   z.string().min(5).max(200),
   session_summary: z.string().min(10).max(1000),
   duration_mins:   z.number().int().min(3).max(60),
-  subtopics:       z.array(SubtopicSchema).min(1).max(6),
+  subtopics:       z.array(SubtopicSchema).min(1).max(30),
 })
 
 const SessionDesignOutputSchema = z.object({
@@ -48,9 +48,10 @@ export interface CurriculumTopicInput {
 }
 
 export interface DesignerUserProfile {
-  role:     string
-  industry: string
-  maturity: string
+  role:      string
+  industry:  string
+  maturity:  string
+  roleLevel?: string
 }
 
 // ─── Fallback ─────────────────────────────────────────────────────────────────
@@ -105,20 +106,26 @@ async function designFromPreplannedSubtopics(
   maxMins: number,
   apiKey:  string,
 ): Promise<DesignedSession[]> {
+  // CURR-01: The session organizer already selected exactly the right subtopics for
+  // this session. One LLM call — no chunking loop needed.
   const subtopics = topic.subtopics!
-  // PACE-01: derive section count from duration formula, minimum 2
-  const sectionCount = Math.max(2, Math.floor((maxMins - 2) / 2))
-  const chunks = chunkArray(subtopics, sectionCount)
   const client = new Anthropic({ apiKey })
+  const subtopicList = subtopics.map((s, i) => `${i + 1}. ${s}`).join('\n')
 
-  const sessions: DesignedSession[] = []
+  const designerFraming: Record<string, string> = {
+    'c-suite':       'You are a senior executive coach preparing a C-Suite leader for AI-literate leadership.',
+    'vp-dir':        'You are a management coach preparing a VP or Director to lead AI adoption for their function.',
+    'vp-technology': 'You are a technical leadership coach preparing a VP of Technology for AI infrastructure decisions.',
+    'vp-product':    'You are a product leadership coach preparing a VP of Product to make AI-driven product decisions.',
+    'manager':       'You are a team leadership coach preparing a manager to adopt AI tools day-to-day.',
+    'specialist':    'You are a practitioner coach preparing an individual contributor to use AI tools hands-on.',
+  }
+  const roleLevel = (profile as DesignerUserProfile & { roleLevel?: string }).roleLevel ?? 'manager'
+  const framingOpener = designerFraming[roleLevel] ?? `You are a curriculum designer for ${profile.role}s in ${profile.industry}.`
 
-  for (const chunk of chunks) {
-    const subtopicList = chunk.map((s, i) => `${i + 1}. ${s}`).join('\n')
+  const prompt = `${framingOpener}
 
-    const prompt = `You are a curriculum designer for an executive learning platform.
-
-Design ONE 15-minute learning session (10 minutes of content + 5 minutes reserved for Q&A).
+Design ONE ${maxMins}-minute learning session (${maxMins - 5} minutes of content + 5 minutes reserved for Q&A).
 
 Topic: "${topic.title}"
 Learner: ${profile.role} in ${profile.industry}, AI familiarity: ${profile.maturity}
@@ -129,16 +136,10 @@ ${subtopicList}
 Rules:
 1. Write a specific session title that captures what these subtopics collectively teach
 2. session_summary starts with "After this session you will..."
-3. duration_mins must be exactly ${maxMins} (this is the 10-min content slot — Q&A is separate)
+3. duration_mins must be exactly ${maxMins}
 4. For each subtopic: assign a type, duration_mins (2–3 min each), and learning_objective
 5. Types: concept | example | application | pitfalls | practice | summary
-6. Total subtopic duration_mins must sum to approximately ${maxMins - 5} (the 10 min teaching window)
-7. Session titles must be specific — never "Part 1", "Introduction", or generic phrases
-
-FOUNDATIONAL FRAMING RULE — applies to every session:
-The first subtopic in this session is a context anchor. It must establish foundational framing
-for the topic — why it matters to this user's role — before any technical detail.
-Do not start with a concept definition. Start with relevance to the user's role and situation.
+6. Session titles must be specific — never "Part 1", "Introduction", or generic phrases
 
 SECTION STRUCTURE RULES — MANDATORY
 Section 1 — Context anchor (always first):
@@ -147,16 +148,11 @@ Section 1 — Context anchor (always first):
   Connect to something the user already knows or a decision they currently face.
 
 Sections 2 to N-1 — Core concepts in dependency order:
-  Each section covers exactly one concept.
-  Order them so each concept unlocks the next.
+  Each section covers exactly one concept, in the order given above.
 
 Section N — Practical application (always last):
   Do NOT introduce any new concept.
   Give one specific action or decision the user can take based on what was covered.
-  Name it explicitly. Connect it to the user's role.
-
-When sectionCount = 2: Section 2 serves as both core concept and practical application.
-Give one concrete action at the end of Section 2.
 
 Respond ONLY with valid JSON (no markdown, no explanation):
 {
@@ -177,49 +173,33 @@ Respond ONLY with valid JSON (no markdown, no explanation):
   ]
 }`
 
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        const response = await client.messages.create({
-          model:      'claude-sonnet-4-6',
-          max_tokens: 2048,
-          messages:   [{ role: 'user', content: prompt }],
-        })
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const response = await client.messages.create({
+        model:      'claude-sonnet-4-6',
+        max_tokens: 2048,
+        messages:   [{ role: 'user', content: prompt }],
+      })
 
-        const content = response.content[0]
-        if (content.type !== 'text') continue
+      const content = response.content[0]
+      if (content.type !== 'text') continue
 
-        const raw    = content.text.replace(/```(?:json)?\n?/g, '').trim()
-        const parsed = JSON.parse(raw) as unknown
-        const result = SessionDesignOutputSchema.safeParse(parsed)
+      const raw    = content.text.replace(/```(?:json)?\n?/g, '').trim()
+      const parsed = JSON.parse(raw) as unknown
+      const result = SessionDesignOutputSchema.safeParse(parsed)
 
-        if (result.success && result.data.sessions.length > 0) {
-          // Enforce exactly maxMins — LLM sometimes drifts by 1
-          sessions.push({ ...result.data.sessions[0], duration_mins: maxMins })
-          break
-        }
-        console.error('[session-designer] pre-planned chunk validation failed, attempt', attempt + 1,
-          result.success ? 'no sessions' : result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')
-        )
-      } catch (err) {
-        console.error('[session-designer] pre-planned chunk error, attempt', attempt + 1, err)
+      if (result.success && result.data.sessions.length > 0) {
+        return [{ ...result.data.sessions[0], duration_mins: maxMins }]
       }
-    }
-
-    // Fallback for this chunk if LLM failed
-    if (sessions.length < chunks.indexOf(chunk) + 1) {
-      sessions.push(buildFallbackSessions({ ...topic, title: `${topic.title}: Part ${chunks.indexOf(chunk) + 1}` }, maxMins)[0])
+      console.error('[session-designer] pre-planned validation failed, attempt', attempt + 1,
+        result.success ? 'no sessions' : result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')
+      )
+    } catch (err) {
+      console.error('[session-designer] pre-planned error, attempt', attempt + 1, err)
     }
   }
 
-  return sessions
-}
-
-// ─── Chunk helper ─────────────────────────────────────────────────────────────
-
-function chunkArray<T>(arr: T[], size: number): T[][] {
-  const chunks: T[][] = []
-  for (let i = 0; i < arr.length; i += size) chunks.push(arr.slice(i, i + size))
-  return chunks
+  return buildFallbackSessions(topic, maxMins)
 }
 
 // ─── LLM session designer ─────────────────────────────────────────────────────
@@ -245,7 +225,7 @@ export async function designSessionsForTopic(
   const floor   = Math.round(maxMins * 0.8)
   const ceiling = Math.round(maxMins * 1.15)
 
-  const prompt = `You are a curriculum designer for an executive learning platform.
+  const prompt = `You are a curriculum designer building learning content for ${profile.role}s in ${profile.industry}.
 
 Design learning session(s) for this topic:
 - Topic: "${topic.title}"

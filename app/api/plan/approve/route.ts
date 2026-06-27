@@ -6,6 +6,7 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
 import { sendPlanReadyEmail, sendPlanApprovedEmail, type User } from '@/lib/delivery/email'
 import { sendSMS } from '@/lib/delivery/sms'
 import { designSessionsForTopic, getSessionDuration, type CurriculumTopicInput } from '@/lib/curriculum/session-designer'
+import { organizeSubtopicsIntoSessions } from '@/lib/curriculum/session-organizer'
 import { inngest } from '@/inngest/client'
 
 interface VisibleSession extends CurriculumTopicInput {
@@ -32,7 +33,7 @@ export async function POST(request: NextRequest) {
   // ── Load user ────────────────────────────────────────────────────────────────
   const { data: user } = await supabase
     .from('users')
-    .select('id, email, role, industry, ai_maturity, phone, twilio_number_assigned, learning_goal, scheduling_prefs')
+    .select('id, email, role, industry, ai_maturity, role_level, phone, twilio_number_assigned, learning_goal, scheduling_prefs')
     .eq('id', userId!)
     .single()
 
@@ -75,65 +76,122 @@ export async function POST(request: NextRequest) {
     if (cleanupErr) console.error('[plan/approve] orphan cleanup failed:', cleanupErr.message)
     else console.log('[plan/approve] orphan sessions cleared')
 
-    const visibleSessions = (
-      Array.isArray(plan.visible_sessions) ? plan.visible_sessions : []
-    ) as VisibleSession[]
-
-    console.log(`[plan/approve] designing ${visibleSessions.length} topics`)
-
+    const rawVisible = Array.isArray(plan.visible_sessions) ? plan.visible_sessions : []
     const maxMins = getSessionDuration((user as { learning_goal?: string }).learning_goal ?? null)
     const profile = {
-      role:     ((user as { role?: string }).role)         ?? 'executive',
-      industry: ((user as { industry?: string }).industry) ?? 'general',
-      maturity: ((user as { ai_maturity?: string }).ai_maturity) ?? 'intermediate',
+      role:      ((user as { role?: string }).role)               ?? 'executive',
+      industry:  ((user as { industry?: string }).industry)       ?? 'general',
+      maturity:  ((user as { ai_maturity?: string }).ai_maturity) ?? 'intermediate',
+      roleLevel: ((user as { role_level?: string }).role_level)   ?? 'c-suite',
     }
 
-    // Design all topics concurrently — designSessionsForTopic has its own LLM+fallback logic
-    const designResults = await Promise.all(
-      visibleSessions.map(async (cs) => ({
-        cs,
-        designed: await designSessionsForTopic(
-          {
-            session_id:        cs.session_id,
-            title:             cs.title,
-            focus:             cs.focus,
-            depth_level:       cs.depth_level,
-            estimated_minutes: cs.estimated_minutes,
-            subtopics:         cs.subtopics as string[] | undefined,
-          },
-          profile,
-          maxMins
-        ),
-      }))
-    )
-
-    console.log(`[plan/approve] designResults: ${designResults.length} topics, total sessions: ${designResults.reduce((n, r) => n + r.designed.length, 0)}`)
+    // CURR-01 v2 detection: v2 arcs have comprehensive_subtopics[]; v1 sessions have session_id + title.
+    const isV2 = rawVisible.length > 0 && Array.isArray((rawVisible[0] as Record<string, unknown>).comprehensive_subtopics)
 
     let globalOrder = 0
-    for (const { cs, designed } of designResults) {
-      for (const ds of designed) {
-        globalOrder++
-        const { data: inserted, error: insertErr } = await supabase.from('sessions').insert({
-          user_id:               userId,
-          session_title:         ds.session_title,
-          topic_id:              cs.session_id,
-          topics:                [cs.session_id],
-          curriculum_plan_id:    plan.id,
-          curriculum_session_id: cs.session_id,
-          sub_sessions:          ds.subtopics,
-          duration_mins:         ds.duration_mins,
-          session_index:         globalOrder,
-          status:                'draft',
-        }).select('id').single()
-        if (insertErr) {
-          console.error('[plan/approve] session insert failed:', insertErr.message, insertErr.code, { index: globalOrder })
-        } else {
-          insertedCount++
-          console.log(`[plan/approve] inserted session ${globalOrder} id=${inserted?.id}`)
+
+    if (isV2) {
+      // ── v2 path: organizer → designer ────────────────────────────────────────
+      type V2Arc = { arc_name: string; arc_type: string; arc_description?: string; comprehensive_subtopics: string[] }
+      const arcs = rawVisible as V2Arc[]
+      console.log(`[plan/approve] v2 plan: organizing ${arcs.length} arcs into sessions (${maxMins}-min each)`)
+
+      const plannedSessions = organizeSubtopicsIntoSessions(
+        arcs.map((a) => ({ arc_name: a.arc_name, comprehensive_subtopics: a.comprehensive_subtopics, is_visible: true })),
+        maxMins,
+      )
+      console.log(`[plan/approve] organizer produced ${plannedSessions.length} sessions`)
+
+      const designResults = await Promise.all(
+        plannedSessions.map(async (ps) => {
+          const arcName = ps.arc_names[0] ?? 'Learning Session'
+          const topicInput: CurriculumTopicInput = {
+            session_id:        `v2-${ps.session_index}`,
+            title:             arcName,
+            focus:             arcName,
+            depth_level:       'intermediate',
+            estimated_minutes: ps.duration_mins,
+            subtopics:         ps.subtopics,
+          }
+          const designed = await designSessionsForTopic(topicInput, profile, ps.duration_mins)
+          return { ps, arcName, designed }
+        })
+      )
+
+      for (const { ps, arcName, designed } of designResults) {
+        for (const ds of designed) {
+          globalOrder++
+          const { data: inserted, error: insertErr } = await supabase.from('sessions').insert({
+            user_id:               userId,
+            session_title:         ds.session_title,
+            topic_id:              arcName.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+            topics:                ps.arc_names,
+            curriculum_plan_id:    plan.id,
+            curriculum_session_id: `v2-arc-${ps.session_index}`,
+            sub_sessions:          ds.subtopics,
+            duration_mins:         ds.duration_mins,
+            session_index:         globalOrder,
+            status:                'draft',
+          }).select('id').single()
+          if (insertErr) {
+            console.error('[plan/approve] v2 session insert failed:', insertErr.message, { index: globalOrder })
+          } else {
+            insertedCount++
+            console.log(`[plan/approve] v2 inserted session ${globalOrder} id=${inserted?.id}`)
+          }
         }
       }
+      console.log(`[plan/approve] v2 inserted ${insertedCount} sessions from ${plannedSessions.length} planned`)
+    } else {
+      // ── v1 path: design directly from visible_sessions ────────────────────────
+      const visibleSessions = rawVisible as VisibleSession[]
+      console.log(`[plan/approve] v1 plan: designing ${visibleSessions.length} topics`)
+
+      const designResults = await Promise.all(
+        visibleSessions.map(async (cs) => ({
+          cs,
+          designed: await designSessionsForTopic(
+            {
+              session_id:        cs.session_id,
+              title:             cs.title,
+              focus:             cs.focus,
+              depth_level:       cs.depth_level,
+              estimated_minutes: cs.estimated_minutes,
+              subtopics:         cs.subtopics as string[] | undefined,
+            },
+            profile,
+            maxMins
+          ),
+        }))
+      )
+
+      console.log(`[plan/approve] v1 designResults: ${designResults.length} topics, total sessions: ${designResults.reduce((n, r) => n + r.designed.length, 0)}`)
+
+      for (const { cs, designed } of designResults) {
+        for (const ds of designed) {
+          globalOrder++
+          const { data: inserted, error: insertErr } = await supabase.from('sessions').insert({
+            user_id:               userId,
+            session_title:         ds.session_title,
+            topic_id:              cs.session_id,
+            topics:                [cs.session_id],
+            curriculum_plan_id:    plan.id,
+            curriculum_session_id: cs.session_id,
+            sub_sessions:          ds.subtopics,
+            duration_mins:         ds.duration_mins,
+            session_index:         globalOrder,
+            status:                'draft',
+          }).select('id').single()
+          if (insertErr) {
+            console.error('[plan/approve] v1 session insert failed:', insertErr.message, insertErr.code, { index: globalOrder })
+          } else {
+            insertedCount++
+            console.log(`[plan/approve] v1 inserted session ${globalOrder} id=${inserted?.id}`)
+          }
+        }
+      }
+      console.log(`[plan/approve] v1 inserted ${insertedCount}/${designResults.reduce((n, r) => n + r.designed.length, 0)} sessions`)
     }
-    console.log(`[plan/approve] inserted ${insertedCount}/${designResults.reduce((n, r) => n + r.designed.length, 0)} sessions`)
   }
 
   // ── Flip draft → scheduled ───────────────────────────────────────────────────

@@ -252,7 +252,7 @@ async function processSubtopic(
       { onConflict: 'topic_id,subtopic_slug,industry,role' }
     )
 
-  const templateType = selectTemplate(subtopicTitle, subSessionOutline.position)
+  const templateType = selectTemplate(subtopicTitle, subSessionOutline.position, subSessionOutline.visual_spec?.template_hint)
   const contentSpec = subSessionOutline.visual_spec
     ? {
         headline: subSessionOutline.visual_spec.headline,

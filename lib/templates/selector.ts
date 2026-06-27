@@ -1,23 +1,42 @@
 /**
  * Rule-based template selector.
  * Maps subtopic titles to the most appropriate template type using keyword matching.
+ * When a templateHint (from the LLM's visual_spec) is provided and valid, it takes
+ * priority over keyword matching — the LLM knows the content shape, the title does not.
  */
 
 import type { TemplateName } from './types'
 
+// All valid template names — used to validate templateHint before trusting it.
+const VALID_TEMPLATE_NAMES = new Set<string>([
+  'TopicHero', 'ConceptDefinition', 'StepFlow', 'ComparisonTable', 'TwoByTwoMatrix',
+  'FrameworkCard', 'ProsCons', 'CaseStudy', 'StatCallout', 'Timeline', 'ConceptMap',
+  'QuoteCallout', 'KeyTakeaway', 'QuestionAnswer', 'ActionPlan', 'Funnel', 'Flowchart',
+  'Hierarchy', 'ChevronProcess', 'NarrativeCard', 'DefinitionTriptych', 'HorizontalDecision',
+  'AnswerSpotlight',
+])
+
 /**
- * Selects the best template for a subtopic based on its title and position.
+ * Selects the best template for a subtopic based on its title, position, and optional LLM hint.
  *
  * @param subtopicTitle - The title of the subtopic
  * @param position - Whether this is the first, middle, or last section
+ * @param templateHint - Optional hint from the LLM's visual_spec.template_hint (takes priority over keyword matching)
  * @returns The appropriate TemplateName
  */
 export function selectTemplate(
   subtopicTitle: string,
-  position: 'first' | 'middle' | 'last'
+  position: 'first' | 'middle' | 'last',
+  templateHint?: string
 ): TemplateName {
+  // Position always wins for first/last — these are structural anchors.
   if (position === 'first') return 'TopicHero'
   if (position === 'last') return 'KeyTakeaway'
+
+  // LLM hint takes priority: the model knows the content shape; the title does not.
+  if (templateHint && VALID_TEMPLATE_NAMES.has(templateHint)) {
+    return templateHint as TemplateName
+  }
 
   const t = subtopicTitle.toLowerCase()
 
@@ -26,8 +45,13 @@ export function selectTemplate(
     return 'DefinitionTriptych'
   }
 
-  // Comparison / tool landscape
-  if (/\bvs\b|versus|compare|difference between|top tools|tools compared|platforms compared|platform comparison|tool landscape/.test(t)) {
+  // Comparison / tool landscape — extended to catch model-name and product comparisons
+  // that use "and" / "or" / comma-separated names instead of "vs".
+  if (/\bvs\b|versus|compare|difference between|top tools|tools compared|platforms compared|platform comparison|tool landscape|model tiers|model comparison|claude model|sonnet.*haiku|haiku.*opus|gpt.*claude|gemini.*claude/.test(t)) {
+    return 'ComparisonTable'
+  }
+  // Three-or-more named items in one title (e.g. "Sonnet, Haiku and Opus")
+  if (/[a-z]+,\s*[a-z]+\s+(and|or)\s+[a-z]+/.test(t)) {
     return 'ComparisonTable'
   }
 
