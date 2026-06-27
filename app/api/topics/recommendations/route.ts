@@ -593,7 +593,8 @@ function buildCacheKey(
   aiMaturity: string,
   learningGoal: string
 ): string {
-  const canonical = [tier, role, primaryDomain, subDomain, aiMaturity, learningGoal]
+  // v2: bump invalidates all v1 entries (old 2-section format → new 3-section tier-aware format)
+  const canonical = ['v2', tier, role, primaryDomain, subDomain, aiMaturity, learningGoal]
     .map((s) => s.trim().toLowerCase())
     .join('|')
   return createHash('sha256').update(canonical).digest('hex')
