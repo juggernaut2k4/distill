@@ -1,10 +1,16 @@
 import { Webhook } from 'svix'
 import { headers } from 'next/headers'
 import { NextResponse } from 'next/server'
+import { createSupabaseAdminClient } from '@/lib/supabase'
 import { sendSignupWelcomeEmail } from '@/lib/delivery/email'
 
 interface ClerkEmailAddress {
   email_address: string
+  id: string
+}
+
+interface ClerkPhoneNumber {
+  phone_number: string
   id: string
 }
 
@@ -13,6 +19,8 @@ interface ClerkUserCreatedEvent {
     id: string
     email_addresses: ClerkEmailAddress[]
     primary_email_address_id: string
+    phone_numbers?: ClerkPhoneNumber[]
+    primary_phone_number_id?: string | null
     first_name: string | null
     last_name: string | null
   }
@@ -54,7 +62,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ received: true })
   }
 
-  const { id, email_addresses, primary_email_address_id, first_name } = event.data
+  const { id, email_addresses, primary_email_address_id, phone_numbers, primary_phone_number_id, first_name } = event.data
 
   const primaryEmail = email_addresses.find(
     (e) => e.id === primary_email_address_id
@@ -65,6 +73,28 @@ export async function POST(request: Request) {
     return NextResponse.json({ received: true })
   }
 
+  // Extract primary phone number if Clerk has one (e.g. from phone-based sign-up)
+  const primaryPhone = primary_phone_number_id
+    ? (phone_numbers ?? []).find((p) => p.id === primary_phone_number_id)?.phone_number ?? null
+    : null
+
+  // Upsert user row in Supabase so email + phone are always captured at sign-up,
+  // regardless of whether the user completes the onboarding form immediately.
+  const supabase = createSupabaseAdminClient()
+  const { error: upsertError } = await supabase
+    .from('users')
+    .upsert(
+      { id, email: primaryEmail, phone: primaryPhone },
+      { onConflict: 'id', ignoreDuplicates: false }
+    )
+
+  if (upsertError) {
+    console.error('[clerk-webhook] Failed to upsert user in Supabase:', upsertError.message)
+  } else {
+    console.log('[clerk-webhook] User upserted in Supabase:', id, primaryEmail, primaryPhone ?? 'no phone')
+  }
+
+  // Send welcome email
   const result = await sendSignupWelcomeEmail(primaryEmail, first_name ?? '')
   if (!result.success) {
     console.error('[clerk-webhook] Failed to send welcome email to', primaryEmail, result.error)
