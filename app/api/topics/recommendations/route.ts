@@ -408,13 +408,20 @@ function buildUserPrompt(
 - AI experience: ${aiMaturity}
 - Learning goal: ${learningGoal}
 
-Return exactly 2 sections:
-1. "trending" — 3 topics: current AI trends and use cases in ${subDomain} within ${primaryDomain}
-2. "role" — 3 topics: what ${role}-level professionals in ${primaryDomain} are learning about AI right now
+Return exactly 4 sections:
+1. "trending" — 4 topics: the most relevant AI trends and emerging use cases in ${subDomain} within ${primaryDomain} right now
+2. "role" — 4 topics: what ${role}-level professionals in ${primaryDomain} are actively learning to stay ahead in AI
+3. "tools" — 3 topics: the specific AI tools, APIs, or platforms that ${role}s in ${primaryDomain} are adopting or need to master
+4. "goal" — 3 topics: topics that directly address their learning goal "${learningGoal}" and AI experience level "${aiMaturity}"
 
-Each topic must have: { "id": "kebab-case-slug", "title": "max 6 words", "description": "one sentence, max 15 words, specific to their domain" }
+Rules:
+- Every topic must be specific to this person's exact role, domain, and sub-domain — never generic
+- Topics should feel like "I need to know this NOW for my career" not "this might be useful someday"
+- No duplicates across sections
+- Each topic: { "id": "kebab-case-slug", "title": "max 7 words, specific and concrete", "description": "one sentence, max 18 words, what they will be able to DO" }
 
-Return JSON only — no markdown, no explanation, no code fences. Return exactly 2 sections: "trending" (3 items) and "role" (3 items). No other sections.`
+Return JSON only — no markdown, no explanation, no code fences.
+Format: { "trending": [...], "role": [...], "tools": [...], "goal": [...] }`
 }
 
 // ─── JSON response shaping ─────────────────────────────────────────────────────
