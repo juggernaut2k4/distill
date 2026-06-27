@@ -155,6 +155,7 @@ export const sessionMeetingSetup = inngest.createFunction(
               topic_title: sessionTitle,
               topic_id: topicId,
               sections: readySections.length > 0 ? readySections : null,
+              sections_loaded_at: readySections.length > 0 ? new Date().toISOString() : null,
               current_section_index: 0,
               training_scripts: trainingScripts.length > 0 ? trainingScripts : null,
               session_brief: docs.session_brief || null,

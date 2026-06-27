@@ -273,6 +273,7 @@ export async function POST(request: NextRequest) {
         topic_id: topicId,
         skipped_topics: skippedTopics,
         sections: freshSections.length > 0 ? freshSections : null,
+        sections_loaded_at: freshSections.length > 0 ? new Date().toISOString() : null,
         current_section_index: 0,
         training_scripts: trainingScripts.length > 0 ? trainingScripts : null,
         session_brief: docs.session_brief || null,

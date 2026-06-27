@@ -10,10 +10,10 @@ import type { TemplateSection } from '@/lib/templates/types'
  * Used by WalkthroughClient to poll for updates instead of Supabase Realtime,
  * which is unreliable in Recall.ai's headless browser environment.
  *
- * Response includes:
- *   - visual_spec (legacy flow diagram, kept for backward compatibility)
- *   - sections (TemplateSection[], new template-based system)
- *   - current_section_index (number, AI-controlled scroll position)
+ * LIVE-05: Detects stale sections after content regeneration mid-session.
+ * If any topic_content_cache row for the active topic has generated_at newer
+ * than sections_loaded_at, sections are reloaded from cache and walkthrough_state
+ * is updated in place before returning.
  */
 export async function GET(
   _request: NextRequest,
@@ -28,6 +28,53 @@ export async function GET(
 
   if (data?.pending_transcript) {
     console.log('[walkthrough-state] GET returning pending_transcript:', (data.pending_transcript as string).slice(0, 80))
+  }
+
+  // LIVE-05: Stale section detection. Only runs when:
+  //   - A session is active (topic_id + sections_loaded_at present)
+  //   - The state row exists (no point checking on initial load)
+  if (
+    data &&
+    typeof data.topic_id === 'string' &&
+    data.topic_id.length > 0 &&
+    typeof data.sections_loaded_at === 'string'
+  ) {
+    const { data: freshRows } = await supabase
+      .from('topic_content_cache')
+      .select('subtopic_slug, section_data, generated_at')
+      .eq('topic_id', data.topic_id)
+      .eq('pipeline_status', 'ready')
+      .gt('generated_at', data.sections_loaded_at)
+      .limit(1)
+
+    if (freshRows && freshRows.length > 0) {
+      // At least one cache row is newer than when sections were loaded — reload all.
+      console.log(`[walkthrough-state] LIVE-05: stale sections detected for topic ${data.topic_id} — reloading from cache`)
+
+      const { data: allRows } = await supabase
+        .from('topic_content_cache')
+        .select('subtopic_slug, subtopic_title, section_data')
+        .eq('topic_id', data.topic_id)
+        .eq('pipeline_status', 'ready')
+
+      if (allRows && allRows.length > 0) {
+        const reloadedSections: TemplateSection[] = allRows
+          .map((row) => row.section_data as TemplateSection | null)
+          .filter((s): s is TemplateSection => s !== null)
+
+        const nowIso = new Date().toISOString()
+        await supabase
+          .from('walkthrough_state')
+          .update({
+            sections: reloadedSections,
+            sections_loaded_at: nowIso,
+          })
+          .eq('user_id', params.userId)
+
+        // Return with fresh sections so the current poll gets them immediately
+        return NextResponse.json({ ...data, sections: reloadedSections, sections_loaded_at: nowIso })
+      }
+    }
   }
 
   return NextResponse.json(
