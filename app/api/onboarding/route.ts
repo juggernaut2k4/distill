@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { auth } from '@clerk/nextjs/server'
+import { auth, clerkClient } from '@clerk/nextjs/server'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { getUserContentPlan } from '@/lib/content/personalizer'
 import { assignPhoneNumber } from '@/lib/delivery/sms'
@@ -86,6 +86,22 @@ export async function POST(request: NextRequest) {
       twilioNumber = assignPhoneNumber(userId ?? 'anon', data.plan)
     }
 
+    // Fetch email + phone from Clerk so they're always captured,
+    // regardless of whether the onboarding form includes them.
+    let clerkEmail: string | null = data.email ?? null
+    let clerkPhone: string | null = data.phone ?? null
+    try {
+      const clerkUser = await clerkClient().users.getUser(userId)
+      const primaryEmailId = clerkUser.primaryEmailAddressId
+      const primaryPhoneId = clerkUser.primaryPhoneNumberId
+      clerkEmail =
+        clerkUser.emailAddresses.find((e) => e.id === primaryEmailId)?.emailAddress ?? clerkEmail
+      clerkPhone =
+        clerkUser.phoneNumbers?.find((p) => p.id === primaryPhoneId)?.phoneNumber ?? clerkPhone
+    } catch (err) {
+      console.error('[onboarding] Failed to fetch Clerk user for email/phone:', err)
+    }
+
     const supabase = createSupabaseAdminClient()
 
     // Normalise to canonical DB value before saving (CURR-01)
@@ -94,8 +110,8 @@ export async function POST(request: NextRequest) {
     // Upsert user record
     const userRecord = {
       id: userId ?? `anon_${Date.now()}`,
-      email: data.email ?? null,
-      phone: data.phone ?? null,
+      email: clerkEmail,
+      phone: clerkPhone,
       role: data.role,
       role_level: data.roleLevel,
       industry: data.industry,
