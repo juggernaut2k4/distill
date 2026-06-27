@@ -488,15 +488,15 @@ function shapeResponse(parsed: unknown): RecommendationsResponse | null {
       const meta = SECTION_METADATA[s.id] ?? { label: s.id, icon: 'Circle' }
       const topics: Topic[] = (s.topics as unknown[])
         .filter(
-          (t): t is { id: string; title: string; description: string } =>
+          (t): t is { title: string; description: string; id?: string } =>
             typeof t === 'object' &&
             t !== null &&
-            typeof (t as Record<string, unknown>).id === 'string' &&
             typeof (t as Record<string, unknown>).title === 'string' &&
             typeof (t as Record<string, unknown>).description === 'string'
         )
         .map((t) => ({
-          id: t.id,
+          // Claude omits id — derive a slug from the title so the frontend has a stable key
+          id: t.id ?? t.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
           title: t.title,
           description: t.description,
         }))
@@ -593,8 +593,8 @@ function buildCacheKey(
   aiMaturity: string,
   learningGoal: string
 ): string {
-  // v2: bump invalidates all v1 entries (old 2-section format → new 3-section tier-aware format)
-  const canonical = ['v2', tier, role, primaryDomain, subDomain, aiMaturity, learningGoal]
+  // v3: bump invalidates v2 entries that were saved with empty topics (id filter bug)
+  const canonical = ['v3', tier, role, primaryDomain, subDomain, aiMaturity, learningGoal]
     .map((s) => s.trim().toLowerCase())
     .join('|')
   return createHash('sha256').update(canonical).digest('hex')

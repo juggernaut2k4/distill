@@ -258,8 +258,8 @@ export default function TopicsPage() {
 
     // Check sessionStorage cache first (avoid re-calling Claude on re-visit).
     // Cache key is role-scoped so a role change produces a fresh fetch (FR-06, AC-07).
-    // v2: bump invalidates old 2-section sessionStorage entries
-    const cacheKey = `clio_topic_recs_v2_${roleLevel}`
+    // v3: bump invalidates v2 entries saved with empty topics (id filter bug)
+    const cacheKey = `clio_topic_recs_v3_${roleLevel}`
     const cached = sessionStorage.getItem(cacheKey)
     if (cached) {
       try {
