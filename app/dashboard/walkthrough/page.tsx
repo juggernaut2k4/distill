@@ -1,4 +1,4 @@
-import { auth } from '@clerk/nextjs/server'
+import { auth, clerkClient } from '@clerk/nextjs/server'
 import { redirect } from 'next/navigation'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import WalkthroughClient from './WalkthroughClient'
@@ -15,6 +15,8 @@ export default async function WalkthroughPage() {
   if (!userId) redirect('/sign-in')
 
   const supabase = createSupabaseAdminClient()
+  const clerkUser = await clerkClient.users.getUser(userId)
+  const userFirstName = clerkUser.firstName ?? clerkUser.username ?? ''
 
   // Fetch or seed an empty walkthrough state for this user
   const { data: existingState } = await supabase
@@ -66,6 +68,7 @@ export default async function WalkthroughPage() {
       <style>{`html, body { overflow: hidden; margin: 0; padding: 0; }`}</style>
       <WalkthroughClient
         userId={userId}
+        userFirstName={userFirstName}
         initialState={walkthroughState ?? { user_id: userId, status: 'idle', visual_spec: null }}
       />
     </>

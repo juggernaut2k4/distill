@@ -109,6 +109,30 @@ async function handleEvent(event: RecallWebhookEvent, userIdFromQuery?: string) 
       console.log('[recall/webhook] Bot is live', { botId, userId, event: event.event })
       break
 
+    case 'participant.joined': {
+      const participant = event.data?.participant
+      if (!participant) break
+
+      // Skip the Recall.ai bot itself
+      const participantName = participant.name ?? ''
+      if (!participantName || participantName.toLowerCase().includes('clio') || participantName.toLowerCase().includes('recall')) break
+
+      // Use the first word of the display name as the first name
+      const firstName = participantName.split(' ')[0] ?? participantName
+      const currentTopic = (walkthroughRow.topic_title as string | null) ?? null
+      const contextNote = currentTopic ? ` Arun and I were just covering "${currentTopic}".` : ''
+      const greeting = `Hi ${firstName}, welcome!${contextNote}`
+
+      console.log(`[recall/webhook] participant.joined — greeting: "${greeting}"`)
+
+      // Write greeting as pending_transcript so ElevenLabs agent speaks it
+      await supabase
+        .from('walkthrough_state')
+        .update({ pending_transcript: greeting })
+        .eq('user_id', userId)
+      break
+    }
+
     // transcript.data: Analyze participant speech for sentiment + deferred question tracking.
     // Visual generation is handled by the ElevenLabs show_visual client tool.
     case 'transcript.data':

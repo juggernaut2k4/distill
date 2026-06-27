@@ -276,7 +276,7 @@ export default function PlanClient({ user }: { user: User }) {
         setViewState('active')
         setApproving(false)
         setApprovingMessage('')
-        router.push('/dashboard/sessions')
+        router.push('/dashboard/schedule-setup')
         return
       }
 

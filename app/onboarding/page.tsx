@@ -507,6 +507,7 @@ function OnboardingContent() {
         role?: string; roleLevel?: string; industry?: string; aiMaturity?: string
         domains?: string[]; customDomains?: string[]; primaryDomain?: string
         domainProficiency?: Record<string, string>; learningGoal?: string; subDomain?: string
+        worry?: string; deliveryPreference?: 'email' | 'sms' | 'both'
       }
       if (!parsed.role || !parsed.learningGoal) return
       setBuilding(true)
@@ -520,6 +521,8 @@ function OnboardingContent() {
         selectedDomains: parsed.domains ?? [],
         customDomains: parsed.customDomains ?? [],
         domainProficiency: (parsed.domainProficiency ?? {}) as Record<string, Proficiency>,
+        worry: parsed.worry ?? '',
+        deliveryPreference: (parsed.deliveryPreference ?? 'email') as 'email' | 'sms' | 'both',
       }
       submitOnboarding(parsed.learningGoal as LearningGoal, snapshot)
     } catch {
@@ -617,7 +620,7 @@ function OnboardingContent() {
   // Accepts an explicit snapshot to prevent stale closure when called from the auto-submit useEffect.
   async function submitOnboarding(
     finalGoal: LearningGoal | '',
-    snapshot?: { role: string; roleLevel: string; industry: string; aiEngagement: string; selectedDomains: string[]; customDomains: string[]; domainProficiency?: Record<string, Proficiency> },
+    snapshot?: { role: string; roleLevel: string; industry: string; aiEngagement: string; selectedDomains: string[]; customDomains: string[]; domainProficiency?: Record<string, Proficiency>; worry?: string; deliveryPreference?: 'email' | 'sms' | 'both' },
   ) {
     const r = snapshot?.role ?? role
     const rl = snapshot?.roleLevel ?? roleLevel
@@ -627,14 +630,16 @@ function OnboardingContent() {
     const custom = snapshot?.customDomains ?? customDomains
     const proficiency = snapshot?.domainProficiency ?? domainProficiency
     const primaryDomain = domains[0] ?? custom[0] ?? 'ai-ml'
+    const w = snapshot?.worry ?? worry
+    const dp = snapshot?.deliveryPreference ?? deliveryPreference
 
     const payload = {
       role: r,
       roleLevel: rl,
       industry: ind,
       aiMaturity: eng,
-      worry,
-      deliveryPreference,
+      worry: w,
+      deliveryPreference: dp,
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       domains,
       customDomains: custom,

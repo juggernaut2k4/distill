@@ -146,6 +146,7 @@ function resolveNavIndex(command: string, tabs: VisualizationTab[], current: num
 
 interface Props {
   userId: string
+  userFirstName?: string
   initialState: WalkthroughState
 }
 
@@ -182,7 +183,7 @@ function PulsingRing() {
   )
 }
 
-export default function WalkthroughClient({ userId, initialState }: Props) {
+export default function WalkthroughClient({ userId, userFirstName, initialState }: Props) {
   const [state, setState] = useState<WalkthroughState>(initialState)
   const [showLandscapePrompt, setShowLandscapePrompt] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -287,9 +288,10 @@ export default function WalkthroughClient({ userId, initialState }: Props) {
         if (cancelled) return
 
         const topic = topicRef.current
+        const nameGreet = userFirstName ? `Welcome, ${userFirstName}! ` : ''
         const greeting = topic
-          ? `Hi, I'm Clio, your AI learning companion. Today we're covering "${topic}". I've prepared everything — let's dive straight in. Ready?`
-          : `Hi, I'm Clio, your AI learning companion. I'm here and ready to coach you. Let's get started.`
+          ? `${nameGreet}I'm Clio, your AI learning companion. Today we're covering "${topic}". I've prepared everything — let's dive straight in. Ready?`
+          : `${nameGreet}I'm Clio, your AI learning companion. I'm here and ready to coach you. Let's get started.`
 
         // Custom LLM mode: the full session context (41k chars) lives server-side at
         // /api/clio/llm. We pass only the userId so the endpoint knows which user's

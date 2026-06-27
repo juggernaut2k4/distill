@@ -432,6 +432,11 @@ export async function generateScriptAndVisualization(
   // VP / C-Suite calibration rules
   const isVpOrAbove = userContext.roleLevel === 'vp-dir' || userContext.roleLevel === 'c-suite'
 
+  // CONTENT-01: Topic-type detection for beginner framing rule
+  const topicTitleLower = article.subtopic_title.toLowerCase()
+  const isBusinessDecisionTopic = /\b(team|org|budget|vendor|procurement|hiring|management|adoption|committee|stakeholder|board|governance|contract|compliance|regulatory)\b/.test(topicTitleLower)
+  const includeBeginnerFraming = !isBusinessDecisionTopic && (userContext.maturity === 'observer' || userContext.maturity === 'emerging')
+
   const vpCalibrationBlock = isVpOrAbove ? `
 VP/C-SUITE CALIBRATION — MANDATORY:
 DO NOT include in TEACH:
@@ -489,7 +494,16 @@ SCRIPT SEGMENTS — write in this exact order:
    Write with confidence and precision. No filler, no hedging, no padding.
    Every sentence must teach something new.
    Prioritise the insight that will most change how this ${userContext.role} thinks or acts.
-   - Open immediately with the frame specified in calibration rules above
+
+   MANDATORY OPENING — orient before teaching (first 2-3 sentences, counts toward 140 words):
+   a) State what this subtopic covers and what the user will be able to do/decide/say by the end
+   b) State why it specifically matters for a ${userContext.role} in ${userContext.industry}
+   Open using the calibration frame (${isVpOrAbove ? 'competitive/procurement/risk angle' : userContext.roleLevel === 'manager' ? 'team implementation angle' : 'technical depth angle'}).
+   Never jump straight into facts — ease the user into the topic first.
+   ${includeBeginnerFraming
+     ? `BEGINNER CONTEXT (this user is new to this technology — maturity: ${userContext.maturity}): After the orientation, add one brief peer-level context sentence. Not elementary — assume business intelligence, just new to this specific technology area.`
+     : `NO BEGINNER FRAMING: ${isBusinessDecisionTopic ? 'This is a business/team/org topic — no technical definitions needed. Start at decision-making level.' : 'User already knows this area — no context-setting sentence.'}`}
+
    - Name EXACTLY 3 items that will appear on screen — say "On your screen you'll see three items: [item 1], [item 2], [item 3]"
    - Walk through each item by name. At the EXACT moment you name each item, embed the nav directive INLINE:
      First item → embed [NAV:tab_0] immediately before or after the item name
