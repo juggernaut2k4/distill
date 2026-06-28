@@ -1,3 +1,4 @@
+import Anthropic from '@anthropic-ai/sdk'
 import { inngest } from './client'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import {
@@ -6,6 +7,9 @@ import {
   type CurriculumTopicInput,
   type DesignedSession,
 } from '@/lib/curriculum/session-designer'
+
+const isAnthropicPlaceholder = !process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY.startsWith('PLACEHOLDER')
+const anthropic = isAnthropicPlaceholder ? null : new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 interface PlanGeneratedEvent {
   data: { planId: string; userId: string; cached: boolean }
@@ -304,8 +308,158 @@ export const sessionDesignerAuto = inngest.createFunction(
         .eq('id', planId)
     })
 
+    // ── CURR-SEQ-01: Pedagogical sequencing ───────────────────────────────────
+    // Ask Claude to reorder sessions so foundational topics come before applied
+    // ones, prerequisites are respected, and the user's first session hooks them.
+    // Falls back to original order if Claude fails or returns invalid data.
+    const sequencedVisible = await step.run('sequence-sessions', async () => {
+      const worryText = Array.isArray((user as { worry_tags?: string[] }).worry_tags)
+        ? ((user as { worry_tags?: string[] }).worry_tags ?? []).join(', ')
+        : ''
+
+      // Build session list for Claude — only sessions with a DB UUID
+      type VisEntry = typeof updatedVisible[number] & { db_session_id?: string; title?: string; focus?: string; sub_sessions?: string[] }
+      const sessionsList = (updatedVisible as VisEntry[])
+        .filter((v) => v.db_session_id)
+        .map((v, i) => ({
+          index: i + 1,
+          id: v.db_session_id as string,
+          title: v.title ?? '',
+          focus: v.focus ?? '',
+          subtopics: Array.isArray(v.sub_sessions) ? (v.sub_sessions as string[]).slice(0, 3) : [],
+        }))
+
+      if (sessionsList.length < 2) {
+        // Nothing to sequence — mark as completed
+        await supabase.from('curriculum_plans')
+          .update({ sequencing_status: 'completed', sequencing_rationale: 'Single session — no reordering needed.' })
+          .eq('id', planId)
+        return updatedVisible
+      }
+
+      const sessionBlock = sessionsList
+        .map((s) => `${s.index}. [${s.id}] ${s.title}\n   Focus: ${s.focus}\n   Subtopics: ${s.subtopics.join(', ')}`)
+        .join('\n\n')
+
+      if (!anthropic) {
+        console.log('[session-designer-auto] Anthropic placeholder — skipping sequencing, keeping original order')
+        await supabase.from('curriculum_plans')
+          .update({ sequencing_status: 'fallback_order', sequencing_rationale: 'API key placeholder — original order preserved.' })
+          .eq('id', planId)
+        return updatedVisible
+      }
+
+      let sequencingRationale = ''
+      let orderedIds: string[] = []
+
+      try {
+        const response = await anthropic.messages.create({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 1024,
+          system: 'You are a learning experience designer. Return ONLY valid JSON. No markdown, no explanation outside the JSON object.',
+          messages: [{
+            role: 'user',
+            content: `Learner profile:
+- Role: ${profile.role}
+- Industry: ${profile.industry}
+- AI maturity: ${maturity}
+- Learning goal: ${learningGoal}
+- Primary concern: ${worryText || 'general AI readiness'}
+
+Sessions to sequence (total: ${sessionsList.length}):
+
+${sessionBlock}
+
+Sequencing rules:
+1. Foundational / conceptual sessions must come BEFORE sessions that build on them
+2. The first session must be the most accessible and directly relevant to the learner's concern
+3. Practical / implementation sessions follow conceptual sessions
+4. Strategic application sessions come last
+5. Do not place two sessions on closely related subtopics back-to-back
+
+Return JSON with exactly this shape:
+{
+  "ordered_session_ids": ["<uuid>", "<uuid>", ...],
+  "rationale": "<2-3 sentences explaining the key sequencing decisions>"
+}
+
+The ordered_session_ids array must contain exactly ${sessionsList.length} UUIDs — each session ID from the input, in your recommended order.`,
+          }],
+        })
+
+        const raw = (response.content[0] as { text?: string }).text ?? ''
+        const jsonMatch = raw.match(/\{[\s\S]*\}/)
+        if (!jsonMatch) throw new Error('No JSON object in Claude response')
+
+        const parsed = JSON.parse(jsonMatch[0]) as { ordered_session_ids?: unknown; rationale?: string }
+        orderedIds = Array.isArray(parsed.ordered_session_ids) ? parsed.ordered_session_ids as string[] : []
+        sequencingRationale = parsed.rationale ?? ''
+      } catch (err) {
+        console.error('[session-designer-auto] sequence-sessions: Claude error:', (err as Error).message)
+        await supabase.from('curriculum_plans')
+          .update({ sequencing_status: 'fallback_order', sequencing_rationale: 'Claude error — original order preserved.' })
+          .eq('id', planId)
+        return updatedVisible
+      }
+
+      // Validate: must be exact set of IDs, no duplicates, correct length
+      const inputIdSet = new Set(sessionsList.map((s) => s.id))
+      const outputIdSet = new Set(orderedIds)
+      const isValid =
+        orderedIds.length === sessionsList.length &&
+        orderedIds.every((id) => inputIdSet.has(id)) &&
+        outputIdSet.size === orderedIds.length
+
+      if (!isValid) {
+        console.warn('[session-designer-auto] sequence-sessions: invalid ID set from Claude — keeping original order')
+        await supabase.from('curriculum_plans')
+          .update({ sequencing_status: 'fallback_order', sequencing_rationale: 'Invalid sequencing response — original order preserved.' })
+          .eq('id', planId)
+        return updatedVisible
+      }
+
+      // Build lookup: id → position in new order
+      const newPosMap = new Map(orderedIds.map((id, i) => [id, i + 1]))
+
+      // Update session_index for each session in DB
+      // Use a temp-offset to avoid unique index conflicts during the swap
+      const TEMP_OFFSET = 10000
+      for (const s of sessionsList) {
+        const newIndex = newPosMap.get(s.id) ?? s.index
+        await supabase.from('sessions')
+          .update({ session_index: newIndex + TEMP_OFFSET })
+          .eq('id', s.id)
+      }
+      for (const s of sessionsList) {
+        const newIndex = newPosMap.get(s.id) ?? s.index
+        await supabase.from('sessions')
+          .update({ session_index: newIndex })
+          .eq('id', s.id)
+      }
+
+      // Reorder visible_sessions to match new sequence
+      const idToVisible = new Map(
+        (updatedVisible as VisEntry[]).map((v) => [v.db_session_id as string, v])
+      )
+      const reorderedVisible = orderedIds.map((id) => idToVisible.get(id)).filter(Boolean)
+
+      // Persist reordered list + rationale
+      await supabase.from('curriculum_plans')
+        .update({
+          visible_sessions: reorderedVisible,
+          sequencing_rationale: sequencingRationale,
+          sequencing_status: 'completed',
+        })
+        .eq('id', planId)
+
+      console.log(`[session-designer-auto] Sequenced ${sessionsList.length} sessions. Rationale: ${sequencingRationale.slice(0, 100)}`)
+      return reorderedVisible
+    })
+
     // ── Kick off Session 1 content generation immediately ────────────────────
-    const session1Id = (updatedVisible[0] as { db_session_id?: string } | undefined)?.db_session_id
+    // Use the reordered visible list so Session 1 is the pedagogically-first session.
+    type VisEntryWithId = { db_session_id?: string }
+    const session1Id = (sequencedVisible[0] as VisEntryWithId | undefined)?.db_session_id
     if (session1Id) {
       await step.sendEvent('kickoff-session-1-content', {
         name: 'distill/session.content.generate',
