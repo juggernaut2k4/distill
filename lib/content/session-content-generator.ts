@@ -224,7 +224,7 @@ export async function generateSessionContentOutline(
     'c-suite':   'Frame all content for a leader who approves budgets, sponsors AI initiatives, and answers to the board. Examples must involve strategic decisions, not implementation choices.',
     'vp-dir':    'Frame all content for a function leader who owns team adoption and reports outcomes to the C-Suite. Examples must involve managing upward (presenting to executives) and downward (enabling their team). Do NOT use board-level or P&L-authority framing.',
     'manager':   'Frame all content for a team lead implementing AI tools day-to-day. Examples should be hands-on and practical. Avoid board-level or C-Suite strategic framing.',
-    'specialist':'Frame all content for a practitioner who uses AI tools directly. Examples should be technical and applied.',
+    'specialist': 'Frame all content for a practitioner who builds and integrates AI systems directly. Full technical depth is required. Frame everything around implementation, integration, and system design — not governance, procurement, or board-level strategy. Use concrete technical examples. The reader needs to know how to build or configure this, not how to approve it.',
   }
 
   const prompt = `You are preparing content for an AI coaching session for a senior executive.
@@ -419,7 +419,7 @@ export async function generateContentArticles(
     'c-suite':    'Write for a leader who approves budgets, sponsors AI initiatives, and answers to the board. Procurement and compliance framing over technical explanation.',
     'vp-dir':     'Write for a function leader who owns team adoption and reports to the C-Suite. Managing upward and enabling the team are the two lenses. Do NOT use board-level or P&L-authority framing.',
     'manager':    'Write for a team lead implementing AI tools day-to-day. Practical and hands-on. Avoid board-level strategic framing.',
-    'specialist': 'Write for a practitioner using AI tools directly. Full technical depth is appropriate.',
+    'specialist': 'Write for a practitioner who builds and integrates AI systems directly. Full technical depth is required. Frame everything around implementation, integration, and system design — not governance, procurement, or board-level strategy. Use concrete technical examples. The reader needs to know how to build or configure this, not how to approve it.',
   }
 
   const prompt = `You are preparing comprehensive reference articles for an AI coaching platform serving senior executives.

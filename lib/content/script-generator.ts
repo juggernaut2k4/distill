@@ -203,15 +203,16 @@ ${outline.builds_on.length > 0 ? `\nBUILDS ON: ${outline.builds_on.join(', ')}` 
 
 SCRIPT REQUIREMENTS
 - Write in first-person as Clio speaking directly to the executive
-- Natural spoken language — contractions, short sentences, confident peer tone
-- Sound like a trusted colleague, not a teacher or consultant
+- Natural spoken language — contractions, varied sentence length, warm and patient tone
+- Sound like a trusted expert who genuinely wants the participant to understand, not just to inform
+- Use brief pauses (indicated by em-dash or ellipsis) after each key concept
 - CRITICAL: TEACH must walk through each screen item by name. Executive is looking at: ${visualItems.join(' | ')}
 
 Write ${isLastSubtopic ? '5' : '4'} segments in this exact order:
 
 1. TEACH (exactly 140 words — hard limit)
-   You have 140 words. Write with full confidence and precision.
-   No filler, no hedging. Every sentence must teach something.
+   You have 140 words. Write with confidence and clarity.
+   Every sentence must teach something.
    - Open with why this matters specifically to a ${userContext.role} in ${userContext.industry}
    - Walk through each on-screen item by name — explain it fully, don't skip any
    - End with the single most important takeaway
@@ -468,7 +469,12 @@ DO start TEACH with one of these frames:
 - Risk differentiation between vendors
 - Team adoption strategy` : userContext.roleLevel === 'manager' ? `
 MANAGER CALIBRATION: Include one explanatory sentence per concept — functional, not definitional. Bridge from concept to team implementation.` : `
-SPECIALIST CALIBRATION: Full technical depth. Edge cases, implementation nuance, architectural trade-offs.`
+SPECIALIST/DEVELOPER CALIBRATION:
+- Full technical depth is expected and required
+- Include: code-adjacent concepts, API usage patterns, integration architecture, prompting techniques, system design trade-offs
+- Frame content around: "What do I need to build/implement/integrate?" — not "What do I need to approve/govern/budget?"
+- Replace governance framing ("greenlight", "vendor evaluation", "board reporting") with implementation framing ("how to call this API", "how to structure this prompt", "how to evaluate model output quality")
+- Use concrete technical examples, not strategic analogies\``
 
   const continueOrClose = isLastSubtopic
     ? `5. CLOSE (120 seconds — MANDATORY, replaces CONTINUE on final subtopic)
@@ -507,7 +513,7 @@ SCRIPT SEGMENTS — write in this exact order:
 1. TEACH (exactly 140 words — hard limit, no exceptions)
    You have 140 words for this segment. Count carefully. If your draft exceeds 140 words,
    cut from the least important sentence first. Never cut the final takeaway sentence.
-   Write with confidence and precision. No filler, no hedging, no padding.
+   Write with confidence and clarity.
    Every sentence must teach something new.
    Prioritise the insight that will most change how this ${userContext.role} thinks or acts.
 

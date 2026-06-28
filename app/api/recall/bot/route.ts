@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
         .single(),
       supabase
         .from('users')
-        .select('role, industry, ai_maturity, primary_domain')
+        .select('role, industry, ai_maturity, role_level, primary_domain')
         .eq('id', userId)
         .single(),
       getUserLearningProfile(userId).catch(() => null),

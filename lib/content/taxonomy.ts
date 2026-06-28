@@ -8,6 +8,7 @@ export const ROLES = [
   'BU Lead / Functional Head',
   'Product Sponsor / Owner',
   'Director / Senior Manager',
+  'Software Engineer / Developer',
   'Other',
 ] as const
 

@@ -24,6 +24,17 @@ import { sendAdminAlert } from '@/lib/delivery/email'
 import { runAutomatedQA } from '@/lib/kb-qa-agent'
 import type { TemplateSection, TemplateMeta, TabManifest, VisualizationTab } from '@/lib/templates/types'
 
+// ─── ROLE LEVEL INFERENCE ─────────────────────────────────────────────────────
+
+function inferRoleLevel(role?: string | null): string {
+  if (!role) return 'c-suite'
+  const lower = role.toLowerCase()
+  if (/developer|engineer|architect|specialist|analyst|scientist/.test(lower)) return 'specialist'
+  if (/manager|lead|head/.test(lower)) return 'manager'
+  if (/vp|svp|evp|director/.test(lower)) return 'vp-dir'
+  return 'c-suite'
+}
+
 // ─── TAB MANIFEST BUILDER ─────────────────────────────────────────────────────
 
 /**
@@ -159,7 +170,7 @@ export const sessionContentPipeline = inngest.createFunction(
       role: userProfile?.role ?? 'executive',
       industry: userProfile?.industry ?? 'business',
       maturity: userProfile?.ai_maturity ?? 'beginner',
-      roleLevel: userProfile?.role_level ?? 'c-suite',
+      roleLevel: userProfile?.role_level ?? inferRoleLevel(userProfile?.role),
     }
 
     // ── Step B: Mark session as generating ────────────────────────────────────

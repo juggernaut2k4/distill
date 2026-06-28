@@ -79,23 +79,30 @@ export function buildSessionBrief(input: Omit<BuildDocsInput, 'topicContextDocs'
     userRole ? `Executive: ${userRole}${userIndustry ? ` in ${userIndustry}` : ''}` : '',
     `Sections: ${sections.length}`,
     sessionDurationMins != null
-      ? `Available time: ${sessionDurationMins} minutes total${timePerSection ? ` (~${timePerSection} min per section)` : ''}. Keep TEACH tight — deliver every concept, cut elaboration.`
+      ? `Available time: ${sessionDurationMins} minutes total${timePerSection ? ` (~${timePerSection} min per section)` : ''}. Deliver every concept clearly — prioritise understanding over speed.`
       : '',
     ``,
     `TODAY'S AGENDA — follow this order exactly, no deviations:`,
     ...agendaLines,
     ``,
+    `OPENING SEQUENCE — do this first, before anything else:`,
+    `Call show_visual({ section_index: 0 }) immediately when the session starts.`,
+    `This shows the Session Overview. While it loads, say: "Let me pull up today's overview."`,
+    `Briefly walk through the agenda (read the section titles aloud), then proceed to Section 1.`,
+    `Do NOT begin any TEACH content until after the overview has been shown and the agenda read.`,
+    ``,
     `=== BEHAVIOURAL RULES ===`,
     `1. NEVER ask what the participant wants to cover — the agenda is fixed.`,
     `2. NEVER ask about their role or background — it is already known.`,
-    `3. Call show_visual at the start of every section before you begin speaking about it. Always pass section_index (0-based: section 1 = 0, section 2 = 1, etc.).`,
-    `4. After delivering TEACH, always ask the CHECKPOINT question — do not skip it.`,
-    `5. Use PROBE only when the participant expresses confusion or asks you to explain differently.`,
-    `6. Use CONTINUE to bridge before calling show_visual for the next section.`,
-    `7. For quick off-script questions: answer briefly from the TOPIC KNOWLEDGE BASE, then return to script.`,
-    `8. For complex or off-topic questions: call defer_question. Say "Great question — I've saved it for next time."`,
-    `9. After delivering CONTINUE for the FINAL section (section ${sections.length}/${sections.length}): summarise what was covered in exactly 2 sentences, then immediately call end_session. Do NOT ask a follow-up question. Do NOT wait for the participant to respond first.`,
-    `10. Keep pace — this is executive time. Do not dwell on any section beyond the script + one follow-up.`,
+    `3. Call show_visual at the start of every section before you begin speaking about it. Always pass section_index (Overview = 0; section 1 = 1, section 2 = 2, etc.).`,
+    `4. After delivering TEACH, always ask the verification question — do not skip it.`,
+    `5. IMPORTANT — SCRIPT FORMAT: Labels in [STAGE DIRECTION — DO NOT SAY] brackets are stage directions only — never speak them aloud. Only speak the text that follows the label.`,
+    `6. Use the reframe fallback only when the participant expresses confusion or asks you to explain differently.`,
+    `7. Use the bridge to next section before calling show_visual for the next section.`,
+    `8. For quick off-script questions: answer briefly from the TOPIC KNOWLEDGE BASE, then return to script.`,
+    `9. For complex or off-topic questions: call defer_question. Say "Great question — I've saved it for next time."`,
+    `10. After delivering the final bridge for the FINAL section (section ${sections.length}/${sections.length}): summarise what was covered in exactly 2 sentences, then immediately call end_session. Do NOT ask a follow-up question. Do NOT wait for the participant to respond first.`,
+    `11. Teach with patience, not pace. After delivering TEACH, pause briefly before asking the verification question — give the participant a moment to absorb. If you sense uncertainty, slow down. The goal is understanding, not coverage speed.`,
   ].filter((l) => l !== '').join('\n')
 }
 
@@ -149,34 +156,34 @@ export function buildSessionScript(
     const variantBlock = checkpointVariants
       ? [
           ``,
-          `CHECKPOINT RESPONSE GUIDE — after they answer, pick the variant that best matches:`,
-          `V1 (nailed it + added insight)  → ${checkpointVariants.v1_perfect ?? '(Celebrate their point + deepen it, then move to CONTINUE)'}`,
+          `[STAGE DIRECTION — DO NOT SAY] After they answer, pick the response that fits:`,
+          `V1 (nailed it + added insight)  → ${checkpointVariants.v1_perfect ?? '(Celebrate their point + deepen it, then move to the bridge)'}`,
           `V2 (right but incomplete)       → ${checkpointVariants.v2_correct_incomplete ?? '(Acknowledge correct part + supply the missing piece)'}`,
           `V3 (partially right, gap)       → ${checkpointVariants.v3_partial_gap ?? '(Validate + fill the gap + re-anchor to the key takeaway)'}`,
           `V4 (adjacent, wrong direction)  → ${checkpointVariants.v4_adjacent_wrong ?? '(Redirect without saying wrong + reframe simply)'}`,
           `V5 (incorrect)                  → ${checkpointVariants.v5_incorrect ?? '(Affirm their thinking + correct clearly + re-explain with analogy)'}`,
           `V6 (I don't know)              → ${checkpointVariants.v6_dont_know ?? '(Normalise uncertainty + strip back to simplest explanation)'}`,
-          `V7 (explain again)             → ${checkpointVariants.v7_explain_again ?? '(Completely different angle, simpler language, avoid repeating same words)'} `,
-          `After any variant: deliver CONTINUE and proceed. If after V6/V7 still uncertain: deliver CONTINUE anyway — don't loop.`,
+          `V7 (explain again)             → ${checkpointVariants.v7_explain_again ?? '(Completely different angle, simpler language, avoid repeating same words)'}`,
+          `After any variant: deliver the bridge and proceed. If after V6/V7 still uncertain: deliver the bridge anyway — don't loop.`,
         ]
       : []
 
     const lines = [
-      `--- SECTION ${i + 1}/${totalSections}: "${title}" --- [call show_visual({ section_index: ${i} })]`,
+      `--- SECTION ${i + 1}/${totalSections}: "${title}" --- [call show_visual({ section_index: ${i + 1} })]`,
       ``,
-      `TEACH — say this after calling show_visual({ section_index: ${i} }) for this section:`,
+      `[STAGE DIRECTION — DO NOT SAY] Deliver teaching content after show_visual({ section_index: ${i + 1} }):`,
       teach ?? `(No script — explain the key concepts from the knowledge base in plain language.)`,
       ``,
-      `CHECKPOINT — ask this after TEACH to verify understanding:`,
+      `[STAGE DIRECTION — DO NOT SAY] Verification question — ask after TEACH:`,
       checkpoint ?? `How does that land for you?`,
       ...variantBlock,
       ``,
-      `PROBE — use this if they seem uncertain or ask you to explain differently:`,
+      `[STAGE DIRECTION — DO NOT SAY] Reframe fallback — use if participant seems uncertain:`,
       probe ?? `Let me try a different angle.`,
       ``,
       i < totalSections - 1
-        ? `CONTINUE — say this to bridge before calling show_visual for the next section:`
-        : `CONTINUE — [FINAL SECTION — after CHECKPOINT response, say this, then summarise 2 sentences, then call end_session immediately]:`,
+        ? `[STAGE DIRECTION — DO NOT SAY] Bridge to next section:`
+        : `[STAGE DIRECTION — DO NOT SAY] Final bridge — say this after verification response, then summarise 2 sentences, then call end_session immediately:`,
       cont ?? (i < totalSections - 1 ? `Good. Let's move to the next section.` : `That wraps up today's session.`),
     ]
 
