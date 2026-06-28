@@ -90,6 +90,7 @@ npx inngest-cli@latest dev
 |---|---|
 | `NEXT_PUBLIC_ELEVENLABS_AGENT_ID` | ElevenLabs conversational agent ID |
 | `NEXT_PUBLIC_ELEVENLABS_VOICE_ID` | ElevenLabs voice ID (Siren by default) |
+| `ELEVENLABS_API_KEY` | ElevenLabs API key — server-only, required for relay mode (AUD-01) |
 
 ### Meeting bot provider
 
@@ -99,6 +100,20 @@ npx inngest-cli@latest dev
 | `ATTENDEE_API_KEY` | — | Attendee.dev API key (when `MEETING_BOT_PROVIDER=attendee`) |
 | `RECALL_API_KEY` | — | Recall.ai API key (when `MEETING_BOT_PROVIDER=recall`) |
 | `ATTENDEE_WEBHOOK_SECRET` | — | Attendee.dev webhook signing secret (HMAC-SHA256) |
+
+### Audio relay mode (AUD-01)
+
+Controls how Attendee routes audio to ElevenLabs. Browser mode is the default (Vercel-compatible). Relay mode streams raw PCM16 audio server-side, cutting latency from ~800ms to ~150ms.
+
+| Variable | Values | Description |
+|---|---|---|
+| `MEETING_BOT_AUDIO_MODE` | `browser` (default) · `relay` | Server-side: whether Attendee uses the relay or the headless browser |
+| `NEXT_PUBLIC_MEETING_BOT_AUDIO_MODE` | `browser` (default) · `relay` | Client-side mirror — must match `MEETING_BOT_AUDIO_MODE` |
+| `AUDIO_RELAY_WS_URL` | — | Full WebSocket URL of the relay endpoint, e.g. `wss://your-server.railway.app/api/audio-relay` |
+
+**Both mode variables must match.** A mismatch causes the relay to run server-side while WalkthroughClient also tries to start ElevenLabs in the browser — two simultaneous sessions.
+
+**Relay mode requires a persistent server** (Railway, Render, fly.io). Browser mode works on Vercel with no changes.
 
 ### Context injection mode (CTX-01)
 
@@ -193,19 +208,44 @@ POST /api/recall/bot
 - `section_index: 1` = first content tab → `training_scripts[0]`
 - `section_index: N` (N ≥ 1) → `training_scripts[N-1]`
 
+### Audio relay architecture (AUD-01)
+
+Server-side relay mode streams raw PCM16 audio between Attendee and ElevenLabs, cutting latency from ~800ms to ~150ms by eliminating the transcript webhook chain.
+
+```
+Browser mode (default):
+  Participant speaks → Attendee Whisper STT → transcript.update webhook
+    → DB write → WalkthroughClient poll → sendUserMessage → ElevenLabs
+    (~800ms, 13 hops)
+
+Relay mode (MEETING_BOT_AUDIO_MODE=relay):
+  Participant speaks → Attendee PCM16 → relay WS → ElevenLabs STT+LLM+TTS
+    → relay WS → Attendee speaker
+    (~150ms, 3 hops)
+```
+
+```
+server.ts                   Custom Next.js server — WebSocket upgrade at /api/audio-relay
+lib/voice/relay-handler.ts  AudioRelayHandler — Attendee ↔ ElevenLabs audio bridge
+                            Handles show_visual (DB write) and end_session server-side
+lib/meeting-bot/attendee.ts Browser mode: voice_agent_settings (headless browser)
+                            Relay mode:   websocket_settings.audio (no headless browser)
+```
+
 ### Voice provider abstraction (lib/voice/)
 
 All direct calls on the ElevenLabs `Conversation` object are wrapped behind a `VoiceSessionAdapter` interface. This makes it straightforward to test an alternative provider (e.g. Deepgram) by swapping the adapter without touching `WalkthroughClient`.
 
 ```
 lib/voice/
-  adapter.ts          VoiceSessionAdapter interface
-  elevenlabs-adapter.ts  Wraps @11labs/client Conversation
-  deepgram-adapter.ts    POC stub (logs + no-ops)
-  index.ts            createVoiceAdapter(provider, conversation) factory
+  adapter.ts            VoiceSessionAdapter interface
+  elevenlabs-adapter.ts Wraps @11labs/client Conversation
+  deepgram-adapter.ts   POC stub (logs + no-ops)
+  relay-handler.ts      Server-side Attendee ↔ ElevenLabs bridge (AUD-01)
+  index.ts              createVoiceAdapter(provider, conversation) factory
 ```
 
-`sendUserMessage` (transcript forwarding, ElevenLabs-specific) is kept on a separate `elevenLabsConvRef` — it is not part of the adapter interface because it has no Deepgram equivalent in this build.
+`sendUserMessage` (transcript forwarding, ElevenLabs-specific) is kept on a separate `elevenLabsConvRef` — it is not part of the adapter interface because it has no Deepgram equivalent in this build. In relay mode, ElevenLabs handles STT directly from the audio stream, so `sendUserMessage` is not called at all.
 
 ---
 
@@ -285,6 +325,33 @@ To enable split context mode:
 
 1. Set `CLIO_CONTEXT_MODE=split` and `NEXT_PUBLIC_CLIO_CONTEXT_MODE=split`
 2. Redeploy — existing sessions are unaffected until a new bot is created
+
+### Enabling relay audio mode (AUD-01)
+
+Relay mode streams raw PCM16 audio directly from Attendee to ElevenLabs server-side, bypassing the transcript webhook chain. Latency drops from ~800ms to ~150ms.
+
+**Relay mode cannot run on Vercel** — it requires a persistent WebSocket server. Deploy to Railway, Render, or fly.io instead.
+
+```bash
+# On your persistent server (Railway / Render / fly.io)
+MEETING_BOT_AUDIO_MODE=relay
+NEXT_PUBLIC_MEETING_BOT_AUDIO_MODE=relay
+ELEVENLABS_API_KEY=sk_...
+AUDIO_RELAY_WS_URL=wss://your-server.railway.app/api/audio-relay
+
+# Start with the custom server (not `next start`)
+npm run start:relay
+```
+
+How it works:
+- Attendee connects to `AUDIO_RELAY_WS_URL` and streams PCM16 audio
+- The relay forwards audio to ElevenLabs' conversational AI WebSocket
+- ElevenLabs STT + LLM (`/api/clio/llm`) + TTS runs server-side
+- TTS audio is sent back to Attendee via `realtime_audio.bot_output`
+- `show_visual` tool calls update `walkthrough_state` directly in the DB
+- The user sees visuals in their own browser (polls `walkthrough_state` as normal)
+
+To revert to browser mode: unset `MEETING_BOT_AUDIO_MODE` (or set to `browser`) and redeploy.
 
 ---
 
