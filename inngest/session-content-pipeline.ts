@@ -223,8 +223,11 @@ export const sessionContentPipeline = inngest.createFunction(
             }
           : rawScriptAndViz
 
-        // Step E: Select template type
-        const templateType = selectTemplate(subtopicTitle, i === 0 ? 'first' : isLast ? 'last' : 'middle')
+        // Step E: Select template type.
+        // KB-VIZ-01: position 'first' (TopicHero) is now reserved for the synthetic
+        // SessionOverview card injected by the KB UI. Real subtopics are always 'middle'
+        // or 'last', which enables comparison-topic detection in selector.ts.
+        const templateType = selectTemplate(subtopicTitle, isLast ? 'last' : 'middle')
 
         // Step F: Generate template data — always regenerated in sync with Step D script.
         // getCachedSection is NOT called here: the cache is the DESTINATION (Step G), not the

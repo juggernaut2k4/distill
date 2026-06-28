@@ -10,7 +10,7 @@ import {
 import Link from 'next/link'
 import KBSessionPreview from '@/components/kb/KBSessionPreview'
 import VisualizationTabPanel from '@/components/kb/VisualizationTabPanel'
-import type { TemplateSection, TemplateName, TabManifest } from '@/lib/templates/types'
+import type { TemplateSection, TemplateName, TabManifest, TopicHeroData } from '@/lib/templates/types'
 
 // ── All available template types with display labels ──────────────────────────
 const TEMPLATE_OPTIONS: { value: TemplateName; label: string }[] = [
@@ -130,11 +130,25 @@ interface Arc {
   completed_sessions: number
 }
 
+interface SessionSubtopic {
+  title: string
+  type?: string
+  duration_mins?: number
+}
+
+interface SessionData {
+  id: string
+  title: string | null
+  sub_sessions: SessionSubtopic[] | null
+  duration_mins: number | null
+}
+
 interface Props { topicId: string }
 
 export default function KBTopicClient({ topicId }: Props) {
   const [sections, setSections] = useState<SectionState[]>([])
   const [arc, setArc] = useState<Arc | null>(null)
+  const [session, setSession] = useState<SessionData | null>(null)
   const [topicTitle, setTopicTitle] = useState<string>('')
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -176,8 +190,14 @@ export default function KBTopicClient({ topicId }: Props) {
         error: null,
         showQA: false,
       })))
+      const sessionData = (data.session as SessionData) ?? null
+      setSession(sessionData)
       const first = rows[0]
-      setTopicTitle(first?.section_data?.meta?.sessionTitle ?? topicId)
+      setTopicTitle(
+        sessionData?.title
+        ?? first?.section_data?.meta?.sessionTitle
+        ?? topicId
+      )
       setArc((data.arc as Arc) ?? null)
     } catch {
       setLoadError('Connection error. Please refresh.')
@@ -308,13 +328,45 @@ export default function KBTopicClient({ topicId }: Props) {
     setActiveTabIndex(0)
   }, [])
 
-  // ── Derived: TemplateSection[] for preview ────────────────────────────────
-  const previewSections = sections.map((s) => ({
-    ...s.row.section_data,
-    status: 'active' as const,
-  }))
+  // ── Derived: synthetic overview + real sections ───────────────────────────
+  // KB-VIZ-01: a SessionOverview card (TopicHero) is prepended as position 0.
+  // This shifts real subtopics to 'middle' so comparison topics get ComparisonTable.
+  const sessionSubtopics = session?.sub_sessions ?? null
+  const hasOverview = (sessionSubtopics?.length ?? 0) > 0
 
-  const activeSection = sections[activeSectionIndex]
+  const syntheticOverview: TemplateSection | null = hasOverview
+    ? {
+        id: 'session-overview',
+        type: 'TopicHero',
+        meta: {
+          subtopicTitle: 'Session Overview',
+          sessionTitle: topicTitle,
+          userRole: '',
+          userIndustry: '',
+        },
+        data: {
+          topic_name: topicTitle,
+          key_question: 'What will we cover in this session?',
+          key_takeaways: (sessionSubtopics ?? [])
+            .map((s) => s.title)
+            .filter(Boolean),
+          so_what_preview: `${session?.duration_mins ?? 30}-minute session · ${sections.length} subtopic${sections.length !== 1 ? 's' : ''}`,
+        } as TopicHeroData,
+        status: 'active',
+      }
+    : null
+
+  const previewSections: TemplateSection[] = [
+    ...(syntheticOverview ? [syntheticOverview] : []),
+    ...sections.map((s) => ({
+      ...s.row.section_data,
+      status: 'active' as const,
+    })),
+  ]
+
+  // activeSection: offset by 1 when overview occupies slot 0
+  const overviewOffset = hasOverview ? 1 : 0
+  const activeSection = sections[activeSectionIndex - overviewOffset] ?? null
 
   // ── Loading / error states ────────────────────────────────────────────────
   if (isLoading) {
@@ -364,7 +416,7 @@ export default function KBTopicClient({ topicId }: Props) {
   }
 
   const isBusy = activeSection && (activeSection.isApplying || activeSection.isReverting || activeSection.isRegenerating)
-  const templateChanged = activeSection && activeSection.pendingTemplateType !== activeSection.row.section_data.type
+  const templateChanged = activeSection != null && activeSection.pendingTemplateType !== activeSection.row.section_data.type
 
   return (
     <div>
@@ -382,7 +434,7 @@ export default function KBTopicClient({ topicId }: Props) {
             <h1 className="text-white text-xl font-bold">{topicTitle}</h1>
             <div className="flex items-center gap-1.5 text-[#475569] text-xs shrink-0">
               <Layers className="w-3.5 h-3.5" />
-              <span>{sections.length} {sections.length === 1 ? 'section' : 'sections'}</span>
+              <span>{previewSections.length} {previewSections.length === 1 ? 'section' : 'sections'}</span>
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
