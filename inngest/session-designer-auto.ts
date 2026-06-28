@@ -219,64 +219,72 @@ export const sessionDesignerAuto = inngest.createFunction(
       return items
     })
 
-    // ── Insert sessions as draft, collect first db_session_id per arc ─────────
+    // ── Insert sessions as draft; build one visible_sessions entry per session ──
+    // v2 arcs expand from N arcs → M sessions. visible_sessions must be a flat
+    // list of all sessions so PlanClient renders one card per LLM-designed session,
+    // not one stub card per arc.
     const updatedVisible = await step.run('insert-draft-sessions', async () => {
       let globalOrder = 0
-      const firstSessionIdByArc = new Map<number, string>()
+
+      const insertResults: Array<{
+        di:          DesignItem
+        ds:          DesignedSession
+        dbSessionId: string | null
+      }> = []
 
       for (const di of designResults) {
-        for (const ds of di.designed) {
-          globalOrder++
-          const { data: inserted, error } = await supabase
-            .from('sessions')
-            .insert({
-              user_id:               userId,
-              session_title:         ds.session_title,
-              topic_id:              di.topicInput.session_id,
-              topics:                [di.topicInput.session_id],
-              curriculum_plan_id:    planId,
-              curriculum_session_id: di.topicInput.session_id,
-              sub_sessions:          ds.subtopics,
-              duration_mins:         ds.duration_mins,
-              session_index:         globalOrder,
-              status:                'draft',
-            })
-            .select('id')
-            .single()
+        const ds = di.designed[0]   // designSessionsForTopic always returns exactly 1 session
+        if (!ds) continue
 
-          if (error) {
-            console.error(
-              `[session-designer-auto] ERROR: failed to insert session for "${di.topicInput.title}" chunk ${di.chunkIndex}:`,
-              error.message,
-            )
-            continue
-          }
+        globalOrder++
+        const { data: inserted, error } = await supabase
+          .from('sessions')
+          .insert({
+            user_id:               userId,
+            session_title:         ds.session_title,
+            topic_id:              di.topicInput.session_id,
+            topics:                [di.topicInput.session_id],
+            curriculum_plan_id:    planId,
+            curriculum_session_id: di.topicInput.session_id,
+            sub_sessions:          ds.subtopics,
+            duration_mins:         ds.duration_mins,
+            session_index:         globalOrder,
+            status:                'draft',
+          })
+          .select('id')
+          .single()
 
-          if (inserted && !firstSessionIdByArc.has(di.arcIndex)) {
-            firstSessionIdByArc.set(di.arcIndex, inserted.id)
-          }
+        if (error) {
+          console.error(
+            `[session-designer-auto] ERROR: failed to insert session for "${di.topicInput.title}" chunk ${di.chunkIndex}:`,
+            error.message,
+          )
+          insertResults.push({ di, ds, dbSessionId: null })
+          continue
         }
+
+        insertResults.push({ di, ds, dbSessionId: inserted?.id ?? null })
       }
 
-      // Rebuild visible_sessions: one entry per original arc, enriched with display fields
-      // so the plan page can render SessionCard without crashing.
-      return visibleItems.map((item, idx) => {
-        const dbSessionId = firstSessionIdByArc.get(idx)
-        if (isV2Arc(item)) {
+      // Flat list: one entry per DB session so PlanClient shows all sessions
+      // with their real LLM-designed titles, not arc-level stubs.
+      return insertResults.map(({ di, ds, dbSessionId }) => {
+        const originalItem = visibleItems[di.arcIndex]
+        if (di.isV2) {
+          const arc = originalItem as V2Arc
           return {
-            ...item,
-            // v1-compatible display fields used by PlanClient / SessionCard
-            session_id:        slugify(item.arc_name),
-            title:             item.arc_name,
-            focus:             item.arc_description,
-            depth_level:       'intermediate',
-            estimated_minutes: maxMins,
-            arc_position:      idx + 1,
-            arc_length:        visibleItems.length,
+            ...arc,
+            session_id:        di.topicInput.session_id,
+            title:             ds.session_title,    // LLM-designed title
+            focus:             ds.session_summary,  // "After this session you will..."
+            depth_level:       'intermediate' as const,
+            estimated_minutes: ds.duration_mins,
+            arc_position:      di.chunkIndex,
+            arc_length:        di.totalChunks,
             db_session_id:     dbSessionId,
           }
         }
-        return { ...(item as V1Session), db_session_id: dbSessionId }
+        return { ...(originalItem as V1Session), db_session_id: dbSessionId }
       })
     })
 
