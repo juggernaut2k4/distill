@@ -20,10 +20,26 @@ import type { SubSessionOutline, ContentArticle, UserContext } from './session-c
 
 export type ScriptSegmentType = 'TEACH' | 'CHECKPOINT' | 'ICE_BREAKER' | 'PROBE' | 'CONTINUE' | 'CLOSE'
 
+/**
+ * Seven pre-generated response variants per CHECKPOINT question.
+ * ElevenLabs selects the right variant at runtime based on what the participant says —
+ * no LLM call needed during the live session.
+ */
+export interface CheckpointVariants {
+  v1_perfect: string            // Got it right + added insight → celebrate + deepen
+  v2_correct_incomplete: string // Correct core, missing one piece → acknowledge + complete
+  v3_partial_gap: string        // Partially right, identifiable gap → validate + fill gap + re-anchor
+  v4_adjacent_wrong: string     // Adjacent concept, wrong direction → redirect gently + reframe
+  v5_incorrect: string          // Incorrect → correct warmly + re-explain with fresh analogy
+  v6_dont_know: string          // "I don't know / not sure" → encourage + break down from scratch
+  v7_explain_again: string      // "Can you explain that again?" → different angle, simpler framing
+}
+
 export interface ScriptSegment {
   type: ScriptSegmentType
   content: string
   duration_seconds?: number
+  variants?: CheckpointVariants  // Only present on CHECKPOINT segments
 }
 
 export interface TrainingScript {
@@ -516,6 +532,17 @@ SCRIPT SEGMENTS — write in this exact order:
    A single targeted question that reveals whether the user can APPLY the concept — not just recall it.
    Draw from the article's decision_questions. Not a yes/no question.
 
+   Also generate 7 response variants for this checkpoint. These are Clio's replies AFTER the participant answers.
+   Variants must be specific to THIS question and THIS subtopic — not generic.
+   Each variant is 2-4 sentences, spoken conversationally as Clio:
+   - v1_perfect: participant got it right + added their own insight → celebrate their point and deepen it, then transition
+   - v2_correct_incomplete: participant is right but missed one key piece → acknowledge what's right + supply the missing piece clearly
+   - v3_partial_gap: participant has the right direction but a specific gap → validate what's correct + fill the gap + re-anchor to the takeaway
+   - v4_adjacent_wrong: participant answered a related but different question → don't say "wrong", gently redirect + reframe the question in simpler terms
+   - v5_incorrect: participant's answer is incorrect → affirm their thinking ("I see why you'd think that") + correct clearly + re-explain using a different concrete example
+   - v6_dont_know: participant says "I don't know" or "I'm not sure" → normalise uncertainty + strip it back to the simplest possible explanation + ask if that gives them a foothold
+   - v7_explain_again: participant asks for another explanation → approach from a completely different angle, simpler language, avoid repeating the same words used in TEACH
+
 3. ICE_BREAKER (30-45 seconds)
    ONE open situational question about the user's context, motivation, or use case.
    Rules:
@@ -541,7 +568,20 @@ Return ONLY valid JSON (no markdown, no commentary):
 {
   "segments": [
     { "type": "TEACH", "content": "...", "duration_seconds": 60 },
-    { "type": "CHECKPOINT", "content": "...", "duration_seconds": 65 },
+    {
+      "type": "CHECKPOINT",
+      "content": "...",
+      "duration_seconds": 65,
+      "variants": {
+        "v1_perfect": "...",
+        "v2_correct_incomplete": "...",
+        "v3_partial_gap": "...",
+        "v4_adjacent_wrong": "...",
+        "v5_incorrect": "...",
+        "v6_dont_know": "...",
+        "v7_explain_again": "..."
+      }
+    },
     { "type": "ICE_BREAKER", "content": "...", "duration_seconds": 40 },
     { "type": "PROBE", "content": "...", "duration_seconds": 50 }${isLastSubtopic
       ? ',\n    { "type": "CLOSE", "content": "...", "duration_seconds": 120 }'
@@ -556,7 +596,7 @@ Return ONLY valid JSON (no markdown, no commentary):
 
   const message = await anthropic.messages.create({
     model: MODEL,
-    max_tokens: 3000,
+    max_tokens: 4500,
     messages: [{ role: 'user', content: prompt }],
   })
 
@@ -611,6 +651,17 @@ function buildMockScriptAndVisualization(
   const item2 = article.sections.key_facts[1]?.slice(0, 60) ?? 'Implementation reality'
   const item3 = article.sections.key_facts[2]?.slice(0, 60) ?? 'Decision leverage points'
 
+  const checkpointQuestion = article.sections.decision_questions[0] ?? `How does this change the way you'd approach the next AI decision in your organisation?`
+  const mockVariants: CheckpointVariants = {
+    v1_perfect: `Exactly — and the insight you've added is the key leverage point here. That's the kind of framing that changes how your team evaluates options. Let's lock that in and move on.`,
+    v2_correct_incomplete: `You've got the core right. The piece I'd add: ${article.sections.key_facts[1]?.slice(0, 80) ?? "there's one more dimension that shifts the decision"}. With that in, the picture is complete.`,
+    v3_partial_gap: `Good instinct — the direction is right. The gap I'd flag: ${article.sections.common_misconceptions[0]?.slice(0, 80) ?? "there's a common assumption here worth surfacing"}. Once you account for that, the framework clicks.`,
+    v4_adjacent_wrong: `That's a reasonable read from a different angle. Let me reframe: ${article.sections.enterprise_implications.split('.')[0] ?? 'the key distinction here'}. The question isn't X — it's Y. Does that shift the picture?`,
+    v5_incorrect: `I see why you'd land there — it's a natural read. But let me correct it: ${article.sections.how_it_works.split('.')[0] ?? 'the mechanism is slightly different'}. The reason it matters for a ${userContext.role}: ${article.role_relevance.split('.')[0]}.`,
+    v6_dont_know: `Completely fair — this one catches a lot of people. Let's strip it back. ${article.sections.overview.split('.')[0] ?? 'At its simplest'}. The part that matters for your role is: ${article.role_relevance.split('.')[0]}. Does that give you a foothold?`,
+    v7_explain_again: `Sure — let me come at it from a different direction entirely. Instead of the technical framing, think about it through ${article.industry_angle.split('.')[0] ?? 'your industry context'}. ${article.sections.enterprise_implications.split('.')[0] ?? 'The practical implication'}. Clearer from that angle?`,
+  }
+
   const segments: ScriptSegment[] = [
     {
       type: 'TEACH',
@@ -619,8 +670,9 @@ function buildMockScriptAndVisualization(
     },
     {
       type: 'CHECKPOINT',
-      content: article.sections.decision_questions[0] ?? `How does this change the way you'd approach the next AI decision in your organisation?`,
+      content: checkpointQuestion,
       duration_seconds: 65,
+      variants: mockVariants,
     },
     {
       type: 'ICE_BREAKER',

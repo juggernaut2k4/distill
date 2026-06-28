@@ -11,9 +11,20 @@
 
 // ─── MINIMAL INLINE TYPES ─────────────────────────────────────────────────────
 
+interface CheckpointVariants {
+  v1_perfect?: string
+  v2_correct_incomplete?: string
+  v3_partial_gap?: string
+  v4_adjacent_wrong?: string
+  v5_incorrect?: string
+  v6_dont_know?: string
+  v7_explain_again?: string
+}
+
 interface TrainingSegment {
-  type: 'TEACH' | 'CHECKPOINT' | 'PROBE' | 'CONTINUE'
+  type: 'TEACH' | 'CHECKPOINT' | 'ICE_BREAKER' | 'PROBE' | 'CONTINUE' | 'CLOSE'
   content: string
+  variants?: CheckpointVariants
 }
 
 interface TrainingScript {
@@ -129,9 +140,26 @@ export function buildSessionScript(
       script?.segments.find((s) => s.type === type)?.content ?? null
 
     const teach = get('TEACH')
-    const checkpoint = get('CHECKPOINT')
+    const checkpointSegment = script?.segments.find((s) => s.type === 'CHECKPOINT') ?? null
+    const checkpoint = checkpointSegment?.content ?? null
+    const checkpointVariants = checkpointSegment?.variants ?? null
     const probe = get('PROBE')
     const cont = get('CONTINUE')
+
+    const variantBlock = checkpointVariants
+      ? [
+          ``,
+          `CHECKPOINT RESPONSE GUIDE — after they answer, pick the variant that best matches:`,
+          `V1 (nailed it + added insight)  → ${checkpointVariants.v1_perfect ?? '(Celebrate their point + deepen it, then move to CONTINUE)'}`,
+          `V2 (right but incomplete)       → ${checkpointVariants.v2_correct_incomplete ?? '(Acknowledge correct part + supply the missing piece)'}`,
+          `V3 (partially right, gap)       → ${checkpointVariants.v3_partial_gap ?? '(Validate + fill the gap + re-anchor to the key takeaway)'}`,
+          `V4 (adjacent, wrong direction)  → ${checkpointVariants.v4_adjacent_wrong ?? '(Redirect without saying wrong + reframe simply)'}`,
+          `V5 (incorrect)                  → ${checkpointVariants.v5_incorrect ?? '(Affirm their thinking + correct clearly + re-explain with analogy)'}`,
+          `V6 (I don't know)              → ${checkpointVariants.v6_dont_know ?? '(Normalise uncertainty + strip back to simplest explanation)'}`,
+          `V7 (explain again)             → ${checkpointVariants.v7_explain_again ?? '(Completely different angle, simpler language, avoid repeating same words)'} `,
+          `After any variant: deliver CONTINUE and proceed. If after V6/V7 still uncertain: deliver CONTINUE anyway — don't loop.`,
+        ]
+      : []
 
     const lines = [
       `--- SECTION ${i + 1}/${totalSections}: "${title}" --- [call show_visual({ section_index: ${i} })]`,
@@ -141,6 +169,7 @@ export function buildSessionScript(
       ``,
       `CHECKPOINT — ask this after TEACH to verify understanding:`,
       checkpoint ?? `How does that land for you?`,
+      ...variantBlock,
       ``,
       `PROBE — use this if they seem uncertain or ask you to explain differently:`,
       probe ?? `Let me try a different angle.`,
