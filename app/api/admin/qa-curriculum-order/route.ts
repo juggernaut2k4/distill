@@ -56,7 +56,7 @@ export async function GET(request: NextRequest) {
     .from('sessions')
     .select('id, session_title, session_index, sub_sessions, status, curriculum_session_id')
     .eq('user_id', targetUserId)
-    .in('status', ['draft', 'pending', 'active', 'completed'])
+    .in('status', ['draft', 'pending', 'active', 'scheduled', 'completed'])
     .order('session_index', { ascending: true })
 
   if (!sessions || sessions.length === 0) {

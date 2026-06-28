@@ -73,7 +73,30 @@ export async function GET(request: NextRequest) {
   const userIndustry = userRow?.industry ?? 'business'
 
   // ── Load sections ─────────────────────────────────────────────────────────
-  const readySections = getAllReadySections(session.session_plan as SessionPlan | null)
+  // Primary: session_plan JSONB (old pipeline). Fallback: topic_content_cache direct
+  // query (new curriculum pipeline — writes cache rows but not session_plan).
+  let readySections = getAllReadySections(session.session_plan as SessionPlan | null)
+
+  if (readySections.length === 0 && topicId) {
+    const { data: directRows } = await supabase
+      .from('topic_content_cache')
+      .select('subtopic_slug, subtopic_title, pipeline_status')
+      .eq('topic_id', topicId)
+      .eq('pipeline_status', 'ready')
+
+    if (directRows && directRows.length > 0) {
+      readySections = directRows.map((r) => ({
+        id: r.subtopic_slug as string,
+        meta: {
+          subtopicTitle: (r.subtopic_title as string) ?? (r.subtopic_slug as string),
+          sessionTitle,
+          userRole,
+          userIndustry,
+        },
+      })) as unknown as ReturnType<typeof getAllReadySections>
+    }
+  }
+
   if (readySections.length === 0) issues.push('No ready sections in session_plan — run visual generation first')
 
   // ── Fetch cache data ──────────────────────────────────────────────────────
