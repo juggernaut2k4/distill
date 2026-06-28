@@ -179,15 +179,24 @@ export default function SessionDetailClient({ session }: Props) {
     const data = await res.json() as { content_status: string; sub_sessions: ContentSubSession[] }
     const status = data.content_status as typeof contentStatus
 
-    // If page loads and DB already has 'generating' (stuck from a prior run),
-    // immediately show as failed so the user sees the Retry button.
+    // If page loads and DB already has 'generating', only treat it as stuck
+    // if there is zero subtopic progress — indicating a dead prior run.
+    // If any subtopics are already ready/generating, the Inngest job is still
+    // active and we should keep polling rather than showing "interrupted".
     if (isInitialLoadRef.current && status === 'generating') {
       isInitialLoadRef.current = false
-      setContentStatus('failed')
-      setContentSubSessions(data.sub_sessions ?? [])
-      return
+      const hasProgress = (data.sub_sessions ?? []).some(
+        (s: { pipeline_status: string }) => s.pipeline_status === 'ready' || s.pipeline_status === 'generating'
+      )
+      if (!hasProgress) {
+        setContentStatus('failed')
+        setContentSubSessions(data.sub_sessions ?? [])
+        return
+      }
+      // Active generation in progress — fall through to normal polling
+    } else {
+      isInitialLoadRef.current = false
     }
-    isInitialLoadRef.current = false
 
     setContentStatus(status)
     setContentSubSessions(data.sub_sessions ?? [])
