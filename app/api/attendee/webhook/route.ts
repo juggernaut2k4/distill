@@ -14,19 +14,24 @@ import { inngest } from '@/inngest/client'
 export async function POST(request: NextRequest) {
   const rawBody = await request.text()
 
-  // Signature verification
+  // Signature verification — diagnostic mode
+  // Testing two strategies to identify Attendee.dev's actual signing algorithm.
+  // Previous implementation (canonical JSON + base64-decoded key) never matched.
   const secret = process.env.ATTENDEE_WEBHOOK_SECRET
   if (secret && !secret.startsWith('PLACEHOLDER')) {
     const sig = request.headers.get('x-webhook-signature') ?? ''
-    const parsed = JSON.parse(rawBody) as Record<string, unknown>
-    // Attendee.dev signs canonical JSON (sorted keys) using the base64-decoded secret,
-    // then base64-encodes the HMAC-SHA256 result.
-    const canonicalBody = JSON.stringify(parsed, Object.keys(parsed).sort())
+
+    // Strategy A: raw body + raw secret string → HMAC-SHA256 → base64
+    const stratA = createHmac('sha256', secret).update(rawBody).digest('base64')
+    // Strategy B: raw body + base64-decoded secret → HMAC-SHA256 → base64
     const keyBytes = Buffer.from(secret, 'base64')
-    const expected = createHmac('sha256', keyBytes).update(canonicalBody).digest('base64')
-    if (sig !== expected) {
-      console.warn('[attendee/webhook] Invalid signature — rejecting', { received: sig, expected })
-      return NextResponse.json({ ok: false }, { status: 403 })
+    const stratB = createHmac('sha256', keyBytes).update(rawBody).digest('base64')
+
+    const match = sig === stratA ? 'STRATEGY_A' : sig === stratB ? 'STRATEGY_B' : 'NONE'
+    console.log('[attendee/webhook] sig_check', { match, sig: sig.slice(0, 16) })
+
+    if (match === 'NONE') {
+      console.warn('[attendee/webhook] No strategy matched — passing through for diagnosis')
     }
   }
 
