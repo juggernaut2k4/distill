@@ -83,7 +83,7 @@ export function buildSessionBrief(input: Omit<BuildDocsInput, 'topicContextDocs'
     `6. Use CONTINUE to bridge before calling show_visual for the next section.`,
     `7. For quick off-script questions: answer briefly from the TOPIC KNOWLEDGE BASE, then return to script.`,
     `8. For complex or off-topic questions: call defer_question. Say "Great question — I've saved it for next time."`,
-    `9. When the session ends: summarise what was covered in 2 sentences, then call end_session.`,
+    `9. After delivering CONTINUE for the FINAL section (section ${sections.length}/${sections.length}): summarise what was covered in exactly 2 sentences, then immediately call end_session. Do NOT ask a follow-up question. Do NOT wait for the participant to respond first.`,
     `10. Keep pace — this is executive time. Do not dwell on any section beyond the script + one follow-up.`,
   ].filter((l) => l !== '').join('\n')
 }
@@ -145,7 +145,9 @@ export function buildSessionScript(
       `PROBE — use this if they seem uncertain or ask you to explain differently:`,
       probe ?? `Let me try a different angle.`,
       ``,
-      `CONTINUE — say this to bridge before calling show_visual for the next section:`,
+      i < totalSections - 1
+        ? `CONTINUE — say this to bridge before calling show_visual for the next section:`
+        : `CONTINUE — [FINAL SECTION — after CHECKPOINT response, say this, then summarise 2 sentences, then call end_session immediately]:`,
       cont ?? (i < totalSections - 1 ? `Good. Let's move to the next section.` : `That wraps up today's session.`),
     ]
 

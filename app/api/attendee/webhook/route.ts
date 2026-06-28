@@ -94,8 +94,10 @@ async function handleEvent(event: AttendeeWebhookEvent) {
 
   switch (event.trigger) {
     case 'bot.state_change': {
-      const state = event.data.state as string | undefined
-      console.log('[attendee/webhook] state_change →', state, { botId, userId })
+      // Log full data to identify correct field name (data.state comes back undefined)
+      console.log('[attendee/webhook] state_change full data:', JSON.stringify(event.data))
+      const state = (event.data.state ?? event.data.status ?? event.data.bot_status ?? event.data.new_state) as string | undefined
+      console.log('[attendee/webhook] state_change resolved →', state, { botId, userId })
 
       if (state === 'joined_recording') {
         // Mirror what /api/recall/webhook does on bot.in_call_recording:
