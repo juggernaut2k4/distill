@@ -102,11 +102,28 @@ async function handleEvent(event: RecallWebhookEvent, userIdFromQuery?: string) 
     case 'status.joining_call':
     case 'bot.in_call_not_recording':
     case 'status.in_call_not_recording':
+    case 'realtime_endpoint.running':
+      console.log('[recall/webhook] Bot is live', { botId, userId, event: event.event })
+      break
+
     case 'bot.in_call_recording':
     case 'status.in_call_recording':
-    case 'realtime_endpoint.running':
-      // ElevenLabs agent connects and greets automatically — nothing to do here
-      console.log('[recall/webhook] Bot is live', { botId, userId, event: event.event })
+      // Bot is now recording — persist bot_id so the quality evaluator can
+      // fetch the transcript from Recall API after the session ends.
+      if (botId) {
+        await supabase
+          .from('walkthrough_state')
+          .update({ bot_id: botId })
+          .eq('user_id', userId)
+
+        if (sessionId) {
+          await supabase
+            .from('sessions')
+            .update({ recall_bot_id: botId })
+            .eq('id', sessionId)
+        }
+      }
+      console.log('[recall/webhook] Bot is recording — bot_id saved', { botId, userId, sessionId })
       break
 
     case 'participant.joined': {
