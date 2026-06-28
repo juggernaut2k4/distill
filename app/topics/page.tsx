@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useUser } from '@clerk/nextjs'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  TrendingUp, Briefcase, Wrench, Target, Code2, Users, Plus, ArrowRight,
+  TrendingUp, Briefcase, Wrench, Target, Code2, Users, Plus, ArrowRight, BookOpen, ChevronRight,
 } from 'lucide-react'
 import { inferRoleLevel } from '@/lib/curriculum/role-utils'
 
@@ -29,6 +29,8 @@ interface RecommendationSection {
 interface RecommendationsApiResponse {
   sections?: RecommendationSection[]
   fallback?: boolean
+  maturity?: string
+  advancedSections?: RecommendationSection[]
 }
 
 interface StoredProfile {
@@ -59,6 +61,7 @@ const SECTION_ICON_MAP: Record<string, LucideIconComponent> = {
   Target,
   Code2,
   Users,
+  BookOpen,
 }
 
 const FALLBACK_SECTION_ICONS: Record<string, string> = {
@@ -177,6 +180,9 @@ export default function TopicsPage() {
 
   const [pageState, setPageState] = useState<PageState>('loading')
   const [sections, setSections] = useState<RecommendationSection[]>([])
+  const [advancedSections, setAdvancedSections] = useState<RecommendationSection[]>([])
+  const [maturity, setMaturity] = useState<string>('intermediate')
+  const [isAdvancedExpanded, setIsAdvancedExpanded] = useState(false)
   const [customTopics, setCustomTopics] = useState<RecommendedTopic[]>([])
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [customInput, setCustomInput] = useState('')
@@ -256,10 +262,16 @@ export default function TopicsPage() {
     // This is a pure synchronous call — no async work needed.
     const roleLevel = inferRoleLevel(profile.role ?? '')
 
+    // Derive per-domain proficiency for primaryDomain — the richer skill signal from onboarding step 5.
+    const VALID_PROFICIENCIES = ['beginner', 'intermediate', 'advanced', 'expert']
+    const rawProficiency = (profile.domainProficiency && rawDomain)
+      ? (profile.domainProficiency[rawDomain] ?? 'intermediate')
+      : 'intermediate'
+    const domainProficiency = VALID_PROFICIENCIES.includes(rawProficiency) ? rawProficiency : 'intermediate'
+
     // Check sessionStorage cache first (avoid re-calling Claude on re-visit).
-    // Cache key is role-scoped so a role change produces a fresh fetch (FR-06, AC-07).
-    // v3: bump invalidates v2 entries saved with empty topics (id filter bug)
-    const cacheKey = `clio_topic_recs_v3_${roleLevel}`
+    // v4: includes proficiency in key so beginner/expert get separate caches.
+    const cacheKey = `clio_topic_recs_v4_${roleLevel}_${domainProficiency}`
     const cached = sessionStorage.getItem(cacheKey)
     if (cached) {
       try {
@@ -300,7 +312,8 @@ export default function TopicsPage() {
             subDomain: profile.subDomain ?? '',
             learningGoal,
             aiMaturity,
-            roleLevel,   // FR-05: pass derived roleLevel to the API
+            domainProficiency,
+            roleLevel,
           }),
         })
 
@@ -310,14 +323,17 @@ export default function TopicsPage() {
         if (!data.fallback && data.sections && data.sections.length > 0) {
           sessionStorage.setItem(cacheKey, JSON.stringify(data.sections))
           setSections(data.sections)
+          if (data.maturity) setMaturity(data.maturity)
+          if (data.advancedSections) setAdvancedSections(data.advancedSections)
           setPageState('loaded')
           return
         }
 
-        // Fallback: try to use sections from fallback response (FR-07).
-        // The API already selects the correct role-differentiated fallback server-side.
+        // Fallback: try to use sections from fallback response.
         if (data.fallback && data.sections && data.sections.length > 0) {
           setSections(data.sections)
+          if (data.maturity) setMaturity(data.maturity)
+          if (data.advancedSections) setAdvancedSections(data.advancedSections)
           setPageState('loaded')
           return
         }
@@ -592,6 +608,52 @@ export default function TopicsPage() {
                   />
                 )
               })}
+
+              {/* Collapsed advanced topics — shown only for beginner technical users */}
+              {maturity === 'beginner' && advancedSections.length > 0 && (
+                <div className="border border-[#222222] rounded-2xl overflow-hidden">
+                  <button
+                    onClick={() => setIsAdvancedExpanded((v) => !v)}
+                    className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-[#111111] transition-colors"
+                  >
+                    <motion.div animate={{ rotate: isAdvancedExpanded ? 90 : 0 }} transition={{ duration: 0.2 }}>
+                      <ChevronRight size={16} className="text-[#475569]" />
+                    </motion.div>
+                    <div>
+                      <p className="text-sm font-semibold text-[#475569]">Advanced topics — unlock when you&apos;re ready</p>
+                      <p className="text-xs text-[#334155] mt-0.5">These will make more sense after you&apos;ve built the fundamentals.</p>
+                    </div>
+                  </button>
+                  <AnimatePresence>
+                    {isAdvancedExpanded && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.25 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="px-5 pb-5 space-y-6">
+                          {advancedSections.map((section, idx) => {
+                            const iconKey = section.icon in SECTION_ICON_MAP
+                              ? section.icon
+                              : (FALLBACK_SECTION_ICONS[section.id] ?? 'TrendingUp')
+                            return (
+                              <Section
+                                key={`adv-${section.id}`}
+                                section={{ ...section, icon: iconKey }}
+                                selectedIds={selectedIds}
+                                onToggle={toggleTopic}
+                                colorClass={SECTION_COLORS[(sections.length + idx) % SECTION_COLORS.length]}
+                              />
+                            )
+                          })}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              )}
 
               {/* Add your own topic input */}
               <div>

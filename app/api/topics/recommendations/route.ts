@@ -17,10 +17,19 @@ const RecommendationsSchema = z.object({
   subDomain: z.string().max(100).optional().default(''),
   learningGoal: z.string().max(200).optional().default(''),
   aiMaturity: z.string().max(50).optional().default('intermediate'),
+  domainProficiency: z.record(z.string()).optional().default({}),
   roleLevel: z.enum(['c-suite', 'vp-dir', 'vp-technology', 'vp-product', 'manager', 'specialist'])
              .optional()
              .default('manager'),
 })
+
+// Normalise the many maturity vocabulary words into 3 actionable tiers
+function normalizeMaturity(raw: string): 'beginner' | 'intermediate' | 'advanced' {
+  const v = raw.toLowerCase()
+  if (v === 'observer' || v === 'beginner') return 'beginner'
+  if (v === 'emerging' || v === 'intermediate') return 'intermediate'
+  return 'advanced' // practitioner, leader, expert, advanced
+}
 
 // ─── Response types ────────────────────────────────────────────────────────────
 
@@ -39,11 +48,15 @@ interface Section {
 
 interface RecommendationsResponse {
   sections: Section[]
+  maturity?: string
+  advancedSections?: Section[]  // present for beginner users — shown collapsed in UI
 }
 
 interface FallbackResponse {
   fallback: true
   sections: Section[]
+  maturity?: string
+  advancedSections?: Section[]
 }
 
 // ─── Mock data ─────────────────────────────────────────────────────────────────
@@ -228,6 +241,46 @@ const MOCK_RESPONSE_TECHNICAL: RecommendationsResponse = {
   ],
 }
 
+const MOCK_RESPONSE_TECHNICAL_BEGINNER: RecommendationsResponse = {
+  sections: [
+    {
+      id: 'trending',
+      label: 'Start here',
+      icon: 'BookOpen',
+      topics: [
+        { id: 'what-is-llm', title: 'What Is a Large Language Model?', description: 'Understand how LLMs work and why they matter for your work as a developer.' },
+        { id: 'what-is-claude', title: 'What Is Claude and How to Use It', description: 'Get started with Anthropic\'s Claude and understand what makes it different from other models.' },
+        { id: 'prompt-engineering-basics', title: 'Prompt Engineering Basics', description: 'Write prompts that consistently produce accurate, structured outputs across varied inputs.' },
+        { id: 'tokens-context-windows-intro', title: 'Tokens and Context Windows Explained', description: 'Understand the fundamental unit of AI text and how limits affect your applications.' },
+        { id: 'ai-api-first-call', title: 'Making Your First AI API Call', description: 'Set up auth, send a message, and parse the response in your language of choice.' },
+      ],
+    },
+    {
+      id: 'skills',
+      label: 'Skills to build first',
+      icon: 'Code2',
+      topics: [
+        { id: 'system-prompts-basics', title: 'Writing Effective System Prompts', description: 'Control AI behaviour consistently using well-structured system instructions.' },
+        { id: 'reading-ai-outputs', title: 'Reading and Validating AI Outputs', description: 'Reliably check whether AI-generated responses are correct before using them in production.' },
+        { id: 'ai-coding-assistants-start', title: 'AI Coding Assistants: Getting Started', description: 'Use GitHub Copilot or Cursor to write and refactor code faster in your daily workflow.' },
+        { id: 'simple-ai-feature', title: 'Building a Simple AI Feature', description: 'Integrate a basic LLM call into an existing app endpoint from start to finish.' },
+        { id: 'debugging-llm-outputs', title: 'Debugging Unexpected LLM Outputs', description: 'Diagnose and fix hallucinations, refusals, and format inconsistencies in AI responses.' },
+      ],
+    },
+    {
+      id: 'tools',
+      label: 'Tools to start with',
+      icon: 'Wrench',
+      topics: [
+        { id: 'claude-api-start', title: 'Claude API: Getting Started', description: 'Build your first production feature using Anthropic\'s Messages API.' },
+        { id: 'cursor-basics', title: 'Cursor IDE for Beginners', description: 'Set up and use the AI-native editor to accelerate your daily coding workflow.' },
+        { id: 'github-copilot-start', title: 'GitHub Copilot: First Steps', description: 'Enable Copilot for autocomplete, test generation, and simple refactoring.' },
+        { id: 'chatgpt-developers-start', title: 'ChatGPT for Developers', description: 'Use ChatGPT effectively for code review, debugging, and documentation tasks.' },
+      ],
+    },
+  ],
+}
+
 const MOCK_RESPONSE_MANAGER: RecommendationsResponse = {
   sections: [
     {
@@ -360,13 +413,14 @@ Return ONLY valid JSON matching the specified schema. Be specific and practical 
 
 // ─── Claude prompt builder ─────────────────────────────────────────────────────
 
-const USER_PROMPTS: Record<RoleTier, (role: string, primaryDomain: string, subDomain: string, aiMaturity: string, learningGoal: string) => string> = {
-  technical: (role, primaryDomain, subDomain, aiMaturity, learningGoal) =>
+const USER_PROMPTS: Record<RoleTier, (role: string, primaryDomain: string, subDomain: string, aiMaturity: string, learningGoal: string, domainProficiency: string) => string> = {
+  technical: (role, primaryDomain, subDomain, aiMaturity, learningGoal, domainProficiency) =>
     `Generate AI learning topic recommendations for:
 - Role: ${role}
 - Domain: ${primaryDomain}
 - Sub-domain: ${subDomain}
-- AI experience: ${aiMaturity}
+- AI experience (global): ${aiMaturity}
+- Domain proficiency in ${primaryDomain}: ${domainProficiency}
 - Learning goal: ${learningGoal}
 
 Return exactly 3 sections. Think from this developer's perspective — what do they actually need to build great AI systems?
@@ -379,11 +433,16 @@ Rules:
 - Every topic must be specific to this exact role and sub-domain — never generic
 - Titles: max 7 words, concrete and specific (never "Introduction to X" or "Overview of Y")
 - Descriptions: one sentence, max 18 words, what they can DO after learning this
+- Calibrate topic DIFFICULTY to the domain proficiency above:
+  beginner → fundamentals only (what is X, why it matters, first steps, basic usage — never production patterns)
+  intermediate → applied skills (real integration patterns, practical techniques, building with APIs)
+  advanced → advanced implementation (production architecture, trade-offs, edge cases, evaluation at scale)
+  expert → cutting-edge (emerging research, frontier patterns, scaling decisions, novel approaches)
 
 Return JSON only — no markdown, no explanation.
 Format: { "trending": [...], "skills": [...], "tools": [...] }`,
 
-  executive: (role, primaryDomain, subDomain, aiMaturity, learningGoal) =>
+  executive: (role, primaryDomain, subDomain, aiMaturity, learningGoal, _domainProficiency) =>
     `Generate AI learning topic recommendations for:
 - Role: ${role}
 - Domain: ${primaryDomain}
@@ -405,7 +464,7 @@ Rules:
 Return JSON only — no markdown, no explanation.
 Format: { "trending": [...], "decisions": [...], "tools": [...] }`,
 
-  manager: (role, primaryDomain, subDomain, aiMaturity, learningGoal) =>
+  manager: (role, primaryDomain, subDomain, aiMaturity, learningGoal, _domainProficiency) =>
     `Generate AI learning topic recommendations for:
 - Role: ${role}
 - Domain: ${primaryDomain}
@@ -434,19 +493,21 @@ function buildUserPrompt(
   primaryDomain: string,
   subDomain: string,
   aiMaturity: string,
-  learningGoal: string
+  learningGoal: string,
+  domainProficiency: string
 ): string {
-  return USER_PROMPTS[tier](role, primaryDomain, subDomain, aiMaturity, learningGoal)
+  return USER_PROMPTS[tier](role, primaryDomain, subDomain, aiMaturity, learningGoal, domainProficiency)
 }
 
 // ─── JSON response shaping ─────────────────────────────────────────────────────
 
 const SECTION_METADATA: Record<string, { label: string; icon: string }> = {
-  trending:  { label: 'Trending in your field',    icon: 'TrendingUp' },
-  skills:    { label: 'Skills to build',           icon: 'Code2'      },
-  decisions: { label: 'Decisions you need to own', icon: 'Briefcase'  },
-  team:      { label: 'Enabling your team',        icon: 'Users'      },
-  tools:     { label: 'Tools to master',           icon: 'Wrench'     },
+  trending:    { label: 'Trending in your field',    icon: 'TrendingUp' },
+  skills:      { label: 'Skills to build',           icon: 'Code2'      },
+  decisions:   { label: 'Decisions you need to own', icon: 'Briefcase'  },
+  team:        { label: 'Enabling your team',        icon: 'Users'      },
+  tools:       { label: 'Tools to master',           icon: 'Wrench'     },
+  fundamentals:{ label: 'Start here',                icon: 'BookOpen'   },
   // legacy keys — kept so any cached/in-flight responses still render
   role: { label: 'Based on your role',  icon: 'Briefcase' },
   goal: { label: 'Based on your goal',  icon: 'Target'    },
@@ -590,11 +651,11 @@ function buildCacheKey(
   role: string,
   primaryDomain: string,
   subDomain: string,
-  aiMaturity: string,
+  effectiveMaturity: string,
   learningGoal: string
 ): string {
-  // v3: bump invalidates v2 entries that were saved with empty topics (id filter bug)
-  const canonical = ['v3', tier, role, primaryDomain, subDomain, aiMaturity, learningGoal]
+  // v4: bump invalidates v3 entries; now keyed on effectiveMaturity (per-domain) not raw aiMaturity
+  const canonical = ['v4', tier, role, primaryDomain, subDomain, effectiveMaturity, learningGoal]
     .map((s) => s.trim().toLowerCase())
     .join('|')
   return createHash('sha256').update(canonical).digest('hex')
@@ -684,25 +745,38 @@ export async function POST(
       return NextResponse.json({ fallback: true, sections: MOCK_RESPONSE_MANAGER.sections } as FallbackResponse)
     }
 
-    const { role, primaryDomain, subDomain, learningGoal, aiMaturity, roleLevel } = parsed.data
+    const { role, primaryDomain, subDomain, learningGoal, aiMaturity, domainProficiency, roleLevel } = parsed.data
 
     // Derive the three-tier bucket once — used for prompt selection, fallback selection, and cache key
     const tier = getRoleTier(roleLevel)
 
+    // Effective maturity: per-domain proficiency beats the global aiMaturity scalar.
+    // This is the richer signal captured in onboarding Step 5.
+    const rawMaturity = (primaryDomain && domainProficiency[primaryDomain])
+      ? domainProficiency[primaryDomain]
+      : aiMaturity
+    const effectiveMaturity = normalizeMaturity(rawMaturity)
+
     // ── Cache lookup ─────────────────────────────────────────────────────────────
-    const cacheKey = buildCacheKey(tier, role, primaryDomain, subDomain, aiMaturity, learningGoal)
+    const cacheKey = buildCacheKey(tier, role, primaryDomain, subDomain, effectiveMaturity, learningGoal)
     const cached = await getCachedRecommendations(cacheKey)
     if (cached) {
       console.log('[topic-rec-cache] HIT for key:', cacheKey.slice(0, 12))
-      return NextResponse.json({ sections: cached })
+      return NextResponse.json({ sections: cached, maturity: effectiveMaturity })
     }
-    console.log('[topic-rec-cache] MISS — calling Claude for tier:', tier)
+    console.log('[topic-rec-cache] MISS — calling Claude for tier:', tier, '| maturity:', effectiveMaturity)
 
     // ── Mock guard (PLACEHOLDER_ key) ───────────────────────────────────────────
     const apiKey = process.env.ANTHROPIC_API_KEY ?? ''
     if (!apiKey || apiKey.startsWith('PLACEHOLDER_')) {
-      console.log('[MOCK Anthropic] /api/topics/recommendations — returning mock data for tier:', tier)
-      return NextResponse.json(MOCK_RESPONSES[tier])
+      console.log('[MOCK Anthropic] /api/topics/recommendations — tier:', tier, '| maturity:', effectiveMaturity)
+      const mockBase = tier === 'technical' && effectiveMaturity === 'beginner'
+        ? MOCK_RESPONSE_TECHNICAL_BEGINNER
+        : MOCK_RESPONSES[tier]
+      const advancedSections = (tier === 'technical' && effectiveMaturity === 'beginner')
+        ? MOCK_RESPONSE_TECHNICAL.sections
+        : undefined
+      return NextResponse.json({ ...mockBase, maturity: effectiveMaturity, advancedSections })
     }
 
     // ── Live Claude path ─────────────────────────────────────────────────────────
@@ -716,7 +790,8 @@ export async function POST(
       primaryDomain,
       subDomain,
       aiMaturity,
-      learningGoal
+      learningGoal,
+      effectiveMaturity
     )
 
     // 20-second timeout via AbortController (Claude Sonnet p50 is ~3s, p99 is ~15s)
@@ -740,7 +815,12 @@ export async function POST(
     } catch (err) {
       // Covers both timeout (AbortError) and network errors
       console.error('[topics/recommendations] Claude API error:', (err as Error).message)
-      return NextResponse.json({ fallback: true, sections: MOCK_RESPONSES[tier].sections } as FallbackResponse)
+      const fallbackSections = (tier === 'technical' && effectiveMaturity === 'beginner')
+        ? MOCK_RESPONSE_TECHNICAL_BEGINNER.sections
+        : MOCK_RESPONSES[tier].sections
+      const fallbackAdvanced = (tier === 'technical' && effectiveMaturity === 'beginner')
+        ? MOCK_RESPONSE_TECHNICAL.sections : undefined
+      return NextResponse.json({ fallback: true, sections: fallbackSections, maturity: effectiveMaturity, advancedSections: fallbackAdvanced } as FallbackResponse)
     } finally {
       clearTimeout(timeoutId)
     }
@@ -748,13 +828,20 @@ export async function POST(
     const result = parseClaudeResponse(rawText)
     if (!result) {
       console.error('[topics/recommendations] Failed to parse Claude JSON response')
-      return NextResponse.json({ fallback: true, sections: MOCK_RESPONSES[tier].sections } as FallbackResponse)
+      const fallbackSections = (tier === 'technical' && effectiveMaturity === 'beginner')
+        ? MOCK_RESPONSE_TECHNICAL_BEGINNER.sections
+        : MOCK_RESPONSES[tier].sections
+      const fallbackAdvanced = (tier === 'technical' && effectiveMaturity === 'beginner')
+        ? MOCK_RESPONSE_TECHNICAL.sections : undefined
+      return NextResponse.json({ fallback: true, sections: fallbackSections, maturity: effectiveMaturity, advancedSections: fallbackAdvanced } as FallbackResponse)
     }
 
     // Save to cache — awaited so it completes before the cold path returns (~50ms, negligible vs 3-5s Claude)
     await saveToCache(cacheKey, tier, result.sections)
 
-    return NextResponse.json(result)
+    const advancedSections = (tier === 'technical' && effectiveMaturity === 'beginner')
+      ? MOCK_RESPONSE_TECHNICAL.sections : undefined
+    return NextResponse.json({ ...result, maturity: effectiveMaturity, advancedSections })
   } catch (err) {
     // Unhandled errors — never let this route return 500.
     // roleLevel is unknown here (outer catch fires before Zod parse); use manager as safe default.
