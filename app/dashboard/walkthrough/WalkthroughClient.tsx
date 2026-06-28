@@ -8,6 +8,7 @@ import VisualizationTabPanel from '@/components/kb/VisualizationTabPanel'
 import type { VisualSpec } from '@/lib/session-ai'
 import type { TabManifest, TemplateSection, VisualizationTab } from '@/lib/templates/types'
 import { Conversation } from '@11labs/client'
+import { createVoiceAdapter, type VoiceSessionAdapter } from '@/lib/voice'
 
 const AGENT_ID = process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID ?? 'agent_0701krp1ta48fswrff17ctb0520m'
 
@@ -24,6 +25,45 @@ const MAX_RECONNECT = 6
 // Beyond this the connection drops silently. session_brief + session_script fit easily;
 // topic_context is truncated to fill the remaining budget.
 const MAX_PROMPT_CHARS = 12_000
+
+// ─── Split-mode script formatter ──────────────────────────────────────────────
+// Formats a single section's training script for injection via injectContext.
+// Produces the same structure as buildSessionScript for one section in isolation.
+function formatSectionScript(
+  section: { meta: { subtopicTitle: string } },
+  script: TrainingScript | null,
+  sectionNum: number,
+  totalSections: number
+): string {
+  const title = section.meta.subtopicTitle
+  const get = (type: string) =>
+    script?.segments.find((s) => s.type === type)?.content ?? null
+
+  const teach = get('TEACH')
+  const checkpoint = get('CHECKPOINT')
+  const probe = get('PROBE')
+  const cont = get('CONTINUE')
+  const isLast = sectionNum >= totalSections
+
+  return [
+    `[SPLIT MODE — SECTION ${sectionNum} SCRIPT INJECTED]`,
+    `--- SECTION ${sectionNum}/${totalSections}: "${title}" --- [call show_visual({ section_index: ${sectionNum} })]`,
+    ``,
+    `[STAGE DIRECTION — DO NOT SAY] Deliver teaching content after show_visual({ section_index: ${sectionNum} }):`,
+    teach ?? `(No script — explain the key concepts from the knowledge base in plain language.)`,
+    ``,
+    `[STAGE DIRECTION — DO NOT SAY] Verification question — ask after TEACH:`,
+    checkpoint ?? `How does that land for you?`,
+    ``,
+    `[STAGE DIRECTION — DO NOT SAY] Reframe fallback — use if participant seems uncertain:`,
+    probe ?? `Let me try a different angle.`,
+    ``,
+    isLast
+      ? `[STAGE DIRECTION — DO NOT SAY] Final bridge — say this after verification response, then summarise 2 sentences, then call end_session immediately:`
+      : `[STAGE DIRECTION — DO NOT SAY] Bridge to next section:`,
+    cont ?? (isLast ? `That wraps up today's session.` : `Good. Let's move to the next section.`),
+  ].join('\n')
+}
 
 type WalkthroughStatus = 'idle' | 'generating' | 'ready' | 'wiping'
 type AgentStatus = 'disconnected' | 'connecting' | 'listening' | 'speaking' | 'error'
@@ -197,6 +237,10 @@ export default function WalkthroughClient({ userId, userFirstName, initialState 
   const [pollCount, setPollCount] = useState(0)
   const [pollError, setPollError] = useState<string | null>(null)
   const conversationRef = useRef<Conversation | null>(null)
+  // adapterRef: provider-agnostic handle (injectContext, endSession, setVolume, etc.)
+  // elevenLabsConvRef: raw Conversation kept separately for sendUserMessage (ElevenLabs-specific)
+  const adapterRef = useRef<VoiceSessionAdapter | null>(null)
+  const elevenLabsConvRef = useRef<Conversation | null>(null)
   const lastSentTranscriptRef = useRef<string | null>(null)
   const lastActivityRef = useRef<number>(Date.now())
   const hasConnectedRef = useRef(false)
@@ -357,6 +401,25 @@ export default function WalkthroughClient({ userId, userFirstName, initialState 
                     console.log(`[Walkthrough] show_visual: idx ${section_index} out of bounds, clamping to ${idx}`)
                   }
                   if (idx >= 0) {
+                    // Split-mode: inject this tab's script before scrolling to it.
+                    // idx > 0 because overview (idx=0) has no training script.
+                    const splitCtxMode = process.env.NEXT_PUBLIC_CLIO_CONTEXT_MODE ?? 'all-upfront'
+                    if (splitCtxMode === 'split' && idx > 0) {
+                      const scriptIndex = idx - 1  // section_index 1 → training_scripts[0]
+                      const allScripts = trainingScriptsRef.current
+                      const tabScript = allScripts[scriptIndex] ?? null
+                      const tabSection = sections[idx] ?? null
+                      const formattedScript = tabScript && tabSection
+                        ? formatSectionScript(tabSection, tabScript, idx, sections.length - 1)
+                        : '[Context for this section is loading — coach from the TOPIC KNOWLEDGE BASE for now.]'
+                      try {
+                        adapterRef.current?.injectContext(formattedScript)
+                        console.log(`[split mode] Tab ${idx} script injected at show_visual section_index=${idx}${!tabScript ? ' (fallback — not ready)' : ''}`)
+                      } catch (e) {
+                        console.error(`[split mode] injectContext failed at section_index=${idx}:`, e)
+                      }
+                    }
+
                     await fetch(`/api/walkthrough-state/${userId}`, {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
@@ -436,7 +499,8 @@ export default function WalkthroughClient({ userId, userFirstName, initialState 
           },
           onDisconnect: () => {
             console.log('[Walkthrough] Agent disconnected')
-            conversationRef.current = null
+            adapterRef.current = null
+            elevenLabsConvRef.current = null
             setAgentStatus('disconnected')
 
             if (sessionEndedRef.current) {
@@ -508,20 +572,37 @@ export default function WalkthroughClient({ userId, userFirstName, initialState 
 
         if (cancelled) { conv.endSession().catch(() => {}); return }
         hasConnectedRef.current = true
-        conversationRef.current = conv
+        elevenLabsConvRef.current = conv
+        adapterRef.current = createVoiceAdapter('elevenlabs', conv)
         lastActivityRef.current = Date.now()
 
-        // Context is fetched server-side by /api/clio/llm on every turn — no client-side context needed.
-        // Only send a reconnect notice if the WebSocket dropped mid-session.
+        const contextMode = process.env.NEXT_PUBLIC_CLIO_CONTEXT_MODE ?? 'all-upfront'
+
         if (isReconnect) {
-          conv.sendContextualUpdate(
+          adapterRef.current.injectContext(
             'The WebSocket connection briefly dropped and reconnected. Do not re-introduce yourself — continue the session naturally from where you left off.'
           )
+        } else if (contextMode === 'split') {
+          // Inject Tab 1 script immediately — overview is section 0, first content tab is section 1
+          const tab1Script = trainingScriptsRef.current[0] ?? null
+          const sections = sectionsRef.current
+          const tab1Section = sections[1] ?? null
+          if (tab1Script && tab1Section) {
+            const formatted = formatSectionScript(tab1Section, tab1Script, 1, sections.length - 1)
+            try {
+              adapterRef.current.injectContext(formatted)
+              console.log('[split mode] Tab 1 script injected at session start')
+            } catch (e) {
+              console.error('[split mode] injectContext failed at session start:', e)
+            }
+          } else {
+            console.log('[split mode] Tab 1 script not ready at session start — skipping initial injection')
+          }
         }
 
         console.log(
           '[Walkthrough]',
-          isReconnect ? 'Reconnected — server-side context persists' : `Session started — context fetched by custom LLM for user=${userId}`
+          isReconnect ? 'Reconnected — server-side context persists' : `Session started — context fetched by custom LLM for user=${userId} (mode=${contextMode})`
         )
       } catch (err) {
         if (cancelled) return
@@ -548,8 +629,9 @@ export default function WalkthroughClient({ userId, userFirstName, initialState 
     return () => {
       cancelled = true
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current)
-      conversationRef.current?.endSession().catch(() => {})
-      conversationRef.current = null
+      adapterRef.current?.endSession().catch(() => {})
+      adapterRef.current = null
+      elevenLabsConvRef.current = null
     }
   }, [userId])
 
@@ -581,7 +663,8 @@ export default function WalkthroughClient({ userId, userFirstName, initialState 
         if (data.session_script) sessionScriptRef.current = data.session_script
         if (data.clio_session_context) clioSessionContextRef.current = data.clio_session_context
 
-        const conv = conversationRef.current
+        // elevenLabsConvRef used for sendUserMessage (ElevenLabs-specific transcript forwarding)
+        const conv = elevenLabsConvRef.current
 
         // Feed participant transcript to agent — debounced to prevent cascade.
         // Recall.ai fires transcript.data events every 100-300ms while someone speaks.
@@ -607,7 +690,7 @@ export default function WalkthroughClient({ userId, userFirstName, initialState 
             if (sendTranscriptTimerRef.current) clearTimeout(sendTranscriptTimerRef.current)
             sendTranscriptTimerRef.current = setTimeout(() => {
               const toSend = pendingTranscriptRef.current
-              const convNow = conversationRef.current
+              const convNow = elevenLabsConvRef.current
               if (!toSend || !convNow || toSend === lastSentTranscriptRef.current) return
               lastSentTranscriptRef.current = toSend
               pendingTranscriptRef.current = null
@@ -620,9 +703,9 @@ export default function WalkthroughClient({ userId, userFirstName, initialState 
         }
 
         // Keep-alive: prevent ElevenLabs inactivity disconnect when user is silent
-        if (conv && Date.now() - lastActivityRef.current > KEEPALIVE_INTERVAL) {
+        if (adapterRef.current && Date.now() - lastActivityRef.current > KEEPALIVE_INTERVAL) {
           lastActivityRef.current = Date.now()
-          conv.sendContextualUpdate('Session is ongoing. Participant may be listening.')
+          adapterRef.current.injectContext('Session is ongoing. Participant may be listening.')
           console.log('[Walkthrough] Keep-alive sent')
         }
       } catch (err) {

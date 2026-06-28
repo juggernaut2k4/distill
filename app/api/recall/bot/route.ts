@@ -219,6 +219,13 @@ export async function POST(request: NextRequest) {
         ).catch((err) => console.error('[recall/bot] context doc cache write failed:', err))
       }
 
+      const rawContextMode = process.env.CLIO_CONTEXT_MODE ?? ''
+      const contextMode: 'all-upfront' | 'split' =
+        rawContextMode === 'split' ? 'split' : 'all-upfront'
+      if (rawContextMode && rawContextMode !== 'all-upfront' && rawContextMode !== 'split') {
+        console.warn(`[recall/bot] CLIO_CONTEXT_MODE unrecognised ("${rawContextMode}") — defaulting to all-upfront`)
+      }
+
       docs = buildAllClioDocs({
         sessionTitle,
         sessionIndex,
@@ -231,7 +238,7 @@ export async function POST(request: NextRequest) {
         userIndustry,
         learnerProfile,
         sessionDurationMins,
-      })
+      }, contextMode)
 
       console.log(
         `[recall/bot] Built: brief=${docs.session_brief.length}c, ` +
