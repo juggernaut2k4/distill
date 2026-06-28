@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
     const [{ data: sessionData }, { data: userRow }, learningProfile] = await Promise.all([
       supabase
         .from('sessions')
-        .select('session_title, topic_id, session_plan, session_index, curriculum_session_id, duration_mins')
+        .select('session_title, topic_id, session_plan, session_index, curriculum_session_id, duration_mins, sub_sessions')
         .eq('id', sessionId)
         .single(),
       supabase
@@ -257,6 +257,34 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // ── Step 2b: Prepend synthetic Session Overview section ─────────────────
+    // Mirrors KB-VIZ-01 logic in KBTopicClient — the walkthrough page renders
+    // sections directly from walkthrough_state, so the overview must be here too.
+    const rawSubSessions = (sessionData as unknown as { sub_sessions?: unknown }).sub_sessions
+    const subSessionTitles: string[] = Array.isArray(rawSubSessions)
+      ? (rawSubSessions as Array<{ title?: string }>).map((s) => s.title ?? '').filter(Boolean)
+      : []
+
+    const syntheticOverview: TemplateSection | null = freshSections.length > 0 ? {
+      id: 'session-overview',
+      type: 'TopicHero',
+      meta: { subtopicTitle: 'Session Overview', sessionTitle, userRole, userIndustry },
+      data: {
+        topic_name: sessionTitle,
+        key_question: 'What will we cover in this session?',
+        key_takeaways: subSessionTitles.length > 0 ? subSessionTitles : freshSections.map((s) => s.meta?.subtopicTitle ?? s.id),
+        so_what_preview: `${sessionDurationMins}-minute session · ${freshSections.length} subtopic${freshSections.length !== 1 ? 's' : ''}`,
+      },
+      status: 'active' as const,
+    } : null
+
+    const sectionsWithOverview: TemplateSection[] = syntheticOverview
+      ? [syntheticOverview, ...freshSections]
+      : freshSections
+    const scriptsWithOverview = syntheticOverview
+      ? [null, ...trainingScripts]
+      : trainingScripts
+
     // ── Step 3: Write context to walkthrough_state BEFORE bot creation ───────
     // Critical: Recall.ai loads walkthroughUrl immediately after createBot returns.
     // If context is stored after bot creation, the server-render races and
@@ -272,10 +300,10 @@ export async function POST(request: NextRequest) {
         topic_title: sessionTitle,
         topic_id: topicId,
         skipped_topics: skippedTopics,
-        sections: freshSections.length > 0 ? freshSections : null,
-        sections_loaded_at: freshSections.length > 0 ? new Date().toISOString() : null,
+        sections: sectionsWithOverview.length > 0 ? sectionsWithOverview : null,
+        sections_loaded_at: sectionsWithOverview.length > 0 ? new Date().toISOString() : null,
         current_section_index: 0,
-        training_scripts: trainingScripts.length > 0 ? trainingScripts : null,
+        training_scripts: scriptsWithOverview.length > 0 ? scriptsWithOverview : null,
         session_brief: docs.session_brief || null,
         topic_context: docs.topic_context || null,
         session_script: docs.session_script || null,
