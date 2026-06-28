@@ -461,11 +461,20 @@ The ordered_session_ids array must contain exactly ${sessionsList.length} UUIDs 
     type VisEntryWithId = { db_session_id?: string }
     const session1Id = (sequencedVisible[0] as VisEntryWithId | undefined)?.db_session_id
     if (session1Id) {
-      await step.sendEvent('kickoff-session-1-content', {
-        name: 'distill/session.content.generate',
-        data: { sessionId: session1Id, userId },
-      })
-      console.log(`[session-designer-auto] Kicked off Session 1 content: ${session1Id}`)
+      const { data: job } = await supabase
+        .from('async_jobs')
+        .insert({ user_id: userId, type: 'session_content', payload: { sessionId: session1Id } })
+        .select('id')
+        .single()
+      if (job) {
+        await step.sendEvent('kickoff-session-1-content', {
+          name: 'clio/session.content.requested',
+          data: { jobId: job.id, sessionId: session1Id, userId },
+        })
+        console.log(`[session-designer-auto] Kicked off Session 1 content: ${session1Id}`)
+      } else {
+        console.error('[session-designer-auto] Failed to create async_job for session 1 content')
+      }
     }
 
     const totalSessions = designResults.length
