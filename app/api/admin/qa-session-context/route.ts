@@ -58,7 +58,8 @@ export async function GET(request: NextRequest) {
   const issues: string[] = []
   const sessionId = session.id as string
   const sessionTitle = (session.session_title as string) ?? 'AI Coaching Session'
-  const topicId = (session.topic_id as string | null) ?? null
+  // SESS-01: content pipeline keys topic_content_cache by sessions.id (DB UUID), not sessions.topic_id (catalog slug)
+  const topicId = sessionId
   const sessionIndex = (session.session_index as number | null) ?? null
   const sessionUserId = (session.user_id as string) ?? userId
 

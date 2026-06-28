@@ -263,7 +263,15 @@ export const sessionDesignerAuto = inngest.createFunction(
           continue
         }
 
-        insertResults.push({ di, ds, dbSessionId: inserted?.id ?? null })
+        const dbSessionId = inserted?.id ?? null
+
+        // SESS-01: content cache is keyed by sessions.id (DB UUID). Update topic_id to match
+        // so that KB routes, QA endpoint, and content lookup all find the correct cache rows.
+        if (dbSessionId) {
+          await supabase.from('sessions').update({ topic_id: dbSessionId }).eq('id', dbSessionId)
+        }
+
+        insertResults.push({ di, ds, dbSessionId })
       }
 
       // Flat list: one entry per DB session so PlanClient shows all sessions
