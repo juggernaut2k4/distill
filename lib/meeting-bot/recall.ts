@@ -3,6 +3,6 @@ import type { MeetingBotProvider } from './types'
 
 export const recallProvider: MeetingBotProvider = {
   name: 'recall',
-  createBot: (meetingUrl, userId, walkthroughUrl) => recallCreateBot(meetingUrl, userId, walkthroughUrl),
+  createBot: (meetingUrl, userId, walkthroughUrl, _sessionId) => recallCreateBot(meetingUrl, userId, walkthroughUrl),
   deleteBot: (botId) => recallDeleteBot(botId),
 }

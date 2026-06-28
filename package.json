@@ -9,7 +9,9 @@
     "lint": "next lint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "dev:relay": "ts-node --project tsconfig.server.json server.ts",
+    "start:relay": "npm run build && node dist/server.js"
   },
   "dependencies": {
     "@11labs/client": "^0.2.0",
@@ -21,6 +23,7 @@
     "@stripe/stripe-js": "^9.6.0",
     "@supabase/ssr": "^0.10.2",
     "@supabase/supabase-js": "^2.49.4",
+    "@types/ws": "^8.18.1",
     "@xyflow/react": "^12.10.2",
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0",
@@ -38,6 +41,7 @@
     "svix": "^1.94.0",
     "twilio": "^5.5.1",
     "voyageai": "^0.4.0",
+    "ws": "^8.21.0",
     "zod": "^3.25.0"
   },
   "devDependencies": {

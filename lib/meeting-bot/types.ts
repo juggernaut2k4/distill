@@ -4,6 +4,6 @@ export interface CreateBotResult {
 
 export interface MeetingBotProvider {
   name: 'recall' | 'attendee' | 'agentcall'
-  createBot(meetingUrl: string, userId: string, walkthroughUrl: string): Promise<CreateBotResult>
+  createBot(meetingUrl: string, userId: string, walkthroughUrl: string, sessionId?: string): Promise<CreateBotResult>
   deleteBot(botId: string): Promise<void>
 }

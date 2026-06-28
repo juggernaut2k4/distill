@@ -12,7 +12,7 @@ function headers(): Record<string, string> {
 export const attendeeProvider: MeetingBotProvider = {
   name: 'attendee',
 
-  async createBot(meetingUrl: string, userId: string, walkthroughUrl: string): Promise<CreateBotResult> {
+  async createBot(meetingUrl: string, userId: string, walkthroughUrl: string, sessionId?: string): Promise<CreateBotResult> {
     const key = process.env.ATTENDEE_API_KEY
     if (!key || key.startsWith('PLACEHOLDER')) {
       const mockBotId = `mock-attendee-${Date.now()}`
@@ -20,35 +20,14 @@ export const attendeeProvider: MeetingBotProvider = {
       return { botId: mockBotId }
     }
 
+    const audioMode = process.env.MEETING_BOT_AUDIO_MODE ?? 'browser'
     const webhookUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/attendee/webhook`
 
-    const res = await fetch(`${BASE_URL}/bots`, {
-      method: 'POST',
-      headers: headers(),
-      body: JSON.stringify({
-        meeting_url: meetingUrl,
-        bot_name: 'Clio',
-        // voice_agent_settings.url points Attendee to the same walkthrough page
-        // that Recall.ai uses — Attendee loads it in headless Chromium and routes
-        // meeting audio through the page's mic/speaker. ElevenLabs runs identically.
-        voice_agent_settings: { url: walkthroughUrl },
-        webhooks: [{
-          url: webhookUrl,
-          triggers: ['bot.state_change', 'transcript.update', 'participant_events.join_leave'],
-        }],
-        metadata: { user_id: userId },
-        deduplication_key: `${userId}-${Date.now()}`,
-        transcription_settings: { meeting_closed_captions: {} },
-      }),
-    })
-
-    if (!res.ok) {
-      const body = await res.text()
-      throw new Error(`Attendee.dev createBot failed: ${res.status} ${body}`)
+    if (audioMode === 'relay') {
+      return createBotRelayMode(meetingUrl, userId, sessionId ?? '', webhookUrl)
     }
 
-    const data = await res.json() as { id: string }
-    return { botId: data.id }
+    return createBotBrowserMode(meetingUrl, userId, walkthroughUrl, webhookUrl)
   },
 
   async deleteBot(botId: string): Promise<void> {
@@ -68,4 +47,91 @@ export const attendeeProvider: MeetingBotProvider = {
       throw new Error(`Attendee.dev deleteBot failed: ${res.status} ${body}`)
     }
   },
+}
+
+// ─── Browser mode (current, default) ─────────────────────────────────────────
+// Attendee loads walkthroughUrl in headless Chromium. WalkthroughClient runs
+// ElevenLabs in the browser. Participant speech reaches ElevenLabs via the
+// transcript webhook → DB → poll → sendUserMessage chain.
+
+async function createBotBrowserMode(
+  meetingUrl: string,
+  userId: string,
+  walkthroughUrl: string,
+  webhookUrl: string,
+): Promise<CreateBotResult> {
+  const res = await fetch(`${BASE_URL}/bots`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({
+      meeting_url: meetingUrl,
+      bot_name: 'Clio',
+      voice_agent_settings: { url: walkthroughUrl },
+      webhooks: [{
+        url: webhookUrl,
+        triggers: ['bot.state_change', 'transcript.update', 'participant_events.join_leave'],
+      }],
+      metadata: { user_id: userId },
+      deduplication_key: `${userId}-${Date.now()}`,
+      transcription_settings: { meeting_closed_captions: {} },
+    }),
+  })
+
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(`Attendee.dev createBot (browser) failed: ${res.status} ${body}`)
+  }
+
+  const data = await res.json() as { id: string }
+  return { botId: data.id }
+}
+
+// ─── Relay mode (AUD-01) ──────────────────────────────────────────────────────
+// Attendee streams raw PCM16 audio directly to our relay WebSocket server.
+// ElevenLabs runs server-side via the relay — no headless browser page loaded.
+// Tool calls (show_visual, end_session) are handled server-side by relay-handler.
+// Visuals are rendered in the user's own browser at /walkthrough/{userId}.
+
+async function createBotRelayMode(
+  meetingUrl: string,
+  userId: string,
+  sessionId: string,
+  webhookUrl: string,
+): Promise<CreateBotResult> {
+  const relayBaseUrl = process.env.AUDIO_RELAY_WS_URL
+  if (!relayBaseUrl) {
+    throw new Error('AUDIO_RELAY_WS_URL must be set when MEETING_BOT_AUDIO_MODE=relay')
+  }
+
+  const relayUrl = `${relayBaseUrl}?userId=${encodeURIComponent(userId)}&sessionId=${encodeURIComponent(sessionId)}`
+
+  const res = await fetch(`${BASE_URL}/bots`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({
+      meeting_url: meetingUrl,
+      bot_name: 'Clio',
+      websocket_settings: {
+        audio: {
+          url: relayUrl,
+          sample_rate: 16000,
+        },
+      },
+      // transcript.update omitted — ElevenLabs handles STT from the audio stream directly
+      webhooks: [{
+        url: webhookUrl,
+        triggers: ['bot.state_change', 'participant_events.join_leave'],
+      }],
+      metadata: { user_id: userId, session_id: sessionId },
+      deduplication_key: `${userId}-${Date.now()}`,
+    }),
+  })
+
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(`Attendee.dev createBot (relay) failed: ${res.status} ${body}`)
+  }
+
+  const data = await res.json() as { id: string }
+  return { botId: data.id }
 }

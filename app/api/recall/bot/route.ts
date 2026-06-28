@@ -323,7 +323,7 @@ export async function POST(request: NextRequest) {
     // ── Step 4: Create the bot — context is already in DB ───────────────────
     const provider = getMeetingBotProvider()
     console.log(`[recall/bot] Using provider: ${provider.name}`)
-    const { botId } = await provider.createBot(meetingUrl, userId, walkthroughUrl)
+    const { botId } = await provider.createBot(meetingUrl, userId, walkthroughUrl, sessionId)
 
     // Update with the real botId now that we have it
     await supabase

@@ -316,6 +316,11 @@ export default function WalkthroughClient({ userId, userFirstName, initialState 
 
   // Connect to ElevenLabs agent on mount, with auto-reconnect on unexpected drops
   useEffect(() => {
+    // AUD-01: relay mode — ElevenLabs runs server-side via the audio relay.
+    // Skip browser session startup entirely; visual polling (below) still runs.
+    const audioMode = process.env.NEXT_PUBLIC_MEETING_BOT_AUDIO_MODE ?? 'browser'
+    if (audioMode === 'relay') return
+
     let cancelled = false
 
     const connect = async () => {
