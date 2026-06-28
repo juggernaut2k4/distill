@@ -19,25 +19,14 @@ export async function POST(request: NextRequest) {
   if (secret && !secret.startsWith('PLACEHOLDER')) {
     const sig = request.headers.get('x-webhook-signature') ?? ''
     const parsed = JSON.parse(rawBody) as Record<string, unknown>
-
-    // Try multiple signing strategies to find the one Attendee.dev uses
-    const sorted = JSON.stringify(parsed, Object.keys(parsed).sort())
-    const expectedSorted64 = createHmac('sha256', secret).update(sorted).digest('base64')
-    const expectedRaw64 = createHmac('sha256', secret).update(rawBody).digest('base64')
-    const expectedSortedHex = createHmac('sha256', secret).update(sorted).digest('hex')
-    const expectedRawHex = createHmac('sha256', secret).update(rawBody).digest('hex')
-
-    console.log('[attendee/webhook] sig received:', sig)
-    console.log('[attendee/webhook] sorted+base64:', expectedSorted64)
-    console.log('[attendee/webhook] raw+base64:', expectedRaw64)
-    console.log('[attendee/webhook] sorted+hex:', expectedSortedHex)
-    console.log('[attendee/webhook] raw+hex:', expectedRawHex)
-
-    const valid = sig === expectedSorted64 || sig === expectedRaw64 ||
-                  sig === expectedSortedHex || sig === expectedRawHex
-    if (!valid) {
-      console.warn('[attendee/webhook] No strategy matched — passing through for POC debugging')
-      // During POC: allow through but log the mismatch so we can identify the correct strategy
+    // Attendee.dev signs canonical JSON (sorted keys) using the base64-decoded secret,
+    // then base64-encodes the HMAC-SHA256 result.
+    const canonicalBody = JSON.stringify(parsed, Object.keys(parsed).sort())
+    const keyBytes = Buffer.from(secret, 'base64')
+    const expected = createHmac('sha256', keyBytes).update(canonicalBody).digest('base64')
+    if (sig !== expected) {
+      console.warn('[attendee/webhook] Invalid signature — rejecting', { received: sig, expected })
+      return NextResponse.json({ ok: false }, { status: 403 })
     }
   }
 
@@ -94,10 +83,9 @@ async function handleEvent(event: AttendeeWebhookEvent) {
 
   switch (event.trigger) {
     case 'bot.state_change': {
-      // Log full data to identify correct field name (data.state comes back undefined)
-      console.log('[attendee/webhook] state_change full data:', JSON.stringify(event.data))
-      const state = (event.data.state ?? event.data.status ?? event.data.bot_status ?? event.data.new_state) as string | undefined
-      console.log('[attendee/webhook] state_change resolved →', state, { botId, userId })
+      // Attendee.dev uses data.new_state (not data.state)
+      const state = event.data.new_state as string | undefined
+      console.log('[attendee/webhook] state_change →', state, { botId, userId })
 
       if (state === 'joined_recording') {
         // Mirror what /api/recall/webhook does on bot.in_call_recording:
