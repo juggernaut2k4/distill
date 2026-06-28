@@ -1,10 +1,6 @@
 # Clio
 
-![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg)
-
-Personalized AI micro-learning for executives. 15 seconds a day. Zero jargon. Total confidence.
-
-> **Note:** Replace `OWNER/REPO` in the badge URL above with your GitHub username and repository name (e.g. `arunprakash/hello-clio`).
+Personalized AI coaching for executives. A voice AI (powered by ElevenLabs) joins your Google Meet, teaches a structured session on a topic from your learning plan, and adapts to your role, industry, and experience level.
 
 ## Tech Stack
 
@@ -18,8 +14,11 @@ Personalized AI micro-learning for executives. 15 seconds a day. Zero jargon. To
 | SMS | Twilio |
 | Payments | Stripe |
 | AI | Anthropic Claude (`claude-sonnet-4-6`) |
-| News | NewsAPI |
+| Voice AI | ElevenLabs Conversational AI (`@11labs/client`) |
+| Meeting Bot | Attendee.dev (default) or Recall.ai (legacy) |
 | Scheduling | Inngest |
+
+---
 
 ## Local Setup
 
@@ -42,31 +41,11 @@ npm install --legacy-peer-deps
 cp .env.local.example .env.local
 ```
 
-Edit `.env.local` and replace all `PLACEHOLDER_*` values with real credentials.
-
-Required services:
-- [Supabase](https://supabase.com) — create a project, get URL + anon key + service role key
-- [Clerk](https://clerk.com) — create an application, get publishable + secret keys
-- [Stripe](https://stripe.com) — create products/prices, get keys + webhook secret
-- [Twilio](https://twilio.com) — get account SID + auth token + phone numbers
-- [Resend](https://resend.com) — get API key
-- [Anthropic](https://console.anthropic.com) — get API key
-- [NewsAPI](https://newsapi.org) — get API key
-- [Inngest](https://inngest.com) — get event key + signing key
+Edit `.env.local` and replace all `PLACEHOLDER_*` values with real credentials. See the full variable reference below.
 
 ### 3. Set up the database
 
-Run the migration in your Supabase SQL editor:
-
-```bash
-# Copy contents of supabase/migrations/001_initial.sql into Supabase SQL editor and run
-```
-
-Optionally seed with sample content:
-
-```bash
-# Copy contents of supabase/seed.sql into Supabase SQL editor and run
-```
+Run the latest migration in your Supabase SQL editor (all files in `supabase/migrations/` in order).
 
 ### 4. Run the development server
 
@@ -76,84 +55,244 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-### 5. Run Inngest (for scheduling)
-
-In a separate terminal:
+### 5. Run Inngest (for background jobs)
 
 ```bash
 npx inngest-cli@latest dev
 ```
 
-This starts the Inngest dev server which connects to your local app at `/api/inngest`.
+---
 
-## Development Without Real API Keys
+## Environment Variables
 
-All integrations check for `PLACEHOLDER_` prefix and switch to mock mode automatically:
+### Core services
 
-- **Anthropic** — returns pre-written executive content samples
-- **Twilio** — logs SMS sends to console instead of sending
-- **Resend** — logs email sends to console instead of sending
-- **Stripe** — returns mock checkout URLs
-- **NewsAPI** — returns 10 hardcoded mock news articles
-- **Inngest** — registers functions but doesn't send events to cloud
+| Variable | Description |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (server-only) |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Clerk publishable key |
+| `CLERK_SECRET_KEY` | Clerk secret key |
+| `ANTHROPIC_API_KEY` | Anthropic API key |
+| `STRIPE_SECRET_KEY` | Stripe secret key |
+| `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret |
+| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Stripe publishable key |
+| `RESEND_API_KEY` | Resend API key |
+| `TWILIO_ACCOUNT_SID` | Twilio account SID |
+| `TWILIO_AUTH_TOKEN` | Twilio auth token |
+| `INNGEST_EVENT_KEY` | Inngest event key |
+| `INNGEST_SIGNING_KEY` | Inngest signing key |
 
-You can run the full application locally with all `PLACEHOLDER_` values and it will work end-to-end.
+### Voice AI (ElevenLabs)
 
-## Running Tests
+| Variable | Description |
+|---|---|
+| `NEXT_PUBLIC_ELEVENLABS_AGENT_ID` | ElevenLabs conversational agent ID |
+| `NEXT_PUBLIC_ELEVENLABS_VOICE_ID` | ElevenLabs voice ID (Siren by default) |
+
+### Meeting bot provider
+
+| Variable | Values | Description |
+|---|---|---|
+| `MEETING_BOT_PROVIDER` | `attendee` (default) · `recall` · `agentcall` | Which bot service joins the Google Meet |
+| `ATTENDEE_API_KEY` | — | Attendee.dev API key (when `MEETING_BOT_PROVIDER=attendee`) |
+| `RECALL_API_KEY` | — | Recall.ai API key (when `MEETING_BOT_PROVIDER=recall`) |
+| `ATTENDEE_WEBHOOK_SECRET` | — | Attendee.dev webhook signing secret (HMAC-SHA256) |
+
+### Context injection mode (CTX-01)
+
+Controls when per-tab scripts are injected into the ElevenLabs voice session.
+
+| Variable | Values | Description |
+|---|---|---|
+| `CLIO_CONTEXT_MODE` | `all-upfront` (default) · `split` | Server-side: whether session_script is included in the system prompt at session start |
+| `NEXT_PUBLIC_CLIO_CONTEXT_MODE` | `all-upfront` (default) · `split` | Client-side mirror — must match `CLIO_CONTEXT_MODE` |
+
+**Both variables must be set to the same value.** A mismatch means the server omits the script but the client never injects it — Clio will coach from the knowledge base only.
+
+| Mode | Behaviour |
+|---|---|
+| `all-upfront` | Full session brief + topic KB + all tab scripts sent as system prompt at session start. Zero behaviour change from pre-CTX-01. |
+| `split` | Session brief + topic KB sent at start. Each tab's script injected via `sendContextualUpdate` at tab-advance time inside `show_visual`. Tab 1 injected immediately after session connects. |
+
+### Voice provider (future)
+
+| Variable | Values | Description |
+|---|---|---|
+| `CLIO_VOICE_PROVIDER` | `elevenlabs` (default) · `deepgram` | Which voice SDK handles the session. `deepgram` is a POC stub only — no real session is established. |
+
+---
+
+## Switching Meeting Bot Provider
+
+The meeting bot system uses a pluggable provider pattern. All providers share the same `MeetingBotProvider` interface (`lib/meeting-bot/types.ts`).
+
+### Switch to Attendee.dev (recommended)
 
 ```bash
-# Unit + integration tests (Vitest)
-npm test
-
-# E2E tests (Playwright — requires the app to be running on port 3000)
-# Terminal 1: start the server
-npm run dev
-# Terminal 2: run E2E tests
-npm run test:e2e
+MEETING_BOT_PROVIDER=attendee
+ATTENDEE_API_KEY=<your-attendee-api-key>
+ATTENDEE_WEBHOOK_SECRET=<your-webhook-signing-secret>
 ```
 
-### CI
+Attendee.dev joins the meeting, loads the walkthrough page in headless Chromium, and routes meeting audio through ElevenLabs via the page's microphone/speaker. Webhooks are verified with HMAC-SHA256.
 
-Every push and pull request to `main` runs the full test suite via GitHub Actions (`.github/workflows/ci.yml`):
+**Webhook endpoint:** `POST /api/attendee/webhook`
 
-- **unit-and-integration** — Vitest unit and integration tests. Runs first.
-- **e2e** — Playwright E2E tests against a built production server. Runs only after unit-and-integration passes.
+Attendee fires:
+- `bot.state_change` — bot joining/leaving (used to update session status)
+- `transcript.update` — participant speech (forwarded to ElevenLabs via `sendUserMessage`)
+- `participant_events.join_leave` — join/leave events (used to greet participants by name)
 
-To enforce these as required checks on `main`, go to:  
-GitHub → Settings → Branches → Add branch protection rule → Require status checks → add `unit-and-integration` and `e2e`.
+### Switch to Recall.ai (legacy)
+
+```bash
+MEETING_BOT_PROVIDER=recall
+RECALL_API_KEY=<your-recall-api-key>
+```
+
+**Webhook endpoint:** `POST /api/webhooks/recall` (legacy, maintained for backwards compat)
+
+### Mock mode (no API key)
+
+If `ATTENDEE_API_KEY` starts with `PLACEHOLDER` or is empty, the provider logs what it would send and returns a mock bot ID. The rest of the session flow continues normally.
+
+---
+
+## Context Injection Architecture (CTX-01)
+
+Clio's voice session uses a custom LLM endpoint (`/api/clio/llm`) that fetches context from the database on every turn. The `CLIO_CONTEXT_MODE` toggle controls whether tab scripts are also included in the initial system prompt or injected on-demand.
+
+### All-upfront mode (default)
+
+```
+POST /api/recall/bot
+  └── buildAllClioDocs() → session_brief + topic_KB + all_tab_scripts
+        → stored in walkthrough_state.clio_session_context
+  └── ElevenLabs session starts
+        → /api/clio/llm fetches full context on every turn
+        → show_visual fires → scroll_to → returns script content to LLM
+```
+
+### Split mode
+
+```
+POST /api/recall/bot
+  └── buildAllClioDocs(mode='split') → session_brief + topic_KB only
+        → stored in walkthrough_state.clio_session_context
+  └── ElevenLabs session starts
+        → Tab 1 script injected immediately via sendContextualUpdate
+  └── show_visual({ section_index: N }) fires
+        → training_scripts[N-1] injected via sendContextualUpdate before scroll_to
+        → if script not ready: fallback string injected, Clio coaches from KB
+```
+
+**Index mapping in split mode:**
+- `section_index: 0` = Session Overview — no training script, injection skipped
+- `section_index: 1` = first content tab → `training_scripts[0]`
+- `section_index: N` (N ≥ 1) → `training_scripts[N-1]`
+
+### Voice provider abstraction (lib/voice/)
+
+All direct calls on the ElevenLabs `Conversation` object are wrapped behind a `VoiceSessionAdapter` interface. This makes it straightforward to test an alternative provider (e.g. Deepgram) by swapping the adapter without touching `WalkthroughClient`.
+
+```
+lib/voice/
+  adapter.ts          VoiceSessionAdapter interface
+  elevenlabs-adapter.ts  Wraps @11labs/client Conversation
+  deepgram-adapter.ts    POC stub (logs + no-ops)
+  index.ts            createVoiceAdapter(provider, conversation) factory
+```
+
+`sendUserMessage` (transcript forwarding, ElevenLabs-specific) is kept on a separate `elevenLabsConvRef` — it is not part of the adapter interface because it has no Deepgram equivalent in this build.
+
+---
 
 ## Project Structure
 
 ```
-app/                    Next.js App Router pages and API routes
-components/             React components (ui/, onboarding/, dashboard/)
-lib/                    Server-side utilities
-  content/              Content generation pipeline (generator, personalizer, taxonomy, news)
-  delivery/             Email (Resend) and SMS (Twilio) delivery
-  clerk.ts              Auth helpers
-  stripe.ts             Payment helpers
-  supabase.ts           Database clients
-inngest/                Scheduled and event-driven jobs
-supabase/               Database migrations and seed data
-tests/                  Unit, integration, and E2E tests
+app/
+  api/
+    recall/bot/         POST: create bot, build context docs, write to walkthrough_state
+    attendee/webhook/   POST: Attendee.dev webhook (state, transcript, participants)
+    clio/llm/           POST: custom LLM endpoint — fetches context + handles tool calls
+    walkthrough-state/  GET/POST/PATCH: session state polling
+    inngest/            Inngest function registry
+  dashboard/
+    walkthrough/        WalkthroughClient — ElevenLabs session, split-mode injection
+    plan/               Learning plan approval + session start
+    knowledge-base/     Per-session KB viewer
+  walkthrough/[userId]/ Public walkthrough page (loaded by the meeting bot)
+
+lib/
+  voice/                VoiceSessionAdapter + ElevenLabs/Deepgram adapters (CTX-01)
+  meeting-bot/          Provider abstraction (Recall, Attendee, AgentCall)
+  clio-context-builder.ts  Builds session_brief, topic_context, session_script
+  content/              AI content generation pipeline
+  learning/             User learning profile + profile context builder
+  session-plan.ts       Session plan helpers
+  supabase.ts           Server + browser Supabase clients
+
+inngest/
+  session-content-pipeline.ts  Generates tab content (visuals + scripts) per session
+  session-designer-auto.ts     Auto-fires content generation after plan approval
+  daily-delivery.ts            Daily email/SMS delivery cron
+  feedback-processor.ts        Processes feedback, updates AI Readiness Score
+
+docs/specs/             BA requirement documents for all shipped features
 ```
+
+---
+
+## Running Tests
+
+```bash
+# Unit + integration (Vitest)
+npm test
+
+# E2E (Playwright — app must be running on port 3000)
+npm run dev         # terminal 1
+npm run test:e2e    # terminal 2
+```
+
+---
 
 ## Deployment
 
-This project is configured for [Vercel](https://vercel.com). Push to `main` and connect to Vercel.
+The project deploys to [Vercel](https://vercel.com). Push to `main`.
 
-Set all environment variables in the Vercel project settings.
+Set all environment variables in the Vercel project dashboard under **Settings → Environment Variables**.
 
-Configure webhooks in each service to point to your production URL:
-- Stripe: `https://yourdomain.com/api/webhooks/stripe`
-- Twilio: `https://yourdomain.com/api/webhooks/twilio`
-- Inngest: auto-configured via the Inngest dashboard
+### Webhooks to configure
+
+| Service | Endpoint |
+|---|---|
+| Attendee.dev | `https://yourdomain.com/api/attendee/webhook` |
+| Stripe | `https://yourdomain.com/api/webhooks/stripe` |
+| Clerk | `https://yourdomain.com/api/webhooks/clerk` |
+| Inngest | Auto-configured via Inngest dashboard |
+
+### Switching providers in production
+
+To switch from Recall to Attendee (or back) in Vercel:
+
+1. Update `MEETING_BOT_PROVIDER` in Vercel environment variables
+2. Add the provider-specific key (`ATTENDEE_API_KEY` or `RECALL_API_KEY`)
+3. Redeploy — no code changes required
+
+To enable split context mode:
+
+1. Set `CLIO_CONTEXT_MODE=split` and `NEXT_PUBLIC_CLIO_CONTEXT_MODE=split`
+2. Redeploy — existing sessions are unaffected until a new bot is created
+
+---
 
 ## Plan Tiers
 
 | Plan | Price | Features |
 |---|---|---|
-| Free Trial | $0 / 7 days | 1 email/day, onboarding |
-| Starter | $12/mo or $99/yr | 1 email/day, weekly digest |
-| Pro | $25/mo or $199/yr | Email + SMS, AI Readiness Score, Ask Anything |
-| Executive | $49/mo or $399/yr | Everything + dedicated number, Meeting Prep Mode |
+| Free Trial | $0 / 7 days | 1 email/day, onboarding, learning plan |
+| Starter | $12/mo or $99/yr | Daily email, weekly digest, AI Readiness Score |
+| Pro | $25/mo or $199/yr | Email + SMS, Ask Anything, voice sessions |
+| Executive | $49/mo or $399/yr | Everything + dedicated number, priority onboarding |
