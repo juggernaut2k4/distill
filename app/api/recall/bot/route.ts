@@ -2,7 +2,7 @@ import { auth } from '@clerk/nextjs/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createSupabaseAdminClient } from '@/lib/supabase'
-import { createBot, deleteBot } from '@/lib/recall'
+import { getMeetingBotProvider } from '@/lib/meeting-bot/provider'
 import { getAllReadySections, type SessionPlan } from '@/lib/session-plan'
 import type { TemplateSection } from '@/lib/templates/types'
 import { buildAllClioDocs } from '@/lib/clio-context-builder'
@@ -286,7 +286,9 @@ export async function POST(request: NextRequest) {
     if (preUpsertErr) console.error('[recall/bot] pre-bot walkthrough_state upsert error:', preUpsertErr)
 
     // ── Step 4: Create the bot — context is already in DB ───────────────────
-    const { botId } = await createBot(meetingUrl, userId, walkthroughUrl)
+    const provider = getMeetingBotProvider()
+    console.log(`[recall/bot] Using provider: ${provider.name}`)
+    const { botId } = await provider.createBot(meetingUrl, userId, walkthroughUrl)
 
     // Update with the real botId now that we have it
     await supabase
@@ -326,7 +328,7 @@ export async function DELETE(request: NextRequest) {
   const { botId } = parsed.data
 
   try {
-    await deleteBot(botId)
+    await getMeetingBotProvider().deleteBot(botId)
 
     const supabase = createSupabaseAdminClient()
     await supabase.from('walkthrough_state').update({
