@@ -186,6 +186,7 @@ function resolveNavIndex(command: string, tabs: VisualizationTab[], current: num
 
 interface Props {
   userId: string
+  botView?: boolean
   userFirstName?: string
   initialState: WalkthroughState
 }
@@ -223,7 +224,7 @@ function PulsingRing() {
   )
 }
 
-export default function WalkthroughClient({ userId, userFirstName, initialState }: Props) {
+export default function WalkthroughClient({ userId, userFirstName, initialState, botView = false }: Props) {
   const [state, setState] = useState<WalkthroughState>(initialState)
   const [showLandscapePrompt, setShowLandscapePrompt] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -789,6 +790,7 @@ export default function WalkthroughClient({ userId, userFirstName, initialState 
           sections={state.sections}
           currentSectionIndex={state.current_section_index ?? 0}
           userId={userId}
+          botView={botView}
         />
       )}
 

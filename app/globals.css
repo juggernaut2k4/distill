@@ -18,3 +18,16 @@ body {
     text-wrap: balance;
   }
 }
+
+/* BOT-VIEW-01: screenshare optimisation — applied when NEXT_PUBLIC_BOT_VIEW_OPTIMIZED=true.
+   Bumps all text sizes up one step so content is legible through Meet's video compression.
+   Targets the .bot-view root added by SessionStack. */
+.bot-view {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+/* Bump xs→sm, sm→base, base→lg across all template renderers */
+.bot-view .text-xs  { font-size: 0.875rem  !important; line-height: 1.25rem !important; }
+.bot-view .text-sm  { font-size: 1rem      !important; line-height: 1.5rem  !important; }
+.bot-view .text-base { font-size: 1.125rem !important; line-height: 1.75rem !important; }

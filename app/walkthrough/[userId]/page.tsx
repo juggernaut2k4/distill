@@ -65,12 +65,18 @@ export default async function PublicWalkthroughPage({ params }: Props) {
     }
   }
 
+  // BOT-VIEW-01: optimise layout for headless browser screen share.
+  // Hides sidebar, removes skip button, bumps font sizes for clarity at low viewport resolution.
+  // Toggle: set NEXT_PUBLIC_BOT_VIEW_OPTIMIZED=true in Vercel env vars. Default: off.
+  const botView = process.env.NEXT_PUBLIC_BOT_VIEW_OPTIMIZED === 'true'
+
   return (
     <>
       <style>{`html, body { overflow: hidden; margin: 0; padding: 0; background: #080808; }`}</style>
       <WalkthroughClient
         userId={userId}
         initialState={walkthroughState ?? { user_id: userId, status: 'idle', visual_spec: null }}
+        botView={botView}
       />
     </>
   )

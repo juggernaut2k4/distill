@@ -9,6 +9,9 @@ export interface SessionStackProps {
   currentSectionIndex: number
   onSectionChange?: (index: number) => void
   userId: string
+  // BOT-VIEW-01: when true, sidebar is hidden and font sizes are bumped for sharper
+  // screen share. Toggle via NEXT_PUBLIC_BOT_VIEW_OPTIMIZED=true. Default: false.
+  botView?: boolean
 }
 
 // Status dot colour map
@@ -33,6 +36,7 @@ export default function SessionStack({
   currentSectionIndex: initialIndex,
   onSectionChange,
   userId,
+  botView = false,
 }: SessionStackProps) {
   const [sections, setSections] = useState<TemplateSection[]>(initialSections)
   const [activeIndex, setActiveIndex] = useState(initialIndex)
@@ -125,11 +129,11 @@ export default function SessionStack({
   }, [sections, activateSection, scrollToSection])
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#080808]">
-      {/* ── Sidebar ── */}
+    <div className={`flex h-screen overflow-hidden bg-[#080808]${botView ? ' bot-view' : ''}`}>
+      {/* ── Sidebar — hidden in bot-view mode to maximise content area ── */}
       <aside
         aria-label="Session navigation"
-        className="hidden md:flex flex-col w-[200px] shrink-0 bg-[#0D0D0D] border-r border-[#1A1A1A] overflow-y-auto py-6 px-3"
+        className={botView ? 'hidden' : 'hidden md:flex flex-col w-[200px] shrink-0 bg-[#0D0D0D] border-r border-[#1A1A1A] overflow-y-auto py-6 px-3'}
       >
         <div className="text-xs font-semibold uppercase tracking-widest text-[#333333] mb-4 px-2">
           Sections
@@ -190,8 +194,8 @@ export default function SessionStack({
               }}
             />
 
-            {/* Skip button */}
-            {i === activeIndex && i < sections.length - 1 && (
+            {/* Skip button — hidden in bot-view (no human to click it) */}
+            {!botView && i === activeIndex && i < sections.length - 1 && (
               <button
                 onClick={() => handleSkip(i)}
                 className="absolute bottom-16 right-6 z-20 text-xs text-[#475569] hover:text-[#94A3B8] transition-colors flex items-center gap-1.5 py-2 px-3 rounded-lg hover:bg-[#111111]"
