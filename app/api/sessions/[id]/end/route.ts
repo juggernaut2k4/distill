@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireSessionAuth } from '@/lib/session-auth'
-
 import { createSupabaseAdminClient } from '@/lib/supabase'
+import { releaseAgent } from '@/lib/elevenlabs-pool'
 
 interface Params {
   params: { id: string }
@@ -65,6 +65,19 @@ export async function POST(request: NextRequest, { params }: Params) {
   ])
 
   const newBalance = (deductResult.data as number) ?? 0
+
+  // AGENT-POOL-01: release pool agent back to available (no-op when pool mode off)
+  const { data: wsRow } = await supabase
+    .from('walkthrough_state')
+    .select('agent_id')
+    .eq('session_id', params.id)
+    .single()
+
+  if (wsRow?.agent_id) {
+    releaseAgent(wsRow.agent_id as string).catch((err) =>
+      console.error('[session/end] agent release failed (non-fatal):', err)
+    )
+  }
 
   return NextResponse.json({ minutesUsed, newBalance })
 }

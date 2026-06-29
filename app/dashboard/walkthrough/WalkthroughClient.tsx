@@ -98,6 +98,8 @@ interface WalkthroughState {
   session_script?: string | null
   // Legacy combined field — fallback only
   clio_session_context?: string | null
+  // AGENT-POOL-01: when set, overrides NEXT_PUBLIC_ELEVENLABS_AGENT_ID for this session
+  agent_id?: string | null
   // Per-section tab manifests — keyed by section index as string (e.g. "0", "1").
   // Present only when the section has a VisualizationTabPanel with 2+ tabs.
   tab_manifests?: Record<string, TabManifest> | null
@@ -346,8 +348,9 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
         // Custom LLM mode: the full session context (41k chars) lives server-side at
         // /api/clio/llm. We pass only the userId so the endpoint knows which user's
         // context to fetch from walkthrough_state. No size limit issues.
+        // AGENT-POOL-01: use pool-assigned agent when available, else env var default
         const conv = await Conversation.startSession({
-          agentId: AGENT_ID,
+          agentId: state.agent_id ?? AGENT_ID,
           connectionType: 'websocket',
           dynamicVariables: { user_id: userId },
           overrides: {
