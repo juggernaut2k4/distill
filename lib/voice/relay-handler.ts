@@ -14,16 +14,13 @@ import { parse } from 'url'
 import { createSupabaseAdminClient } from '../supabase'
 
 const AGENT_ID = process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID ?? ''
-const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY ?? ''
 const VOICE_ID = process.env.NEXT_PUBLIC_ELEVENLABS_VOICE_ID ?? 'eXpIbVcVbLo8ZJQDlDnl'
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
 
-// ─── Attendee message shapes ──────────────────────────────────────────────────
+// Direct WebSocket URL — same agent ID already used by the browser SDK.
+// No separate API key needed for public agents.
+const EL_WS_URL = `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${AGENT_ID}`
 
-interface AttendeeMixedAudio {
-  trigger: 'realtime_audio.mixed'
-  data: { chunk: string }
-}
+// ─── ElevenLabs event shapes ──────────────────────────────────────────────────
 
 interface ElevenLabsAudioEvent {
   type: 'audio'
@@ -43,26 +40,6 @@ interface ElevenLabsClientToolCall {
 interface ElevenLabsPingEvent {
   type: 'ping'
   ping_event: { event_id: number }
-}
-
-// ─── ElevenLabs signed URL ────────────────────────────────────────────────────
-
-async function getSignedUrl(): Promise<string> {
-  if (!ELEVENLABS_API_KEY || ELEVENLABS_API_KEY.startsWith('PLACEHOLDER')) {
-    // Mock: return a fake URL so relay handler logs what it would do
-    console.log('[relay] MOCK — ELEVENLABS_API_KEY not set, returning mock signed URL')
-    return 'wss://mock.elevenlabs.io/relay-stub'
-  }
-  const res = await fetch(
-    `https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=${AGENT_ID}`,
-    { headers: { 'xi-api-key': ELEVENLABS_API_KEY } }
-  )
-  if (!res.ok) {
-    const body = await res.text()
-    throw new Error(`ElevenLabs signed URL failed: ${res.status} ${body}`)
-  }
-  const data = await res.json() as { signed_url: string }
-  return data.signed_url
 }
 
 // ─── Tool handlers ────────────────────────────────────────────────────────────
@@ -165,17 +142,8 @@ export async function handleAudioRelay(attendeeWs: WebSocket, req: IncomingMessa
     // Non-critical — greeting will skip the name
   }
 
-  // Get ElevenLabs signed WebSocket URL
-  let elSignedUrl: string
-  try {
-    elSignedUrl = await getSignedUrl()
-  } catch (err) {
-    console.error('[relay] Failed to get ElevenLabs signed URL:', err)
-    attendeeWs.close(1011, 'ElevenLabs connection failed')
-    return
-  }
-
-  const elWs = new WebSocket(elSignedUrl)
+  // Connect to ElevenLabs conversational AI WebSocket — same agent ID used by browser SDK
+  const elWs = new WebSocket(EL_WS_URL)
 
   // ── ElevenLabs WS opened → send session initiation ─────────────────────────
 
