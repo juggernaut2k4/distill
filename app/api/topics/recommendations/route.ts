@@ -121,6 +121,38 @@ const MOCK_RESPONSE_EXECUTIVE: RecommendationsResponse = {
       ],
     },
     {
+      id: 'how_it_works',
+      label: 'How it actually works',
+      icon: 'Lightbulb',
+      topics: [
+        {
+          id: 'why-context-windows-matter',
+          title: 'Why context window size changes what AI can do for you',
+          description: 'The single technical spec that determines whether an AI tool can handle your real workload.',
+        },
+        {
+          id: 'rag-vs-finetuning-exec',
+          title: "RAG vs fine-tuning: the question your vendor is hoping you won't ask",
+          description: 'Two very different bets on where your data lives and who controls it.',
+        },
+        {
+          id: 'how-llms-generate-text',
+          title: 'How LLMs actually generate text — and why that creates hallucination risk',
+          description: 'One paragraph that will change how you read every AI-generated output.',
+        },
+        {
+          id: 'model-size-exec',
+          title: 'Why bigger models are not always better for your use case',
+          description: 'Cost, latency, and fit — the tradeoffs your engineering team is already making without you.',
+        },
+        {
+          id: 'training-cutoff-exec',
+          title: 'What "training data cutoff" means for your AI vendor decision',
+          description: 'The invisible expiry date on every AI model and why it matters for compliance.',
+        },
+      ],
+    },
+    {
       id: 'tools',
       label: 'Tools to be fluent in',
       icon: 'Wrench',
@@ -379,8 +411,10 @@ Rules for topic selection and framing:
 - Frame every topic at the decision-maker level: what do they need to know to lead, evaluate, govern, or invest in AI — not how to build it.
 - Prioritise topics that build confidence in AI conversations at board level, with vendors, with regulators, and with their own teams.
 - Include topics on AI governance, risk, ROI, vendor evaluation, and competitive strategy — these are the executive's primary AI responsibilities.
-- Do NOT suggest topics on prompt engineering mechanics, API integration, model fine-tuning, MLOps, or any hands-on technical skill. These belong to their team, not to them.
-- Vocabulary: use "AI strategy", "AI governance", "competitive intelligence", "team enablement", "ROI", "risk framework" — not "tokens", "embeddings", "inference", "fine-tuning", "RAG".
+- Do not frame any topic as a tutorial, step-by-step guide, or skill-building exercise. Frame every topic — including technical ones — as insight a leader needs to make better decisions or ask better questions.
+- Vocabulary for governance/strategy topics: use "AI strategy", "AI governance", "competitive intelligence", "team enablement", "ROI", "risk framework". Vocabulary for conceptual-literacy topics (how_it_works): technical terms such as "context window", "RAG", "fine-tuning", "training cutoff", "hallucination" are permitted — framed as concepts the executive needs to evaluate, not skills they need to build.
+
+Include a section with id 'how_it_works', label 'How it actually works', icon 'Lightbulb', containing 5 topics. These are conceptual literacy topics — not implementation guides. Frame each as what a CTO would explain to a board member who asked 'how does that actually work?'. Each topic title should be a question or a direct insight, not a course name. Each description (max 20 words) should make the executive feel smarter for reading it, not like they are being taught.
 
 Return ONLY valid JSON matching the specified schema. Be specific and practical — every topic must be immediately relevant to someone in their exact role and sub-domain.`,
 
@@ -450,11 +484,12 @@ Format: { "trending": [...], "skills": [...], "tools": [...] }`,
 - AI experience: ${aiMaturity}
 - Learning goal: ${learningGoal}
 
-Return exactly 3 sections. Think from this executive's perspective — what do they need to own, decide, and understand about AI?
+Return exactly 4 sections. Think from this executive's perspective — what do they need to own, decide, understand, and be fluent in?
 
 1. "trending" — 4 topics: urgent AI developments in ${subDomain} within ${primaryDomain} that this leader must be aware of right now.
 2. "decisions" — 4 topics: the specific AI decisions, governance choices, and strategic calls that a ${role} in ${primaryDomain} needs to own. Frame each as a decision they must make.
-3. "tools" — 3 topics: the AI tools this executive should be personally fluent in — not their team's tools, theirs.
+3. "how_it_works" — 5 topics: conceptual technical literacy — what a CTO would explain to a board member who asked "how does that actually work?". Frame each as understanding, not skill-building. Titles should be questions or direct insights. Descriptions (max 20 words) should make the executive feel smarter, not taught.
+4. "tools" — 3 topics: the AI tools this executive should be personally fluent in — not their team's tools, theirs.
 
 Rules:
 - Frame topics at the decision-maker level — not "how to build", but "how to evaluate, govern, fund, or lead"
@@ -462,7 +497,7 @@ Rules:
 - Descriptions: one sentence, max 18 words, what they can decide or do after learning this
 
 Return JSON only — no markdown, no explanation.
-Format: { "trending": [...], "decisions": [...], "tools": [...] }`,
+Format: { "trending": [...], "decisions": [...], "how_it_works": [...], "tools": [...] }`,
 
   manager: (role, primaryDomain, subDomain, aiMaturity, learningGoal, _domainProficiency) =>
     `Generate AI learning topic recommendations for:
@@ -507,6 +542,7 @@ const SECTION_METADATA: Record<string, { label: string; icon: string }> = {
   decisions:   { label: 'Decisions you need to own', icon: 'Briefcase'  },
   team:        { label: 'Enabling your team',        icon: 'Users'      },
   tools:       { label: 'Tools to master',           icon: 'Wrench'     },
+  how_it_works:{ label: 'How it actually works',     icon: 'Lightbulb'  },
   fundamentals:{ label: 'Start here',                icon: 'BookOpen'   },
   // legacy keys — kept so any cached/in-flight responses still render
   role: { label: 'Based on your role',  icon: 'Briefcase' },
@@ -523,7 +559,7 @@ function shapeResponse(parsed: unknown): RecommendationsResponse | null {
   const obj = parsed as Record<string, unknown>
 
   // Claude returns { trending: [...], skills: [...] } — normalise to the internal sections format
-  const KNOWN_SECTION_KEYS = ['trending', 'skills', 'decisions', 'team', 'tools', 'role', 'goal']
+  const KNOWN_SECTION_KEYS = ['trending', 'skills', 'decisions', 'team', 'tools', 'how_it_works', 'role', 'goal']
   let rawSections: unknown[]
 
   if (Array.isArray(obj.sections)) {
@@ -654,8 +690,8 @@ function buildCacheKey(
   effectiveMaturity: string,
   learningGoal: string
 ): string {
-  // v4: bump invalidates v3 entries; now keyed on effectiveMaturity (per-domain) not raw aiMaturity
-  const canonical = ['v4', tier, role, primaryDomain, subDomain, effectiveMaturity, learningGoal]
+  // v5: bump invalidates v4 entries; adds how_it_works section to executive tier
+  const canonical = ['v5', tier, role, primaryDomain, subDomain, effectiveMaturity, learningGoal]
     .map((s) => s.trim().toLowerCase())
     .join('|')
   return createHash('sha256').update(canonical).digest('hex')
