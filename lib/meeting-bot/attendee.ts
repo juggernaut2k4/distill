@@ -66,7 +66,10 @@ async function createBotBrowserMode(
     body: JSON.stringify({
       meeting_url: meetingUrl,
       bot_name: 'Clio',
-      voice_agent_settings: { url: walkthroughUrl },
+      voice_agent_settings: {
+        url: walkthroughUrl,
+        viewport: { width: 1920, height: 1080 },
+      },
       webhooks: [{
         url: webhookUrl,
         triggers: ['bot.state_change', 'transcript.update', 'participant_events.join_leave'],
