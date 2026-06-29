@@ -272,7 +272,7 @@ export default function TopicsPage() {
 
     // Check sessionStorage cache first (avoid re-calling Claude on re-visit).
     // v4: includes proficiency in key so beginner/expert get separate caches.
-    const cacheKey = `clio_topic_recs_v4_${roleLevel}_${domainProficiency}`
+    const cacheKey = `clio_topic_recs_v4_${roleLevel}_${rawDomain}_${domainProficiency}`
     const cached = sessionStorage.getItem(cacheKey)
     if (cached) {
       try {
