@@ -35,6 +35,7 @@ interface RecommendationsApiResponse {
 
 interface StoredProfile {
   role?: string
+  roleLevel?: string
   primaryDomain?: string
   subDomain?: string
   learningGoal?: string
@@ -258,9 +259,9 @@ export default function TopicsPage() {
       }
     } catch { /* ignore */ }
 
-    // Derive roleLevel from free-text role string (FR-04).
-    // This is a pure synchronous call — no async work needed.
-    const roleLevel = inferRoleLevel(profile.role ?? '')
+    // Use explicitly selected roleLevel from onboarding step 0 if available;
+    // fall back to inference from free-text role string for anonymous/legacy flows.
+    const roleLevel = profile.roleLevel ?? inferRoleLevel(profile.role ?? '')
 
     // Derive per-domain proficiency for primaryDomain — the richer skill signal from onboarding step 5.
     const VALID_PROFICIENCIES = ['beginner', 'intermediate', 'advanced', 'expert']
