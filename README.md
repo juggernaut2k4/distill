@@ -343,13 +343,14 @@ AUDIO_RELAY_WS_URL=wss://your-server.railway.app/api/audio-relay
 npm run start:relay
 ```
 
-How it works:
-- Attendee connects to `AUDIO_RELAY_WS_URL` and streams PCM16 audio
+How it works (hybrid design):
+- Attendee still loads the walkthrough page in headless Chromium (`voice_agent_settings`) — screen share works as normal in the meeting
+- WalkthroughClient detects relay mode and skips ElevenLabs startup — the page is a visual renderer only
+- Attendee ALSO streams raw PCM16 audio to `AUDIO_RELAY_WS_URL` (`websocket_settings.audio`)
 - The relay forwards audio to ElevenLabs' conversational AI WebSocket
 - ElevenLabs STT + LLM (`/api/clio/llm`) + TTS runs server-side
-- TTS audio is sent back to Attendee via `realtime_audio.bot_output`
-- `show_visual` tool calls update `walkthrough_state` directly in the DB
-- The user sees visuals in their own browser (polls `walkthrough_state` as normal)
+- TTS audio is sent back to Attendee via `realtime_audio.bot_output` — injected directly into the meeting
+- `show_visual` tool calls update `walkthrough_state` in the DB → the headless browser page polls and scrolls → bot screen-shares the updated visual
 
 To revert to browser mode: unset `MEETING_BOT_AUDIO_MODE` (or set to `browser`) and redeploy.
 

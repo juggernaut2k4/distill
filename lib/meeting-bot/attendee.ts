@@ -24,7 +24,7 @@ export const attendeeProvider: MeetingBotProvider = {
     const webhookUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/attendee/webhook`
 
     if (audioMode === 'relay') {
-      return createBotRelayMode(meetingUrl, userId, sessionId ?? '', webhookUrl)
+      return createBotRelayMode(meetingUrl, userId, walkthroughUrl, sessionId ?? '', webhookUrl)
     }
 
     return createBotBrowserMode(meetingUrl, userId, walkthroughUrl, webhookUrl)
@@ -95,6 +95,7 @@ async function createBotBrowserMode(
 async function createBotRelayMode(
   meetingUrl: string,
   userId: string,
+  walkthroughUrl: string,
   sessionId: string,
   webhookUrl: string,
 ): Promise<CreateBotResult> {
@@ -111,13 +112,18 @@ async function createBotRelayMode(
     body: JSON.stringify({
       meeting_url: meetingUrl,
       bot_name: 'Clio',
+      // Hybrid mode: bot loads the walkthrough page for screen sharing,
+      // AND streams raw PCM16 audio to the relay for low-latency voice.
+      // WalkthroughClient skips ElevenLabs in relay mode (relay guard),
+      // so the headless page is a visual renderer only — no duplicate session.
+      voice_agent_settings: { url: walkthroughUrl },
       websocket_settings: {
         audio: {
           url: relayUrl,
           sample_rate: 16000,
         },
       },
-      // transcript.update omitted — ElevenLabs handles STT from the audio stream directly
+      // transcript.update omitted — ElevenLabs STT runs from the audio stream directly
       webhooks: [{
         url: webhookUrl,
         triggers: ['bot.state_change', 'participant_events.join_leave'],
