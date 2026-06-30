@@ -46,6 +46,7 @@ type BotStatus = 'idle' | 'joining' | 'active' | 'ending'
 
 interface Props {
   session: Session
+  minutesBalance: number
 }
 
 const STATUS_CONFIG: Record<string, { label: string; icon: React.ReactNode; color: string; bg: string; border: string }> = {
@@ -99,7 +100,7 @@ function StatusDot({ status }: { status: string }) {
   return <div className="w-2.5 h-2.5 rounded-full border border-[#333333] flex-shrink-0" title="Not started" />
 }
 
-export default function SessionDetailClient({ session }: Props) {
+export default function SessionDetailClient({ session, minutesBalance }: Props) {
   const title = session.session_title ?? `Session ${session.session_index}`
   const status = STATUS_CONFIG[session.status] ?? STATUS_CONFIG.scheduled
   const topics = session.topics ?? []
@@ -925,7 +926,18 @@ export default function SessionDetailClient({ session }: Props) {
 
               {botStatus === 'idle' && (
                 <div className="space-y-3">
-                  {planFailed ? (
+                  {minutesBalance < session.duration_mins ? (
+                    <div className="flex items-start gap-2.5 py-3 px-3 rounded-lg bg-red-950/20 border border-red-800/30">
+                      <AlertTriangle size={13} className="text-[#EF4444] flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-xs font-semibold text-[#EF4444] mb-0.5">Insufficient minutes</p>
+                        <p className="text-xs text-[#EF4444]/80">
+                          This session needs {session.duration_mins} minutes but you only have {minutesBalance} remaining.
+                          Top up your balance to join.
+                        </p>
+                      </div>
+                    </div>
+                  ) : planFailed ? (
                     <div className="flex items-center gap-2.5 py-2 px-3 rounded-lg bg-red-950/20 border border-red-800/20">
                       <XCircle size={13} className="text-[#EF4444] flex-shrink-0" />
                       <p className="text-xs text-[#EF4444]">

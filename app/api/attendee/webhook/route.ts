@@ -19,16 +19,38 @@ export async function POST(request: NextRequest) {
   // Previous implementation (canonical JSON + base64-decoded key) never matched.
   const secret = process.env.ATTENDEE_WEBHOOK_SECRET
   if (secret && !secret.startsWith('PLACEHOLDER')) {
-    const sig = request.headers.get('x-webhook-signature') ?? ''
+    const sig = request.headers.get('x-webhook-signature') ??
+                request.headers.get('x-signature') ??
+                request.headers.get('x-hub-signature-256') ?? ''
 
-    // Strategy A: raw body + raw secret string → HMAC-SHA256 → base64
-    const stratA = createHmac('sha256', secret).update(rawBody).digest('base64')
-    // Strategy B: raw body + base64-decoded secret → HMAC-SHA256 → base64
+    // Log all header names to help identify the correct signature header
+    const headerNames = Array.from(request.headers.keys()).join(', ')
+
     const keyBytes = Buffer.from(secret, 'base64')
+    // A: raw secret → base64
+    const stratA = createHmac('sha256', secret).update(rawBody).digest('base64')
+    // B: base64-decoded secret → base64
     const stratB = createHmac('sha256', keyBytes).update(rawBody).digest('base64')
+    // C: raw secret → hex
+    const stratC = createHmac('sha256', secret).update(rawBody).digest('hex')
+    // D: base64-decoded secret → hex
+    const stratD = createHmac('sha256', keyBytes).update(rawBody).digest('hex')
 
-    const match = sig === stratA ? 'STRATEGY_A' : sig === stratB ? 'STRATEGY_B' : 'NONE'
-    console.log('[attendee/webhook] sig_check', { match, sig: sig.slice(0, 16) })
+    // Some providers prefix the signature with the algorithm name
+    const sigNoPrefix = sig.replace(/^sha256=/, '').replace(/^v1,/, '')
+
+    const match =
+      sig === stratA           ? 'A_base64' :
+      sig === stratB           ? 'B_base64_decoded_key' :
+      sig === stratC           ? 'C_hex' :
+      sig === stratD           ? 'D_hex_decoded_key' :
+      sigNoPrefix === stratA   ? 'A_prefixed' :
+      sigNoPrefix === stratB   ? 'B_prefixed' :
+      sigNoPrefix === stratC   ? 'C_prefixed' :
+      sigNoPrefix === stratD   ? 'D_prefixed' :
+      'NONE'
+
+    console.log('[attendee/webhook] sig_check', { match, sig: sig.slice(0, 20), headers: headerNames })
 
     if (match === 'NONE') {
       console.warn('[attendee/webhook] No strategy matched — passing through for diagnosis')
@@ -119,6 +141,7 @@ async function handleEvent(event: AttendeeWebhookEvent) {
           session_script: null,
           clio_session_context: null,
           current_section_index: 0,
+          pending_transcript: null,
         }).eq('user_id', userId)
 
         if (sessionId) {
@@ -130,6 +153,12 @@ async function handleEvent(event: AttendeeWebhookEvent) {
           const { data: userRow } = await supabase
             .from('users').select('primary_domain').eq('id', userId).maybeSingle()
           const domain = (userRow?.primary_domain as string | null) ?? 'ai-ml'
+
+          // Cancel the Inngest session timer — the bot has already disconnected
+          inngest.send({
+            name: 'clio/session.ended',
+            data: { userId, sessionId },
+          }).catch((err) => console.error('[attendee/webhook] clio/session.ended emit failed:', err))
 
           inngest.send({
             name: 'distill/session.completed',
@@ -146,18 +175,16 @@ async function handleEvent(event: AttendeeWebhookEvent) {
       const speaker = (event.data.speaker_name as string | null) ?? ''
       const text = ((event.data.transcription as Record<string, unknown>)?.transcript as string | null) ?? ''
 
-      console.log('[attendee/webhook] transcript speaker:', speaker, '| text:', text.slice(0, 80))
-
       if (!text || text.length < 2) break
 
       // Skip Clio's own speech (bot speaks into the meeting via ElevenLabs)
       if (speaker.toLowerCase().includes('clio')) break
 
-      await supabase.from('walkthrough_state')
-        .update({ pending_transcript: text })
-        .eq('user_id', userId)
-
-      console.log('[attendee/webhook] Transcript queued:', text.slice(0, 80))
+      // ElevenLabs hears participant audio directly via the Attendee bot's virtual microphone.
+      // Do NOT write participant speech to pending_transcript — that would cause a double
+      // response: ElevenLabs processes the audio AND receives a sendUserMessage call.
+      // Only [SYSTEM] messages (e.g. from the session timer) use pending_transcript.
+      console.log('[attendee/webhook] Transcript (not forwarded — EL hears audio directly):', speaker, '|', text.slice(0, 80))
       break
     }
 

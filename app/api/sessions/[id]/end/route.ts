@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireSessionAuth } from '@/lib/session-auth'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { releaseAgent } from '@/lib/elevenlabs-pool'
+import { inngest } from '@/inngest/client'
 
 interface Params {
   params: { id: string }
@@ -65,6 +66,13 @@ export async function POST(request: NextRequest, { params }: Params) {
   ])
 
   const newBalance = (deductResult.data as number) ?? 0
+
+  // Cancel the server-side timer — session is ending manually so the Inngest job
+  // should not also try to force-end it after the planned duration elapses.
+  inngest.send({
+    name: 'clio/session.ended',
+    data: { userId: userId!, sessionId: params.id },
+  }).catch((err) => console.error('[session/end] Failed to emit clio/session.ended:', err))
 
   // AGENT-POOL-01: release pool agent back to available (no-op when pool mode off)
   const { data: wsRow } = await supabase

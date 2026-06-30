@@ -315,6 +315,10 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
   const [connectionError, setConnectionError] = useState<string | null>(null)
   // Retry count as state so the UI re-renders when it changes
   const [retryCount, setRetryCount] = useState(0)
+  // Bot view warmup: Attendee's screen capture needs ~3s to stabilise on first join.
+  // We hide the content behind a dark overlay until the stream is ready.
+  // On reconnects the stream is already warm, so we skip the wait.
+  const [botViewReady, setBotViewReady] = useState(!botView)
   const stableConnectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Connect to ElevenLabs agent on mount, with auto-reconnect on unexpected drops
@@ -339,6 +343,11 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
         await navigator.mediaDevices.getUserMedia({ audio: true })
         if (cancelled) return
 
+        // Detect mid-session reconnects from the Attendee bot reloading its page.
+        // hasConnectedRef is false on fresh page loads, so isReconnect misses this case.
+        // If the DB shows we're past section 0, the session was already underway.
+        const isMidSession = !isReconnect && (currentSectionIndexRef.current > 0)
+
         const topic = topicRef.current
         const nameGreet = userFirstName ? `Welcome, ${userFirstName}! ` : ''
         const greeting = topic
@@ -358,9 +367,8 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
               // Minimal prompt — just the userId marker. The custom LLM endpoint
               // at /api/clio/llm fetches the real 41k context from the DB each turn.
               prompt: { prompt: `You are Clio, an AI business coach. DISTILL_USER_ID: ${userId}` },
-              // Suppress re-greeting on reconnect — ElevenLabs replays firstMessage
-              // every time a new WebSocket session starts without this override.
-              firstMessage: isReconnect ? '' : greeting,
+              // Suppress greeting on any reconnect (same-page WS drop OR Attendee bot reload)
+              firstMessage: (isReconnect || isMidSession) ? '' : greeting,
             },
             tts: {
               voiceId: VOICE_ID,
@@ -550,15 +558,21 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
               // here we act on the command to update the visible tab index.
               const { navCommand } = parseNavCommand(message)
               if (navCommand !== null) {
-                const sectionKey = String(currentSectionIndexRef.current)
-                const manifest = tabManifestsRef.current?.[sectionKey]
-                if (manifest && manifest.tabs.length >= 2) {
-                  const newIndex = resolveNavIndex(navCommand, manifest.tabs, activeTabIndexRef.current)
-                  activeTabIndexRef.current = newIndex
-                  setActiveTabIndex(newIndex)
-                  console.log(`[Walkthrough] NAV command "${navCommand}" → tab index ${newIndex}`)
+                if (currentSectionIndexRef.current === 0) {
+                  // Overview section (section 0) — ignore NAV directives to prevent
+                  // premature tab advances while Clio is still on the overview.
+                  console.log(`[Walkthrough] NAV command "${navCommand}" ignored — overview section (section 0)`)
                 } else {
-                  console.log(`[Walkthrough] NAV command "${navCommand}" ignored — no tab manifest for section ${sectionKey}`)
+                  const sectionKey = String(currentSectionIndexRef.current)
+                  const manifest = tabManifestsRef.current?.[sectionKey]
+                  if (manifest && manifest.tabs.length >= 2) {
+                    const newIndex = resolveNavIndex(navCommand, manifest.tabs, activeTabIndexRef.current)
+                    activeTabIndexRef.current = newIndex
+                    setActiveTabIndex(newIndex)
+                    console.log(`[Walkthrough] NAV command "${navCommand}" → tab index ${newIndex}`)
+                  } else {
+                    console.log(`[Walkthrough] NAV command "${navCommand}" ignored — no tab manifest for section ${sectionKey}`)
+                  }
                 }
               }
 
@@ -585,11 +599,25 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
         adapterRef.current = createVoiceAdapter('elevenlabs', conv)
         lastActivityRef.current = Date.now()
 
+        // Bot view warmup: on first join, delay revealing content for 3s so Attendee's
+        // headless browser screen capture has time to stabilise. On reconnects the
+        // stream is already running — reveal immediately.
+        if (botView) {
+          if (isReconnect || isMidSession) {
+            setBotViewReady(true)
+          } else {
+            setTimeout(() => setBotViewReady(true), 3000)
+          }
+        }
+
         const contextMode = process.env.NEXT_PUBLIC_CLIO_CONTEXT_MODE ?? 'all-upfront'
 
-        if (isReconnect) {
+        if (isReconnect || isMidSession) {
+          const section = currentSectionIndexRef.current
           adapterRef.current.injectContext(
-            'The WebSocket connection briefly dropped and reconnected. Do not re-introduce yourself — continue the session naturally from where you left off.'
+            isReconnect
+              ? 'The WebSocket connection briefly dropped and reconnected. Do not re-introduce yourself — continue the session naturally from where you left off.'
+              : `You are resuming a session that was briefly interrupted (the bot reconnected). The participant is already on section ${section} of the session — do NOT restart from the overview or re-introduce yourself. Call show_visual({ section_index: ${section} }) and continue from where you left off.`
           )
         } else if (contextMode === 'split') {
           // Inject Tab 1 script immediately — overview is section 0, first content tab is section 1
@@ -681,7 +709,7 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
         // We buffer the latest transcript and only send after 500ms of no new updates,
         // ensuring one LLM call per utterance rather than one per partial word chunk.
         const transcript = data.pending_transcript
-        if (transcript && transcript !== lastSentTranscriptRef.current && conv) {
+        if (transcript && transcript !== lastSentTranscriptRef.current && conv && !sessionEndedRef.current) {
           // Skip very short transcripts while Clio is speaking — filler words ("mm", "ok",
           // "yeah") picked up during TTS should not interrupt or queue a new LLM call.
           const wordCount = transcript.trim().split(/\s+/).length
@@ -723,7 +751,7 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
     }
 
     poll()
-    const interval = setInterval(poll, 300)
+    const interval = setInterval(poll, 2000)
     return () => { active = false; clearInterval(interval) }
   }, [userId])
 
@@ -755,6 +783,19 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
       className="min-h-screen w-full bg-[#080808] overflow-hidden relative"
       style={{ position: 'fixed', inset: 0 }}
     >
+      {/* Bot view warmup overlay — hides content while Attendee's screen capture initialises.
+          Fades out after 3s on first join; skipped entirely on reconnects. */}
+      {botView && !botViewReady && (
+        <motion.div
+          key="bot-warmup"
+          initial={{ opacity: 1 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.5 }}
+          className="absolute inset-0 z-50 bg-[#080808]"
+        />
+      )}
+
       {/* Mobile landscape prompt — shown when device is in portrait orientation */}
       {showLandscapePrompt && (
         <div className="fixed inset-0 z-50 bg-[#080808] flex flex-col items-center justify-center gap-6 p-8">

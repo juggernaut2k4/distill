@@ -17,7 +17,7 @@ export default async function SessionDetailPage({ params }: Props) {
   const [{ data: user }, { data: session }] = await Promise.all([
     supabase
       .from('users')
-      .select('id, email, plan_tier, plan_approved')
+      .select('id, email, plan_tier, plan_approved, minutes_balance')
       .eq('id', userId)
       .single(),
     supabase
@@ -33,7 +33,7 @@ export default async function SessionDetailPage({ params }: Props) {
 
   return (
     <DashboardShell user={user} activeNav="/dashboard/sessions">
-      <SessionDetailClient session={session} />
+      <SessionDetailClient session={session} minutesBalance={user.minutes_balance ?? 0} />
     </DashboardShell>
   )
 }

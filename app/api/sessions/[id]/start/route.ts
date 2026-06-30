@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireSessionAuth } from '@/lib/session-auth'
-
 import { createSupabaseAdminClient } from '@/lib/supabase'
+import { inngest } from '@/inngest/client'
 
 interface Params {
   params: { id: string }
@@ -45,15 +45,30 @@ export async function POST(request: NextRequest, { params }: Params) {
     )
   }
 
-  // Timer runs from the full balance — the session can continue until the balance
-  // is exhausted, not just until the planned session duration elapses.
-  const effectiveDurationMins = minutesBalance
+  if (minutesBalance < session.duration_mins) {
+    return NextResponse.json(
+      { error: `Insufficient minutes. This session requires ${session.duration_mins} minutes but you have ${minutesBalance} remaining.` },
+      { status: 403 }
+    )
+  }
 
+  // Timer runs for the planned session duration (not the full balance).
+  // The server-side Inngest timer enforces this — it fires a warning at T-1min and
+  // force-ends the session at T, regardless of client state.
+  const effectiveDurationMins = session.duration_mins
+
+  const startedAt = new Date().toISOString()
   await supabase
     .from('sessions')
-    .update({ started_at: new Date().toISOString(), status: 'active' })
+    .update({ started_at: startedAt, status: 'active' })
     .eq('id', params.id)
     .eq('user_id', userId!)
+
+  // Start server-side timer — cancels automatically when session ends
+  inngest.send({
+    name: 'clio/session.started',
+    data: { userId: userId!, sessionId: params.id, durationMins: effectiveDurationMins },
+  }).catch((err) => console.error('[session/start] Failed to emit clio/session.started:', err))
 
   return NextResponse.json({ effectiveDurationMins, minutesBalance })
 }

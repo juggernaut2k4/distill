@@ -23,6 +23,7 @@ import { scheduleSetupNudge } from '@/inngest/schedule-setup-nudge'
 import { analyzeIceBreakerResponse } from '@/inngest/ice-breaker-analyzer'
 import { adaptPlan } from '@/inngest/adapt-plan'
 import { abandonedOnboardingCleanup } from '@/inngest/abandoned-onboarding-cleanup'
+import { sessionTimerJob } from '@/inngest/session-timer'
 
 /**
  * POST /api/inngest
@@ -31,5 +32,5 @@ import { abandonedOnboardingCleanup } from '@/inngest/abandoned-onboarding-clean
  */
 export const { GET, POST, PUT } = serve({
   client: inngest,
-  functions: [dailyDelivery, weeklyDigest, feedbackProcessor, sessionReminder, sessionMeetingSetup, sessionPlanGenerator, sessionAgendaEmail, trialExpiryJob, sessionContentPipeline, sessionContentCron, updateLearningProfile, catalogRefresh, curriculumQueueRegenerate, curriculumRecommendationAccepted, curriculumQueueCron, curriculumGenerator, sessionDesignerAuto, sessionQualityEvaluator, sessionContentAsync, scheduleSetupNudge, analyzeIceBreakerResponse, adaptPlan, abandonedOnboardingCleanup],
+  functions: [dailyDelivery, weeklyDigest, feedbackProcessor, sessionReminder, sessionMeetingSetup, sessionPlanGenerator, sessionAgendaEmail, trialExpiryJob, sessionContentPipeline, sessionContentCron, updateLearningProfile, catalogRefresh, curriculumQueueRegenerate, curriculumRecommendationAccepted, curriculumQueueCron, curriculumGenerator, sessionDesignerAuto, sessionQualityEvaluator, sessionContentAsync, scheduleSetupNudge, analyzeIceBreakerResponse, adaptPlan, abandonedOnboardingCleanup, sessionTimerJob],
 })
