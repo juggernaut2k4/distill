@@ -89,6 +89,9 @@ export async function POST(request: NextRequest) {
           inngest.send({ name: 'clio/topics.selected', data: { userId } }).catch(console.error)
         }
 
+        // Cancel the abandoned-onboarding cleanup timer — user has paid
+        inngest.send({ name: 'clio/onboarding.completed', data: { userId } }).catch(console.error)
+
         break
       }
 

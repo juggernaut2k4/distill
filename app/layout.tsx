@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import { ClerkProvider } from '@clerk/nextjs'
+import { CleanupOrphanedProfile } from '@/components/CleanupOrphanedProfile'
 import './globals.css'
 
 const inter = Inter({ subsets: ['latin'] })
@@ -28,6 +29,7 @@ export default function RootLayout({
     <ClerkProvider>
       <html lang="en" className="dark">
         <body className={`${inter.className} bg-void text-white antialiased`}>
+          <CleanupOrphanedProfile />
           {children}
         </body>
       </html>

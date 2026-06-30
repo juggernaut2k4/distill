@@ -3,6 +3,7 @@ import { headers } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { sendSignupWelcomeEmail } from '@/lib/delivery/email'
+import { inngest } from '@/inngest/client'
 
 interface ClerkEmailAddress {
   email_address: string
@@ -92,6 +93,11 @@ export async function POST(request: Request) {
     console.error('[clerk-webhook] Failed to upsert user in Supabase:', upsertError.message)
   } else {
     console.log('[clerk-webhook] User upserted in Supabase:', id, primaryEmail, primaryPhone ?? 'no phone')
+    // Start 75-minute abandoned-onboarding cleanup timer
+    inngest.send({
+      name: 'clio/user.created',
+      data: { userId: id, email: primaryEmail, createdAt: new Date().toISOString() },
+    }).catch((err: unknown) => console.error('[clerk-webhook] Failed to emit clio/user.created:', err))
   }
 
   // Send welcome email
