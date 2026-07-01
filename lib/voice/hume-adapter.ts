@@ -1,7 +1,7 @@
 import type { VoiceSessionAdapter } from './adapter'
 
 export interface HumeAdapterConfig {
-  apiKey: string
+  accessToken: string
   configId: string
   mediaStream: MediaStream
   onConnect: (sessionId: string) => void
@@ -39,7 +39,7 @@ export class HumeAdapter implements VoiceSessionAdapter {
 
   private openConnection(): Promise<void> {
     return new Promise((resolve, reject) => {
-      const url = `wss://api.hume.ai/v0/evi/chat?api_key=${this.config.apiKey}&config_id=${this.config.configId}`
+      const url = `wss://api.hume.ai/v0/evi/chat?access_token=${this.config.accessToken}&config_id=${this.config.configId}`
       this.ws = new WebSocket(url)
 
       // Reuse existing AudioContext across reconnects — only create once

@@ -19,7 +19,6 @@ const VOICE_ID = process.env.NEXT_PUBLIC_ELEVENLABS_VOICE_ID ?? 'eXpIbVcVbLo8ZJQ
 // Voice provider toggle — set NEXT_PUBLIC_VOICE_PROVIDER=hume to use Hume EVI 3.
 // Defaults to elevenlabs so existing sessions are unaffected.
 const VOICE_PROVIDER = process.env.NEXT_PUBLIC_VOICE_PROVIDER ?? 'elevenlabs'
-const HUME_API_KEY = process.env.NEXT_PUBLIC_HUME_API_KEY ?? ''
 const HUME_CONFIG_ID = process.env.NEXT_PUBLIC_HUME_CONFIG_ID ?? ''
 
 // How long (ms) of polling silence before sending a keep-alive context update.
@@ -356,8 +355,12 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
 
         // ── HUME EVI 3 path ───────────────────────────────────────────────────
         if (VOICE_PROVIDER === 'hume') {
+          const tokenRes = await fetch('/api/hume-token')
+          if (!tokenRes.ok) throw new Error(`Hume token fetch failed: ${tokenRes.status}`)
+          const { accessToken } = await tokenRes.json() as { accessToken: string }
+
           const hume = await HumeAdapter.create({
-            apiKey: HUME_API_KEY,
+            accessToken,
             configId: HUME_CONFIG_ID,
             mediaStream: micStream,
             onConnect: (sessionId) => {
