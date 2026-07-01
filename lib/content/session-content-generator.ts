@@ -356,6 +356,140 @@ Return ONLY valid JSON matching this exact schema (no markdown, no commentary):
   }
 }
 
+// ─── CONTENT-01: single-article helper ────────────────────────────────────────
+
+async function generateSingleContentArticle(
+  subtopicTitle: string,
+  topicTitle: string,
+  allSubtopics: string[],
+  subtopicIndex: number,
+  userContext: UserContext,
+  roleLevelInstruction: Record<string, string>,
+  previousContext: string,
+  client: Anthropic,
+): Promise<ContentArticle> {
+  const position = subtopicIndex === 0
+    ? 'first (context anchor — open with why this is on their radar right now, not a definition)'
+    : subtopicIndex === allSubtopics.length - 1
+      ? 'last (practical application — give one specific action, no new concepts)'
+      : `${subtopicIndex + 1} of ${allSubtopics.length} (core concept)`
+
+  const prompt = `You are preparing a reference article for an AI coaching platform.
+
+USER CONTEXT
+Role: ${userContext.role}
+Industry: ${userContext.industry}
+AI Maturity: ${userContext.maturity}
+Seniority: ${userContext.roleLevel} — ${roleLevelInstruction[userContext.roleLevel] ?? ''}
+
+SESSION TOPIC: ${topicTitle}
+ALL SUBTOPICS IN ORDER:
+${allSubtopics.map((t, i) => `${i + 1}. ${t}${i === subtopicIndex ? ' ← THIS ONE' : ''}`).join('\n')}
+
+POSITION IN SESSION: ${position}
+
+LEARNING HISTORY
+${previousContext}
+
+TASK
+Write a comprehensive ContentArticle for: "${subtopicTitle}"
+
+This is the single source of truth — both the voice coaching script and the on-screen visualization derive from this article.
+
+Requirements:
+- overview: 100-150 words — what this is and why it matters NOW. Lead with strategic relevance.
+- key_facts: 4-6 specific citable facts with real numbers and timeframes where possible.
+- how_it_works: 100-150 words — mechanism over theory. How does this work in practice?
+- enterprise_implications: 100-150 words — what it means for the decision-maker. MUST end with exactly one sentence: "So what this means for you: [specific implication for their role and industry]"
+- common_misconceptions: 2-4 myths with corrections. Format: "Myth: ... Reality: ..."
+- decision_questions: 3-5 questions the user should answer confidently after this.
+- role_relevance: ONE sentence — why this matters to this specific role.
+- industry_angle: ONE sentence — what is unique about this in the user's specific industry.
+- source_concepts: 3-6 key concept strings for continuity tracking.
+
+Return ONLY valid JSON — no markdown, no commentary:
+{
+  "subtopic_title": "${subtopicTitle}",
+  "sections": {
+    "overview": "...",
+    "key_facts": ["fact 1", "fact 2", "fact 3", "fact 4"],
+    "how_it_works": "...",
+    "enterprise_implications": "...",
+    "common_misconceptions": ["Myth: ... Reality: ...", "Myth: ... Reality: ..."],
+    "decision_questions": ["question 1", "question 2", "question 3"]
+  },
+  "role_relevance": "one sentence",
+  "industry_angle": "one sentence",
+  "source_concepts": ["concept 1", "concept 2", "concept 3"]
+}`
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const message = await client.messages.create({
+        model: MODEL,
+        max_tokens: 4000,
+        messages: [{ role: 'user', content: prompt }],
+      })
+
+      let raw = (message.content[0] as { type: string; text: string }).text.trim()
+      raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
+
+      const a = JSON.parse(raw) as {
+        subtopic_title: string
+        sections: {
+          overview: string
+          key_facts: string[]
+          how_it_works: string
+          enterprise_implications: string
+          common_misconceptions: string[]
+          decision_questions: string[]
+        }
+        role_relevance: string
+        industry_angle: string
+        source_concepts: string[]
+      }
+
+      return {
+        subtopic_title: subtopicTitle,
+        subtopic_slug: slugify(subtopicTitle),
+        sections: {
+          overview: a.sections?.overview ?? '',
+          key_facts: a.sections?.key_facts ?? [],
+          how_it_works: a.sections?.how_it_works ?? '',
+          enterprise_implications: a.sections?.enterprise_implications ?? '',
+          common_misconceptions: a.sections?.common_misconceptions ?? [],
+          decision_questions: a.sections?.decision_questions ?? [],
+        },
+        role_relevance: a.role_relevance ?? '',
+        industry_angle: a.industry_angle ?? '',
+        source_concepts: a.source_concepts ?? [],
+      }
+    } catch (err) {
+      console.error(`[generateSingleContentArticle] attempt ${attempt + 1} failed for "${subtopicTitle}":`, err)
+      if (attempt === 2) {
+        // Return a minimal valid article so the pipeline continues
+        return {
+          subtopic_title: subtopicTitle,
+          subtopic_slug: slugify(subtopicTitle),
+          sections: {
+            overview: `${subtopicTitle} is a key concept for ${userContext.role}s in ${userContext.industry}.`,
+            key_facts: [],
+            how_it_works: `Understanding ${subtopicTitle} requires examining its practical applications.`,
+            enterprise_implications: `So what this means for you: as a ${userContext.role}, mastering ${subtopicTitle} directly affects your ability to lead AI initiatives effectively.`,
+            common_misconceptions: [],
+            decision_questions: [`How does ${subtopicTitle} apply in your current context?`],
+          },
+          role_relevance: `As a ${userContext.role}, ${subtopicTitle} affects key decisions you make daily.`,
+          industry_angle: `In ${userContext.industry}, ${subtopicTitle} has specific implications worth understanding.`,
+          source_concepts: subtopicTitle.split(' ').filter((w) => w.length > 4).slice(0, 5),
+        }
+      }
+    }
+  }
+  // TypeScript: unreachable but satisfies return type
+  throw new Error(`generateSingleContentArticle failed after 3 attempts for "${subtopicTitle}"`)
+}
+
 // ─── CONTENT-01: generateContentArticles ─────────────────────────────────────
 
 /**
@@ -422,97 +556,23 @@ export async function generateContentArticles(
     'specialist': 'Write for a practitioner who builds and integrates AI systems directly. Full technical depth is required. Frame everything around implementation, integration, and system design — not governance, procurement, or board-level strategy. Use concrete technical examples. The reader needs to know how to build or configure this, not how to approve it.',
   }
 
-  const prompt = `You are preparing comprehensive reference articles for an AI coaching platform serving senior executives.
-
-USER CONTEXT
-Role: ${userContext.role}
-Industry: ${userContext.industry}
-AI Maturity: ${userContext.maturity}
-Seniority: ${userContext.roleLevel} — ${roleLevelInstruction[userContext.roleLevel] ?? ''}
-
-SESSION TOPIC: ${topicTitle}
-SUBTOPICS (in order):
-${subtopicTitles.map((t, i) => `${i + 1}. ${t}`).join('\n')}
-
-LEARNING HISTORY
-${previousContext}
-
-TASK
-For each subtopic, write a comprehensive ContentArticle. This is the single source of truth —
-both the voice coaching script and the on-screen visualization will be derived from this article.
-
-Article requirements:
-- overview: 100-150 words — what this is and why it matters NOW. No fluff. Lead with the strategic relevance.
-- key_facts: 4-6 specific, citable facts. Use real numbers and timeframes where possible. Not generic platitudes.
-- how_it_works: 100-150 words — mechanism over theory. How does this actually work in practice?
-- enterprise_implications: 100-150 words — what it means for the buyer and decision-maker at this seniority level. You MUST end this field with exactly one sentence starting with "So what this means for you:" followed by a specific implication for their role and industry. This sentence is non-negotiable. Format: "So what this means for you: [one sentence about the concrete implication for their specific role and industry]"
-- common_misconceptions: 2-4 myths with concise corrections. Each is one sentence myth + one sentence correction.
-- decision_questions: 3-5 questions the user should be able to answer confidently after this subtopic.
-- role_relevance: ONE sentence — why this matters to this specific role.
-- industry_angle: ONE sentence — what is unique or heightened about this in the user's specific industry.
-- source_concepts: 3-6 key concept strings for deduplication and continuity tracking.
-
-Total article: 600-800 words across all sections.
-
-Return ONLY valid JSON — no markdown, no commentary:
-{
-  "articles": [
-    {
-      "subtopic_title": "exact subtopic title from the list above",
-      "sections": {
-        "overview": "...",
-        "key_facts": ["fact 1", "fact 2", "fact 3", "fact 4"],
-        "how_it_works": "...",
-        "enterprise_implications": "...",
-        "common_misconceptions": ["Myth: ... Reality: ...", "Myth: ... Reality: ..."],
-        "decision_questions": ["question 1", "question 2", "question 3"]
-      },
-      "role_relevance": "one sentence",
-      "industry_angle": "one sentence",
-      "source_concepts": ["concept 1", "concept 2", "concept 3"]
-    }
-  ]
-}`
-
-  const message = await anthropic.messages.create({
-    model: MODEL,
-    max_tokens: 8000,
-    messages: [{ role: 'user', content: prompt }],
-  })
-
-  let raw = (message.content[0] as { type: string; text: string }).text.trim()
-  raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
-
-  const json = JSON.parse(raw) as {
-    articles: Array<{
-      subtopic_title: string
-      sections: {
-        overview: string
-        key_facts: string[]
-        how_it_works: string
-        enterprise_implications: string
-        common_misconceptions: string[]
-        decision_questions: string[]
-      }
-      role_relevance: string
-      industry_angle: string
-      source_concepts: string[]
-    }>
+  // Generate one article per subtopic — avoids max_tokens truncation when a session
+  // has many subtopics (8 subtopics × 800 words ≈ 8,750 tokens, exactly hitting the
+  // old 8000-token ceiling mid-JSON and producing "Unterminated string" errors).
+  const articles: ContentArticle[] = []
+  for (let i = 0; i < subtopicTitles.length; i++) {
+    const subtopicTitle = subtopicTitles[i]
+    const article = await generateSingleContentArticle(
+      subtopicTitle,
+      topicTitle,
+      subtopicTitles,
+      i,
+      userContext,
+      roleLevelInstruction,
+      previousContext,
+      anthropic
+    )
+    articles.push(article)
   }
-
-  return json.articles.map((a, i) => ({
-    subtopic_title: subtopicTitles[i] ?? a.subtopic_title,
-    subtopic_slug: slugify(subtopicTitles[i] ?? a.subtopic_title),
-    sections: {
-      overview: a.sections.overview ?? '',
-      key_facts: a.sections.key_facts ?? [],
-      how_it_works: a.sections.how_it_works ?? '',
-      enterprise_implications: a.sections.enterprise_implications ?? '',
-      common_misconceptions: a.sections.common_misconceptions ?? [],
-      decision_questions: a.sections.decision_questions ?? [],
-    },
-    role_relevance: a.role_relevance ?? '',
-    industry_angle: a.industry_angle ?? '',
-    source_concepts: a.source_concepts ?? [],
-  }))
+  return articles
 }
