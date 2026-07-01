@@ -17,9 +17,10 @@ const RecommendationsSchema = z.object({
   subDomain: z.string().max(100).optional().default(''),
   learningGoal: z.string().max(200).optional().default(''),
   aiMaturity: z.string().max(50).optional().default('intermediate'),
-  domainProficiency: z.record(z.string()).optional().default({}),
+  domainProficiency: z.record(z.string()).catch({}).optional().default({}),
   roleLevel: z.enum(['c-suite', 'vp-dir', 'vp-technology', 'vp-product', 'manager', 'specialist'])
              .optional()
+             .catch('manager')
              .default('manager'),
 })
 

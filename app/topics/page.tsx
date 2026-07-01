@@ -263,18 +263,19 @@ export default function TopicsPage() {
 
     // Use explicitly selected roleLevel from onboarding step 0 if available;
     // fall back to inference from free-text role string for anonymous/legacy flows.
-    const roleLevel = profile.roleLevel ?? inferRoleLevel(profile.role ?? '')
+    // Use || (not ??) so an empty string also falls through to inferRoleLevel.
+    const roleLevel = profile.roleLevel || inferRoleLevel(profile.role ?? '')
 
-    // Derive per-domain proficiency for primaryDomain — the richer skill signal from onboarding step 5.
+    // Derive per-domain proficiency string for the sessionStorage cache key.
     const VALID_PROFICIENCIES = ['beginner', 'intermediate', 'advanced', 'expert']
     const rawProficiency = (profile.domainProficiency && rawDomain)
       ? (profile.domainProficiency[rawDomain] ?? 'intermediate')
       : 'intermediate'
-    const domainProficiency = VALID_PROFICIENCIES.includes(rawProficiency) ? rawProficiency : 'intermediate'
+    const domainProficiencyStr = VALID_PROFICIENCIES.includes(rawProficiency) ? rawProficiency : 'intermediate'
 
     // Check sessionStorage cache first (avoid re-calling Claude on re-visit).
     // v4: includes proficiency in key so beginner/expert get separate caches.
-    const cacheKey = `clio_topic_recs_v4_${roleLevel}_${rawDomain}_${domainProficiency}`
+    const cacheKey = `clio_topic_recs_v4_${roleLevel}_${rawDomain}_${domainProficiencyStr}`
     const cached = sessionStorage.getItem(cacheKey)
     if (cached) {
       try {
@@ -315,7 +316,7 @@ export default function TopicsPage() {
             subDomain: profile.subDomain ?? '',
             learningGoal,
             aiMaturity,
-            domainProficiency,
+            domainProficiency: profile.domainProficiency ?? {},
             roleLevel,
           }),
         })
