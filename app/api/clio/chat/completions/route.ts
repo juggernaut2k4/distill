@@ -210,7 +210,10 @@ function toAnthropicMessages(messages: OAIMessage[]): Anthropic.MessageParam[] {
  * Set Authorization header secret = ELEVENLABS_CUSTOM_LLM_SECRET env var.
  */
 export async function POST(request: NextRequest) {
-  console.log('[clio/llm] Request received — headers:', JSON.stringify(Object.fromEntries(request.headers.entries())).slice(0, 300))
+  // Full diagnostic logging — capture everything Hume sends so we can find the userId mechanism
+  const allHeaders = Object.fromEntries(request.headers.entries())
+  console.log('[clio/llm] URL:', request.url)
+  console.log('[clio/llm] ALL HEADERS:', JSON.stringify(allHeaders))
 
   // Verify the request is from ElevenLabs using a shared secret
   const authHeader = request.headers.get('authorization')
@@ -220,9 +223,12 @@ export async function POST(request: NextRequest) {
     return new Response('Unauthorized', { status: 401 })
   }
 
-  let body: { messages?: OAIMessage[]; stream?: boolean }
+  let rawBody: string
+  let body: { messages?: OAIMessage[]; stream?: boolean; user?: string; [key: string]: unknown }
   try {
-    body = await request.json()
+    rawBody = await request.text()
+    console.log('[clio/llm] RAW BODY (first 800 chars):', rawBody.slice(0, 800))
+    body = JSON.parse(rawBody) as typeof body
   } catch {
     return new Response('Invalid JSON', { status: 400 })
   }
@@ -232,14 +238,17 @@ export async function POST(request: NextRequest) {
   // Hume EVI passes userId as ?custom_session_id= in the URL (set at WS connection time).
   // ElevenLabs embeds DISTILL_USER_ID in the system message via dynamicVariables.
   // Check URL param first (Hume), fall back to message scan (ElevenLabs).
+  // Also check body.user field (some LLM proxy formats use this).
   const { searchParams } = new URL(request.url)
   const userIdFromUrl = searchParams.get('custom_session_id')
+  const userIdFromBody = typeof body.user === 'string' ? body.user : null
   const userIdFromMessages = messages
     .map((m) => m.content ?? '')
     .join('\n')
     .match(/DISTILL_USER_ID:\s*(\S+)/)?.[1] ?? null
-  const userId = userIdFromUrl ?? userIdFromMessages ?? null
-  console.log(`[clio/llm] userId extracted: ${userId ?? '(none)'} from ${messages.length} messages (source: ${userIdFromUrl ? 'hume-url' : userIdFromMessages ? 'el-message' : 'none'})`)
+  const userId = userIdFromUrl ?? userIdFromBody ?? userIdFromMessages ?? null
+  console.log(`[clio/llm] userId extracted: ${userId ?? '(none)'} from ${messages.length} messages (source: ${userIdFromUrl ? 'hume-url' : userIdFromBody ? 'body-user' : userIdFromMessages ? 'el-message' : 'none'})`)
+  console.log('[clio/llm] body keys:', Object.keys(body).join(', '))
 
   // Resolve session context — cached after first turn, validated every 5 min
   let systemPrompt = 'You are Clio, an expert AI business coach running a live coaching session.'
