@@ -27,10 +27,8 @@ const RecommendationsSchema = z.object({
 // Normalise the many maturity vocabulary words into 3 actionable tiers
 function normalizeMaturity(raw: string): 'beginner' | 'intermediate' | 'advanced' {
   const v = raw.toLowerCase()
-  // observer = watching from the sidelines; emerging = used AI tools a few times.
-  // Both groups need foundational content, not production RAG pipelines or eval frameworks.
-  if (v === 'observer' || v === 'beginner' || v === 'emerging') return 'beginner'
-  if (v === 'intermediate') return 'intermediate'
+  if (v === 'observer' || v === 'beginner') return 'beginner'
+  if (v === 'emerging' || v === 'intermediate') return 'intermediate'
   return 'advanced' // practitioner, leader, expert, advanced
 }
 
@@ -183,93 +181,93 @@ const MOCK_RESPONSE_EXECUTIVE: RecommendationsResponse = {
 const MOCK_RESPONSE_TECHNICAL: RecommendationsResponse = {
   sections: [
     {
-      id: 'trending',
-      label: 'Trending in your field',
-      icon: 'TrendingUp',
-      topics: [
-        {
-          id: 'agentic-systems-production',
-          title: 'Agentic Systems in Production',
-          description: 'Building, evaluating, and safely deploying autonomous AI agents in real systems.',
-        },
-        {
-          id: 'rag-pipelines-engineers',
-          title: 'RAG Pipelines for Engineers',
-          description: 'Retrieval-augmented generation: architecture, chunking, retrieval, and evaluation.',
-        },
-        {
-          id: 'llm-evaluation-practitioner',
-          title: 'LLM Evaluation for Practitioners',
-          description: 'How to measure model quality systematically — beyond vibe checks.',
-        },
-        {
-          id: 'multimodal-apis',
-          title: 'Multimodal APIs in Practice',
-          description: 'Using vision, audio, and document capabilities in production AI applications.',
-        },
-        {
-          id: 'structured-outputs-llm',
-          title: 'Structured Outputs from LLMs',
-          description: 'Reliably extracting typed JSON and validated data from language model responses.',
-        },
-      ],
-    },
-    {
-      id: 'skills',
-      label: 'Skills to build',
-      icon: 'Code2',
-      topics: [
-        {
-          id: 'prompt-engineering-engineers',
-          title: 'Prompt Engineering for Engineers',
-          description: 'Systematic prompt design, chaining, and evaluation for production use cases.',
-        },
-        {
-          id: 'building-ai-features',
-          title: 'Building AI-Powered Features',
-          description: 'End-to-end patterns for integrating LLMs into product features safely.',
-        },
-        {
-          id: 'ai-code-review',
-          title: 'AI-Assisted Code Review',
-          description: 'Using LLMs to catch bugs, suggest refactors, and enforce patterns at PR time.',
-        },
-        {
-          id: 'llm-fundamentals-engineers',
-          title: 'LLM Fundamentals for Engineers',
-          description: 'Tokens, context windows, temperature, and inference — what every builder must know.',
-        },
-        {
-          id: 'ai-safety-practitioners',
-          title: 'AI Safety for Practitioners',
-          description: 'Prompt injection, jailbreaks, and output validation in production systems.',
-        },
-      ],
-    },
-    {
       id: 'tools',
-      label: 'Tools to master',
+      label: 'AI tools to know',
       icon: 'Wrench',
       topics: [
         {
-          id: 'anthropic-claude-developers',
-          title: 'Anthropic Claude API for Developers',
-          description: 'Messages API, tool use, streaming, and context management in production.',
+          id: 'claude',
+          title: 'Claude',
+          description: "Anthropic's AI model — what it's good at, how it differs from GPT, and when to use it.",
         },
         {
-          id: 'cursor-ai-ide',
-          title: 'Cursor AI IDE',
-          description: 'The AI-native editor and how to use it for complex multi-file refactors.',
+          id: 'chatgpt-gpt',
+          title: 'ChatGPT & GPT',
+          description: "OpenAI's model family — capabilities, limits, and how developers use it day to day.",
         },
         {
-          id: 'github-copilot-engineers',
-          title: 'GitHub Copilot for Engineers',
-          description: 'Beyond autocomplete: using Copilot for architecture, tests, and debugging.',
+          id: 'gemini',
+          title: 'Gemini',
+          description: "Google's AI model — what makes it different and where it fits in your stack.",
         },
         {
-          id: 'mlops-llm-era',
-          title: 'MLOps in the LLM Era',
-          description: 'Deploying, monitoring, and updating LLM-powered systems in production.',
+          id: 'cursor',
+          title: 'Cursor',
+          description: 'The AI-native coding editor — how developers use it to write, refactor, and debug faster.',
+        },
+        {
+          id: 'github-copilot',
+          title: 'GitHub Copilot',
+          description: 'AI pair programming built into your editor — autocomplete, test generation, and PR review.',
+        },
+        {
+          id: 'higgsfield',
+          title: 'Higgsfield',
+          description: 'AI video generation — what it can create and how creative teams are using it.',
+        },
+      ],
+    },
+    {
+      id: 'concepts',
+      label: 'Concepts to master',
+      icon: 'TrendingUp',
+      topics: [
+        {
+          id: 'prompt-engineering',
+          title: 'Prompt Engineering',
+          description: 'How to write instructions that reliably get good AI outputs across different tasks.',
+        },
+        {
+          id: 'rag',
+          title: 'RAG',
+          description: 'Retrieval-Augmented Generation — connecting AI to your own data and documents.',
+        },
+        {
+          id: 'multi-agent-systems',
+          title: 'Multi-Agent Systems',
+          description: 'Orchestrating multiple AI agents to complete complex tasks that one model cannot do alone.',
+        },
+        {
+          id: 'mcp',
+          title: 'MCP',
+          description: 'Model Context Protocol — the emerging standard for connecting AI models to tools and data sources.',
+        },
+        {
+          id: 'ai-agents',
+          title: 'AI Agents',
+          description: 'Autonomous AI that can plan, use tools, and complete multi-step goals without constant guidance.',
+        },
+      ],
+    },
+    {
+      id: 'apply',
+      label: 'Apply to your work',
+      icon: 'Code2',
+      topics: [
+        {
+          id: 'ai-in-software-development',
+          title: 'AI in Software Development',
+          description: 'How AI is changing how developers write, review, test, and ship code.',
+        },
+        {
+          id: 'building-with-ai-apis',
+          title: 'Building with AI APIs',
+          description: 'Integrating AI capabilities into your applications — from first call to production.',
+        },
+        {
+          id: 'ai-for-product-teams',
+          title: 'AI for Product Teams',
+          description: 'How AI changes what you build, how fast you ship, and what users now expect.',
         },
       ],
     },
@@ -279,38 +277,36 @@ const MOCK_RESPONSE_TECHNICAL: RecommendationsResponse = {
 const MOCK_RESPONSE_TECHNICAL_BEGINNER: RecommendationsResponse = {
   sections: [
     {
-      id: 'trending',
-      label: 'Start here',
-      icon: 'BookOpen',
-      topics: [
-        { id: 'what-is-llm', title: 'What Is a Large Language Model?', description: 'Understand how LLMs work and why they matter for your work as a developer.' },
-        { id: 'what-is-claude', title: 'What Is Claude and How to Use It', description: 'Get started with Anthropic\'s Claude and understand what makes it different from other models.' },
-        { id: 'prompt-engineering-basics', title: 'Prompt Engineering Basics', description: 'Write prompts that consistently produce accurate, structured outputs across varied inputs.' },
-        { id: 'tokens-context-windows-intro', title: 'Tokens and Context Windows Explained', description: 'Understand the fundamental unit of AI text and how limits affect your applications.' },
-        { id: 'ai-api-first-call', title: 'Making Your First AI API Call', description: 'Set up auth, send a message, and parse the response in your language of choice.' },
-      ],
-    },
-    {
-      id: 'skills',
-      label: 'Skills to build first',
-      icon: 'Code2',
-      topics: [
-        { id: 'system-prompts-basics', title: 'Writing Effective System Prompts', description: 'Control AI behaviour consistently using well-structured system instructions.' },
-        { id: 'reading-ai-outputs', title: 'Reading and Validating AI Outputs', description: 'Reliably check whether AI-generated responses are correct before using them in production.' },
-        { id: 'ai-coding-assistants-start', title: 'AI Coding Assistants: Getting Started', description: 'Use GitHub Copilot or Cursor to write and refactor code faster in your daily workflow.' },
-        { id: 'simple-ai-feature', title: 'Building a Simple AI Feature', description: 'Integrate a basic LLM call into an existing app endpoint from start to finish.' },
-        { id: 'debugging-llm-outputs', title: 'Debugging Unexpected LLM Outputs', description: 'Diagnose and fix hallucinations, refusals, and format inconsistencies in AI responses.' },
-      ],
-    },
-    {
       id: 'tools',
-      label: 'Tools to start with',
+      label: 'AI tools to start with',
       icon: 'Wrench',
       topics: [
-        { id: 'claude-api-start', title: 'Claude API: Getting Started', description: 'Build your first production feature using Anthropic\'s Messages API.' },
-        { id: 'cursor-basics', title: 'Cursor IDE for Beginners', description: 'Set up and use the AI-native editor to accelerate your daily coding workflow.' },
-        { id: 'github-copilot-start', title: 'GitHub Copilot: First Steps', description: 'Enable Copilot for autocomplete, test generation, and simple refactoring.' },
-        { id: 'chatgpt-developers-start', title: 'ChatGPT for Developers', description: 'Use ChatGPT effectively for code review, debugging, and documentation tasks.' },
+        { id: 'claude', title: 'Claude', description: "Anthropic's AI — what it does, how to talk to it, and what makes it different from ChatGPT." },
+        { id: 'chatgpt-gpt', title: 'ChatGPT & GPT', description: "OpenAI's AI — the most widely used model and what developers actually use it for." },
+        { id: 'cursor', title: 'Cursor', description: 'AI-powered code editor — how to set it up and use it to write code faster from day one.' },
+        { id: 'github-copilot', title: 'GitHub Copilot', description: 'AI autocomplete in your existing editor — get it running and understand when to trust it.' },
+        { id: 'gemini', title: 'Gemini', description: "Google's AI model — what it's good at and how it compares to Claude and GPT." },
+      ],
+    },
+    {
+      id: 'concepts',
+      label: 'Concepts to understand first',
+      icon: 'TrendingUp',
+      topics: [
+        { id: 'prompt-engineering', title: 'Prompt Engineering', description: 'How to write instructions that get AI to do exactly what you want, consistently.' },
+        { id: 'how-llms-work', title: 'How LLMs Work', description: 'A plain-English explanation of what language models actually do under the hood.' },
+        { id: 'rag', title: 'RAG', description: 'How AI answers questions from your own documents — the concept behind most AI search tools.' },
+        { id: 'ai-agents', title: 'AI Agents', description: 'What it means when AI can take actions, use tools, and complete tasks autonomously.' },
+        { id: 'mcp', title: 'MCP', description: 'Model Context Protocol — the standard that lets AI connect to your tools and data.' },
+      ],
+    },
+    {
+      id: 'apply',
+      label: 'Apply to your work',
+      icon: 'Code2',
+      topics: [
+        { id: 'ai-in-software-development', title: 'AI in Software Development', description: 'Where AI actually helps developers today — and where it still falls short.' },
+        { id: 'building-with-ai-apis', title: 'Building with AI APIs', description: 'How to make your first API call, send a message, and get a response into your app.' },
       ],
     },
   ],
@@ -421,18 +417,17 @@ Include a section with id 'how_it_works', label 'How it actually works', icon 'L
 
 Return ONLY valid JSON matching the specified schema. Be specific and practical — every topic must be immediately relevant to someone in their exact role and sub-domain.`,
 
-  technical: `You are a senior AI learning advisor for technical practitioners. Your audience holds titles such as Software Engineer, Senior Engineer, Data Scientist, Data Analyst, ML Engineer, Platform Engineer, and other individual contributor or specialist roles. They build and integrate AI systems as part of their daily work — writing code, calling APIs, evaluating models, and shipping AI-powered features.
+  technical: `You are a senior AI learning advisor for technical practitioners — software engineers, data scientists, ML engineers, and other builders. Your job is to recommend AI topics that are high-level and concept-focused, not implementation recipes.
 
-Generate personalised AI topic recommendations for this practitioner based on their profile. Every topic you suggest must deliver hands-on, implementable knowledge that makes them more effective at building with AI.
+Topic philosophy:
+- Topic titles should be NAMES (Claude, RAG, MCP, Multi-Agent, Gemini) or SHORT CONCEPTS (Prompt Engineering, AI Agents) — not implementation recipes or course titles.
+- A good topic title: "Claude", "RAG", "MCP", "Prompt Engineering", "Multi-Agent Systems", "Gemini", "Higgsfield"
+- A bad topic title: "RAG Pipelines with Hybrid Search", "LLM Evaluation Frameworks in CI/CD", "Promptfoo for LLM Evaluation Testing"
+- Descriptions: one sentence, 15 words max, explaining what this topic IS and why it matters — not a task they will perform.
+- Calibrate breadth to the user's AI experience: beginner → well-known tools + foundational concepts; intermediate → add emerging concepts (MCP, agents, multi-agent); advanced → add frontier topics.
+- Never include specific version numbers, specific library names as topics (Pinecone, LangChain, Promptfoo are too narrow), or CI/CD pipeline specifics.
 
-Rules for topic selection and framing:
-- Frame every topic at the implementation level: how to build, integrate, evaluate, optimise, or operate AI systems.
-- Prioritise topics on Claude API, prompt engineering, agentic systems, RAG pipelines, model evaluation, AI tooling, and applied ML in production.
-- Include topics that are immediately applicable: skills they can use in their next sprint, pull request, or architecture decision.
-- Do NOT suggest topics on AI governance, board communication, vendor procurement, ROI frameworks, or organisational strategy — these belong to their leadership, not to them.
-- Vocabulary: use "API", "prompt engineering", "context window", "embeddings", "RAG", "fine-tuning", "agentic systems", "LLM", "inference", "latency", "evaluation" — not "board-ready", "executive briefing", "governance", "stakeholder".
-
-Return ONLY valid JSON matching the specified schema. Be specific and practical — every topic must be immediately relevant to someone in their exact role and sub-domain.`,
+Return ONLY valid JSON matching the specified schema.`,
 
   manager: `You are a senior AI learning advisor for team managers and team leads. Your audience holds titles such as Manager, Senior Manager, Team Lead, and Engineering Manager. They are responsible for the productivity and AI adoption of teams of 3–20 people. They need to evaluate and deploy AI tools for their function, coach their team on AI use, and report impact upward — without needing to build AI systems themselves or make board-level governance decisions.
 
@@ -452,32 +447,33 @@ Return ONLY valid JSON matching the specified schema. Be specific and practical 
 
 const USER_PROMPTS: Record<RoleTier, (role: string, primaryDomain: string, subDomain: string, aiMaturity: string, learningGoal: string, domainProficiency: string) => string> = {
   technical: (role, primaryDomain, subDomain, aiMaturity, learningGoal, domainProficiency) =>
-    `Generate AI learning topic recommendations for:
-- Role: ${role}
-- Domain: ${primaryDomain}
-- Sub-domain: ${subDomain}
-- AI experience (global): ${aiMaturity}
-- Domain proficiency in ${primaryDomain}: ${domainProficiency}
-- Learning goal: ${learningGoal}
+    `Generate AI topic recommendations for a ${role} in ${primaryDomain} (${subDomain}).
+AI experience: ${aiMaturity}. Domain proficiency: ${domainProficiency}. Learning goal: ${learningGoal}.
 
-Return exactly 3 sections. Think from this developer's perspective — what do they actually need to build great AI systems?
+Return exactly 3 sections:
 
-1. "trending" — 5 topics: what is happening RIGHT NOW in AI engineering that someone in ${subDomain} must know about. Urgent and specific.
-2. "skills" — 5 topics: the concrete implementation skills and techniques a ${role} in ${primaryDomain} needs to build and ship AI systems. Things they can use in their next sprint.
-3. "tools" — 4 topics: the exact AI tools, APIs, IDEs, or platforms that ${role}s in ${subDomain} are investing time in right now.
+1. "tools" — label "AI tools to know", icon "Wrench", 5–6 topics.
+   List the major AI tools this person should know about. Think: Claude, ChatGPT, Gemini, Cursor, GitHub Copilot, Higgsfield, Midjourney, Runway, Perplexity — whichever are most relevant to their domain.
+   Titles: just the tool name (e.g. "Claude", "Gemini", "Cursor"). Descriptions: 1 sentence, what this tool does and why it matters for their work.
 
-Rules:
-- Every topic must be specific to this exact role and sub-domain — never generic
-- Titles: max 7 words, concrete and specific (never "Introduction to X" or "Overview of Y")
-- Descriptions: one sentence, max 18 words, what they can DO after learning this
-- Calibrate topic DIFFICULTY to the domain proficiency above:
-  beginner → fundamentals only (what is X, why it matters, first steps, basic usage — never production patterns)
-  intermediate → applied skills (real integration patterns, practical techniques, building with APIs)
-  advanced → advanced implementation (production architecture, trade-offs, edge cases, evaluation at scale)
-  expert → cutting-edge (emerging research, frontier patterns, scaling decisions, novel approaches)
+2. "concepts" — label "Concepts to master", icon "TrendingUp", 4–5 topics.
+   The core AI concepts this person needs to understand. Think: Prompt Engineering, RAG, Multi-Agent Systems, MCP, AI Agents, Fine-tuning, Embeddings, Context Windows — calibrated to their experience level.
+   Titles: the concept name (e.g. "RAG", "MCP", "Prompt Engineering"). Descriptions: 1 sentence, what this concept IS and why it matters.
+
+3. "apply" — label "Apply to your work", icon "Code2", 3–4 topics.
+   How AI applies to their specific domain and role. Think broad application areas, not specific tools or recipes.
+   Titles: 3–6 words (e.g. "AI in Software Development", "AI for Data Teams"). Descriptions: 1 sentence on impact.
+
+Calibrate to AI experience:
+  observer/beginner → well-known tools only; foundational concepts only
+  emerging/intermediate → add emerging concepts (MCP, agents, multi-agent)
+  practitioner/advanced → add frontier topics and domain-specific depth
+  leader/expert → cutting-edge and strategic application
+
+Titles must be SHORT — tool name or concept name only. Never "X for Y" or "Using X to do Y" or "Introduction to X".
 
 Return JSON only — no markdown, no explanation.
-Format: { "trending": [...], "skills": [...], "tools": [...] }`,
+Format: { "tools": [...], "concepts": [...], "apply": [...] }`,
 
   executive: (role, primaryDomain, subDomain, aiMaturity, learningGoal, _domainProficiency) =>
     `Generate AI learning topic recommendations for:
@@ -544,7 +540,9 @@ const SECTION_METADATA: Record<string, { label: string; icon: string }> = {
   skills:      { label: 'Skills to build',           icon: 'Code2'      },
   decisions:   { label: 'Decisions you need to own', icon: 'Briefcase'  },
   team:        { label: 'Enabling your team',        icon: 'Users'      },
-  tools:       { label: 'Tools to master',           icon: 'Wrench'     },
+  tools:       { label: 'AI tools to know',          icon: 'Wrench'     },
+  concepts:    { label: 'Concepts to master',        icon: 'TrendingUp' },
+  apply:       { label: 'Apply to your work',        icon: 'Code2'      },
   how_it_works:{ label: 'How it actually works',     icon: 'Lightbulb'  },
   fundamentals:{ label: 'Start here',                icon: 'BookOpen'   },
   // legacy keys — kept so any cached/in-flight responses still render
@@ -562,7 +560,7 @@ function shapeResponse(parsed: unknown): RecommendationsResponse | null {
   const obj = parsed as Record<string, unknown>
 
   // Claude returns { trending: [...], skills: [...] } — normalise to the internal sections format
-  const KNOWN_SECTION_KEYS = ['trending', 'skills', 'decisions', 'team', 'tools', 'how_it_works', 'role', 'goal']
+  const KNOWN_SECTION_KEYS = ['trending', 'skills', 'decisions', 'team', 'tools', 'concepts', 'apply', 'how_it_works', 'role', 'goal']
   let rawSections: unknown[]
 
   if (Array.isArray(obj.sections)) {
