@@ -229,17 +229,17 @@ export async function POST(request: NextRequest) {
 
   const messages = body.messages ?? []
 
-  // The ElevenLabs agent system prompt template contains "DISTILL_USER_ID: {{user_id}}"
-  // which gets substituted when WalkthroughClient passes dynamicVariables: { user_id: userId }.
-  // ElevenLabs may place this in a system message OR embed it in the first user/assistant
-  // message in the history — search all messages so we never miss it.
-  const userIdMatch =
-    messages
-      .map((m) => m.content ?? '')
-      .join('\n')
-      .match(/DISTILL_USER_ID:\s*(\S+)/)
-  const userId = userIdMatch?.[1] ?? null
-  console.log(`[clio/llm] userId extracted: ${userId ?? '(none)'} from ${messages.length} messages`)
+  // Hume EVI passes userId as ?custom_session_id= in the URL (set at WS connection time).
+  // ElevenLabs embeds DISTILL_USER_ID in the system message via dynamicVariables.
+  // Check URL param first (Hume), fall back to message scan (ElevenLabs).
+  const { searchParams } = new URL(request.url)
+  const userIdFromUrl = searchParams.get('custom_session_id')
+  const userIdFromMessages = messages
+    .map((m) => m.content ?? '')
+    .join('\n')
+    .match(/DISTILL_USER_ID:\s*(\S+)/)?.[1] ?? null
+  const userId = userIdFromUrl ?? userIdFromMessages ?? null
+  console.log(`[clio/llm] userId extracted: ${userId ?? '(none)'} from ${messages.length} messages (source: ${userIdFromUrl ? 'hume-url' : userIdFromMessages ? 'el-message' : 'none'})`)
 
   // Resolve session context — cached after first turn, validated every 5 min
   let systemPrompt = 'You are Clio, an expert AI business coach running a live coaching session.'

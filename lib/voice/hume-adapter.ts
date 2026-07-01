@@ -40,7 +40,7 @@ export class HumeAdapter implements VoiceSessionAdapter {
 
   private openConnection(): Promise<void> {
     return new Promise((resolve, reject) => {
-      const url = `wss://api.hume.ai/v0/evi/chat?access_token=${this.config.accessToken}&config_id=${this.config.configId}&evi_version=3`
+      const url = `wss://api.hume.ai/v0/evi/chat?access_token=${this.config.accessToken}&config_id=${this.config.configId}&evi_version=3&custom_session_id=${encodeURIComponent(this.config.userId)}`
       this.ws = new WebSocket(url)
 
       // Reuse existing AudioContext across reconnects — only create once
@@ -55,15 +55,6 @@ export class HumeAdapter implements VoiceSessionAdapter {
 
       this.ws.onopen = () => {
         this.reconnectAttempts = 0
-        // Send userId immediately — before EVI makes its first LLM call for the greeting.
-        // "EVI Starts conversation" fires the LLM call right after WS open, so this
-        // must arrive before chat_metadata, not after.
-        if (this.config.userId) {
-          this.ws!.send(JSON.stringify({
-            type: 'session_settings',
-            system_prompt: `DISTILL_USER_ID: ${this.config.userId}`,
-          }))
-        }
         this.startMicCapture()
         if (!resolved) { resolved = true; resolve() }
       }
