@@ -1,12 +1,16 @@
 import { NextResponse } from 'next/server'
 
+export const dynamic = 'force-dynamic'
+
+const NO_CACHE = { 'Cache-Control': 'no-store' }
+
 export async function GET() {
   const apiKey = process.env.HUME_API_KEY
   const secretKey = process.env.HUME_SECRET_KEY
 
   if (!apiKey || !secretKey) {
     console.error('[hume-token] Missing HUME_API_KEY or HUME_SECRET_KEY')
-    return NextResponse.json({ error: 'Hume credentials not configured' }, { status: 500 })
+    return NextResponse.json({ error: 'Hume credentials not configured' }, { status: 500, headers: NO_CACHE })
   }
 
   const credentials = Buffer.from(`${apiKey}:${secretKey}`).toString('base64')
@@ -23,9 +27,9 @@ export async function GET() {
   if (!res.ok) {
     const body = await res.text()
     console.error('[hume-token] Hume token exchange failed:', res.status, body)
-    return NextResponse.json({ error: 'Failed to obtain Hume access token' }, { status: 502 })
+    return NextResponse.json({ error: 'Failed to obtain Hume access token' }, { status: 502, headers: NO_CACHE })
   }
 
   const data = await res.json() as { access_token: string; expires_in: number }
-  return NextResponse.json({ accessToken: data.access_token, expiresIn: data.expires_in })
+  return NextResponse.json({ accessToken: data.access_token, expiresIn: data.expires_in }, { headers: NO_CACHE })
 }
