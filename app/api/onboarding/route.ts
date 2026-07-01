@@ -6,6 +6,27 @@ import { getUserContentPlan } from '@/lib/content/personalizer'
 import { assignPhoneNumber } from '@/lib/delivery/sms'
 import { normaliseMaturity } from '@/lib/curriculum/planner'
 
+/**
+ * GET /api/onboarding
+ * Returns { hasProfile: boolean } — used by the onboarding page to detect
+ * returning users and redirect them to /dashboard immediately.
+ */
+export async function GET() {
+  const { userId } = auth()
+  if (!userId) {
+    return NextResponse.json({ hasProfile: false })
+  }
+  const supabase = createSupabaseAdminClient()
+  const { data } = await supabase
+    .from('users')
+    .select('id, role')
+    .eq('id', userId)
+    .maybeSingle()
+  // A row with a non-null role means onboarding was completed
+  const hasProfile = !!(data?.role)
+  return NextResponse.json({ hasProfile })
+}
+
 const OnboardingSchema = z.object({
   role: z.string().min(1, 'Role is required'),
   roleLevel: z.enum(['c-suite', 'vp-dir', 'vp-technology', 'vp-product', 'manager', 'specialist']).default('c-suite'),

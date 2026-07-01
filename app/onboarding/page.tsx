@@ -497,16 +497,36 @@ function OnboardingContent() {
   const [sessionChecked, setSessionChecked] = useState(false)
 
   // ── Session restore + auto-submit after sign-up return ───────────────────────
-  // Runs once Clerk has loaded. Three cases:
+  // Runs once Clerk has loaded. Four cases:
   //   1. Not signed in → show form normally (sessionChecked = true unlocks render)
-  //   2. Signed in + complete localStorage data → auto-submit without showing form
-  //   3. Signed in + partial localStorage data → restore state and jump to saved step
+  //   2. Signed in + existing DB profile → redirect to /dashboard (returning user login)
+  //   3. Signed in + complete localStorage data → auto-submit without showing form (new user post-signup)
+  //   4. Signed in + partial localStorage data → restore state and jump to saved step
   useEffect(() => {
     if (!clerkLoaded) return
     if (!isSignedIn) {
       setSessionChecked(true)
       return
     }
+
+    // Case 2: returning user — check DB for an existing profile
+    // If found, skip onboarding entirely and go straight to dashboard.
+    fetch('/api/onboarding')
+      .then((r) => r.json())
+      .then((data: { hasProfile?: boolean }) => {
+        if (data.hasProfile) {
+          router.replace('/dashboard')
+          return
+        }
+        // No existing profile — fall through to localStorage restore / auto-submit
+        continueOnboarding()
+      })
+      .catch(() => {
+        // On fetch error, allow the form to show rather than blocking the user
+        continueOnboarding()
+      })
+
+    function continueOnboarding() {
     const saved = localStorage.getItem('clio_onboarding')
     if (!saved) {
       setSessionChecked(true)
@@ -556,6 +576,7 @@ function OnboardingContent() {
       localStorage.removeItem('clio_onboarding')
       setSessionChecked(true)
     }
+    } // end continueOnboarding
   }, [clerkLoaded, isSignedIn]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Can proceed from each step ──────────────────────────────────────────────
