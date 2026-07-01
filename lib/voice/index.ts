@@ -6,6 +6,8 @@ import { DeepgramAdapter } from './deepgram-adapter'
 export type { VoiceSessionAdapter } from './adapter'
 export { ElevenLabsAdapter } from './elevenlabs-adapter'
 export { DeepgramAdapter } from './deepgram-adapter'
+export { HumeAdapter } from './hume-adapter'
+export type { HumeAdapterConfig } from './hume-adapter'
 
 export function createVoiceAdapter(
   provider: 'elevenlabs' | 'deepgram',

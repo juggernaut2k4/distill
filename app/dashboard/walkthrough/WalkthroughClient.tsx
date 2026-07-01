@@ -8,13 +8,19 @@ import VisualizationTabPanel from '@/components/kb/VisualizationTabPanel'
 import type { VisualSpec } from '@/lib/session-ai'
 import type { TabManifest, TemplateSection, VisualizationTab } from '@/lib/templates/types'
 import { Conversation } from '@11labs/client'
-import { createVoiceAdapter, type VoiceSessionAdapter } from '@/lib/voice'
+import { createVoiceAdapter, type VoiceSessionAdapter, HumeAdapter } from '@/lib/voice'
 
 const AGENT_ID = process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID ?? 'agent_0701krp1ta48fswrff17ctb0520m'
 
 // Siren voice ID — locked via overrides.tts.voiceId to ensure consistent voice
 // across the firstMessage and all subsequent LLM-generated responses.
 const VOICE_ID = process.env.NEXT_PUBLIC_ELEVENLABS_VOICE_ID ?? 'eXpIbVcVbLo8ZJQDlDnl'
+
+// Voice provider toggle — set NEXT_PUBLIC_VOICE_PROVIDER=hume to use Hume EVI 3.
+// Defaults to elevenlabs so existing sessions are unaffected.
+const VOICE_PROVIDER = process.env.NEXT_PUBLIC_VOICE_PROVIDER ?? 'elevenlabs'
+const HUME_API_KEY = process.env.NEXT_PUBLIC_HUME_API_KEY ?? ''
+const HUME_CONFIG_ID = process.env.NEXT_PUBLIC_HUME_CONFIG_ID ?? ''
 
 // How long (ms) of polling silence before sending a keep-alive context update.
 // Keep short — ElevenLabs closes the WebSocket after ~15s of inactivity.
@@ -340,13 +346,190 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
         // Mic permission required for WebSocket audio session.
         // Headless browser mic returns silence — participant speech reaches the
         // agent via sendUserMessage() fed by the transcript webhook instead.
-        await navigator.mediaDevices.getUserMedia({ audio: true })
+        const micStream = await navigator.mediaDevices.getUserMedia({ audio: true })
         if (cancelled) return
 
         // Detect mid-session reconnects from the Attendee bot reloading its page.
         // hasConnectedRef is false on fresh page loads, so isReconnect misses this case.
         // If the DB shows we're past section 0, the session was already underway.
         const isMidSession = !isReconnect && (currentSectionIndexRef.current > 0)
+
+        // ── HUME EVI 3 path ───────────────────────────────────────────────────
+        if (VOICE_PROVIDER === 'hume') {
+          const hume = await HumeAdapter.create({
+            apiKey: HUME_API_KEY,
+            configId: HUME_CONFIG_ID,
+            mediaStream: micStream,
+            onConnect: (sessionId) => {
+              console.log('[Walkthrough/Hume] Connected, session:', sessionId)
+              setAgentStatus('listening')
+              if (stableConnectionTimerRef.current) clearTimeout(stableConnectionTimerRef.current)
+              stableConnectionTimerRef.current = setTimeout(() => {
+                reconnectAttemptsRef.current = 0
+                setRetryCount(0)
+                console.log('[Walkthrough/Hume] Connection stable for 30s — retry counter reset')
+              }, 30_000)
+            },
+            onDisconnect: () => {
+              console.log('[Walkthrough/Hume] Disconnected')
+              adapterRef.current = null
+              setAgentStatus('disconnected')
+              if (sessionEndedRef.current) return
+              if (!cancelled && reconnectAttemptsRef.current < MAX_RECONNECT) {
+                reconnectAttemptsRef.current++
+                setRetryCount(reconnectAttemptsRef.current)
+                const delay = Math.min(3000 * reconnectAttemptsRef.current, 20000)
+                console.log(`[Walkthrough/Hume] Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current}/${MAX_RECONNECT})`)
+                reconnectTimerRef.current = setTimeout(connect, delay)
+              } else if (!cancelled) {
+                const reason = 'Hume EVI WebSocket dropped and could not reconnect after 6 attempts.'
+                setAgentStatus('error')
+                setAgentError(reason)
+                setConnectionError(reason)
+              }
+            },
+            onError: (message) => {
+              console.error('[Walkthrough/Hume] Error:', message)
+              setAgentStatus('error')
+              setAgentError(message.slice(0, 60))
+            },
+            onModeChange: (mode) => {
+              console.log('[Walkthrough/Hume] Mode:', mode)
+              setAgentStatus(mode)
+            },
+            onMessage: (text, source) => {
+              console.log(`[Walkthrough/Hume] Message [${source}]:`, text.slice(0, 120))
+              if (source === 'ai') {
+                // NAV command processing — same logic as ElevenLabs path
+                const { navCommand } = parseNavCommand(text)
+                if (navCommand !== null) {
+                  if (currentSectionIndexRef.current === 0) {
+                    console.log(`[Walkthrough/Hume] NAV "${navCommand}" ignored — overview section`)
+                  } else {
+                    const sectionKey = String(currentSectionIndexRef.current)
+                    const manifest = tabManifestsRef.current?.[sectionKey]
+                    if (manifest && manifest.tabs.length >= 2) {
+                      const newIndex = resolveNavIndex(navCommand, manifest.tabs, activeTabIndexRef.current)
+                      activeTabIndexRef.current = newIndex
+                      setActiveTabIndex(newIndex)
+                    }
+                  }
+                }
+                // Farewell detection
+                const lower = text.toLowerCase()
+                const farewells = ['bye', 'goodbye', 'farewell', 'take care', 'see you',
+                  'until next time', 'session is complete', "that's all for today",
+                  "we're done", 'all done', 'great work today', 'well done today']
+                if (farewells.some((w) => lower.includes(w))) {
+                  sessionEndedRef.current = true
+                  setSessionComplete(true)
+                }
+              }
+            },
+            tools: {
+              show_visual: async (params) => {
+                const section_index = params.section_index as number | undefined
+                const topic_id = params.topic_id as string | undefined
+                const topic_title = params.topic_title as string | undefined
+                console.log('[Walkthrough/Hume] show_visual — section_index:', section_index)
+                try {
+                  const sections = sectionsRef.current
+                  if (sections.length > 0) {
+                    let idx: number
+                    if (typeof section_index === 'number') {
+                      idx = section_index
+                    } else {
+                      idx = sections.findIndex((s) => s.meta.subtopicTitle === topic_title)
+                    }
+                    if (idx < 0) idx = Math.max(0, currentSectionIndexRef.current)
+                    else if (idx >= sections.length) idx = sections.length - 1
+
+                    if (idx >= 0) {
+                      const splitCtxMode = process.env.NEXT_PUBLIC_CLIO_CONTEXT_MODE ?? 'all-upfront'
+                      if (splitCtxMode === 'split' && idx > 0) {
+                        const scriptIndex = idx - 1
+                        const tabScript = trainingScriptsRef.current[scriptIndex] ?? null
+                        const tabSection = sections[idx] ?? null
+                        const formattedScript = tabScript && tabSection
+                          ? formatSectionScript(tabSection, tabScript, idx, sections.length - 1)
+                          : '[Context for this section is loading — coach from the TOPIC KNOWLEDGE BASE for now.]'
+                        try { adapterRef.current?.injectContext(formattedScript) } catch { /* noop */ }
+                      }
+
+                      await fetch(`/api/walkthrough-state/${userId}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ command: 'scroll_to', section_index: idx }),
+                      })
+
+                      const script = trainingScriptsRef.current[idx]
+                      if (script) {
+                        const teachSeg = script.segments.find((s) => s.type === 'TEACH')
+                        const checkpointSeg = script.segments.find((s) => s.type === 'CHECKPOINT')
+                        const probeSeg = script.segments.find((s) => s.type === 'PROBE')
+                        const continueSeg = script.segments.find((s) => s.type === 'CONTINUE')
+                        if (teachSeg) {
+                          const sectionTitle = sections[idx].meta.subtopicTitle
+                          return (
+                            `Visual is now showing: "${sectionTitle}" (section ${idx + 1} of ${sections.length}).\n\n` +
+                            `Deliver your TEACH script for this section now — speak it naturally as if from memory:\n\n` +
+                            `${teachSeg.content}\n\n` +
+                            `Then ask this CHECKPOINT question:\n"${checkpointSeg?.content ?? 'How does that land for you?'}"\n\n` +
+                            `If they seem uncertain, use this PROBE reframe:\n"${probeSeg?.content ?? 'Let me try a different angle.'}"\n\n` +
+                            `When ready to advance, say this CONTINUE bridge:\n"${continueSeg?.content ?? 'Good — let\'s move on.'}"\n` +
+                            `Then call show_visual for the next section.`
+                          )
+                        }
+                      }
+                      return `Now showing: ${sections[idx].meta.subtopicTitle}`
+                    }
+                  }
+                  const fallbackTopicId = topic_id ?? `section-${section_index ?? 0}`
+                  const fallbackTopicTitle = topic_title ?? `Section ${(section_index ?? 0) + 1}`
+                  const res = await fetch('/api/generate-visual', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId, topicId: fallbackTopicId, topicTitle: fallbackTopicTitle }),
+                  })
+                  const data = await res.json() as { ok: boolean }
+                  return data.ok ? 'Visual is now showing on screen.' : 'Visual could not be loaded.'
+                } catch {
+                  return 'Visual failed to load.'
+                }
+              },
+              end_session: async () => {
+                console.log('[Walkthrough/Hume] end_session called')
+                sessionEndedRef.current = true
+                setSessionComplete(true)
+                return 'Session ended.'
+              },
+            },
+          })
+
+          if (cancelled) { await hume.endSession(); return }
+          hasConnectedRef.current = true
+          adapterRef.current = hume
+          lastActivityRef.current = Date.now()
+
+          if (botView) {
+            if (isReconnect || isMidSession) {
+              setBotViewReady(true)
+            } else {
+              setTimeout(() => setBotViewReady(true), 3000)
+            }
+          }
+
+          if (isReconnect || isMidSession) {
+            adapterRef.current.injectContext(
+              isReconnect
+                ? 'The connection briefly dropped and reconnected. Do not re-introduce yourself — continue the session naturally from where you left off.'
+                : `You are resuming a session that was briefly interrupted. The participant is already on section ${currentSectionIndexRef.current} — do NOT restart from the overview. Call show_visual({ section_index: ${currentSectionIndexRef.current} }) and continue from where you left off.`
+            )
+          }
+          console.log('[Walkthrough/Hume] Session started — userId:', userId)
+          return // skip ElevenLabs path
+        }
+        // ── END HUME path ─────────────────────────────────────────────────────
 
         const topic = topicRef.current
         const nameGreet = userFirstName ? `Welcome, ${userFirstName}! ` : ''
