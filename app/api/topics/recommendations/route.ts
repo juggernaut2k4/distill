@@ -27,8 +27,10 @@ const RecommendationsSchema = z.object({
 // Normalise the many maturity vocabulary words into 3 actionable tiers
 function normalizeMaturity(raw: string): 'beginner' | 'intermediate' | 'advanced' {
   const v = raw.toLowerCase()
-  if (v === 'observer' || v === 'beginner') return 'beginner'
-  if (v === 'emerging' || v === 'intermediate') return 'intermediate'
+  // observer = watching from the sidelines; emerging = used AI tools a few times.
+  // Both groups need foundational content, not production RAG pipelines or eval frameworks.
+  if (v === 'observer' || v === 'beginner' || v === 'emerging') return 'beginner'
+  if (v === 'intermediate') return 'intermediate'
   return 'advanced' // practitioner, leader, expert, advanced
 }
 
