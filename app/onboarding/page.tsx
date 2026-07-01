@@ -493,26 +493,52 @@ function OnboardingContent() {
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [worry, setWorry] = useState<string>('')
   const [deliveryPreference, setDeliveryPreference] = useState<'email' | 'sms' | 'both'>('email')
+  // Prevents the form from flashing at step 0 while the localStorage session check runs
+  const [sessionChecked, setSessionChecked] = useState(false)
 
-  // ── Auto-submit after sign-up return ─────────────────────────────────────────
-  // When the user returns from Google sign-up, they land back on /onboarding.
-  // If localStorage has their answers from the anonymous flow, auto-submit them
-  // now that they're authenticated — no need to re-fill the form.
+  // ── Session restore + auto-submit after sign-up return ───────────────────────
+  // Runs once Clerk has loaded. Three cases:
+  //   1. Not signed in → show form normally (sessionChecked = true unlocks render)
+  //   2. Signed in + complete localStorage data → auto-submit without showing form
+  //   3. Signed in + partial localStorage data → restore state and jump to saved step
   useEffect(() => {
-    if (!clerkLoaded || !isSignedIn) return
+    if (!clerkLoaded) return
+    if (!isSignedIn) {
+      setSessionChecked(true)
+      return
+    }
     const saved = localStorage.getItem('clio_onboarding')
-    if (!saved) return
+    if (!saved) {
+      setSessionChecked(true)
+      return
+    }
     try {
       const parsed = JSON.parse(saved) as {
         role?: string; roleLevel?: string; industry?: string; aiMaturity?: string
         domains?: string[]; customDomains?: string[]; primaryDomain?: string
         domainProficiency?: Record<string, string>; learningGoal?: string; subDomain?: string
-        worry?: string; deliveryPreference?: 'email' | 'sms' | 'both'
+        worry?: string; deliveryPreference?: 'email' | 'sms' | 'both'; resumeStep?: number
       }
-      if (!parsed.role || !parsed.learningGoal) return
+      if (!parsed.role || !parsed.learningGoal) {
+        // Partial data — restore whatever was saved and resume from where they left off
+        if (parsed.roleLevel) setRoleLevel(parsed.roleLevel)
+        if (parsed.role) setRole(parsed.role)
+        if (parsed.industry) setIndustry(parsed.industry)
+        if (parsed.aiMaturity) setAiEngagement(parsed.aiMaturity as 'observer' | 'emerging' | 'practitioner' | 'leader' | '')
+        if (parsed.domains) setSelectedDomains(parsed.domains)
+        if (parsed.customDomains) setCustomDomains(parsed.customDomains)
+        if (parsed.domainProficiency) setDomainProficiency(parsed.domainProficiency as Record<string, Proficiency>)
+        if (parsed.learningGoal) setLearningGoal(parsed.learningGoal as LearningGoal)
+        if (parsed.worry) setWorry(parsed.worry)
+        if (parsed.deliveryPreference) setDeliveryPreference(parsed.deliveryPreference)
+        if (parsed.resumeStep) setStep(parsed.resumeStep)
+        localStorage.removeItem('clio_onboarding')
+        setSessionChecked(true)
+        return
+      }
+      // Complete data — auto-submit without ever showing the form
       setBuilding(true)
       localStorage.removeItem('clio_onboarding')
-      // Re-use the snapshot path — pass values directly to avoid stale closure
       const snapshot = {
         role: parsed.role ?? '',
         roleLevel: parsed.roleLevel ?? '',
@@ -525,9 +551,10 @@ function OnboardingContent() {
         deliveryPreference: (parsed.deliveryPreference ?? 'email') as 'email' | 'sms' | 'both',
       }
       submitOnboarding(parsed.learningGoal as LearningGoal, snapshot)
+      setSessionChecked(true)
     } catch {
-      // Malformed data — just clear it and show the form normally
       localStorage.removeItem('clio_onboarding')
+      setSessionChecked(true)
     }
   }, [clerkLoaded, isSignedIn]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -574,6 +601,16 @@ function OnboardingContent() {
   // ── Navigation ──────────────────────────────────────────────────────────────
   function handleNext() {
     if (!canProceed) return
+    // Save partial progress at every step for unauthenticated users so that if
+    // they sign up mid-flow (before step 8) we can resume where they left off.
+    if (!isSignedIn && step < TOTAL_STEPS - 1) {
+      localStorage.setItem('clio_onboarding', JSON.stringify({
+        roleLevel, role, industry, aiMaturity: aiEngagement,
+        domains: selectedDomains, customDomains, domainProficiency,
+        learningGoal, worry, deliveryPreference,
+        resumeStep: step + 1,
+      }))
+    }
     // Last step: branch on auth state
     if (step === TOTAL_STEPS - 1) {
       const snapshot = { role, roleLevel, industry, aiEngagement, selectedDomains, customDomains, domainProficiency }
@@ -720,6 +757,10 @@ function OnboardingContent() {
   }
 
   if (building) return <BuildingScreen />
+
+  // Hold the form until the Clerk + localStorage check completes to prevent
+  // step 0 flashing before auto-submit or state-restore kicks in.
+  if (!sessionChecked) return <div className="min-h-screen bg-[#080808]" />
 
   return (
     <div className="min-h-screen bg-[#080808] flex flex-col">
