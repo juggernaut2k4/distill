@@ -3,6 +3,7 @@ import type { VoiceSessionAdapter } from './adapter'
 export interface HumeAdapterConfig {
   accessToken: string
   configId: string
+  userId: string
   mediaStream: MediaStream
   onConnect: (sessionId: string) => void
   onDisconnect: () => void
@@ -104,6 +105,13 @@ export class HumeAdapter implements VoiceSessionAdapter {
       case 'chat_metadata':
         this.sessionId = (msg.chat_id as string) ?? ''
         this.connected = true
+        // Inject userId immediately so our custom LLM can identify the user on the first call
+        if (this.config.userId && this.ws?.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({
+            type: 'session_settings',
+            system_prompt: `DISTILL_USER_ID: ${this.config.userId}`,
+          }))
+        }
         this.config.onConnect(this.sessionId)
         break
 
@@ -233,9 +241,9 @@ export class HumeAdapter implements VoiceSessionAdapter {
 
   // ── VoiceSessionAdapter ───────────────────────────────────────────────────
 
-  injectContext(_text: string): void {
-    // When using a custom LLM, Hume blocks session_settings system_prompt (E0716).
-    // Context is managed server-side by /api/clio/chat/completions instead.
+  injectContext(text: string): void {
+    if (this.ws?.readyState !== WebSocket.OPEN) return
+    this.ws.send(JSON.stringify({ type: 'session_settings', system_prompt: text }))
   }
 
   async endSession(): Promise<void> {

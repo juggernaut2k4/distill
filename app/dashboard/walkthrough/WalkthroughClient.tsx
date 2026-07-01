@@ -362,6 +362,7 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
           const hume = await HumeAdapter.create({
             accessToken,
             configId: HUME_CONFIG_ID,
+            userId,
             mediaStream: micStream,
             onConnect: (sessionId) => {
               console.log('[Walkthrough/Hume] Connected, session:', sessionId)
