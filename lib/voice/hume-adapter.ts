@@ -55,6 +55,15 @@ export class HumeAdapter implements VoiceSessionAdapter {
 
       this.ws.onopen = () => {
         this.reconnectAttempts = 0
+        // Send userId immediately — before EVI makes its first LLM call for the greeting.
+        // "EVI Starts conversation" fires the LLM call right after WS open, so this
+        // must arrive before chat_metadata, not after.
+        if (this.config.userId) {
+          this.ws!.send(JSON.stringify({
+            type: 'session_settings',
+            system_prompt: `DISTILL_USER_ID: ${this.config.userId}`,
+          }))
+        }
         this.startMicCapture()
         if (!resolved) { resolved = true; resolve() }
       }
@@ -105,13 +114,6 @@ export class HumeAdapter implements VoiceSessionAdapter {
       case 'chat_metadata':
         this.sessionId = (msg.chat_id as string) ?? ''
         this.connected = true
-        // Inject userId immediately so our custom LLM can identify the user on the first call
-        if (this.config.userId && this.ws?.readyState === WebSocket.OPEN) {
-          this.ws.send(JSON.stringify({
-            type: 'session_settings',
-            system_prompt: `DISTILL_USER_ID: ${this.config.userId}`,
-          }))
-        }
         this.config.onConnect(this.sessionId)
         break
 
