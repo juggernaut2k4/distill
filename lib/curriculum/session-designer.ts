@@ -185,7 +185,22 @@ Respond ONLY with valid JSON (no markdown, no explanation):
       if (content.type !== 'text') continue
 
       const raw    = content.text.replace(/```(?:json)?\n?/g, '').trim()
-      const parsed = JSON.parse(raw) as unknown
+      const parsed = JSON.parse(raw) as Record<string, unknown>
+
+      // Clamp subtopic duration_mins to ≥2 before validation. When the LLM
+      // distributes time across many subtopics (e.g. 8 in a 15-min session),
+      // the last subtopic often gets 1 min, failing the min(2) Zod check and
+      // triggering the fallback. Clamping preserves the good content.
+      const sessions = (parsed?.sessions as Array<Record<string, unknown>> | undefined) ?? []
+      for (const session of sessions) {
+        const subs = (session?.subtopics as Array<Record<string, unknown>> | undefined) ?? []
+        for (const sub of subs) {
+          if (typeof sub.duration_mins === 'number' && sub.duration_mins < 2) {
+            sub.duration_mins = 2
+          }
+        }
+      }
+
       const result = SessionDesignOutputSchema.safeParse(parsed)
 
       if (result.success && result.data.sessions.length > 0) {
@@ -298,7 +313,15 @@ Respond ONLY with valid JSON matching this exact schema (no markdown, no explana
       if (content.type !== 'text') continue
 
       const raw     = content.text.replace(/```(?:json)?\n?/g, '').trim()
-      const parsed  = JSON.parse(raw) as unknown
+      const parsed  = JSON.parse(raw) as Record<string, unknown>
+
+      // Same duration_mins clamp as pre-planned path
+      for (const session of (parsed?.sessions as Array<Record<string, unknown>> | undefined) ?? []) {
+        for (const sub of (session?.subtopics as Array<Record<string, unknown>> | undefined) ?? []) {
+          if (typeof sub.duration_mins === 'number' && sub.duration_mins < 2) sub.duration_mins = 2
+        }
+      }
+
       const result  = SessionDesignOutputSchema.safeParse(parsed)
 
       if (result.success) return result.data.sessions
