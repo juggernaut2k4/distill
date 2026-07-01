@@ -39,7 +39,7 @@ export class HumeAdapter implements VoiceSessionAdapter {
 
   private openConnection(): Promise<void> {
     return new Promise((resolve, reject) => {
-      const url = `wss://api.hume.ai/v0/evi/chat?access_token=${this.config.accessToken}&config_id=${this.config.configId}`
+      const url = `wss://api.hume.ai/v0/evi/chat?access_token=${this.config.accessToken}&config_id=${this.config.configId}&evi_version=3`
       this.ws = new WebSocket(url)
 
       // Reuse existing AudioContext across reconnects — only create once
@@ -233,10 +233,9 @@ export class HumeAdapter implements VoiceSessionAdapter {
 
   // ── VoiceSessionAdapter ───────────────────────────────────────────────────
 
-  injectContext(text: string): void {
-    if (this.ws?.readyState !== WebSocket.OPEN) return
-    // session_settings updates the system prompt passed to the custom LLM on the next turn
-    this.ws.send(JSON.stringify({ type: 'session_settings', system_prompt: text }))
+  injectContext(_text: string): void {
+    // When using a custom LLM, Hume blocks session_settings system_prompt (E0716).
+    // Context is managed server-side by /api/clio/chat/completions instead.
   }
 
   async endSession(): Promise<void> {
