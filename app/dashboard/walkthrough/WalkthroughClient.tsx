@@ -523,14 +523,10 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
             }
           }
 
-          if (isReconnect || isMidSession) {
-            adapterRef.current.injectContext(
-              isReconnect
-                ? 'The connection briefly dropped and reconnected. Do not re-introduce yourself — continue the session naturally from where you left off.'
-                : `You are resuming a session that was briefly interrupted. The participant is already on section ${currentSectionIndexRef.current} — do NOT restart from the overview. Call show_visual({ section_index: ${currentSectionIndexRef.current} }) and continue from where you left off.`
-            )
-          }
-          console.log('[Walkthrough/Hume] Session started — userId:', userId)
+          // Hume: do NOT call injectContext on reconnect — it sends session_settings.system_prompt
+          // which Hume rejects with E0716 (1008 close) when a custom LLM is configured.
+          // Reconnect context is handled server-side by the custom LLM endpoint.
+          console.log('[Walkthrough/Hume] Session started — userId:', userId, '| reconnect:', isReconnect, '| midSession:', isMidSession)
           return // skip ElevenLabs path
         }
         // ── END HUME path ─────────────────────────────────────────────────────
