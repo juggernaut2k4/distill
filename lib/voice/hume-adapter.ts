@@ -23,6 +23,9 @@ export class HumeAdapter implements VoiceSessionAdapter {
   private connected = false
   private outputVol = 1.0
   private config: HumeAdapterConfig
+  private intentionalClose = false
+  private reconnectAttempts = 0
+  private static readonly MAX_RECONNECT = 3
 
   constructor(config: HumeAdapterConfig) {
     this.config = config
@@ -38,14 +41,19 @@ export class HumeAdapter implements VoiceSessionAdapter {
     return new Promise((resolve, reject) => {
       const url = `wss://api.hume.ai/v0/evi/chat?api_key=${this.config.apiKey}&config_id=${this.config.configId}`
       this.ws = new WebSocket(url)
-      this.audioCtx = new AudioContext()
-      this.gainNode = this.audioCtx.createGain()
-      this.gainNode.gain.value = this.outputVol
-      this.gainNode.connect(this.audioCtx.destination)
+
+      // Reuse existing AudioContext across reconnects — only create once
+      if (!this.audioCtx) {
+        this.audioCtx = new AudioContext()
+        this.gainNode = this.audioCtx.createGain()
+        this.gainNode.gain.value = this.outputVol
+        this.gainNode.connect(this.audioCtx.destination)
+      }
 
       let resolved = false
 
       this.ws.onopen = () => {
+        this.reconnectAttempts = 0
         this.startMicCapture()
         if (!resolved) { resolved = true; resolve() }
       }
@@ -55,10 +63,29 @@ export class HumeAdapter implements VoiceSessionAdapter {
         else { this.config.onError('Hume connection error') }
       }
 
-      this.ws.onclose = () => {
+      this.ws.onclose = (event) => {
         this.connected = false
         this.stopMicCapture()
-        this.config.onDisconnect()
+
+        if (this.intentionalClose) {
+          this.config.onDisconnect()
+          return
+        }
+
+        // Auth/policy error (code 1008) — retrying won't help
+        if (event.code === 1008 || this.reconnectAttempts >= HumeAdapter.MAX_RECONNECT) {
+          this.config.onError('Hume EVI WebSocket disconnected and could not reconnect')
+          this.config.onDisconnect()
+          return
+        }
+
+        // Exponential backoff: 1 s → 2 s → 4 s
+        this.reconnectAttempts++
+        const delay = Math.pow(2, this.reconnectAttempts - 1) * 1000
+        console.warn(`[HumeAdapter] WS closed (code ${event.code}) — reconnect attempt ${this.reconnectAttempts}/${HumeAdapter.MAX_RECONNECT} in ${delay}ms`)
+        setTimeout(() => {
+          this.openConnection().catch(() => { /* onclose handles further retries */ })
+        }, delay)
       }
 
       this.ws.onmessage = (event) => {
@@ -213,6 +240,7 @@ export class HumeAdapter implements VoiceSessionAdapter {
   }
 
   async endSession(): Promise<void> {
+    this.intentionalClose = true
     this.stopMicCapture()
     this.clearAudioQueue()
     this.ws?.close()
