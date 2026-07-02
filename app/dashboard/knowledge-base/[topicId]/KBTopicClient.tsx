@@ -106,10 +106,11 @@ interface ContentOutline {
       enterprise_implications?: string
       common_misconceptions?: string[]
       decision_questions?: string[]
+      illustrative_example?: string
+      try_this?: string
     }
     role_relevance?: string
     industry_angle?: string
-    source_concepts?: string[]
   }
 }
 
@@ -789,6 +790,14 @@ export default function KBTopicClient({ topicId }: Props) {
                       </div>
                     )}
 
+                    {/* illustrative_example — concrete scenario, always composite/illustrative not a real named company */}
+                    {s.illustrative_example && (
+                      <div>
+                        <p className="text-[#475569] text-xs font-semibold uppercase tracking-wider mb-2">In Practice</p>
+                        <p className="text-[#94A3B8] text-sm leading-relaxed">{s.illustrative_example}</p>
+                      </div>
+                    )}
+
                     {/* role_relevance + industry_angle — so what callout */}
                     {soWhat && (
                       <div className="bg-[#7C3AED]/10 border border-[#7C3AED]/25 rounded-xl px-4 py-3">
@@ -808,6 +817,14 @@ export default function KBTopicClient({ topicId }: Props) {
                             </li>
                           ))}
                         </ul>
+                      </div>
+                    )}
+
+                    {/* try_this — action nudge, distinct from reflective decision_questions */}
+                    {s.try_this && (
+                      <div className="bg-[#10B981]/10 border border-[#10B981]/25 rounded-xl px-4 py-3">
+                        <p className="text-[#475569] text-xs font-semibold uppercase tracking-wider mb-1.5">Try This</p>
+                        <p className="text-[#10B981] text-sm leading-relaxed">{s.try_this}</p>
                       </div>
                     )}
 

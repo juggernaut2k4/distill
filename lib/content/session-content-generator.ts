@@ -71,10 +71,16 @@ export interface ContentArticle {
     enterprise_implications: string    // 100-150 words — what it means for the buyer/decision-maker
     common_misconceptions: string[]    // 2-4 myths with corrections
     decision_questions: string[]       // 3-5 questions user should be able to answer after this subtopic
+    illustrative_example: string       // 60-100 words — a concrete, relatable scenario. MUST be a
+                                        // composite/illustrative situation (e.g. "a regional bank"),
+                                        // never a specific named real company — avoids stating
+                                        // unverified facts about real organizations.
+    try_this: string                   // one sentence — a small, concrete action the user could take
+                                        // this week (e.g. a specific question to ask in their next
+                                        // vendor call or team meeting), not another reflection question.
   }
   role_relevance: string               // one sentence — why this matters to this specific role
   industry_angle: string               // one sentence — specific to the user's industry
-  source_concepts: string[]            // key concepts extracted for dedup / continuity tracking
 }
 
 // ─── CLIENT ───────────────────────────────────────────────────────────────────
@@ -403,9 +409,15 @@ Requirements:
 - enterprise_implications: 100-150 words — what it means for the decision-maker. MUST end with exactly one sentence: "So what this means for you: [specific implication for their role and industry]"
 - common_misconceptions: 2-4 myths with corrections. Format: "Myth: ... Reality: ..."
 - decision_questions: 3-5 questions the user should answer confidently after this.
+- illustrative_example: 60-100 words — a concrete, realistic scenario that makes this tangible.
+  CRITICAL: this must be a composite/illustrative situation (e.g. "a regional bank" or "a VP at
+  a mid-size retailer"), NEVER a specific named real company. Do not claim any named real
+  organization did something specific — you cannot verify it and it may be false or outdated.
+- try_this: ONE sentence — a small, concrete action for this week (e.g. a specific question to
+  ask in their next vendor call, team meeting, or planning session). An action nudge, not another
+  reflection question.
 - role_relevance: ONE sentence — why this matters to this specific role.
 - industry_angle: ONE sentence — what is unique about this in the user's specific industry.
-- source_concepts: 3-6 key concept strings for continuity tracking.
 
 Return ONLY valid JSON — no markdown, no commentary:
 {
@@ -416,11 +428,12 @@ Return ONLY valid JSON — no markdown, no commentary:
     "how_it_works": "...",
     "enterprise_implications": "...",
     "common_misconceptions": ["Myth: ... Reality: ...", "Myth: ... Reality: ..."],
-    "decision_questions": ["question 1", "question 2", "question 3"]
+    "decision_questions": ["question 1", "question 2", "question 3"],
+    "illustrative_example": "...",
+    "try_this": "one sentence"
   },
   "role_relevance": "one sentence",
-  "industry_angle": "one sentence",
-  "source_concepts": ["concept 1", "concept 2", "concept 3"]
+  "industry_angle": "one sentence"
 }`
 
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -443,10 +456,11 @@ Return ONLY valid JSON — no markdown, no commentary:
           enterprise_implications: string
           common_misconceptions: string[]
           decision_questions: string[]
+          illustrative_example: string
+          try_this: string
         }
         role_relevance: string
         industry_angle: string
-        source_concepts: string[]
       }
 
       return {
@@ -459,10 +473,11 @@ Return ONLY valid JSON — no markdown, no commentary:
           enterprise_implications: a.sections?.enterprise_implications ?? '',
           common_misconceptions: a.sections?.common_misconceptions ?? [],
           decision_questions: a.sections?.decision_questions ?? [],
+          illustrative_example: a.sections?.illustrative_example ?? '',
+          try_this: a.sections?.try_this ?? '',
         },
         role_relevance: a.role_relevance ?? '',
         industry_angle: a.industry_angle ?? '',
-        source_concepts: a.source_concepts ?? [],
       }
     } catch (err) {
       console.error(`[generateSingleContentArticle] attempt ${attempt + 1} failed for "${subtopicTitle}":`, err)
@@ -478,10 +493,11 @@ Return ONLY valid JSON — no markdown, no commentary:
             enterprise_implications: `So what this means for you: as a ${userContext.role}, mastering ${subtopicTitle} directly affects your ability to lead AI initiatives effectively.`,
             common_misconceptions: [],
             decision_questions: [`How does ${subtopicTitle} apply in your current context?`],
+            illustrative_example: '',
+            try_this: '',
           },
           role_relevance: `As a ${userContext.role}, ${subtopicTitle} affects key decisions you make daily.`,
           industry_angle: `In ${userContext.industry}, ${subtopicTitle} has specific implications worth understanding.`,
-          source_concepts: subtopicTitle.split(' ').filter((w) => w.length > 4).slice(0, 5),
         }
       }
     }
@@ -542,10 +558,11 @@ export async function generateContentArticles(
           `How would you describe your organisation's AI governance maturity to your board today?`,
           `What would need to be true for you to feel confident approving a large-scale AI rollout?`,
         ],
+        illustrative_example: `Picture a mid-size ${userContext.industry} company where the ${userContext.role} pushed for a clear framework before scaling AI use across teams. Within two quarters, procurement cycles shortened, and the board stopped asking "are we exposed?" because the answer was already documented. The difference wasn't the technology — it was having this foundation in place before scale, not after.`,
+        try_this: `In your next vendor or planning meeting, ask directly: "who owns the decision rights here, and what's our risk threshold?"`,
       },
       role_relevance: `As a ${userContext.role}, you are the decision-maker who sets the conditions for AI to succeed or fail across your organisation.`,
       industry_angle: `In ${userContext.industry}, this is especially urgent given the regulatory trajectory and competitive pressure from AI-native entrants.`,
-      source_concepts: title.split(' ').filter((w) => w.length > 4),
     }))
   }
 
