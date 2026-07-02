@@ -215,7 +215,13 @@ export async function POST(request: NextRequest) {
   console.log('[clio/llm] URL:', request.url)
   console.log('[clio/llm] ALL HEADERS:', JSON.stringify(allHeaders))
 
-  // Verify the request is from ElevenLabs using a shared secret
+  // Verify the request is from ElevenLabs using a shared secret.
+  // WARNING: this endpoint is also used by Hume (both providers hit the same
+  // custom-LLM URL). If ELEVENLABS_CUSTOM_LLM_SECRET is ever set, confirm
+  // Hume's EVI config sends a matching `Authorization: Bearer <secret>`
+  // header first — as of 2026-07-02 there's no evidence in this codebase or
+  // docs/voice-provider-toggle.md that it does, so turning this secret on
+  // would silently 401 every Hume turn (Clio would go mute mid-session).
   const authHeader = request.headers.get('authorization')
   const secret = process.env.ELEVENLABS_CUSTOM_LLM_SECRET
   if (secret && authHeader !== `Bearer ${secret}`) {

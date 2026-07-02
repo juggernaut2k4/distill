@@ -234,9 +234,13 @@ export class HumeAdapter implements VoiceSessionAdapter {
 
   // ── VoiceSessionAdapter ───────────────────────────────────────────────────
 
-  injectContext(text: string): void {
-    if (this.ws?.readyState !== WebSocket.OPEN) return
-    this.ws.send(JSON.stringify({ type: 'session_settings', system_prompt: text }))
+  // Hume rejects `session_settings.system_prompt` with E0716 (WS close 1008)
+  // whenever a custom LLM is configured — which this app always uses for Hume.
+  // Context is delivered server-side via the custom LLM endpoint instead, so
+  // this is intentionally a no-op for every caller (keep-alive, show_visual
+  // split-mode, reconnect) rather than gating each call site individually.
+  injectContext(_text: string): void {
+    return
   }
 
   async endSession(): Promise<void> {
