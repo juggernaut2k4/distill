@@ -44,3 +44,4 @@ next-env.d.ts
 CLAUDE_CODE_BUILD_PROMPT.md
 .gstack/
 tests/e2e/.auth/session.json
+.env*

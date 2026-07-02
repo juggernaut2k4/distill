@@ -1,5 +1,5 @@
 # Clio — Current Product Backlog
-_Last updated: 2026-06-09 | Source of truth for active work_
+_Last updated: 2026-06-23 | Source of truth for active work_
 
 ---
 
@@ -14,8 +14,36 @@ _Last updated: 2026-06-09 | Source of truth for active work_
 
 ## P0 — Blockers (fix first)
 
+### LIVE-01 — Live Session: Visualization Shows Wrong Content (Display/Speech Desync)
+**Status:** ✅ Already fixed in code — confirmed 2026-06-26. `show_visual` uses `section_index` (integer) as primary lookup; falls back to exact string match only. No fuzzy matching.
+**What:** During a live session, the on-screen visualization shows content from a different generation run than what Clio is speaking. Example: screen showed "Thinking Partner / Language as Interface / Financial Services Fit" (Jun 15 data) while Clio spoke "Enterprise-grade / On-demand thinking partner / High-Stakes Text-Heavy Work" (Jun 23 script). Completely different items.
+**Root cause:** `WalkthroughClient.tsx` (lines 321–332) resolves which section to display by **fuzzy-matching the topic title string** against `s.meta.subtopicTitle`. When Claude's generation rephrases a subtopic title slightly (e.g. "AI Strategy" vs "AI strategy"), the match can fail or hit a stale cached section from a prior run. Combined with stale rows in `topic_content_cache` (see LIVE-02), the displayed section is whichever stale entry the fuzzy match hits first.
+**Fix:** Replace fuzzy title matching with index-based or slug-based lookup:
+1. `show_visual()` tool call should pass `section_index` (int) not just `topic_title`
+2. `WalkthroughClient.tsx` resolves by `sections[section_index]` directly
+3. Training scripts (Step 3) must include the section index in the TEACH segment so Clio knows which index to emit
+**Files:** `app/dashboard/walkthrough/WalkthroughClient.tsx` (lines 321–365), `lib/content/script-generator.ts`, ElevenLabs tool definition for `show_visual`
+**Dependency:** Coordinate with LIVE-03 (NAV directives) — both touch script generation.
+
+---
+
+### SESS-06 — Session Plan Subtopic Wiring
+**Status:** Approved, build ready — BA spec at `docs/specs/SESS-06-session-plan-subtopic-wiring.md`
+**What:** Sessions created by `session-designer-auto` have empty or missing `sub_sessions`. When `generate-plan` runs on launch, it falls back to `findSubtopicsFromCatalog()` which returns 3 generic subtopics ("Core concepts", "Real-world application", "Key takeaways") with 0 visual sections. The LLM-designed subtopics exist in `curriculum_plans.visible_sessions[n].subtopics` but are not reliably wired into `sessions.sub_sessions`.
+**Why it's P0:** Every session a user launches teaches generic, non-personalised content. The core Clio value proposition (role-specific, designed curriculum) is broken at the live session layer.
+**Root cause:** Format and wiring investigation required before touching code — see Implementation Notes in spec (Section 12). The insert at `inngest/session-designer-auto.ts` line 124 already writes `sub_sessions: ds.subtopics`, but the column may be null for sessions where this step failed silently, or where `session-designer-auto` never ran (pre-fix sessions). Confirm actual DB state before writing code.
+**Two-part fix:**
+1. Verify/fix `inngest/session-designer-auto.ts` `insert-draft-sessions` step writes `sub_sessions` in the canonical `SubtopicObject[]` format.
+2. Build `POST /api/admin/backfill-sub-sessions` — repairs existing sessions with empty `sub_sessions` by sourcing subtopics from `curriculum_plans.visible_sessions` (joined by `db_session_id`).
+**Known affected user:** `user_3FV2YjHmbMdCS9YnyeFTelDvKUc` — 9 sessions, all showing generic subtopics. Session 1 should show 6 role-specific subtopics (listed in spec Section 7, AC-04).
+**Files to change:** `inngest/session-designer-auto.ts` (verify/fix write); new file `app/api/admin/backfill-sub-sessions/route.ts`
+**Do NOT change:** `app/api/sessions/[id]/generate-plan/route.ts` — reading logic is correct; only change if type investigation reveals a genuine mismatch.
+**Dependencies:** `lib/curriculum/session-designer.ts` (SubtopicSchema, DesignedSession types), admin auth guard, existing `curriculum_plans` and `sessions` schema — no migration required.
+
+---
+
 ### SCH-01 — Schedule Setup: Mandatory Gate
-**Status:** BA spec written 2026-06-09 — see `docs/specs/SCH-01-schedule-setup-gate.md`. Ready for Arun review. If approved, build can start immediately.
+**Status:** ✅ BUILT + DEPLOYED 2026-06-09 (commit 0b59b08). Migration 032 still needs applying in Supabase dashboard (3 statements — safe with IF NOT EXISTS guards).
 **What:** After plan approval, route the user to a Schedule Setup screen (day-picker + time dialer) before they can access sessions. On save, `scheduleSessions()` writes real `scheduled_at` to all pending sessions. Until done, a blocking banner on `/dashboard/sessions` and amber card on dashboard home nudge completion. Email nudge fires 24h after plan approval if still incomplete.
 **Why it's P0:** All 8 scheduled sessions currently have `scheduled_at = null`. No dates = no reminders, no agenda emails, no structured learning cadence. The plan looks broken from the moment the user arrives.
 **UI:** Reuse components from deleted `app/dashboard/schedule/ScheduleClient.tsx` (7-pill day selector, clock dialer, duration toggle). `lib/sessions/planner.ts` already works.
@@ -51,6 +79,72 @@ _Last updated: 2026-06-09 | Source of truth for active work_
 ---
 
 ## P1 — Core Features (next sprint)
+
+### CONTENT-01 — Content Pipeline Redesign (Content → Script+Viz Atomic)
+**Status:** CEO brief done (`docs/specs/CONTENT-01-feature-brief.md`). BA spec in progress — will be at `docs/specs/CONTENT-01-requirement-document.md`. Awaiting Arun approval to build.
+**What:** Three interconnected changes to produce elite, aligned session content:
+1. **New generation order:** Content article (comprehensive, no word limit) → Script (2-min TEACH + ICE_BREAKER, calibrated to VP/C-suite) + Visualization (generated in the same LLM call as script — atomic, structurally impossible to desync)
+2. **VP-level calibration:** Explicit rules in system prompt — skip definitional content, start at competitive landscape and procurement implications. Skip "enterprise grade, not a toy." Begin at: "You're probably evaluating Claude alongside GPT-4 or Gemini…"
+3. **User psychology capture:** ICE_BREAKER segment is a genuine open conversational question (not a quiz). User's response is stored and analyzed post-session to update learning profile — influences which subtopics get prioritized in future sessions.
+**Why P1:** The current script is a 7-min monologue that starts too basic and never lets the user speak. No connection. No adaptation. Sessions feel like a lecture, not a conversation.
+**Quality bar set by Arun in conversation 2026-06-23 (approved sample):**
+- TEACH: 2 min, 3 tight differentiators — no setup, VP already knows what an LLM is
+- CHECKPOINT: "Which of those three will your risk/compliance team push back on first?"
+- ICE BREAKER: "What's the specific context driving this evaluation for you right now?"
+- VISUALIZATION: exactly 3 items matching exactly what the 2-min TEACH covered
+**CEO brief:** `docs/specs/CONTENT-01-feature-brief.md`
+**BA spec:** `docs/specs/CONTENT-01-requirement-document.md` (in progress)
+**Files to change:** `lib/content/session-content-generator.ts` (Step 1 — expand to full article), `lib/content/script-generator.ts` (Step 3 — restructure segments, atomic viz), `inngest/session-content-pipeline.ts` (pipeline order)
+**Dependencies:** LIVE-01 and LIVE-02 must be fixed first (stale cache causes any new content to still display wrongly).
+
+---
+
+### LIVE-02 — Pipeline Upsert Uses Wrong Conflict Key
+**Status:** ✅ Already fixed in code — confirmed 2026-06-26. `session-content-pipeline.ts` uses `{ onConflict: 'topic_id,subtopic_slug,industry,role' }` matching the actual DB unique index.
+**What:** `inngest/session-content-pipeline.ts` (line ~232) calls `.upsert(..., { onConflict: 'topic_id,subtopic_slug' })` but the database unique constraint is on `(topic_id, subtopic_slug, industry, role)`. The mismatch means:
+- When pipeline runs for a user-specific context (industry='financial-services', role='vp'), a new row is inserted instead of updating the existing one
+- Old rows from prior runs persist and are never cleaned up
+- Multiple rows exist for the same (topic_id, subtopic_slug) pair — one per generation run
+- The live session can pick up ANY of these stale rows
+**Fix:** Change conflict key to match the actual DB constraint:
+```typescript
+{ onConflict: 'topic_id,subtopic_slug,industry,role' }
+```
+Also clean up existing duplicate rows — delete older rows keeping only the latest per `(topic_id, subtopic_slug, industry, role)`.
+**File:** `inngest/session-content-pipeline.ts` line ~232
+**Migration needed:** Add cleanup script to remove orphaned duplicate rows.
+
+---
+
+### LIVE-03 — Training Scripts Missing Tab Navigation Directives
+**Status:** ✅ Already fixed in code — confirmed 2026-06-26. `script-generator.ts` embeds `[NAV:tab_0/1/2]` inline in TEACH segments. `WalkthroughClient.tsx` parses and fires tab navigation via `parseNavCommand()`.
+**What:** The script generator (`lib/content/script-generator.ts`) produces TEACH/CHECKPOINT/PROBE/CONTINUE segments that mention visual items by name but include **no `[NAV:...]` directives**. The tab-switching system in `WalkthroughClient.tsx` (lines 110–145) parses `[NAV:tab_id]` markers from Clio's speech — but these are never emitted. Tab switching doesn't happen automatically during sessions.
+**Fix:** Enhance `generateTrainingScript()` to emit `[NAV:tab_id]` at the moment Clio begins discussing each visual item:
+```
+"Now look at Risk Mitigation [NAV:risk-mitigation] — this is where regulated firms..."
+```
+The `tab_id` values come from `tab_manifests[section_index].tabs[].tab_id` — these must be passed into the script generator alongside `visual_spec`.
+**Files:** `lib/content/script-generator.ts`, `lib/templates/generator.ts` (tab manifest generation), `inngest/session-content-pipeline.ts` (pass tab manifest to Step 3)
+**Dependency:** Coordinate with CONTENT-01 (Step 3 restructure) — do this change inside the CONTENT-01 build, not separately.
+
+---
+
+### LIVE-04 — Pipeline Saves Content with Hardcoded industry='' and role=''
+**Status:** ✅ Already fixed in code — confirmed 2026-06-26. Pipeline fetches user profile from DB and passes `userContext.industry` and `userContext.role` to the upsert (lines 302–303).
+**What:** `inngest/session-content-pipeline.ts` (lines ~215–231) inserts to `topic_content_cache` with `industry: ''` and `role: ''` hardcoded, even though the pipeline receives the actual user context. This means:
+- All generated content lands in the generic cache slot (industry='', role='')
+- `getCachedSection()` (in `lib/topic-cache.ts`) searches by `(topic_id, subtopic_slug, industry, role)` — with a fallback to the generic row
+- So everyone gets the same generic content regardless of their industry or role
+- The personalization system is silently bypassed
+**Fix:**
+```typescript
+industry: userContext.industry ?? '',
+role: userContext.role ?? '',
+```
+Pass the actual values. Ensure the conflict key fix (LIVE-02) is applied first so the upsert correctly updates the user-specific row.
+**File:** `inngest/session-content-pipeline.ts` lines ~215–231
+
+---
 
 ### KB-02 — KB Section Ordering
 **Status:** ✅ Done — deployed 2026-06-09.
@@ -103,7 +197,34 @@ _Last updated: 2026-06-09 | Source of truth for active work_
 
 ---
 
+## P1 — Core Features (continued)
+
+### SES-01 — Session Architecture Redesign: DB Session as Unit of Truth
+**Status:** 🟡 Design complete — CEO Feature Brief + BA Requirement Document done. Pending Arun review + Q10 answer. DO NOT BUILD until approved.
+**What:** 6 interdependent changes that make the DB session (not curriculum session) the canonical record everywhere:
+- **SESS-01**: Re-key `topic_content_cache.topic_id` from curriculum_session_id → DB session UUID
+- **SESS-02**: Content pipeline fires on `distill/session.designer.completed` event (not at plan/approve)
+- **SESS-03**: Schedule route does UPDATE only — no more delete + re-insert of sessions
+- **SESS-04**: Plan screen shows 10 DB sessions grouped under Topic/Arc headers (not 5 curriculum cards)
+- **SESS-05**: KB shows 10 entries, one per DB session, scoped to that session's subtopics
+- **TITLE-01**: Three-level title hierarchy (Arc → Topic → Session) enforced across all UI
+**Why P1:** Every new user who approves a plan hits all 4 failure modes — content collisions, wrong KB entries, content generated before subtopics assigned, metadata destroyed by schedule route.
+**Specs:** `docs/specs/SES-01-session-architecture-redesign.md` (design) + `docs/specs/SES-01-feature-brief.md` (CEO brief) + `docs/specs/SES-01-requirement-document.md` (BA spec, 12/12 sections done)
+**Open questions:** None — Q10 resolved 2026-06-10. Migration SQL is finalized in section 6F of the requirement doc. Ready to build once Arun approves the spec.
+**Deployment sequence:** SESS-03 → SESS-02 → SESS-01 (migration) → SESS-04+SESS-05+TITLE-01 together.
+
+---
+
 ## P2 — Enhancements (after P1)
+
+### LIVE-05 — walkthrough_state Sections Can Drift After Content Regeneration
+**Status:** ✅ Done — deployed 2026-06-26. Migration 047 applied.
+**What:** `walkthrough_state.sections` is populated at session launch from `topic_content_cache`. If content is regenerated (e.g. via "Generate Content" button in KB) AFTER the user has already launched their walkthrough, the in-memory sections array becomes stale. Clio's LLM context may reference the new content while the UI still displays the old sections.
+**Fix:** Add `last_regenerated_at` timestamp to `topic_content_cache` metadata. Before rendering the live session visualization, check if any cache rows have been regenerated more recently than `walkthrough_state.last_updated_at`. If so, refresh sections from DB.
+**File:** `app/api/walkthrough-state/[userId]/route.ts`, `inngest/session-content-pipeline.ts` (stamp `last_regenerated_at`)
+**Priority note:** This is P2 because it only affects users who trigger a regeneration mid-session — rare case. LIVE-01 and LIVE-02 are the primary causes of current desync.
+
+---
 
 ### VIZ-01 — Visualization Fallback Fix
 **Status:** Root cause investigated, not fixed.
@@ -123,21 +244,63 @@ _Last updated: 2026-06-09 | Source of truth for active work_
 
 ---
 
+## CONTENT-01: Content Pipeline Redesign + User Psychology Capture
+
+_P0 — Session experience is broken for real users today. BA spec at `docs/specs/CONTENT-01-requirement-document.md`. Awaiting CEO approval before build._
+
+| ID | Task | Priority | Complexity | Status |
+|----|------|----------|------------|--------|
+| CONTENT-01-A | Migration 038: Delete duplicate `topic_content_cache` rows, keeping most recent per `(topic_id, subtopic_slug, industry, role)` | P0 | S | Not started |
+| CONTENT-01-B | Migration 039: Create `session_insights` table with indexes and RLS | P0 | S | Not started |
+| CONTENT-01-C | Apply migrations 038 + 039 in Supabase dashboard (must run before code ships) | P0 | S | Not started |
+| CONTENT-01-D | `lib/content/session-content-generator.ts`: Add `ContentArticle` type (6-section structured object); rename main export to `generateContentArticles`; update return shape to produce articles instead of coaching_narrative outlines | P0 | M | Not started |
+| CONTENT-01-E | `lib/content/script-generator.ts`: Add `ICE_BREAKER` to `ScriptSegmentType`; add `VisualizationSpec` 3-tuple type; add `ScriptAndVisualizationOutput` type; add `generateScriptAndVisualization` function — one atomic LLM call that produces both script segments and exactly 3 visualization items | P0 | L | Not started |
+| CONTENT-01-F | `inngest/session-content-pipeline.ts`: Reorder steps to Content → Script+Viz → Template Select → Template Data → Save → Mark Ready; replace `generateTrainingScript` call with `generateScriptAndVisualization`; pass `contentSpec` from script step into `generateTemplateData`; fix `onConflict` to `topic_id,subtopic_slug,industry,role` | P0 | M | Not started |
+| CONTENT-01-G | VP/C-Suite negative + positive calibration rules: hardcode into `generateScriptAndVisualization` prompt — explicit DO NOT phrases (definitions, "enterprise-grade", "AI is not a toy") and explicit DO start phrases (competitive positioning, procurement, compliance framing) | P0 | M | Not started |
+| CONTENT-01-H | ICE_BREAKER prompt rules: open situational question format, no comprehension-check phrasing, appears after CHECKPOINT on every subtopic; embed in `generateScriptAndVisualization` system prompt | P0 | S | Not started |
+| CONTENT-01-I | Runtime guard: if `visualization_spec.items` count is not exactly 3, correct (truncate or pad) and log warning — prevents downstream template failures | P0 | S | Not started |
+| CONTENT-01-J | `inngest/ice-breaker-analyzer.ts`: New Inngest function triggered by `distill/session.ice-breaker.response`; writes raw transcript to `session_insights`; calls Claude with structured extraction prompt; upserts `user_learning_profiles` with derived signals | P1 | M | Not started |
+| CONTENT-01-K | Register `analyzeIceBreakerResponse` in `app/api/inngest/route.ts` | P1 | S | Not started |
+| CONTENT-01-L | Recall.ai / session-end handler: emit `distill/session.ice-breaker.response` event with `{ sessionId, userId, subtopicSlug, rawTranscript }` at session end (coordinate with Recall.ai transcript pipeline owner) | P1 | M | Not started |
+| CONTENT-01-M | TypeScript check: `npx tsc --noEmit` passes with zero errors after all changes | P0 | S | Not started |
+
+**Dependencies for CONTENT-01:**
+- Migration 035 must already be applied in production (`topic_content_cache_composite_key` unique constraint on `topic_id, subtopic_slug, industry, role`)
+- KB-01 fix must be deployed (upsert error-throw + Step H row-count guard already in `inngest/session-content-pipeline.ts`)
+- LIVE-02 (upsert conflict key fix) should land in the same PR as CONTENT-01-F, or before it
+- For CONTENT-01-L: Recall.ai transcript pipeline must be able to identify and extract the ice breaker response segment from the full session transcript
+
+**Internal build sequence:**
+Migrations first (CONTENT-01-A → B → C, safe before code), then CONTENT-01-D + CONTENT-01-E in parallel, then CONTENT-01-F + G + H + I together (one PR), then CONTENT-01-J + K + L independently.
+
+---
+
 ## Build Sequence (recommended)
 
+> **Content Library:** Before any content generation job runs, check `docs/content/[topic-id].md`. If the file exists and is approved (listed in `docs/content/INDEX.md` with status APPROVED), load it as context. Never regenerate approved content from scratch. See `docs/content/CONTENT-METHODOLOGY.md` for the full generation methodology.
+
 ```
-KB-01 (pipeline fix)          ← unblocks enabling-team-ai content
+LIVE-02 (upsert conflict key fix)         ← 1-line fix, unblocks all cache correctness
+LIVE-04 (pass industry/role to cache)     ← can do same PR as LIVE-02
     ↓
-ONB-01 (onboarding bugs)      ← unblocks accurate user profile
+LIVE-01 (section display — index not fuzzy match) ← fixes the visible desync symptom
     ↓
-SCH-01 (schedule setup gate)  ← unblocks all session scheduling
+SESS-06 (subtopic wiring)                 ← required for correct subtopic slugs to exist
     ↓
-KB-02 (section ordering)      ← cosmetic but approved and fast
-KB-03 (KB overview slide)     ← builds on KB-02 data
+CONTENT-01 (pipeline redesign)            ← new Content→Script+Viz atomic order, ICE_BREAKER
+  └─ LIVE-03 (NAV directives in script)   ← build inside CONTENT-01, same PR
     ↓
-VIZ-01 (visualization fix)    ← depends on KB-01 deployed
+ONB-01 (onboarding bugs)                  ← unblocks accurate user profile
     ↓
-CURR-01, SCR-01               ← enhancement layer
+SCH-01 (schedule setup gate)              ← unblocks all session scheduling
+    ↓
+KB-02 (section ordering) ✅
+KB-03 (KB overview slide) ✅
+    ↓
+LIVE-05 (walkthrough_state drift)         ← P2, do after P1 complete
+VIZ-01 (visualization fallback fix)       ← P2, depends on LIVE-02 deployed
+    ↓
+CURR-01, SCR-01                           ← enhancement layer
 ```
 
 ---
@@ -146,14 +309,20 @@ CURR-01, SCR-01               ← enhancement layer
 
 | Feature | CEO Brief | BA Spec | Approved to Build |
 |---------|-----------|---------|-------------------|
+| LIVE-01 Section display desync (P0) | N/A (bug) | N/A | ❌ Awaiting Arun |
+| LIVE-02 Upsert conflict key (P1) | N/A (bug) | N/A | ❌ Awaiting Arun |
+| LIVE-03 NAV directives in script (P1) | N/A (bug) | N/A | ❌ Build inside CONTENT-01 |
+| LIVE-04 Pipeline hardcoded context (P1) | N/A (bug) | N/A | ❌ Awaiting Arun |
+| LIVE-05 walkthrough_state drift (P2) | N/A (bug) | N/A | ❌ Awaiting Arun |
+| CONTENT-01 Pipeline Redesign (P0) | ✅ Done | ✅ Done — `docs/specs/CONTENT-01-requirement-document.md` | ❌ Awaiting CEO approval |
 | SCH-01 Schedule Setup Gate | ✅ Done | ❌ Needed | ❌ |
-| KB-01 Content Pipeline Fix | N/A (bug fix) | N/A | ✅ |
-| KB-02 Section Ordering | N/A (bug fix) | N/A | ✅ |
-| KB-03 KB Overview Slide | N/A (small) | N/A | ✅ |
-| ONB-01 Onboarding Bugs | N/A (bug fix) | N/A | ✅ |
+| KB-01 Content Pipeline Fix | N/A (bug fix) | N/A | ✅ Done |
+| KB-02 Section Ordering | N/A (bug fix) | N/A | ✅ Done |
+| KB-03 KB Overview Slide | N/A (small) | N/A | ✅ Done |
+| ONB-01 Onboarding Bugs | N/A (bug fix) | N/A | ✅ Partial |
 | CURR-01 Curriculum Redesign | ✅ Done | ❌ Needed | ❌ |
 | SCR-01 Adaptive Script | ✅ Done | ❌ Needed | ❌ |
 
 ---
 
-_BACKLOG.md v3.0 | Updated 2026-06-09 | Supersedes May 2026 version_
+_BACKLOG.md v3.1 | Updated 2026-06-23 | CONTENT-01 BA spec added_

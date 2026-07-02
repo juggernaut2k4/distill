@@ -1,648 +1,598 @@
-# Curriculum Redesign — Requirement Document
+# CURR-01 — Content-First Session Architecture
+## Requirement Document
+
 Version: 1.0
 Status: DRAFT
 Author: Business Analyst Agent
-Date: 2026-06-23
+Date: 2026-06-26
 
 ---
 
-## 1. Purpose
+## 1. Feature Summary
 
-The current curriculum engine produces plans that are structurally correct (right number of sessions, right arc types) but narratively incoherent. A VP of Technology receives 8 sessions that read like a topic list, not a story. There is no arc-level throughline, no chapter-level framing, and no scene-level narrative tension. Sessions feel disconnected from one another even when they cover the same domain.
+This feature changes how Clio divides a learning topic into sessions. Today the planner LLM generates arcs, sessions, and subtopics in a single pass. This forces the subtopic count to be determined before the LLM has established how many subtopics the topic actually requires for complete coverage. The result is silent content loss: subtopics that do not fit the per-session formula are never generated and never appear in any session.
 
-Four compounding problems make this worse. First, the engine treats "VP of Technology" and "VP of Product" as the same role — both map to `vp-dir` — which means a VP of Technology building a procurement brief for cloud-based AI infrastructure receives the same session framing as a VP of Product defining an AI-assisted feature roadmap. These are different jobs with different vocabularies, different stakeholders, and different decisions to make. Second, the `ai_maturity` values collected in onboarding (`observer`, `emerging`, `practitioner`, `leader`) do not match the values the curriculum engine's system prompt uses internally (`beginner`, `intermediate`, `advanced`, `expert`). The normalisation bridge in `planner.ts` handles this correctly at runtime, but the onboarding saves raw UI values into the DB and different parts of the codebase use different vocabularies, creating silent confusion when reading the `users` table directly. Third, there is no automated check after plan generation to confirm that the visible sessions collectively cover all 7 learning dimensions that make a curriculum executive-grade (strategic, operational, technical, compliance, competitive, team management, personal productivity). A plan could ship with 8 sessions that all cluster in one or two dimensions, leaving the user with a curriculum that is deep in one area and blind in six others. Fourth, the post-session quality evaluation that exists in `session-quality-evaluator.ts` classifies comprehension responses (V1–V7) and evaluates 6 session quality criteria, but the results are stored and never fed back into plan adaptation or surfaced in any meaningful way to influence future session design.
+CURR-01 separates subtopic enumeration from session division into two distinct steps. In Step 1, the planner LLM produces one flat `comprehensive_subtopics` list per arc — every subtopic needed for complete understanding, with no session boundaries and no artificial cap. In Step 2, a new pure-code function `organizeSubtopicsIntoSessions` divides that flat list into sessions based on the user's preferred session duration. Session count becomes a function of content, not of a formula. Every subtopic the LLM identifies is guaranteed to appear in exactly one session.
 
-Without this redesign, every curriculum plan is a list dressed as a journey. Users who complete 5 sessions have no sense of where they are in a story. VP of Technology users are given the same framing as VP of Product users. Plans may accidentally cover only 2 of 7 required learning dimensions. And the quality signals that exist are silently discarded.
-
----
-
-## 2. User Story
-
-**Story 1 — Executive encountering the plan for the first time:**
-As a VP of Technology who has just approved a learning plan,
-I want the plan page to communicate a coherent arc narrative — what story this curriculum tells across 8 sessions — not just a list of session titles,
-So that I can immediately understand where this journey is taking me and why the sessions are in this order.
-
-**Story 2 — VP of Technology vs VP of Product receiving different framing:**
-As a VP of Technology evaluating AI vendor procurement options,
-I want every session in my curriculum to frame examples around infrastructure decisions, security architecture, team adoption, and API integration — not product roadmaps or feature prioritisation,
-So that the content is immediately applicable to the decisions I am actually making.
-
-**Story 3 — User whose plan has a dimension gap:**
-As a VP of Technology mid-way through a curriculum plan,
-I want the platform to have automatically checked that my plan covers compliance and competitive landscape content — not just technical and strategic content — before I started,
-So that I do not complete 8 sessions and still lack the vocabulary to address a board-level risk question.
+Three pre-existing bugs are fixed as part of this change: an incorrect `estimated_minutes` formula that derives session duration from subtopic count rather than user preference, a Zod schema cap of `max(6)` subtopics that silently truncates 30-minute sessions, and a generic "executive learning platform" prompt framing in the session-designer that ignores the user's `roleLevel`.
 
 ---
 
-## 3. Trigger / Entry Point
+## 2. Background and Motivation
 
-CURR-01 touches three distinct trigger points. None are user-visible entry points — all are backend changes to the curriculum generation pipeline and data model.
+### Current flow
 
-**Trigger 1 — Curriculum plan generation**
-- Event: `clio/topics.selected` fires `curriculum-generator` Inngest function in `inngest/curriculum-generator.ts`
-- The generation calls `generateCurriculumPlan()` in `lib/curriculum/planner.ts`, which calls `enrichCurriculumPlan()` in `lib/curriculum/enrichment.ts`
-- CURR-01 adds a third call inside this pipeline: the 7-dimension coverage check, which runs after enrichment and before the plan is saved to `curriculum_plans`
-- If the coverage check finds gaps, it triggers a gap-fill prompt that adds sessions to the plan before saving
+1. `generateCurriculumPlan()` in `lib/curriculum/planner.ts` calls the Anthropic API with a system prompt that instructs the LLM to generate `arcs[] → sessions[] → subtopics: string[]` in a single response.
+2. The prompt's `SUBTOPICS RULES` section instructs: "For a 15-minute session: at least 6 subtopics. For a 30-minute session: at least 14 subtopics." The per-session count is baked into the LLM instruction.
+3. After the LLM responds, `estimated_minutes` is computed as `Math.ceil(subtopics.length / 4) * 15` — a formula that derives duration from subtopic count.
+4. The approve route calls `designSessionsForTopic()` in `lib/curriculum/session-designer.ts`.
+5. Inside `designFromPreplannedSubtopics()`, the code calls `chunkArray(subtopics, sectionCount)` where `sectionCount = Math.max(2, Math.floor((maxMins - 2) / 2))`, then iterates over chunks and makes one LLM call per chunk.
+6. `DesignedSessionSchema` caps subtopics at `max(6)`, which means any 30-minute session (which should have 14 subtopics) fails Zod validation silently.
 
-**Trigger 2 — Post-session quality evaluation**
-- Cron: every 15 minutes, `session-quality-evaluator` Inngest function in `inngest/session-quality-evaluator.ts` finds sessions completed 2–2.25 hours ago
-- CURR-01 adds storage of the structured quality result (the 7-dimension classification) to the `session_quality_results` table after evaluation completes
-- The quality evaluator already classifies V1–V7 responses and evaluates 6 criteria. CURR-01 does not change what is evaluated — it adds structured storage of the result. No adaptive reordering is built in this spec (that is SCR-01).
+### Where it breaks — the silent drop
 
-**Trigger 3 — Onboarding data save**
-- Route: `POST /api/onboarding`
-- CURR-01 changes the Zod enum for `roleLevel` to accept two new values: `vp-technology` and `vp-product`, in addition to the existing four values
-- The onboarding UI already collects these as `roleId` values (`vp-technology`, `vp-product`) — they are currently discarded because the `roleLevel` Zod enum only accepts `c-suite | vp-dir | manager | specialist`
-- After this change, `vp-technology` and `vp-product` are saved to `users.role_level` and used by the curriculum engine
+The planner LLM is asked to answer two questions simultaneously: "What does this arc need for complete coverage?" and "How many subtopics fit in this session duration?" These are different questions with different answers. When the LLM tries to satisfy both at once, it anchors on the per-session count instruction and stops enumerating once each session is filled — even if the arc genuinely requires more coverage.
 
-**User state required:** All triggers require the user to be authenticated (Clerk). The quality evaluator additionally requires the session to have `status = 'completed'` and `quality_evaluated = false`.
+Concrete example: a developer user selects "How Claude Works." The topic warrants 40 subtopics for thorough coverage. The planner generates 6 sessions of 6 subtopics each — 36 total. The remaining 4 subtopics (covering rate limits, batching strategies, error handling patterns, and streaming vs. synchronous API behaviour) are never generated. They do not appear in any session, are not flagged as deferred, and are invisible to the user. The user completes all 6 sessions and walks away with an incomplete understanding of the topic. Nothing in the system signals that content was dropped.
+
+### Why this matters
+
+Users who complete a plan and feel the coverage was shallow do not re-subscribe. The product's core promise — "complete confidence in the topic you selected" — is broken when content is dropped silently. CURR-01 makes session count an honest reflection of what the topic requires.
+
+### Bug inventory (fixed as part of this spec)
+
+**Bug A** — `estimated_minutes = Math.ceil(subtopics.length / 4) * 15`
+This formula derives session duration from subtopic count. After CURR-01, the session organizer derives subtopic count from session duration. The formula now produces nonsense: 10 subtopics → 30 mins, but the user prefers 15-min sessions. Fix: derive `duration_mins` directly from `PlannedSession.duration_mins` which is computed from `sessionMins`.
+
+**Bug B** — `DesignedSessionSchema` caps `subtopics` at `max(6)`
+A 30-minute session with 14 pre-allocated subtopics fails Zod validation. The LLM call in `designFromPreplannedSubtopics` returns 14 subtopic objects; the schema silently rejects or truncates to 6. Fix: raise cap to `max(30)`.
+
+**Bug C** — Session-designer prompt opens with "You are a curriculum designer for an executive learning platform"
+A specialist user (software engineer, developer) receives executive framing for practitioner-level content. The prompt does not use the `roleLevel` value that is available in the calling code. Fix: inject `roleLevel` into the session-designer prompt using the same instruction map already defined in `planner.ts`.
 
 ---
 
-## 4. Screen / Flow Description
+## 3. User Stories
 
-This section describes four distinct flows: (A) the narrative curriculum generation pipeline, (B) the VP role separation, (C) the `ai_maturity` value alignment, and (D) the post-session quality result storage.
+**US-01:** As a developer learning "How Claude Works," I want all subtopics covered across as many sessions as the content requires, so that I do not finish the curriculum with gaps in my understanding of topics the topic actually needed to address.
 
-### 4A. Narrative Curriculum Generation Pipeline
+**US-02:** As a user who prefers 30-minute sessions, I want sessions to be fully packed with the correct number of subtopics for that duration — and if an arc's remaining subtopics are too few to fill a complete 30-minute session, I want them combined with the next arc's opening subtopics rather than wasted in a near-empty session.
 
-The existing plan generation pipeline in `inngest/curriculum-generator.ts` calls `generateCurriculumPlan()` then `enrichCurriculumPlan()` then saves the plan. CURR-01 adds a fourth step between enrichment and save.
+**US-03:** As a user who prefers 15-minute sessions, I want the number of sessions in my plan to be automatically calculated from the total subtopics the topic requires, so I learn everything at my preferred pace without any content being silently dropped.
 
-**Current pipeline (abridged):**
-1. `generateCurriculumPlan()` — LLM generates arc/session/subtopic structure
-2. `enrichCurriculumPlan()` — 2 Claude calls: arc classification (L1/L2/L3 + so_what) + quality scoring
-3. Save to `curriculum_plans` (visible_sessions + queue_sessions)
+**US-04:** As a specialist or developer user, I want the session content framed for a technical practitioner — not for a senior business executive — so that the examples and vocabulary match how I actually work.
 
-**New pipeline after CURR-01:**
+---
 
-**Step 1 — Generate plan** (unchanged)
-`generateCurriculumPlan()` runs as today. Output: `CurriculumOutput` with arcs, sessions, subtopics.
+## 4. Functional Requirements
 
-**Step 2 — Narrative enrichment** (enhanced)
-`enrichCurriculumPlan()` runs as today but the system prompt for Call 1 (arc classification) is extended to also produce three new narrative fields per session:
+**FR-01:** The planner LLM produces `comprehensive_subtopics: string[]` per arc — a flat, ordered list of all subtopics needed for complete understanding of that arc. The LLM does not divide subtopics into sessions.
 
-- `scene_narrative`: one sentence (max 25 words) describing what this session reveals to the learner — written as a chapter teaser, not a topic summary. Example: "You discover why Constitutional AI matters more than any policy document your compliance team will write."
-- `arc_throughline`: the same string shared by all sessions in the same arc — a 1–2 sentence arc-level narrative that answers "what story does this arc tell?" Written once per arc, replicated to each session for storage convenience.
-- `session_chapter_position`: a string label for this session's role in the arc narrative: `opening` | `building` | `pivot` | `climax` | `resolution`. Assigned by the LLM based on the session's arc_position and content.
+**FR-02:** `comprehensive_subtopics` contains ALL subtopics the LLM determines are necessary for complete coverage of the arc. No artificial minimum or maximum is imposed by the prompt. The Zod schema ceiling of `max(100)` is a safety guard only, not a target or expectation.
 
-These three fields are added to the `EnrichedSession` type and stored in `raw_llm_output.enriched_plan`.
+**FR-03:** Subtopics within each arc are ordered: context anchor first (why this arc matters for the user's specific role), core concepts in dependency order in the middle (each concept assumes the previous one is understood), practical action last (one thing the user can do or decide differently after this arc).
 
-**Step 3 — 7-Dimension Coverage Check** (new)
-After enrichment, a local (no Claude call) function `checkDimensionCoverage(enrichedPlan, userProfile)` runs against all visible sessions.
+**FR-04:** `organizeSubtopicsIntoSessions(arcs, sessionMins)` is a pure TypeScript function — no async operations, no LLM calls, no external dependencies. It lives in `lib/curriculum/session-organizer.ts`.
 
-The 7 required dimensions and how they are detected:
+**FR-05:** `subtopicsPerSession = Math.max(2, Math.floor((sessionMins - 2) / 2))`. For 15-minute sessions: 6. For 30-minute sessions: 14. For 5-minute sessions: 2 (the enforced minimum).
 
-| Dimension | ID | Detection: keywords in session title + subtopics + so_what (case-insensitive) |
-|---|---|---|
-| Strategic | `strategic` | strategy, vision, roadmap, board, competitive, market position, investment, priority |
-| Operational | `operational` | workflow, process, implement, deploy, rollout, team adoption, day-to-day, operationalise |
-| Technical | `technical` | model, API, architecture, infrastructure, integration, security, token, data pipeline |
-| Compliance | `compliance` | compliance, regulatory, governance, risk, audit, legal, policy, GDPR, SOC2, HIPAA |
-| Competitive | `competitive` | competitor, landscape, benchmark, vendor, alternative, OpenAI, Google, Microsoft, market |
-| Team Management | `team_management` | team, hire, upskill, enablement, culture, change management, train, staff, adoption |
-| Personal Productivity | `personal_productivity` | personal, my workflow, time, productivity, own use, daily, habit, prompt, assistant |
+**FR-06:** Sessions within an arc are formed by taking complete chunks of `subtopicsPerSession` from the arc's `comprehensive_subtopics` list, in order. Each complete chunk becomes one session of full duration.
 
-A dimension is counted as **covered** if at least one visible session contains at least 2 keyword matches for that dimension across its title, subtopics array (joined), and `so_what` string (joined).
+**FR-07 — Cross-arc packing rule:** If the remainder of an arc's subtopics after all complete chunks has fewer than `Math.ceil(subtopicsPerSession / 2)` items, those subtopics carry over and are prepended to the first subtopics of the next arc to fill one combined session. That session carries both arc names (`arc_names: [arcA.arc_name, arcB.arc_name]`) and `is_cross_arc: true`.
 
-A dimension is counted as **missing** if it has fewer than 2 keyword matches across all visible sessions.
+**FR-08:** If the remainder of an arc's subtopics has at least `Math.ceil(subtopicsPerSession / 2)` items, those subtopics form their own shorter session. `tab_count` equals the remainder count. The session is not padded with empty or placeholder subtopics. This is a valid shorter session.
 
-**Coverage threshold:** At least 5 of the 7 dimensions must be covered for the plan to pass without gap-fill. (The remaining 2 are allowed to be absent — not every user profile requires all 7. For example, a technical specialist does not need Personal Productivity framing.)
+**FR-09 — No drops guarantee:** The total number of subtopics across all output `PlannedSession[]` objects must equal the total number of subtopics across all input arc `comprehensive_subtopics` arrays. Every input subtopic appears in exactly one output session.
 
-**If fewer than 5 dimensions are covered:**
-A gap-fill Claude call runs (separate from the 2 enrichment calls). The prompt receives:
-- The current list of visible session titles and their subtopics
-- The list of missing dimension IDs
-- The user's role, roleLevel, industry, and maturity
+**FR-10:** Each session's `duration_mins` is derived from its actual subtopic count: `Math.max(5, Math.round((subtopics.length / subtopicsPerSession) * sessionMins / 5) * 5)`. Full sessions receive exactly `sessionMins`. Shorter sessions (remainder sessions per FR-08) receive a proportional duration rounded to the nearest 5 minutes, minimum 5 minutes.
 
-The gap-fill prompt instructs Claude to return a JSON array of new sessions — one session per missing dimension that cannot be covered by modifying an existing session's subtopics — to be inserted into the visible sessions list. Each new session has the same schema as an existing session (title, focus, subtopics, arc_position, etc.) and is appended at the end of the most relevant arc, displacing the lowest-quality queued session.
+**FR-11:** `DesignedSessionSchema` in `lib/curriculum/session-designer.ts` raises the subtopics array cap from `max(6)` to `max(30)`.
 
-Gap-fill sessions are flagged in their `queue_rationale` field with the string `"gap-fill: [dimension_id]"` even though `is_visible = true`, so downstream monitoring can identify them.
+**FR-12:** The session-designer prompt opening is dynamically set based on `roleLevel`, using the same framing labels already defined in `planner.ts`. The literal string "You are a curriculum designer for an executive learning platform" is removed.
 
-**Coverage result stored:** A `dimension_coverage_result` JSONB object is stored in `curriculum_plans.raw_llm_output` with the shape described in Section 6.
+**FR-13:** `designFromPreplannedSubtopics()` receives a single `PlannedSession`'s pre-allocated subtopics and makes exactly one LLM call per invocation. The `chunkArray` call and the `for (const chunk of chunks)` loop are removed. One `PlannedSession` in — one `DesignedSession` out.
 
-**Step 4 — Save plan** (unchanged, same DB write as today)
-`curriculum_plans` row is inserted with the enriched + gap-filled visible sessions.
+**FR-14:** `buildFallbackPlan()` is updated to produce arcs with `comprehensive_subtopics[]` rather than `sessions[{ subtopics[] }]`, so the fallback is compatible with the new organizer without a separate code path.
 
-### 4B. VP Role Separation
+**FR-15:** The session organizer only processes arcs where `is_visible: true`. Queue arcs (where `is_visible: false`) remain as arc-level entries; no sessions are generated for them until they are unlocked.
 
-The onboarding UI already presents two sub-options under `vp-dir`:
+---
 
-- "Technology & Engineering" → `roleId: 'vp-technology'`
-- "Product" → `roleId: 'vp-product'`
+## 5. Data Model Changes
 
-Currently, the `POST /api/onboarding` Zod schema rejects these values because `roleLevel` only accepts `c-suite | vp-dir | manager | specialist`. The UI sends `roleLevel: 'vp-dir'` and `role: 'vp-technology'` (the roleId flows into the `role` field). This means the `users.role_level` column always stores `vp-dir` for both VP of Technology and VP of Product, and the curriculum engine never distinguishes between them.
-
-**After this change:**
-
-1. The `OnboardingSchema` `roleLevel` enum is extended to include `vp-technology` and `vp-product`
-2. The onboarding UI sends `roleLevel: 'vp-technology'` (not `vp-dir`) when the user selects "Technology & Engineering" under the VP/Director level
-3. The onboarding UI sends `roleLevel: 'vp-product'` (not `vp-dir`) when the user selects "Product" under the VP/Director level
-4. `users.role_level` stores `vp-technology` or `vp-product` for these users
-5. `lib/curriculum/planner.ts` — `roleLevelLabel` and `roleLevelInstruction` maps are extended with entries for `vp-technology` and `vp-product` (see Section 5 for the exact text)
-6. The fallback case (unknown roleLevel) in the planner maps `vp-technology` and `vp-product` to the `vp-dir` instruction if somehow they arrive without a specific entry — never silently drops them
-7. `inngest/session-quality-evaluator.ts` — the `SENIORITY_MARKERS` map is extended with entries for `vp-technology` and `vp-product`
-
-The `vp-dir` roleLevel value is **retained** and continues to work for users who did not select a sub-role (e.g., users who onboarded before this change, or who selected a VP/Director role not listed under the technology/product sub-options).
-
-**VP of Technology instruction (added to `roleLevelInstruction` in `planner.ts`):**
-"Frame all content for a VP of Technology who owns engineering team adoption, infrastructure decisions, and technical risk. Examples must involve: API procurement vs SaaS tradeoffs, security architecture for AI systems, how to evaluate model quality for production use cases, and how to present build-vs-buy recommendations upward to the CTO or CFO. Do NOT use board-level P&L framing. Do NOT use product roadmap or feature prioritisation framing."
-
-**VP of Product instruction (added to `roleLevelInstruction` in `planner.ts`):**
-"Frame all content for a VP of Product who owns AI-assisted feature strategy, model integration in the product, and competitive differentiation through AI capability. Examples must involve: when to use AI in the product vs when it is over-engineering, how to frame AI features for users without technical backgrounds, managing model latency and cost as product constraints, and presenting AI roadmap trade-offs to engineering and leadership. Do NOT use infrastructure or procurement framing. Do NOT use board-level P&L framing."
-
-**VP of Technology label (added to `roleLevelLabel` in `planner.ts`):**
-"VP of Technology (owns engineering team adoption, technical infrastructure decisions, and AI vendor evaluation)"
-
-**VP of Product label (added to `roleLevelLabel` in `planner.ts`):**
-"VP of Product (owns AI feature strategy, model integration in product, and competitive differentiation through AI)"
-
-**Seniority markers for quality evaluator (added to `SENIORITY_MARKERS` in `session-quality-evaluator.ts`):**
-- `vp-technology`: `['infrastructure', 'engineer', 'architecture', 'api', 'security', 'build', 'deploy', 'integrate']`
-- `vp-product`: `['product', 'feature', 'roadmap', 'user', 'launch', 'priorit', 'ship', 'competitive']`
-
-### 4C. `ai_maturity` Value Alignment
-
-**Current state:**
-The onboarding UI collects one of four values: `observer | emerging | practitioner | leader`. These are saved raw to `users.ai_maturity`. The `normaliseMaturity()` function in `lib/curriculum/planner.ts` maps these to canonical values at runtime. The mapping is correct and already covers these values. The onboarding API Zod schema also accepts legacy values (`beginner`, `intermediate`, `advanced`, `expert`, free-text variants) for backward compatibility.
-
-**The alignment problem:**
-There are three distinct vocabularies in use simultaneously:
-1. **UI vocabulary** (what onboarding collects): `observer | emerging | practitioner | leader`
-2. **Canonical vocabulary** (what the curriculum engine reasons with): `beginner | intermediate | advanced | expert`
-3. **DB-stored values** (what is actually in `users.ai_maturity`): a mix of all of the above, depending on when the user onboarded
-
-No single vocabulary is wrong — `normaliseMaturity()` handles the translation correctly. The problem is that reading `users.ai_maturity = 'practitioner'` directly (e.g. in an admin dashboard, a monitoring query, or a future feature) requires knowing the normalisation table to understand what it means. There is no canonical DB-level value.
-
-**The fix:**
-Normalise `ai_maturity` at the point of save — the onboarding API writes the canonical value to the DB, not the raw UI value. The `normaliseMaturity()` function already exists and is correct. Apply it before the upsert.
-
-In `app/api/onboarding/route.ts`, before the `userRecord` upsert:
+### 5a. New ArcSchema (planner output — replaces current ArcSchema in `lib/curriculum/planner.ts`)
 
 ```typescript
-// Normalise to canonical DB value before saving
-const canonicalMaturity = normaliseMaturity(data.aiMaturity)
-// Then use canonicalMaturity instead of data.aiMaturity in the upsert
+export const ArcSchema = z.object({
+  arc_name:                z.string().min(1).max(100),
+  arc_type:                z.enum(['domain', 'integrated', 'singleton']),
+  arc_description:         z.string().min(10).max(1000),
+  comprehensive_subtopics: z.array(z.string().min(3).max(1000)).min(1).max(100),
+  is_visible:              z.boolean(),
+  queue_rationale:         z.string().max(2000).nullable(),
+})
 ```
 
-After this change:
-- `users.ai_maturity` always contains one of: `beginner | intermediate | advanced | expert`
-- The onboarding Zod schema continues to accept `observer | emerging | practitioner | leader | beginner | intermediate | advanced | expert` (and legacy values) — the normalisation happens server-side after validation
-- `normaliseMaturity()` remains in `planner.ts` as a guard for any values that arrive through routes other than `/api/onboarding` (e.g., direct DB edits, legacy migration rows)
-- A backfill migration normalises all existing `users.ai_maturity` values to the canonical vocabulary (migration 040 — see Section 6)
+The `sessions` array is removed from `ArcSchema`. Fields previously embedded in `SessionSchema` (`session_id`, `title`, `focus`, `arc_position`, `arc_length`, `depth_level`, `role_hint`) are removed from the planner output. They are produced by the session-designer after the organizer runs.
 
-### 4D. Post-Session Quality Result Storage
+`SessionSchema` is retained for the `generateQueueExtension` function, which still produces individual session objects for queue extension calls. That function is not changed in this spec.
 
-The `session-quality-evaluator.ts` Inngest function already:
-- Classifies V1–V7 checkpoint responses (keyword scoring)
-- Evaluates 6 session quality criteria (topic coverage, seniority framing, industry example, depth vs maturity, actionable close, subtopic transitions)
-- Updates `knowledge_profiles` with `avg_variant_score`, `comprehension_status`, and `gaps`
-- Updates `quality_evaluated` and `quality_criteria_results` on the `sessions` table
+### 5b. New `CurriculumOutputSchema` field
 
-**What is missing:** The 7-dimension quality classification described in 4A is not stored against the session. After CURR-01, the `session-quality-evaluator` also:
+```typescript
+export const CurriculumOutputSchema = z.object({
+  arcs:               z.array(ArcSchema).min(1).max(10),
+  total_visible:      z.number().int().min(0).max(10),  // now = count of visible arcs
+  total_queued:       z.number().int().min(0).max(50),  // now = count of queued arcs
+  generated_at:       z.string(),
+  user_profile_hash:  z.string().optional().default(''),
+  schema_version:     z.literal('v2').default('v2'),    // NEW — used by approve route
+})
+```
 
-1. Runs `checkSessionDimensions(clioText, sessionTitle, roleLevel, industry)` — a local keyword function (same 7-dimension keyword map from Section 4A) applied to the Clio transcript text of this specific session
-2. Writes the resulting `SessionDimensionResult` JSONB to a new column `quality_dimension_result` on the `sessions` table (migration 041 — see Section 6)
+`schema_version: 'v2'` allows the approve route to detect which shape a stored `raw_llm_output` uses, enabling the old path to keep working for existing approved plans.
 
-This is the extent of quality result storage in CURR-01. The stored data is the raw material for SCR-01 (adaptive reordering), which is out of scope for this spec.
+### 5c. `PlannedSession` type (output of session organizer — new file)
+
+```typescript
+// lib/curriculum/session-organizer.ts
+export type PlannedSession = {
+  session_index: number    // 0-based, global across all arcs
+  arc_names:     string[]  // 1 arc normally; 2 when is_cross_arc is true
+  subtopics:     string[]  // the exact subtopics allocated to this session
+  duration_mins: number    // actual minutes (rounded to nearest 5, minimum 5)
+  tab_count:     number    // equals subtopics.length
+  is_cross_arc:  boolean   // true when subtopics span 2 arcs
+}
+```
+
+### 5d. `DesignedSessionSchema` change
+
+```typescript
+// lib/curriculum/session-designer.ts
+const DesignedSessionSchema = z.object({
+  session_title:   z.string().min(5).max(200),
+  session_summary: z.string().min(10).max(1000),
+  duration_mins:   z.number().int().min(3).max(60),
+  subtopics:       z.array(SubtopicSchema).min(1).max(30),  // was max(6)
+})
+```
+
+### 5e. Sessions table — no new columns required
+
+`sessions.duration_mins` already exists. Its value will now be populated from `PlannedSession.duration_mins` rather than from the old `estimated_minutes` formula. No migration is required.
+
+### 5f. Backward compatibility — existing plans
+
+Existing plans store the old schema in `curriculum_plans.raw_llm_output` (JSONB). Those plans have no `schema_version` field. The approve route detects the absence of `schema_version: 'v2'` and uses the existing `visible_sessions` code path unchanged. No existing plans are affected.
 
 ---
 
-## 5. Visual Examples
+## 6. Algorithm Specification
 
-### 5A. Narrative Fields on Plan Screen (Developer Reference — not a user-facing change to the plan UI)
-
-The plan screen currently shows session cards with `title` and `focus`. The narrative fields added by CURR-01 are stored in the DB but the plan UI does not change in this spec. A future spec will add arc narrative display to the plan page. Developer reference only:
+Full pseudocode for `organizeSubtopicsIntoSessions`:
 
 ```
-curriculum_plans.raw_llm_output.enriched_plan.arcs[0]:
-─────────────────────────────────────────────────────
-arc_name: "Claude in Financial Services"
-arc_throughline: "In this arc, you go from understanding what
-  makes Claude architecturally different to being able to frame
-  a procurement recommendation to your CFO without needing the
-  CTO to interpret it for you."
+function organizeSubtopicsIntoSessions(
+  arcs: Array<{ arc_name: string; comprehensive_subtopics: string[]; is_visible: boolean }>,
+  sessionMins: number
+): PlannedSession[]
 
-  sessions[0]:
-    title: "Claude's Safety Architecture"
-    scene_narrative: "You discover why Constitutional AI matters
-      more than any policy document your compliance team will
-      write."
-    session_chapter_position: "opening"
+  subtopicsPerSession = max(2, floor((sessionMins - 2) / 2))
+  halfSession         = ceil(subtopicsPerSession / 2)
+  result              = []
+  sessionIndex        = 0
+  carryOver           = { subtopics: [], arc_names: [] }
 
-  sessions[1]:
-    title: "200K Context Window — What It Means for FinServ"
-    scene_narrative: "You realise the contract-review use case
-      your team dismissed as 'too complex for AI' is now the
-      easiest one to start with."
-    session_chapter_position: "building"
+  for each arc in arcs where arc.is_visible === true:
 
-  sessions[2]:
-    title: "Teams vs API Tiers — Matching Data Governance"
-    scene_narrative: "You gain the procurement vocabulary to
-      answer your legal team's data-residency objection before
-      they raise it."
-    session_chapter_position: "climax"
-─────────────────────────────────────────────────────
+    // Merge carry-over from previous arc with this arc's subtopics
+    pool         = [...carryOver.subtopics, ...arc.comprehensive_subtopics]
+    poolArcNames = deduplicatePreserveOrder([...carryOver.arc_names, arc.arc_name])
+    carryOver    = { subtopics: [], arc_names: [] }
+
+    // Emit full-size sessions
+    while pool.length >= subtopicsPerSession:
+      chunk      = pool.splice(0, subtopicsPerSession)
+      isCrossArc = poolArcNames.length > 1
+      result.push({
+        session_index: sessionIndex++,
+        arc_names:     isCrossArc ? poolArcNames : [arc.arc_name],
+        subtopics:     chunk,
+        duration_mins: sessionMins,
+        tab_count:     chunk.length,
+        is_cross_arc:  isCrossArc,
+      })
+      // After the first full chunk is emitted, all remaining pool items are
+      // from the current arc only — reset poolArcNames
+      poolArcNames = [arc.arc_name]
+
+    // Handle remainder (pool.length is now 0 to subtopicsPerSession-1)
+    if pool.length === 0:
+      continue
+
+    else if pool.length >= halfSession:
+      // Large enough for its own shorter session
+      isCrossArc = poolArcNames.length > 1
+      result.push({
+        session_index: sessionIndex++,
+        arc_names:     poolArcNames,
+        subtopics:     pool,
+        duration_mins: roundToNearest5(pool.length * sessionMins / subtopicsPerSession),
+        tab_count:     pool.length,
+        is_cross_arc:  isCrossArc,
+      })
+
+    else:
+      // Too small — carry over into next arc
+      carryOver = { subtopics: pool, arc_names: poolArcNames }
+
+  // Flush remaining carry-over after the last visible arc
+  if carryOver.subtopics.length > 0:
+    result.push({
+      session_index: sessionIndex++,
+      arc_names:     carryOver.arc_names,
+      subtopics:     carryOver.subtopics,
+      duration_mins: roundToNearest5(carryOver.subtopics.length * sessionMins / subtopicsPerSession),
+      tab_count:     carryOver.subtopics.length,
+      is_cross_arc:  carryOver.arc_names.length > 1,
+    })
+
+  return result
+
+helper: roundToNearest5(n: number): number
+  return Math.max(5, Math.round(n / 5) * 5)
+
+helper: deduplicatePreserveOrder(names: string[]): string[]
+  return [...new Set(names)]
 ```
 
-### 5B. VP Role Separation — Onboarding Flow (UI Change)
+### Worked example A — 15-minute sessions (subtopicsPerSession = 6, halfSession = 3)
 
-The onboarding page currently sends `role: 'vp-technology'` to the API when the user selects "Technology & Engineering" under VP/Director. After CURR-01, the API also receives `roleLevel: 'vp-technology'` instead of `roleLevel: 'vp-dir'`.
+Arc A: 16 subtopics. Arc B: 9 subtopics.
+
+- Arc A chunks: A[1-6] → Session 0 (15 min); A[7-12] → Session 1 (15 min)
+- Arc A remainder: A[13-16] = 4 items. 4 >= halfSession (3) → own shorter session → Session 2 (duration: roundToNearest5(4/6 * 15) = roundToNearest5(10) = 10 min)
+- Arc B: pool = B[1-9]. Full chunk: B[1-6] → Session 3 (15 min). Remainder: B[7-9] = 3 items. 3 >= halfSession (3) → own shorter session → Session 4 (duration: roundToNearest5(3/6 * 15) = roundToNearest5(7.5) = 10 min)
+- Output: 5 sessions. Total subtopics in: 25. Total subtopics out: 6+6+4+6+3 = 25. Nothing dropped.
+
+### Worked example B — 30-minute sessions (subtopicsPerSession = 14, halfSession = 7)
+
+Arc A: 18 subtopics. Arc B: 5 subtopics.
+
+- Arc A chunks: A[1-14] → Session 0 (30 min)
+- Arc A remainder: A[15-18] = 4 items. 4 < halfSession (7) → carry over
+- carryOver = { subtopics: A[15-18], arc_names: ['Arc A'] }
+- Arc B: pool = [A-15, A-16, A-17, A-18, B-1, B-2, B-3, B-4, B-5] = 9 items. 9 < subtopicsPerSession (14) → check remainder. 9 >= halfSession (7) → own shorter session → Session 1 (duration: roundToNearest5(9/14 * 30) = roundToNearest5(19.3) = 20 min), arc_names: ['Arc A', 'Arc B'], is_cross_arc: true
+- Output: 2 sessions. Total subtopics in: 23. Total subtopics out: 14+9 = 23. Nothing dropped.
+
+---
+
+## 7. Updated Planner Prompt Instructions
+
+The following changes are made to `buildSystemPrompt()` in `lib/curriculum/planner.ts`.
+
+### Remove entirely
+
+The entire `SUBTOPICS RULES` section:
+```
+SUBTOPICS RULES:
+- For each session, generate enough subtopics to fill the session duration at 2 minutes per subtopic.
+  For a 15-minute session: at least 6 subtopics. For a 30-minute session: at least 14 subtopics.
+  Minimum 2 subtopics per session regardless of duration.
+  Formula: floor((session_duration_mins - 2) / 2), minimum 2.
+- Write each subtopic as a specific, concrete learning point (not a vague category name).
+...
+```
+
+The entire `SUBTOPIC ORDERING` section:
+```
+SUBTOPIC ORDERING (within each session):
+Order subtopics from most foundational to most advanced...
+```
+
+All JSON output example instructions that reference `sessions[].subtopics` within arc objects.
+
+### Add — ARC SUBTOPICS instruction block
+
+Replace the above with the following instruction, placed where `SUBTOPICS RULES` previously appeared:
 
 ```
-Step 0 — Level Selection:
-┌─────────────────────────────────────────────────┐
-│  What best describes your level?                │
-│                                                 │
-│  [Executive / C-Suite]    → roleLevel: c-suite  │
-│  [VP / Director]          → roleLevel: vp-dir   │  ← expands to sub-step
-│  [Manager / Team Lead]    → roleLevel: manager  │
-│  [Specialist / IC]        → roleLevel: specialist│
-└─────────────────────────────────────────────────┘
+ARC SUBTOPICS:
+For each arc, generate a COMPREHENSIVE list of ALL sub-topics the learner needs to understand
+this arc completely. Do NOT divide sub-topics by session — session division happens automatically
+after you respond. Do NOT cap, limit, or pad the sub-topic count artificially.
 
-Step 1 (sub-step under VP/Director) — Function Selection:
-┌─────────────────────────────────────────────────┐
-│  What function do you lead?                     │
-│                                                 │
-│  [Technology & Engineering]                     │
-│    → roleLevel: vp-technology                   │
-│    → role: vp-technology                        │
-│                                                 │
-│  [Product]                                      │
-│    → roleLevel: vp-product                      │
-│    → role: vp-product                           │
-│                                                 │
-│  [Finance]     → roleLevel: vp-dir, role: vp-finance
-│  [Marketing]   → roleLevel: vp-dir, role: vp-marketing
-│  [Operations]  → roleLevel: vp-dir, role: vp-operations
-│  [People/HR]   → roleLevel: vp-dir, role: vp-people
-│  [Other]       → roleLevel: vp-dir, role: vp-other
-└─────────────────────────────────────────────────┘
+Every sub-topic that earns its place must appear. A sub-topic earns its place if skipping it
+would leave the learner with a gap in their understanding of this arc.
 
-Note: Only Technology and Product receive dedicated roleLevel values.
-All other VP/Director sub-roles continue to use roleLevel: vp-dir.
+Typical arc subtopic counts:
+- A focused, single-concept arc: 8–12 sub-topics
+- A broad, multi-concept arc: 20–35 sub-topics
+There is no required count. Coverage completeness is the only criterion.
+
+SUBTOPIC ORDERING within each arc:
+Order sub-topics from most foundational to most advanced so the learner can follow them
+in sequence without back-referencing. Follow this structure:
+
+1. Context anchor (always first): why this arc matters specifically to this user's role.
+   Do NOT open with a definition or the topic name. Open with: "Here is the decision or
+   pressure you face right now as a [role] that makes this arc immediately relevant."
+   Connect to something the user already knows or a situation they currently face.
+
+2. Core concepts (middle sub-topics): one concept per sub-topic, in dependency order.
+   Each sub-topic should assume the previous one is understood. Earlier sub-topics unlock later ones.
+
+3. Practical action (always last): one specific thing the user can do or decide differently
+   after completing this arc. Name it explicitly. Connect it to their role and industry.
+
+SUBTOPIC FORMAT:
+Write each sub-topic as a specific, concrete learning point — not a vague category name.
+Bad:  "Overview of Claude"
+Good: "How to choose between claude-haiku-4-5 and claude-sonnet-4-6 based on latency and
+       cost requirements for your team's production use case"
+
+Do NOT pad with sub-topics that are not genuinely needed. Every sub-topic must earn its place.
 ```
 
-### 5C. 7-Dimension Coverage Check — Result Shape (Developer Reference)
+### Updated JSON output shape
 
-```
-curriculum_plans.raw_llm_output.dimension_coverage_result:
-──────────────────────────────────────────────────────────
+The JSON example in the prompt must be updated. Each arc object changes from:
+```json
 {
-  "checked_at": "2026-06-23T14:32:00Z",
-  "visible_session_count": 8,
-  "dimensions": {
-    "strategic":            { "covered": true,  "match_count": 4 },
-    "operational":          { "covered": true,  "match_count": 3 },
-    "technical":            { "covered": true,  "match_count": 6 },
-    "compliance":           { "covered": true,  "match_count": 2 },
-    "competitive":          { "covered": false, "match_count": 0 },
-    "team_management":      { "covered": true,  "match_count": 3 },
-    "personal_productivity":{ "covered": false, "match_count": 1 }
-  },
-  "covered_count": 5,
-  "missing_dimensions": ["competitive", "personal_productivity"],
-  "gap_fill_triggered": true,
-  "gap_fill_sessions_added": 1
-}
-──────────────────────────────────────────────────────────
-```
-
----
-
-## 6. Data Requirements
-
-### 6A. New Fields on `EnrichedSession` Type (TypeScript, no migration)
-
-In `lib/curriculum/types.ts`, add three new fields to the `EnrichedSession` interface:
-
-```typescript
-export interface EnrichedSession {
-  // ... existing fields unchanged ...
-
-  // CURR-01: Narrative curriculum fields
-  scene_narrative: string              // max 25 words: what this session reveals
-  arc_throughline: string             // arc-level narrative (same string for all sessions in arc)
-  session_chapter_position: 'opening' | 'building' | 'pivot' | 'climax' | 'resolution'
+  "arc_name": "string",
+  "arc_type": "domain" | "integrated" | "singleton",
+  "sessions": [ { "session_id": "...", "subtopics": [...] } ]
 }
 ```
 
-These fields are populated by the extended Call 1 in `enrichCurriculumPlan()`. They are stored in `curriculum_plans.raw_llm_output.enriched_plan` as part of the existing JSONB column — no schema migration required for these fields.
-
-### 6B. New JSONB Sub-field on `curriculum_plans` (no migration — existing JSONB column)
-
-A new key `dimension_coverage_result` is written into `curriculum_plans.raw_llm_output` alongside the existing `enriched_plan` key.
-
-Shape:
-
-```typescript
-interface DimensionCoverageResult {
-  checked_at: string                          // ISO timestamp
-  visible_session_count: number
-  dimensions: Record<
-    'strategic' | 'operational' | 'technical' | 'compliance' |
-    'competitive' | 'team_management' | 'personal_productivity',
-    { covered: boolean; match_count: number }
-  >
-  covered_count: number                       // 0–7
-  missing_dimensions: string[]               // dimension IDs that did not pass
-  gap_fill_triggered: boolean
-  gap_fill_sessions_added: number            // 0 if gap_fill_triggered is false
+To:
+```json
+{
+  "arc_name": "string",
+  "arc_type": "domain" | "integrated" | "singleton",
+  "arc_description": "string — one sentence: what this arc teaches and why it matters for this user",
+  "comprehensive_subtopics": ["string", "string", "..."],
+  "is_visible": true | false,
+  "queue_rationale": "string | null"
 }
 ```
 
-No migration required — this is a new key in the existing `raw_llm_output` JSONB column on `curriculum_plans`.
+`total_visible` and `total_queued` in the output now refer to arc counts (arcs where `is_visible` is true or false), not session counts. The prompt must state this explicitly.
 
-### 6C. Migration 040 — Normalise `ai_maturity` in `users` Table
+---
 
-This migration backfills all existing `users.ai_maturity` values to the canonical vocabulary.
+## 8. Session-Designer Prompt Update
 
-```sql
--- Migration 040: Normalise ai_maturity to canonical vocabulary
--- Safe to run at any time — idempotent. Updates only rows with non-canonical values.
--- After this migration, users.ai_maturity will only contain:
---   beginner | intermediate | advanced | expert
+### Function signature change
 
-UPDATE users SET ai_maturity = 'beginner'
-WHERE ai_maturity IN ('observer', 'no experience');
-
-UPDATE users SET ai_maturity = 'intermediate'
-WHERE ai_maturity IN ('emerging', 'some experience', 'somewhat experience', 'evaluator', 'pilot');
-
-UPDATE users SET ai_maturity = 'advanced'
-WHERE ai_maturity IN ('practitioner', 'scaler');
-
-UPDATE users SET ai_maturity = 'expert'
-WHERE ai_maturity = 'leader';
-
--- Catch-all: set any remaining unknown values to 'intermediate' (safe default)
-UPDATE users SET ai_maturity = 'intermediate'
-WHERE ai_maturity NOT IN ('beginner', 'intermediate', 'advanced', 'expert')
-  AND ai_maturity IS NOT NULL;
-```
-
-### 6D. Migration 041 — Add `quality_dimension_result` Column to `sessions`
-
-```sql
--- Migration 041: Add quality dimension result column to sessions
--- Stores the per-session 7-dimension keyword classification from session-quality-evaluator.
-
-ALTER TABLE sessions
-  ADD COLUMN IF NOT EXISTS quality_dimension_result JSONB DEFAULT NULL;
-
-COMMENT ON COLUMN sessions.quality_dimension_result IS
-  'JSONB: 7-dimension keyword classification of this session transcript. '
-  'Shape: { evaluated_at: string, dimensions: Record<string, { covered: boolean, match_count: number }>, covered_count: number }. '
-  'Null until session-quality-evaluator runs for this session. Written by CURR-01.';
-```
-
-### 6E. `users.role_level` — New Accepted Values
-
-`users.role_level` is a `TEXT` column (migration 026, no enum constraint). No migration is required to store the new `vp-technology` and `vp-product` values — the column already accepts any text.
-
-The only schema change is in the Zod validation in `app/api/onboarding/route.ts`:
+`designFromPreplannedSubtopics()` gains a `roleLevel: string` parameter:
 
 ```typescript
-// Before:
-roleLevel: z.enum(['c-suite', 'vp-dir', 'manager', 'specialist']).default('c-suite'),
-
-// After:
-roleLevel: z.enum(['c-suite', 'vp-dir', 'vp-technology', 'vp-product', 'manager', 'specialist']).default('c-suite'),
+async function designFromPreplannedSubtopics(
+  topic:     CurriculumTopicInput,
+  profile:   DesignerUserProfile,
+  maxMins:   number,
+  apiKey:    string,
+  roleLevel: string,
+): Promise<DesignedSession[]>
 ```
 
-### 6F. Reads Required
+`designSessionsForTopic()` (the public export) must also accept and pass through `roleLevel`.
 
-**Curriculum generation pipeline reads:**
-- `users` table: `role`, `role_level`, `industry`, `ai_maturity`, `topic_interests`, `plan_tier`, `worry_tags`
-- `curriculum_plans` table: existing plan for cache-hit check (`user_profile_hash`)
+### Prompt opening — dynamic framing map
 
-**Post-session quality evaluator reads (unchanged from existing):**
-- `sessions` table with joined `users` — `role`, `industry`, `ai_maturity`, `active_plan_id`, `recall_bot_id`, `ended_at`
-- `topic_content_cache` table: `subtopic_slug`, `content_outline` (for checkpoint question extraction)
-- `knowledge_profiles` table: existing profile for upsert logic
-- Recall.ai API: `/api/v1/bot/{recall_bot_id}/transcript`
+Remove:
+```
+You are a curriculum designer for an executive learning platform.
+```
 
-**No new reads are required by CURR-01** beyond the data already fetched in these two functions.
+Replace with a lookup from this map (build this as a `const` in the function):
 
-### 6G. Writes Summary
+```typescript
+const designerFraming: Record<string, string> = {
+  'c-suite':
+    'You are a curriculum designer for senior business executives — C-Suite leaders who own P&L and are accountable to the board.',
+  'vp-dir':
+    'You are a curriculum designer for senior functional leaders — VPs and Directors who lead a function and report to C-Suite.',
+  'vp-technology':
+    'You are a curriculum designer for engineering leaders and technology decision-makers — VPs of Technology who own engineering team adoption, infrastructure decisions, and AI vendor evaluation.',
+  'vp-product':
+    'You are a curriculum designer for product leaders — VPs of Product who own AI-assisted feature strategy and competitive differentiation through AI capability.',
+  'manager':
+    'You are a curriculum designer for managers and team leads who implement AI tools day-to-day and manage teams doing the same.',
+  'specialist':
+    'You are a curriculum designer for software engineers, developers, and technical practitioners who use AI tools directly in their work.',
+}
+const framingOpener = designerFraming[roleLevel] ?? 'You are a curriculum designer for working professionals.'
+```
 
-| Location | What is written | Trigger | Migration required |
-|---|---|---|---|
-| `curriculum_plans.raw_llm_output.enriched_plan` | `scene_narrative`, `arc_throughline`, `session_chapter_position` on each session | Plan generation | None (existing JSONB) |
-| `curriculum_plans.raw_llm_output.dimension_coverage_result` | 7-dimension coverage result + gap-fill metadata | Plan generation | None (existing JSONB) |
-| `users.ai_maturity` | Canonical value (`beginner` / `intermediate` / `advanced` / `expert`) | Onboarding API POST + backfill | Migration 040 |
-| `users.role_level` | `vp-technology` or `vp-product` for qualifying VP users | Onboarding API POST | None (TEXT column) |
-| `sessions.quality_dimension_result` | Per-session 7-dimension coverage from transcript | Session quality evaluator cron | Migration 041 |
+### Duration line update
 
----
+Change:
+```
+Design ONE 15-minute learning session (10 minutes of content + 5 minutes reserved for Q&A).
+```
 
-## 7. Success Criteria (Acceptance Tests)
+To:
+```
+Design ONE learning session (${maxMins} minutes of content).
+```
 
-**AC-01 — Narrative fields present on all enriched sessions**
-Given a curriculum plan is generated for any user profile with a valid `ANTHROPIC_API_KEY`, when `curriculum_plans.raw_llm_output.enriched_plan` is read, then every session object contains `scene_narrative` (non-empty string, max 25 words), `arc_throughline` (non-empty string, same value for all sessions in the same arc), and `session_chapter_position` (one of: `opening`, `building`, `pivot`, `climax`, `resolution`).
+### Chunking removal
 
-**AC-02 — Arc throughline is consistent within each arc**
-Given a plan with multiple sessions in the same arc (e.g. 3 sessions in "Claude in Financial Services"), when `enriched_plan.arcs[0].sessions` is inspected, then `arc_throughline` is identical across all 3 sessions in that arc.
+Remove:
+- The call to `chunkArray(subtopics, sectionCount)` 
+- The `const sectionCount = Math.max(2, Math.floor((maxMins - 2) / 2))` line at the top of `designFromPreplannedSubtopics`
+- The `for (const chunk of chunks)` loop and everything inside it that iterates per-chunk
 
-**AC-03 — VP of Technology receives different curriculum framing than VP of Product**
-Given User A has `role_level = 'vp-technology'` and User B has `role_level = 'vp-product'`, and both have the same `industry` and `ai_maturity`, when plans are generated for both users on the same topic, then: the visible sessions for User A contain at least 2 keywords from the set `['infrastructure', 'api', 'security', 'architecture', 'procurement', 'build']` in their subtopics and `role_hint` fields; the visible sessions for User B contain at least 2 keywords from the set `['product', 'feature', 'roadmap', 'user experience', 'launch', 'competitive']` in their subtopics and `role_hint` fields; and neither user's plan contains keywords that belong exclusively to the other's domain.
+The function body simplifies to: receive `topic.subtopics` (already pre-allocated by the organizer), build one prompt, make one LLM call, return one `DesignedSession`. The subtopic list passed to the LLM is `topic.subtopics` directly — not a chunk of it.
 
-**AC-04 — `vp-technology` and `vp-product` are saved to `users.role_level`**
-Given a user completes onboarding and selects "Technology & Engineering" under VP/Director, when `POST /api/onboarding` is called with `{ roleLevel: 'vp-technology', role: 'vp-technology', ... }`, then the `users` table row for that user has `role_level = 'vp-technology'` and the API returns `{ success: true }` with HTTP 200. (Same test for `vp-product`.)
+### Fallback path
 
-**AC-05 — `ai_maturity` saved as canonical value after onboarding**
-Given a user completes onboarding and selects the option that maps to `observer` in the UI, when `POST /api/onboarding` is called with `{ aiMaturity: 'observer', ... }`, then the `users` table row for that user has `ai_maturity = 'beginner'` — not `'observer'`.
-
-**AC-06 — All four UI maturity values normalise correctly at save**
-Given the onboarding API receives each of the four UI values in separate calls, when the DB is queried after each call, then: `observer` → `beginner`, `emerging` → `intermediate`, `practitioner` → `advanced`, `leader` → `expert`.
-
-**AC-07 — Migration 040 normalises existing rows**
-Given migration 040 has been applied, when `SELECT DISTINCT ai_maturity FROM users` is run, then the result set contains only values from `{beginner, intermediate, advanced, expert}` (plus any `NULL` rows).
-
-**AC-08 — 7-dimension coverage check runs and result is stored**
-Given a curriculum plan is generated for any user, when `curriculum_plans.raw_llm_output` is read, then a key `dimension_coverage_result` is present and contains `checked_at`, `visible_session_count`, `dimensions` (an object with all 7 dimension IDs as keys), `covered_count`, `missing_dimensions`, `gap_fill_triggered`, and `gap_fill_sessions_added`.
-
-**AC-09 — Plans with fewer than 5 covered dimensions trigger gap-fill**
-Given a test plan is generated where 3 of the 7 dimensions would have 0 keyword matches, when the coverage check runs, then `gap_fill_triggered = true` and at least one gap-fill session is added to the visible sessions list, and `gap_fill_sessions_added >= 1`.
-
-**AC-10 — Plans that already cover 5+ dimensions do not trigger gap-fill**
-Given a test plan is generated that covers 5 or more dimensions natively, when the coverage check runs, then `gap_fill_triggered = false` and `gap_fill_sessions_added = 0`, and the visible session count is unchanged from what `generateCurriculumPlan()` returned.
-
-**AC-11 — session-quality-evaluator writes `quality_dimension_result` to sessions**
-Given a session has `status = 'completed'`, `quality_evaluated = false`, `ended_at` between 2 and 2.25 hours ago, and a valid `recall_bot_id`, when the 15-minute cron runs, then `sessions.quality_dimension_result` is a non-null JSONB object containing `evaluated_at`, `dimensions` (7 keys), and `covered_count` for that session.
-
-**AC-12 — Fallback plan still stores dimension coverage result**
-Given `ANTHROPIC_API_KEY` is set to a placeholder value, when `generateCurriculumPlan()` runs and returns the deterministic fallback plan, then `dimension_coverage_result` is still written to `raw_llm_output` based on the keyword check applied to the fallback sessions. `gap_fill_triggered` is `false` (gap-fill requires a real API key and is skipped in mock mode).
-
-**AC-13 — `vp-dir` users are unaffected by VP role separation**
-Given a user whose `role_level = 'vp-dir'` (set before this change was deployed), when a curriculum plan is generated for them, then the plan generates without error and the `roleLevelInstruction` for `vp-dir` is applied (generic VP/Director framing), not `vp-technology` or `vp-product`.
-
----
-
-## 8. Error States
-
-### 8A. Call 1 narrative extension fails (scene_narrative not returned)
-If the extended arc classification Claude call returns sessions without the three new narrative fields (e.g. due to a schema change mid-deploy or model refusal), the merge step falls back to defaults:
-- `scene_narrative`: `"${session.title} — a key part of your learning journey."`
-- `arc_throughline`: `"This arc builds your understanding of ${arc_name}."`
-- `session_chapter_position`: derived from `arc_position`: position 1 → `opening`; positions 2 to arc_length-1 → `building`; final position → `resolution`
-
-The plan is still saved. No error is thrown. A console warning is logged: `[enrichment][WARN] narrative fields missing for session "${title}" — using fallback`.
-
-### 8B. Gap-fill Claude call fails
-If the gap-fill Claude call throws or returns invalid JSON, the plan is saved without the gap-fill sessions. `gap_fill_triggered = true` but `gap_fill_sessions_added = 0`. A console error is logged: `[curriculum-generator][ERROR] gap-fill call failed for user ${userId} — plan saved without gap-fill sessions`. The plan delivery is not blocked. The plan is marked with `dimension_coverage_result.gap_fill_triggered = true` so monitoring can detect it.
-
-### 8C. Gap-fill returns sessions that fail Zod validation
-Each gap-fill session is validated with `SessionSchema` before insertion. Sessions that fail validation are silently dropped (logged at WARN level). If all gap-fill sessions fail validation, the outcome is the same as 8B.
-
-### 8D. `normaliseMaturity` receives an unknown value at onboarding save
-If `data.aiMaturity` arrives with a value not in `normaliseMaturity`'s switch statement (e.g. a future UI value not yet handled), the function returns `'intermediate'` (its existing default). This is already the correct behaviour — no change required.
-
-### 8E. `role_level = 'vp-technology'` or `'vp-product'` arrives at a function that only checks the four legacy values
-Any function that uses a `Record<string, string>` map (like `roleLevelInstruction` in `planner.ts` or `SENIORITY_MARKERS` in `session-quality-evaluator.ts`) and receives an unknown key falls back to the `vp-dir` equivalent via nullish coalescing. This is already the pattern used in both files (`?? roleLevel` for the label map, and `'c-suite'` hardcoded as fallback in the quality evaluator). After CURR-01, explicit entries for `vp-technology` and `vp-product` are added to both maps, so the fallback only fires if a third VP sub-role is introduced in future without updating these maps.
-
-### 8F. Session quality evaluator: `quality_dimension_result` write fails
-If the Supabase update to `sessions.quality_dimension_result` fails (network error, column not yet migrated), the quality evaluator logs the error and continues to the existing `quality_evaluated = true` mark. The session is marked as evaluated even if the dimension result was not saved. This prevents the session from being re-evaluated on the next cron tick. The dimension result can be recomputed in a future one-off job if needed.
-
-### 8G. Coverage check runs against zero visible sessions
-If `enrichedPlan` has no visible sessions (e.g. all were moved to queue by the quality threshold), `checkDimensionCoverage` returns `covered_count = 0` and `gap_fill_triggered = false`. No gap-fill runs (there are no visible sessions to add new ones alongside). The result is stored as-is. This is an edge case that indicates an upstream problem (the quality threshold moved everything to queue), not a CURR-01 failure.
+`buildFallbackSessions()` is called when the LLM fails after 3 attempts. The call passes `topic.subtopics` and `maxMins`. The fallback does not need to change — it already generates a session from the subtopics it receives. The chunk-index reference in the fallback call (`chunks.indexOf(chunk) + 1`) is removed along with the chunk loop.
 
 ---
 
 ## 9. Edge Cases
 
-**Edge case 1 — User with `role_level = 'vp-technology'` but the enrichment API key is a placeholder**
-The fallback plan from `buildFallbackPlan()` is returned. Narrative fields use the default fallback strings (Section 8A). The `roleLevelInstruction` lookup is still applied to the fallback plan's `role_hint` field — fallback plan session `role_hint` values reference the `vp-technology` framing instruction. Dimension coverage check still runs against fallback sessions. Gap-fill is skipped (requires API key).
+**EC-01 — Arc with 0 comprehensive_subtopics:** Skip the arc entirely. Log a warning: `[session-organizer] arc "${arc.arc_name}" has 0 comprehensive_subtopics — skipped`. Do not push any session for it. Do not add it to carryOver.
 
-**Edge case 2 — A user who previously onboarded with `role_level = 'vp-dir'` selects "Technology & Engineering" in a second onboarding flow (profile update)**
-The second `POST /api/onboarding` call upserts `role_level = 'vp-technology'`. The existing `curriculum_plans` row is superseded because the `user_profile_hash` changes (the hash includes `roleLevel`). A new plan is generated with `vp-technology` framing.
+**EC-02 — quick_wins preference (5-minute sessions):** `subtopicsPerSession = max(2, floor((5-2)/2)) = max(2,1) = 2`. `halfSession = ceil(2/2) = 1`. Sessions have exactly 2 subtopics each. Remainders of 1 subtopic always carry over (1 < halfSession of 1 is false; 1 >= 1 is true — own shorter session of 1 subtopic). This produces many short sessions. This is correct behaviour for this preference.
 
-**Edge case 3 — `normaliseMaturity` is called with `null` or empty string**
-The function's switch statement falls to the `default` case and returns `'intermediate'`. This is existing behaviour. No change.
+**EC-03 — Single arc with exactly 1 subtopic:** `pool = [subtopic1]`. Full chunk loop does not fire (1 < 2 = subtopicsPerSession for quick_wins; for 15-min, 1 < 6). Remainder: 1. For 15-min sessions, halfSession = 3. 1 < 3 → carry over. Carry-over flush after arc loop: produces 1 final session with 1 subtopic (duration: roundToNearest5(1/6 * 15) = roundToNearest5(2.5) = 5 min, enforced minimum 5). Valid output.
 
-**Edge case 4 — Arc with only one session (singleton arc)**
-`session_chapter_position` defaults to `'opening'` (there is no `building`, `pivot`, `climax`, or `resolution` in a single-session arc). `arc_throughline` is a single sentence. This is valid output.
+**EC-04 — Last arc's carry-over is the only remaining content:** The flush block after the arc loop handles this correctly. It produces one final session with whatever subtopics remain in `carryOver`. `is_cross_arc` is true if `carryOver.arc_names.length > 1`.
 
-**Edge case 5 — Plan with 10 visible sessions (Pro/Executive tier)**
-The coverage check runs against all 10 visible sessions. With more sessions, more keywords appear naturally, making it less likely that gap-fill is needed. If coverage is already at 5+ dimensions with 10 sessions, no gap-fill fires. If gap-fill does fire, the new session is appended within the visible list (it is already visible — it was generated to fill the gap), and the visible count becomes 11. The tier limit cap in `curriculum-generator.ts` is checked after gap-fill and the lowest-priority visible session is moved to the queue if the cap is exceeded.
+**EC-05 — Cross-arc session with unequal contributions from each arc:** The session receives subtopics from both arcs. `arc_names` lists both. The session-designer prompt does not reference arc names in its content framing — it uses `topic.title` and the user profile. No arc-specific framing is injected that would produce incorrect content for a cross-arc session.
 
-**Edge case 6 — Gap-fill session has no natural arc to join**
-If the user has only one arc and the gap-fill session covers a dimension that does not belong to that arc's topic (e.g. a `compliance` gap session for a user whose only arc is "Claude for Work"), the gap-fill session is appended to the existing arc with `arc_position = arc_length + 1` and `arc_length` is incremented. The session's title makes clear it is a supplementary coverage session (e.g. "Compliance Considerations for AI Tools in Your Role").
+**EC-06 — Arc produces exactly `subtopicsPerSession` subtopics:** One full chunk. No remainder. No carry-over. One session produced. Valid.
 
-**Edge case 7 — First-ever VP of Technology user (no DB rows with `role_level = 'vp-technology'` exist yet)**
-The onboarding API saves `vp-technology` without issue (the column is TEXT, no constraint). The planner looks up `roleLevelInstruction['vp-technology']` and finds the new entry. The enrichment Call 1 receives `roleLevel: 'vp-technology'` in the user message. No special handling required.
+**EC-07 — LLM returns >100 subtopics for one arc:** Zod validation (`max(100)`) rejects the arc. The planner catches the Zod error, truncates `comprehensive_subtopics` to the first 100 entries, logs `[planner] arc "${arc_name}" exceeded max(100) comprehensive_subtopics — truncated`, and re-validates. If re-validation passes, the truncated arc is used. If re-validation fails for another reason, the planner falls back to `buildFallbackPlan()`.
 
-**Edge case 8 — `dimension_coverage_result` already exists on `curriculum_plans.raw_llm_output`**
-If plan regeneration runs for the same user (profile changed), the supersede step deletes the old plan row and inserts a new one. The new `raw_llm_output` is a fresh object — no risk of stale `dimension_coverage_result` persisting.
+**EC-08 — Empty arcs array passed to organizer:** Return `[]`. Do not throw. No logging required.
+
+**EC-09 — All arcs are is_visible: false:** The organizer filters to `arc.is_visible === true` only. With no visible arcs, the result is `[]`. The approve route handles this the same as today when `visible_sessions` is empty.
+
+**EC-10 — User's `learning_goal` is null or unrecognised:** `getSessionDuration()` already returns 15 as the default. No change needed. The organizer receives `sessionMins = 15` and proceeds normally.
+
+**EC-11 — Two consecutive arcs both produce remainders smaller than halfSession:** Arc A's remainder carries into Arc B. Arc B's pool (carryOver + Arc B subtopics) is processed normally. If Arc B itself produces a remainder smaller than halfSession, that remainder carries into Arc C. This chains correctly through any number of consecutive small-remainder arcs without special handling.
+
+**EC-12 — Cross-arc session title passed to session-designer:** `topic.title` is set to `arc_names.join(' + ')` (e.g. "Context Windows + Prompt Engineering"). The session-designer generates a specific `session_title` in its response that reflects the actual subtopics covered. The combined label is only the input title; the LLM output overwrites it.
 
 ---
 
-## 10. Out of Scope
+## 10. Non-Functional Requirements
 
-The following are explicitly NOT part of CURR-01:
+**NFR-01:** `organizeSubtopicsIntoSessions` is a pure synchronous function. It must complete in under 10 milliseconds for any realistic input (up to 10 arcs × 100 subtopics = 1,000 subtopics). No async, no I/O, no external calls.
 
-1. **Adaptive plan reordering based on quality signals.** The `quality_dimension_result` stored in this spec is the raw material for SCR-01 (Adaptive Script System). SCR-01 is a separate feature. CURR-01 stores the data; SCR-01 acts on it.
+**NFR-02:** The planner LLM call must complete within the existing 180-second `AbortController` timeout. The new arc shape produces a larger JSON response (flat subtopic list per arc rather than nested session arrays), but the 8,192 max_tokens budget is sufficient for a 10-arc plan with 35 subtopics per arc (approximately 3,500–4,000 output tokens).
 
-2. **UI changes to the plan screen.** The plan page does not change in this spec. The `arc_throughline`, `scene_narrative`, and `session_chapter_position` fields are stored in the DB but not displayed to the user. A future spec will add narrative display to the plan UI.
+**NFR-03:** No new database columns are required. `PlannedSession` is an in-memory intermediate type. `sessions.duration_mins` already exists and will be populated from `PlannedSession.duration_mins`.
 
-3. **Additional VP sub-roles beyond Technology and Product.** Only `vp-technology` and `vp-product` receive dedicated `roleLevel` values and curriculum instructions. All other VP/Director sub-roles (Finance, Marketing, Operations, HR) continue to use `role_level = 'vp-dir'`.
+**NFR-04:** The new planner output is stored in `curriculum_plans.raw_llm_output` as JSONB with `schema_version: 'v2'`. Existing rows without this field continue to use the old code path. No migration is required.
 
-4. **Changes to the session-designer or session-content-pipeline.** The session designer (`inngest/session-designer-auto.ts`) and content pipeline (`inngest/session-content-pipeline.ts`) are unchanged by this spec. The narrative fields stored in `enriched_plan` are not yet used by the content pipeline (that integration is a future spec).
+**NFR-05:** Session count in the new architecture will be higher than in the old architecture for topics with many subtopics. This is expected, correct, and not capped. Plan tier limits (5 visible arcs for starter, 10 for pro/executive) apply at the arc level — they constrain which arcs are visible, not the session count per arc.
 
-5. **Changes to the onboarding UI.** The onboarding page already collects `vp-technology` and `vp-product` as `roleId` values under the VP/Director level. The only UI change is ensuring the page sends `roleLevel: 'vp-technology'` (not `roleLevel: 'vp-dir'`) in the API payload when those sub-roles are selected. This is a one-line change to the onboarding form submission — but the UI component structure and visual design do not change.
+**NFR-06:** The `generateQueueExtension` function is not changed. It continues to produce individual `Session` objects with `subtopics[]` for queue extension calls. The old `SessionSchema` is retained for this purpose.
 
-6. **The `buildCurriculum()` function in `lib/curriculum/index.ts`.** This is the older 4-layer curriculum pipeline (rules-engine → specialist → validator → retry). It is not used by the primary `curriculum-generator.ts` Inngest function — `generateCurriculumPlan()` in `planner.ts` is used instead. `buildCurriculum()` is not touched in this spec.
+**NFR-07:** `npx tsc --noEmit` must pass with zero type errors after all changes in this spec are applied.
 
-7. **`lib/curriculum/validator.ts` changes.** The existing validator checks session count (8-12), foundation count, arc sequence, justification length, and total minutes. The 7-dimension check is not added to this validator. It runs as a separate post-enrichment step in the Inngest function, not as part of the validation layer.
-
-8. **Changes to the `knowledge_profiles` table.** The quality evaluator already upserts `knowledge_profiles` based on V1–V7 classification. CURR-01 does not add new columns to this table.
-
-9. **Per-session narrative display in the walkthrough.** The live session walkthrough (`WalkthroughClient.tsx`) is not changed by this spec.
-
-10. **Backfill of narrative fields for existing plans.** Existing `curriculum_plans` rows will not have `scene_narrative`, `arc_throughline`, `session_chapter_position`, or `dimension_coverage_result` in their `raw_llm_output`. This is acceptable — these fields will only be present on plans generated after CURR-01 ships. Existing plans are not regenerated.
+**NFR-08:** The enrichment pipeline (`enrichCurriculumPlan()` in `lib/curriculum/enrichment.ts`) reads from `withDuration.arcs`. After CURR-01, those arcs no longer contain `sessions[]`. The enrichment pipeline must be inspected for any reference to `arc.sessions` and updated if breakage is found. TypeScript will surface this in NFR-07.
 
 ---
 
 ## 11. Open Questions
 
-None.
+None. All questions are resolved below.
 
-All questions have been resolved by the Business Analyst using best judgment for a VP of Technology audience and the existing codebase evidence. Resolutions are documented below for transparency.
+**Q: What happens to plans already approved under the old schema?**
+Existing plans are unaffected. Their `raw_llm_output` has no `schema_version: 'v2'` field. The approve route detects its absence and continues using the existing `visible_sessions` array path. No migration, no re-generation, no change to existing users' plans.
 
-**Q1 — What exactly does "3-layer narrative curriculum" mean in data terms?**
+**Q: Does the visible/queued arc concept still apply?**
+Yes. The planner still marks each arc as `is_visible: true` or `false`. `total_visible` and `total_queued` in the planner output now refer to arc counts. The organizer only processes visible arcs. Queue arcs remain as arc-level entries; sessions are not generated for them until an arc is unlocked by the user completing prerequisite sessions.
 
-Resolved. The three layers are L1_foundation, L2_core, and L3_strategic — these already exist in the `EnrichedSession.layer` field (from FB-007). "Narrative" in data terms means three new fields on `EnrichedSession`: `scene_narrative` (per-session), `arc_throughline` (per-arc, replicated), and `session_chapter_position` (per-session). These are added to the existing Call 1 system prompt in `enrichCurriculumPlan()`. The data structure is defined in Section 6A.
+**Q: Is there a cap on the number of sessions a user can have?**
+No hardcoded session count cap. Content determines session count. Plan tier limits (5 visible arcs for starter, 10 for pro/executive) constrain which arcs are visible; each arc generates as many sessions as its subtopics require.
 
-**Q2 — Does "VP separate roleId" mean new DB columns, or new values in an existing column?**
+**Q: Does the session-designer still get called once per session?**
+Yes. After the organizer produces `PlannedSession[]`, the approve route calls `designSessionsForTopic()` once per `PlannedSession`. One `PlannedSession` in — one `DesignedSession` out. No internal chunking inside the designer.
 
-Resolved. New values in the existing `users.role_level` TEXT column. No new columns, no migration for the column itself. Only a Zod enum update in `/api/onboarding/route.ts` and new entries in the `roleLevelLabel` and `roleLevelInstruction` maps in `planner.ts`. Migration 040 is for `ai_maturity` normalisation only.
+**Q: What framing does the session-designer use for a cross-arc session?**
+The session-designer prompt references `topic.title` (set to `arc_names.join(' + ')`) and the user profile. It does not reference arc names in content framing instructions. The `arc_names[]` field is metadata for the organizer and the DB record — not injected into the LLM prompt beyond being part of the session title input.
 
-**Q3 — What is the exact mapping from onboarding UI maturity values to DB canonical values?**
-
-Resolved in Section 4C and Migration 040. `observer → beginner`, `emerging → intermediate`, `practitioner → advanced`, `leader → expert`. This is exactly what `normaliseMaturity()` already does — CURR-01 applies it at save time rather than only at runtime.
-
-**Q4 — What are the 7 dimensions and how are they detected?**
-
-Resolved in Section 4A. The 7 dimensions are: strategic, operational, technical, compliance, competitive, team_management, personal_productivity. Detection is keyword-based (local, no Claude call) applied to the concatenated string of `session.title + subtopics.join(' ') + so_what` for each visible session. A dimension is covered if at least 2 keyword matches are found across all visible sessions for that dimension. The full keyword map is in the table in Section 4A.
-
-**Q5 — What constitutes pass vs fail for each of the 7 dimensions?**
-
-Resolved. Pass: at least 2 keyword matches (across all visible sessions combined, not per-session) for that dimension. Fail: 0 or 1 keyword matches. The threshold of 2 (not 1) prevents a single incidental word match from counting as "covered." The overall plan threshold is 5 of 7 covered dimensions.
-
-**Q6 — What does the automated in-session quality evaluation produce, and where does it go?**
-
-Resolved in Sections 4D and 6D. The existing quality evaluator already classifies V1–V7 responses and evaluates 6 criteria. CURR-01 adds one new output: a `quality_dimension_result` JSONB written to `sessions.quality_dimension_result` via Migration 041. This is a local keyword check of the Clio session transcript against the same 7-dimension keyword map used for plan coverage. No new Claude calls. The result is stored for future use by SCR-01.
-
-**Q7 — Does the gap-fill make a new Claude call? Which model? What are the retries?**
-
-Resolved in Section 4A. Yes, gap-fill makes one new Claude call using `claude-sonnet-4-6` with `max_tokens: 2048`. The call has a 15-second timeout (matching `CALL_TIMEOUT_MS` in `enrichment.ts`). There are no retries for the gap-fill call — if it fails, the plan saves without gap-fill sessions (Section 8B). Retries on the overall Inngest function handle transient failures.
-
-**Q8 — What happens to existing plans and users after migration 040 runs?**
-
-Resolved in Section 6C. Migration 040 is a one-time UPDATE that normalises all `users.ai_maturity` values in the DB. It is idempotent (safe to run multiple times). Existing plans (`curriculum_plans` rows) are not touched. The `user_profile_hash` in existing plans uses `normaliseMaturity()` at generation time, so plans generated before CURR-01 already used the canonical value in the hash even if the raw DB value was `'observer'`. After migration 040, the DB and the hash are consistent.
-
-**Q9 — Which next migration numbers are available?**
-
-Resolved by inspecting the migrations directory. Migrations 038 and 039 are already applied (confirmed by directory listing: `038_cleanup_duplicate_cache_rows.sql`, `039_session_insights.sql`). The next available numbers are 040 and 041. Migration 040 is `ai_maturity` normalisation; migration 041 is `quality_dimension_result` column.
-
-**Q10 — Does the `arc_throughline` go on the arc object or on each session object?**
-
-Resolved. It is stored on each session object (replicated from the arc level). This avoids changing the `EnrichedArc` type (which would require updating all consumers) and makes it simpler to read the narrative for any session without a two-level lookup. The LLM is instructed to produce the same `arc_throughline` string for all sessions in the same arc.
+**Q: Does the enrichment pipeline need to change?**
+The enrichment pipeline (`enrichCurriculumPlan()`) reads `arc.sessions[]`. After CURR-01, arcs no longer have `sessions[]` in their v2 shape. The enrichment pipeline must be updated to work with the new arc shape — it should read `arc.comprehensive_subtopics` rather than `arc.sessions[].subtopics`. This is classified as a dependency (Section 12, Dependencies), not an open question, and must be handled in the same build step as the planner change.
 
 ---
 
-## 12. Dependencies
+## 12. Build Order
 
-### What must be true before CURR-01 can be built:
+All steps must be completed in sequence. `npx tsc --noEmit` must pass after Step 6 before any code is committed.
 
-1. **Migration 038 and 039 must already be applied in Supabase.** These are confirmed deployed (directory listing shows both files exist). No action needed.
+### Step 1 — Update `lib/curriculum/planner.ts`
 
-2. **Migration 040 must run before the onboarding API change ships.** If the code change (normalise at save) ships before migration 040 runs, new users will start storing canonical values while old users still have raw UI values in the DB. This is acceptable for a brief window — `normaliseMaturity()` handles both vocabularies at runtime. However, migration 040 should be applied within the same deploy window.
+**1a.** Replace `ArcSchema`: remove `sessions: z.array(SessionSchema)`. Add `arc_description: z.string().min(10).max(1000)`, `comprehensive_subtopics: z.array(z.string().min(3).max(1000)).min(1).max(100)`, `is_visible: z.boolean()`, `queue_rationale: z.string().max(2000).nullable()`.
 
-3. **Migration 041 must run before the quality evaluator code change ships.** The column must exist before the Inngest function tries to write to it. Migration 041 is safe to run before the code — the column will simply be null until the evaluator runs.
+**1b.** Update `CurriculumOutputSchema`: add `schema_version: z.literal('v2').default('v2')`. Update comments on `total_visible` and `total_queued` to note they now count arcs, not sessions.
 
-4. **KB-01 fix must be deployed** (`inngest/session-content-pipeline.ts` upsert error check). Confirmed deployed (BACKLOG.md shows KB-01 as Done 2026-06-09).
+**1c.** Update `buildSystemPrompt()`: replace the `SUBTOPICS RULES` and `SUBTOPIC ORDERING` sections with the `ARC SUBTOPICS` instruction block from Section 7. Update the JSON output example to the new arc shape.
 
-5. **FB-007 (3-layer enrichment) must be fully deployed.** CURR-01 extends the `EnrichedSession` type and the enrichment pipeline. The `enrichCurriculumPlan()` function in `lib/curriculum/enrichment.ts` and the `EnrichedSession` type in `lib/curriculum/types.ts` must be in their FB-007 state (confirmed by reading the source — they are deployed and correct).
+**1d.** Update `buildFallbackPlan()`: replace the per-session subtopic arrays with a flat `comprehensive_subtopics` array per arc. The fallback arc should have the 4 template subtopics from the existing templates collapsed into a flat list. Return arcs in the v2 shape so `organizeSubtopicsIntoSessions` can process fallback output without a separate code path.
 
-6. **The `session-quality-evaluator.ts` Inngest function must be registered and running.** Confirmed in the codebase. CURR-01 adds one write step to the existing per-session evaluation logic — the evaluator must be operational for `quality_dimension_result` to be written.
+**1e.** Fix Bug A: remove `estimated_minutes: Math.ceil(s.subtopics.length / 4) * 15` from the `withDuration` map. Session duration is no longer computed in the planner — it is computed by the organizer from `PlannedSession.duration_mins`.
 
-### Build sequence within CURR-01:
+**1f.** Update the `Arc` type alias: `export type Arc = z.infer<typeof ArcSchema>`. All usages of `Arc` throughout the codebase that access `arc.sessions` will become TypeScript errors — find and fix all of them as part of this step.
 
-1. Write migration 040 (`ai_maturity` normalisation) — apply in Supabase first, before onboarding code changes
-2. Write migration 041 (`quality_dimension_result` column) — apply in Supabase, before quality evaluator code changes
-3. Update `lib/curriculum/types.ts`: add `scene_narrative`, `arc_throughline`, `session_chapter_position` to `EnrichedSession`
-4. Update `lib/curriculum/enrichment.ts`: extend Call 1 system prompt to request the three new narrative fields; update the session assembly block to read and store the new fields with fallback defaults
-5. Write `checkDimensionCoverage()` function in `lib/curriculum/enrichment.ts` (or a new file `lib/curriculum/coverage-check.ts`) — local, no Claude dependency
-6. Write `runGapFill()` function — single Claude call that returns sessions to insert; validate each with `SessionSchema`
-7. Update `inngest/curriculum-generator.ts`: after `enrichCurriculumPlan()`, call `checkDimensionCoverage()`, conditionally call `runGapFill()`, write `dimension_coverage_result` to `rawLlmOutput` before `save-plan` step
-8. Update `app/api/onboarding/route.ts`: extend `roleLevel` Zod enum, apply `normaliseMaturity()` before userRecord upsert
-9. Update `lib/curriculum/planner.ts`: add `vp-technology` and `vp-product` entries to `roleLevelLabel` and `roleLevelInstruction`
-10. Update `inngest/session-quality-evaluator.ts`: add `vp-technology` and `vp-product` to `SENIORITY_MARKERS`; add `checkSessionDimensions()` call and write result to `sessions.quality_dimension_result`
-11. TypeScript check: `npx tsc --noEmit` — zero errors
+### Step 2 — Create `lib/curriculum/session-organizer.ts` (new file)
 
-### Deployment order:
+**2a.** Export the `PlannedSession` type as specified in Section 5c.
 
-- Migrations first (040, 041) — safe before code ships
-- Code changes in a single PR: steps 3–10 together
-- No feature flag required — all changes are backend pipeline additions or backward-compatible data additions
+**2b.** Export `organizeSubtopicsIntoSessions(arcs, sessionMins): PlannedSession[]` implementing the algorithm from Section 6 exactly.
+
+**2c.** Export `subtopicsPerSessionForDuration(sessionMins: number): number` as a named helper so tests and callers can use the formula without duplicating it.
+
+**2d.** Write JSDoc on the exported function: purpose, parameters, return shape, cross-arc packing rule, no-drops guarantee.
+
+**2e.** No dependencies on Anthropic SDK, Supabase, or any I/O module. Only standard TypeScript.
+
+### Step 3 — Update `lib/curriculum/session-designer.ts`
+
+**3a.** Fix Bug B: change `DesignedSessionSchema` subtopics cap from `max(6)` to `max(30)`.
+
+**3b.** Fix Bug C: add `roleLevel: string` parameter to `designFromPreplannedSubtopics()`. Update `designSessionsForTopic()` to accept and pass through `roleLevel`. Build the `framingOpener` string from the `designerFraming` map defined in Section 8.
+
+**3c.** Remove the `chunkArray` call and the `for (const chunk of chunks)` loop from `designFromPreplannedSubtopics()`. The function now makes exactly one LLM call per invocation. All of `topic.subtopics` are the content for this one session.
+
+**3d.** Update the prompt string: replace the framing opener with `framingOpener`. Replace "Design ONE 15-minute learning session" with "Design ONE learning session (${maxMins} minutes of content)."
+
+**3e.** Remove the chunk-index reference from the fallback call at the bottom of the function (the line that referenced `chunks.indexOf(chunk) + 1` to number the fallback session).
+
+### Step 4 — Update `app/api/plan/approve/route.ts`
+
+**4a.** After loading `plan`, check `schema_version`:
+```typescript
+const rawOutput = plan.raw_llm_output as { schema_version?: string; arcs?: unknown[] } | null
+const isV2 = rawOutput?.schema_version === 'v2'
+```
+
+**4b.** If `isV2`:
+- Extract visible arcs from `rawOutput.arcs` (filter `is_visible === true`)
+- Call `organizeSubtopicsIntoSessions(visibleArcs, maxMins)` to get `PlannedSession[]`
+- For each `PlannedSession`, call `designSessionsForTopic()` with `topic.subtopics = plannedSession.subtopics`, `maxMins = plannedSession.duration_mins`, and `roleLevel` from the user record
+
+**4c.** If not `isV2`: use the existing `visible_sessions` path unchanged.
+
+**4d.** When inserting sessions into the DB for v2 plans:
+- `duration_mins` = `PlannedSession.duration_mins`
+- `session_index` = `PlannedSession.session_index + 1` (DB is 1-based)
+- `session_title` = the `DesignedSession.session_title` returned by the designer
+- For cross-arc sessions, set `arc_name` in the DB record to `PlannedSession.arc_names[0]` (primary arc name for display)
+
+### Step 5 — Update `app/api/curriculum/generate/route.ts`
+
+**5a.** Validate the planner output with the updated `CurriculumOutputSchema` (v2 schema). Store the result in `curriculum_plans.raw_llm_output` — the `schema_version: 'v2'` field will be included automatically because it is in the schema with a default.
+
+**5b.** Update `curriculum_plans.visible_sessions`: in v2, this column should store the arc objects (arc_name, arc_description, comprehensive_subtopics, is_visible) rather than session objects. The approve route reads this column when `draftCount === 0` and builds sessions from it using the organizer.
+
+### Step 6 — TypeScript check and enrichment pipeline
+
+**6a.** Run `npx tsc --noEmit`. Fix all type errors before proceeding.
+
+**6b.** Inspect `lib/curriculum/enrichment.ts` for any reference to `arc.sessions` or `session.subtopics` accessed through an arc's sessions array. Update these references to use `arc.comprehensive_subtopics` or adapt to the v2 arc shape. The TypeScript check in 6a will surface these errors.
+
+**6c.** Confirm `npx tsc --noEmit` is clean after enrichment updates.
+
+---
+
+## Dependencies
+
+The following must be true before this spec can be built:
+
+1. **PACE-01 must be applied.** `getSessionDuration()` in `session-designer.ts` already reads `learning_goal` and returns the correct `sessionMins`. Confirmed deployed.
+
+2. **The enrichment pipeline (`lib/curriculum/enrichment.ts`) must be inspected and updated** to work with the v2 arc shape (no `sessions[]` on arcs). This is part of Step 6 in the build order, not a pre-condition. TypeScript will surface any breakage.
+
+3. **`generateQueueExtension` is unaffected** — it produces flat `Session[]` objects using the old `SessionSchema`. It is not changed in this build.
+
+4. **No database migrations are required** for this spec. All changes are to TypeScript types, Zod schemas, LLM prompts, and in-memory data structures. The `sessions` and `curriculum_plans` tables already have the columns needed.
