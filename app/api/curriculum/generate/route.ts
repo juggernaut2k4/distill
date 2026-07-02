@@ -10,6 +10,13 @@ import type { RawLlmOutput } from '@/lib/curriculum/types'
 // Use 300 to leave a safety margin; retries removed so this is a hard ceiling
 export const maxDuration = 300
 
+function slugifyArcName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '')
+}
+
 /**
  * POST /api/curriculum/generate
  * Generates an LLM-powered curriculum plan for the authenticated user.
@@ -120,9 +127,21 @@ export async function POST(request: NextRequest) {
     visibleSessions = output.arcs
       .filter((a) => a.is_visible)
       .map((a) => ({ arc_name: a.arc_name, arc_type: a.arc_type, arc_description: a.arc_description, comprehensive_subtopics: a.comprehensive_subtopics }))
+    // CURR-02: queued arcs need session_id + arc_position so the "Recommended for
+    // you" panel (app/api/curriculum/plan/route.ts) can find and surface them —
+    // without these, generated suggestions were silently never shown.
     queueSessions = output.arcs
       .filter((a) => !a.is_visible)
-      .map((a) => ({ arc_name: a.arc_name, arc_type: a.arc_type, arc_description: a.arc_description, comprehensive_subtopics: a.comprehensive_subtopics, queue_rationale: a.queue_rationale }))
+      .map((a) => ({
+        session_id: `${slugifyArcName(a.arc_name)}-queued`,
+        arc_position: 1,
+        title: a.arc_name,
+        arc_name: a.arc_name,
+        arc_type: a.arc_type,
+        arc_description: a.arc_description,
+        comprehensive_subtopics: a.comprehensive_subtopics,
+        queue_rationale: a.queue_rationale,
+      }))
   }
 
   // Store enriched_plan inside raw_llm_output JSONB — no new DB column needed.

@@ -5,6 +5,13 @@ import { generateCurriculumPlan, buildProfileHash } from '@/lib/curriculum/plann
 
 export const maxDuration = 300
 
+function slugifyArcName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '')
+}
+
 const BodySchema = z.object({
   role:      z.string().min(1).max(100),
   maturity:  z.string().min(1).max(50),
@@ -85,9 +92,20 @@ export async function POST(request: NextRequest) {
   const visibleSessions = output.arcs
     .filter((a) => a.is_visible)
     .map((a) => ({ arc_name: a.arc_name, arc_type: a.arc_type, arc_description: a.arc_description, comprehensive_subtopics: a.comprehensive_subtopics }))
+  // CURR-02: queued arcs need session_id + arc_position so the "Recommended for
+  // you" panel can find and surface them once copied into the user's real plan.
   const queueSessions = output.arcs
     .filter((a) => !a.is_visible)
-    .map((a) => ({ arc_name: a.arc_name, arc_type: a.arc_type, arc_description: a.arc_description, comprehensive_subtopics: a.comprehensive_subtopics, queue_rationale: a.queue_rationale }))
+    .map((a) => ({
+      session_id: `${slugifyArcName(a.arc_name)}-queued`,
+      arc_position: 1,
+      title: a.arc_name,
+      arc_name: a.arc_name,
+      arc_type: a.arc_type,
+      arc_description: a.arc_description,
+      comprehensive_subtopics: a.comprehensive_subtopics,
+      queue_rationale: a.queue_rationale,
+    }))
 
   // Only cache successful LLM plans. Fallbacks have skeleton content (1 session per topic)
   // and would poison the shared cache for all future users with the same profile hash.
