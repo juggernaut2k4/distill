@@ -78,7 +78,24 @@ _Last updated: 2026-06-23 | Source of truth for active work_
 
 ---
 
+### VOICE-01 — Hume Keep-Alive Sends Disconnect-Causing Field
+**Status:** Not started — root cause identified, fix not yet built.
+**What:** During a live session, `WalkthroughClient.tsx` sends a "keep the connection alive" message every 8 seconds regardless of which voice engine (ElevenLabs or Hume) is active. For Hume specifically, this message includes a field Hume doesn't allow, which causes Hume to immediately close the connection — the session drops.
+**Why it matters now:** We are actively testing Hume as the new voice engine (see [[project_voice_provider_toggle]]) — this bug directly breaks that testing.
+**Fix direction:** Add a check before sending the keep-alive message — only include the problematic field when ElevenLabs is the active engine, skip it entirely for Hume.
+**File:** `app/dashboard/walkthrough/WalkthroughClient.tsx` (the periodic keep-alive/injectContext block)
+
+---
+
 ## P1 — Core Features (next sprint)
+
+### PIPE-01 — Two Content-Generation Pipelines Running in Parallel
+**Status:** Not started — needs a decision on which pipeline to keep.
+**What:** There are two separate background jobs that both generate session content, registered at the same time. The older one still runs every hour against all scheduled sessions, which doesn't match the intended design (content should generate right when a user approves their plan, not on a recurring sweep). Having both running risks duplicate work and conflicting content.
+**Decision needed:** Keep the "generate on approval" pipeline as the only one, and retire the old hourly one — or confirm there's still a reason to keep both.
+**File:** both pipelines are registered in `app/api/inngest/route.ts`
+
+---
 
 ### CONTENT-01 — Content Pipeline Redesign (Content → Script+Viz Atomic)
 **Status:** CEO brief done (`docs/specs/CONTENT-01-feature-brief.md`). BA spec in progress — will be at `docs/specs/CONTENT-01-requirement-document.md`. Awaiting Arun approval to build.
@@ -236,6 +253,20 @@ Pass the actual values. Ensure the conflict key fix (LIVE-02) is applied first s
 **Status:** Approved 2026-06-06. BA spec needed before code.
 **What:** 3-layer narrative curriculum, automated in-session quality evaluation via 7-variant classifier, VP separate roleId, `ai_maturity` value alignment, 7-dimension topic coverage check.
 **Note:** Do not build until BA has written and CEO has approved the spec.
+
+---
+
+### CURR-02 — Suggested "Breadth Expansion" Topics Never Shown to Users
+**Status:** Not started — needs investigation.
+**What:** The curriculum planner generates extra related topics (things adjacent to or building on what a user is learning) as a matter of course, but they're always marked hidden and never actually surface anywhere in the product. Likely just unfinished wiring rather than a bug, but not yet confirmed.
+**File:** `lib/curriculum/planner.ts` (the step that generates these extra topics)
+
+---
+
+### CONTENT-02 — Trim Unused/Over-Requested Fields in Generated Articles
+**Status:** Not started.
+**What:** Generated lesson articles currently ask the AI for a field nobody reads (`source_concepts`) and over-request detail on two other fields (`common_misconceptions`, `decision_questions`) beyond what's actually used. Trimming these would shrink each article by roughly 80–120 words and reduce generation cost slightly, with no loss of visible content.
+**File:** the article/content generation prompt (content pipeline)
 
 ### SCR-01 — Adaptive Script System
 **Status:** Architecture approved 2026-06-04. Not built.
