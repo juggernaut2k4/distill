@@ -1,6 +1,9 @@
 /**
  * AGENT-POOL-01: ElevenLabs agent pool management.
- * Toggle: AGENT_POOL_MODE=true — when false (default) every function is a no-op.
+ * Toggle: AGENT_POOL_MODE=true AND NEXT_PUBLIC_VOICE_PROVIDER=elevenlabs (or unset) —
+ * when either condition is false, every function is a no-op. This ensures ElevenLabs
+ * never runs (including this background warm-up cron) while a different voice
+ * provider (e.g. Hume) is the active one being tested.
  *
  * Flow:
  *   session-meeting-setup calls ensurePoolCapacity() to top up if needed
@@ -30,6 +33,8 @@ const MIN_POOL_AGENTS = parseInt(process.env.AGENT_POOL_MIN_SIZE ?? '5', 10)
 
 /** Returns true when agent pool mode is active. */
 export function isPoolModeEnabled(): boolean {
+  const voiceProvider = process.env.NEXT_PUBLIC_VOICE_PROVIDER ?? 'elevenlabs'
+  if (voiceProvider !== 'elevenlabs') return false
   return process.env.AGENT_POOL_MODE === 'true'
 }
 
