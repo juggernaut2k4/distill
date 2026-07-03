@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { sendSignupWelcomeEmail } from '@/lib/delivery/email'
 import { inngest } from '@/inngest/client'
+import { OnboardingSchema, saveOnboardingProfile } from '@/lib/onboarding'
 
 interface ClerkEmailAddress {
   email_address: string
@@ -24,6 +25,10 @@ interface ClerkUserCreatedEvent {
     primary_phone_number_id?: string | null
     first_name: string | null
     last_name: string | null
+    // ONBOARD-DATA-01: answers attached via <SignUp unsafeMetadata={...}> so
+    // the full profile can be saved here, atomically with account creation —
+    // no longer dependent on browser localStorage surviving the sign-up trip.
+    unsafe_metadata?: Record<string, unknown>
   }
   type: 'user.created'
 }
@@ -98,6 +103,25 @@ export async function POST(request: Request) {
       name: 'clio/user.created',
       data: { userId: id, email: primaryEmail, createdAt: new Date().toISOString() },
     }).catch((err: unknown) => console.error('[clerk-webhook] Failed to emit clio/user.created:', err))
+  }
+
+  // ONBOARD-DATA-01: if onboarding answers were attached to the sign-up via
+  // unsafeMetadata, save the full profile now — atomically with account
+  // creation, before this webhook returns. This is the primary save path;
+  // the client's own POST /api/onboarding (localStorage-driven) remains as
+  // a fallback for any account created without metadata attached.
+  if (event.data.unsafe_metadata && Object.keys(event.data.unsafe_metadata).length > 0) {
+    const parsed = OnboardingSchema.safeParse({ ...event.data.unsafe_metadata, email: primaryEmail, phone: primaryPhone ?? undefined })
+    if (parsed.success) {
+      const result = await saveOnboardingProfile(id, parsed.data)
+      if (!result.success) {
+        console.error('[clerk-webhook] Failed to save onboarding profile from unsafeMetadata:', result.error)
+      } else {
+        console.log('[clerk-webhook] Onboarding profile saved from unsafeMetadata for', id)
+      }
+    } else {
+      console.error('[clerk-webhook] unsafeMetadata present but failed validation:', parsed.error.flatten())
+    }
   }
 
   // Send welcome email

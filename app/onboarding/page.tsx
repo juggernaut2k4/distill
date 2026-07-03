@@ -3,7 +3,7 @@
 import { useState, useRef, Suspense, useMemo, useEffect } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useRouter } from 'next/navigation'
-import { useUser } from '@clerk/nextjs'
+import { useUser, SignUp } from '@clerk/nextjs'
 import { ProgressBar } from '@/components/onboarding/ProgressBar'
 import { ArrowRight, ArrowLeft, Plus, X, Search } from 'lucide-react'
 import {
@@ -495,6 +495,9 @@ function OnboardingContent() {
   const [deliveryPreference, setDeliveryPreference] = useState<'email' | 'sms' | 'both'>('email')
   // Prevents the form from flashing at step 0 while the localStorage session check runs
   const [sessionChecked, setSessionChecked] = useState(false)
+  // ONBOARD-DATA-01: answers snapshot passed to <SignUp unsafeMetadata={...}>
+  // so they're attached to account creation itself, not just localStorage.
+  const [pendingOnboardingPayload, setPendingOnboardingPayload] = useState<Record<string, unknown> | null>(null)
 
   // ── Session restore + auto-submit after sign-up return ───────────────────────
   // Runs once Clerk has loaded. Four cases:
@@ -657,6 +660,7 @@ function OnboardingContent() {
           subDomain: industry,
         }
         localStorage.setItem('clio_onboarding', JSON.stringify(payload))
+        setPendingOnboardingPayload(payload)
         setSubmitError('__needs_auth__')
         return
       }
@@ -738,20 +742,36 @@ function OnboardingContent() {
 
   if (submitError === '__needs_auth__') {
     return (
-      <div className="min-h-screen bg-[#080808] flex flex-col items-center justify-center px-6">
+      <div className="min-h-screen bg-[#080808] flex flex-col items-center justify-center px-6 py-12">
         <div className="max-w-sm w-full text-center space-y-5">
           <div className="w-16 h-16 rounded-full bg-[#7C3AED]/20 border border-[#7C3AED]/40 flex items-center justify-center mx-auto">
             <span className="text-2xl font-extrabold text-white">C</span>
           </div>
           <h2 className="text-2xl font-bold text-white">Your plan is ready.</h2>
           <p className="text-[#94A3B8] text-sm">Create your account to save your personalised AI learning plan and start your 3-day free trial.</p>
-          <a
-            href="/sign-up?redirect_url=/onboarding"
-            className="flex items-center justify-center w-full h-12 rounded-xl bg-[#7C3AED] hover:bg-[#6D28D9] text-white font-semibold text-sm transition-colors"
-          >
-            Create account — it&apos;s free
-          </a>
-          <p className="text-[#475569] text-xs">Already have an account? <a href="/sign-in?redirect_url=/onboarding" className="text-[#7C3AED] hover:text-[#A855F7]">Sign in</a></p>
+        </div>
+        <div className="mt-6">
+          {/* ONBOARD-DATA-01: answers travel with the sign-up itself via unsafeMetadata —
+              the Clerk webhook saves the full profile the instant the account is created,
+              instead of depending on localStorage surviving the trip back from Clerk. */}
+          <SignUp
+            forceRedirectUrl="/onboarding"
+            unsafeMetadata={pendingOnboardingPayload ?? undefined}
+            appearance={{
+              variables: {
+                colorBackground: '#111111',
+                colorText: '#ffffff',
+                colorPrimary: '#7C3AED',
+                colorInputBackground: '#1A1A1A',
+                colorInputText: '#ffffff',
+              },
+              elements: {
+                socialButtonsBlockButton: '!bg-white !text-gray-900 !border !border-gray-300 hover:!bg-gray-100 hover:!text-gray-900',
+                socialButtonsBlockButtonText: '!text-gray-900 !font-medium',
+                socialButtonsBlockButtonArrow: '!text-gray-900',
+              },
+            }}
+          />
         </div>
       </div>
     )
