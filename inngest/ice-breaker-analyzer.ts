@@ -44,11 +44,60 @@ const DRIVER_TO_MOTIVATION: Record<ExtractedSignals['primary_driver'], string> =
   other:        'opportunity_driven',
 }
 
+// primary_driver → business_focus_lens mapping (spec 6E: "derived from primary_driver directly")
+const DRIVER_TO_BUSINESS_FOCUS_LENS: Record<ExtractedSignals['primary_driver'], string> = {
+  compliance:   'risk_compliance',
+  competitive:  'competitive_edge',
+  cost:         'cost_reduction',
+  curiosity:    'capability_building',
+  other:        'capability_building',
+}
+
 function confidenceFromSessionCount(count: number): string {
   if (count >= 7) return 'high'
   if (count >= 3) return 'medium'
   return 'low'
 }
+
+// ─── VOCAB FINGERPRINT EXTRACTION (spec 6E) ──────────────────────────────────
+
+const REGISTER_KEYWORDS: Record<string, string[]> = {
+  finance: ['budget', 'cost', 'roi', 'revenue', 'margin', 'capex', 'opex', 'pricing', 'spend', 'p&l'],
+  technical: ['api', 'model', 'latency', 'integration', 'architecture', 'pipeline', 'deploy', 'infrastructure', 'sdk', 'inference'],
+  operations: ['workflow', 'process', 'team', 'headcount', 'rollout', 'adoption', 'throughput', 'sla', 'ops'],
+  legal: ['contract', 'compliance', 'regulatory', 'liability', 'governance', 'policy', 'audit', 'risk', 'legal'],
+}
+
+/** Detects dominant vocabulary register from raw transcript keyword frequency. */
+function detectRegister(transcript: string): VocabFingerprint['detected_register'] {
+  const lower = transcript.toLowerCase()
+  let bestRegister: VocabFingerprint['detected_register'] = 'general'
+  let bestScore = 0
+  for (const [register, keywords] of Object.entries(REGISTER_KEYWORDS)) {
+    const score = keywords.reduce((acc, kw) => acc + (lower.includes(kw) ? 1 : 0), 0)
+    if (score > bestScore) {
+      bestScore = score
+      bestRegister = register as VocabFingerprint['detected_register']
+    }
+  }
+  return bestRegister
+}
+
+/** Extracts domain terms present in the transcript, capped to avoid unbounded growth. */
+function extractDomainTerms(transcript: string): string[] {
+  const lower = transcript.toLowerCase()
+  const allKeywords = Object.values(REGISTER_KEYWORDS).flat()
+  const found = allKeywords.filter((kw) => lower.includes(kw))
+  return Array.from(new Set(found))
+}
+
+interface VocabFingerprint {
+  domain_terms: string[]
+  detected_register: 'finance' | 'technical' | 'operations' | 'legal' | 'general'
+  example_preference: 'quantitative' | 'narrative' | 'mixed'
+}
+
+const MAX_DOMAIN_TERMS = 30
 
 // ─── MOCK EXTRACTOR ───────────────────────────────────────────────────────────
 
@@ -163,10 +212,11 @@ Extract 5 structured signals from this response. Return ONLY valid JSON (no mark
 
     // Step 4: Upsert user_learning_profiles with derived values
     await step.run('upsert-learning-profile', async () => {
-      // Fetch current profile to calculate incremented session count + confidence
+      // Fetch current profile to calculate incremented session count + confidence,
+      // and to merge (not overwrite) the vocab fingerprint's domain_terms.
       const { data: existing } = await supabase
         .from('user_learning_profiles')
-        .select('sessions_used_for_profile')
+        .select('sessions_used_for_profile, vocab_fingerprint')
         .eq('user_id', userId)
         .maybeSingle()
 
@@ -174,6 +224,20 @@ Extract 5 structured signals from this response. Return ONLY valid JSON (no mark
       const newCount = currentCount + 1
       const newConfidence = confidenceFromSessionCount(newCount)
       const learningMotivation = DRIVER_TO_MOTIVATION[extractedSignals.primary_driver] ?? 'opportunity_driven'
+      const businessFocusLens = DRIVER_TO_BUSINESS_FOCUS_LENS[extractedSignals.primary_driver] ?? 'capability_building'
+
+      // Merge new domain terms with existing ones, capped at MAX_DOMAIN_TERMS total (spec 6E).
+      const existingVocab = (existing?.vocab_fingerprint as VocabFingerprint | null) ?? null
+      const existingTerms = existingVocab?.domain_terms ?? []
+      const newTerms = extractDomainTerms(rawTranscript)
+      const mergedTerms = Array.from(new Set([...existingTerms, ...newTerms])).slice(0, MAX_DOMAIN_TERMS)
+      const detectedRegister = detectRegister(rawTranscript)
+
+      const vocabFingerprint: VocabFingerprint = {
+        domain_terms: mergedTerms,
+        detected_register: newTerms.length > 0 ? detectedRegister : (existingVocab?.detected_register ?? 'general'),
+        example_preference: existingVocab?.example_preference ?? 'mixed',
+      }
 
       const { error } = await supabase
         .from('user_learning_profiles')
@@ -181,6 +245,8 @@ Extract 5 structured signals from this response. Return ONLY valid JSON (no mark
           {
             user_id: userId,
             learning_motivation: learningMotivation,
+            business_focus_lens: businessFocusLens,
+            vocab_fingerprint: vocabFingerprint,
             profile_confidence: newConfidence,
             sessions_used_for_profile: newCount,
             updated_at: new Date().toISOString(),

@@ -115,7 +115,7 @@ Full detail on each item lives in this session's memory (`project_pre_production
 ---
 
 ### CONTENT-01 — Content Pipeline Redesign (Content → Script+Viz Atomic)
-**Status:** CEO brief done (`docs/specs/CONTENT-01-feature-brief.md`). BA spec in progress — will be at `docs/specs/CONTENT-01-requirement-document.md`. Awaiting Arun approval to build.
+**Status:** ✅ Done — shipped (commit `6c732a0` + follow-ons `957a0da`, `91fb948`, `563a864`). Confirmed live 2026-07-03: all of CONTENT-01-A through M verified present in code, `tsc --noEmit` clean. See "CONTENT-01: Content Pipeline Redesign" task table below — every row in that table is now Done, not "Not started" as previously listed.
 **What:** Three interconnected changes to produce elite, aligned session content:
 1. **New generation order:** Content article (comprehensive, no word limit) → Script (2-min TEACH + ICE_BREAKER, calibrated to VP/C-suite) + Visualization (generated in the same LLM call as script — atomic, structurally impossible to desync)
 2. **VP-level calibration:** Explicit rules in system prompt — skip definitional content, start at competitive landscape and procurement implications. Skip "enterprise grade, not a toy." Begin at: "You're probably evaluating Claude alongside GPT-4 or Gemini…"
@@ -234,18 +234,20 @@ Pass the actual values. Ensure the conflict key fix (LIVE-02) is applied first s
 ## P1 — Core Features (continued)
 
 ### SES-01 — Session Architecture Redesign: DB Session as Unit of Truth
-**Status:** 🟡 Design complete — CEO Feature Brief + BA Requirement Document done. Pending Arun review + Q10 answer. DO NOT BUILD until approved.
-**What:** 6 interdependent changes that make the DB session (not curriculum session) the canonical record everywhere:
-- **SESS-01**: Re-key `topic_content_cache.topic_id` from curriculum_session_id → DB session UUID
-- **SESS-02**: Content pipeline fires on `distill/session.designer.completed` event (not at plan/approve)
-- **SESS-03**: Schedule route does UPDATE only — no more delete + re-insert of sessions
-- **SESS-04**: Plan screen shows 10 DB sessions grouped under Topic/Arc headers (not 5 curriculum cards)
-- **SESS-05**: KB shows 10 entries, one per DB session, scoped to that session's subtopics
-- **TITLE-01**: Three-level title hierarchy (Arc → Topic → Session) enforced across all UI
-**Why P1:** Every new user who approves a plan hits all 4 failure modes — content collisions, wrong KB entries, content generated before subtopics assigned, metadata destroyed by schedule route.
-**Specs:** `docs/specs/SES-01-session-architecture-redesign.md` (design) + `docs/specs/SES-01-feature-brief.md` (CEO brief) + `docs/specs/SES-01-requirement-document.md` (BA spec, 12/12 sections done)
-**Open questions:** None — Q10 resolved 2026-06-10. Migration SQL is finalized in section 6F of the requirement doc. Ready to build once Arun approves the spec.
-**Deployment sequence:** SESS-03 → SESS-02 → SESS-01 (migration) → SESS-04+SESS-05+TITLE-01 together.
+**Status:** ✅ Verified DONE 2026-07-03 (was already built, undocumented) — 1 minor data-hygiene gap found and left as-is (see below). No code changes made this session.
+**Verification method:** Direct code + live DB read against Supabase project `nqxlpcshouboplhnuvrh` — not delegated. Full re-check requested because the prior 3 backlog items (CURR-02, CONTENT-01, CURR-01) had also turned out to already be shipped.
+
+**Per-sub-area status:**
+- **SESS-01** (re-key `topic_content_cache.topic_id` → DB session UUID) — ✅ **Done in application logic.** New content is written with `topic_id = sessions.id` (confirmed in `lib/topic-cache.ts` write path and live data: most `topic_id` values are session UUIDs). ⚠️ **Data-hygiene gap, not a functional bug:** migration `supabase/migrations/040_session_cache_key.sql` added a typed `session_id uuid` FK column intended as a backfilled convenience column, but it was never actually applied against this project (`list_migrations` shows no `040` entry) — all 157 rows in `topic_content_cache` have `session_id IS NULL`. This is harmless because `app/api/kb/topics/route.ts` and the pipeline both join on `topic_id` directly, never on the unused `session_id` column. Also found 1 legacy row still keyed by an old text slug (`claude-api-messages-and-tool-use`) and ~146 rows whose `topic_id` UUID no longer matches any live `sessions.id` (orphaned from deleted/regenerated sessions) — these are inert rows, not read by any current query path, and pose no correctness risk. **Left untouched** — backfilling `session_id` or cleaning orphaned rows on live data is a separate, low-priority hygiene task, not part of SES-01's functional scope, and changes to live session data require their own spec per the "Spec Before Build" rule.
+- **SESS-02** (pipeline fires on `distill/session.designer.completed`, not plan/approve) — ✅ **Done.** Confirmed in `inngest/session-content-pipeline.ts` line 94 — function triggers on `distill/session.designer.completed`.
+- **SESS-03** (schedule route UPDATE-only, no delete+reinsert) — ✅ **Done.** Confirmed in `app/api/sessions/schedule/route.ts` — does `UPDATE scheduled_at` per session_index, explicitly skips completed/active sessions, no delete/insert anywhere in the route. Comment in code states this directly.
+- **SESS-04** (plan screen groups sessions under Topic/Arc headers) — ✅ **Done.** `app/dashboard/plan/PlanClient.tsx` + `components/plan/ArcSection.tsx` + `components/plan/TopicTree.tsx` group sessions by `arc_name`/`arc_position`/`arc_type`. Same grouping pattern also present in `app/dashboard/sessions/SessionsClient.tsx`.
+- **SESS-05** (KB shows one entry per DB session) — ✅ **Done.** `app/api/kb/topics/route.ts` explicitly documents and implements this: queries `sessions` first (ordered by `session_index`), joins `topic_content_cache` by `topic_id IN (session UUIDs)` — one KB card per DB session, not per curriculum topic.
+- **TITLE-01** (Arc → Topic → Session title hierarchy) — ✅ **Done**, though shipped bundled into commit `5511169` rather than its own commit. `sessions.session_title` is read as the single source of truth in `SessionsClient.tsx`, `SessionDetailClient.tsx`, and the KB route, with `visible_sessions[].title` as fallback only — matches the "Option B: curriculum plan title is canonical, downstream stores verbatim" decision in `docs/specs/TITLE-01-session-title-consistency.md`.
+
+**Commits:** `5511169` / `010a871` "feat(sessions): DB session UUID as content cache key, schedule fix + KB routes (SESS-01–05)" — both sub-areas and TITLE-01 landed together, undocumented as complete in this backlog until now.
+**Build performed this session:** None — everything was already shipped. `npx tsc --noEmit` re-run clean.
+**Follow-up (optional, not blocking):** low-priority hygiene task — either drop the unused `topic_content_cache.session_id` column or run its backfill + clean orphaned rows. Not scheduled; flag only if it starts causing confusion.
 
 ---
 
@@ -266,17 +268,19 @@ Pass the actual values. Ensure the conflict key fix (LIVE-02) is applied first s
 **Fix options documented in VISUALIZATION_FALLBACK_ANALYSIS.md.**
 **Dependency:** KB-01 must be deployed first.
 
-### CURR-01 — Curriculum Redesign
-**Status:** Approved 2026-06-06. BA spec needed before code.
-**What:** 3-layer narrative curriculum, automated in-session quality evaluation via 7-variant classifier, VP separate roleId, `ai_maturity` value alignment, 7-dimension topic coverage check.
-**Note:** Do not build until BA has written and CEO has approved the spec.
+### CURR-01 — Curriculum Redesign / Content-First Session Architecture
+**Status:** ✅ Done — shipped 2026-06-26 (commit `734c50d`, spec `docs/specs/CURR-01-requirement-document.md`). Confirmed live 2026-07-03.
+**What:** Planner LLM now emits a flat `comprehensive_subtopics[]` per arc with no session boundaries or artificial cap (`ArcSchema` v2 in `lib/curriculum/planner.ts`). A new pure-code `organizeSubtopicsIntoSessions()` (`lib/curriculum/session-organizer.ts`) divides that list into sessions based on the user's preferred duration — wired live into `app/api/plan/approve/route.ts`. All 3 pre-existing bugs fixed: duration now derives from user preference not subtopic count, `DesignedSessionSchema` subtopics cap raised `max(6)→max(30)`, and `roleLevel` is injected into the session-designer framing prompt (`lib/curriculum/session-designer.ts`).
+**Known tradeoff (intentional, not a gap):** `lib/curriculum/enrichment.ts` — the older CURR-01 idea's 3-layer/quality-classifier/7-dimension-coverage engine — still references the retired v1 `arc.sessions[]` shape and is fully disabled on the v2 path (`enrichedPlan` hardcoded to `null` in `planner.ts` with an explicit comment). This is dead code left in place, not a live bug; nothing calls `enrichCurriculumPlan()`. Candidate for cleanup (delete or archive `enrichment.ts`) but not a functional regression.
+**Note:** The pre-2026-06-26 version of this backlog entry (3-layer narrative + 7-variant classifier + VP roleId + dimension coverage) was superseded by the content-first architecture above and never built as originally scoped — the newer approach solved the same underlying problem (silent content loss / generic framing) differently.
 
 ---
 
 ### CURR-02 — Suggested "Breadth Expansion" Topics Never Shown to Users
-**Status:** Not started — needs investigation.
-**What:** The curriculum planner generates extra related topics (things adjacent to or building on what a user is learning) as a matter of course, but they're always marked hidden and never actually surface anywhere in the product. Likely just unfinished wiring rather than a bug, but not yet confirmed.
-**File:** `lib/curriculum/planner.ts` (the step that generates these extra topics)
+**Status:** ✅ Done — shipped 2026-05-31 (commit `7986a22`, FB-004), patched 2026-07-02 (commit `0900180`). Confirmed live 2026-07-03.
+**What:** The curriculum planner generates extra related topics as a matter of course. These already surface via a "Recommended for you" panel on `/dashboard/plan` (`components/plan/RecommendationCard.tsx`), backed by `app/api/curriculum/plan/route.ts` (GET, computes recommendations), `app/api/curriculum/accept-recommendation/route.ts`, and `app/api/curriculum/dismiss-recommendation/route.ts` — fully interactive (Accept/Dismiss), not just read-only. Gated by `RECOMMENDATION_LIMIT` per tier (executive/pro: 2, starter: 1, free/trial: 0).
+**Note:** This entry was stale — the underlying reason a specific test user saw zero recommendations was that the planner's STEP 6 breadth-expansion instruction had no minimum count (fixed 2026-07-03, see planner.ts commit `a35f672`), not a missing surfacing UI.
+**File:** `lib/curriculum/planner.ts`, `app/api/curriculum/plan/route.ts`, `components/plan/RecommendationCard.tsx`
 
 ---
 
@@ -348,7 +352,8 @@ KB-03 (KB overview slide) ✅
 LIVE-05 (walkthrough_state drift)         ← P2, do after P1 complete
 VIZ-01 (visualization fallback fix)       ← P2, depends on LIVE-02 deployed
     ↓
-CURR-01, SCR-01                           ← enhancement layer
+CURR-01 ✅ (done)
+SCR-01                                     ← enhancement layer, not yet built
 ```
 
 ---
@@ -368,7 +373,7 @@ CURR-01, SCR-01                           ← enhancement layer
 | KB-02 Section Ordering | N/A (bug fix) | N/A | ✅ Done |
 | KB-03 KB Overview Slide | N/A (small) | N/A | ✅ Done |
 | ONB-01 Onboarding Bugs | N/A (bug fix) | N/A | ✅ Partial |
-| CURR-01 Curriculum Redesign | ✅ Done | ❌ Needed | ❌ |
+| CURR-01 Content-First Session Architecture | ✅ Done | ✅ Done — `docs/specs/CURR-01-requirement-document.md` | ✅ Shipped 2026-06-26 |
 | SCR-01 Adaptive Script | ✅ Done | ❌ Needed | ❌ |
 
 ---
