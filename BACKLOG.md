@@ -12,6 +12,23 @@ _Last updated: 2026-06-23 | Source of truth for active work_
 
 ---
 
+## 🚦 PRE-LAUNCH GATE — do not go live with real clients until this is cleared
+
+These are dev-only shortcuts added deliberately during the build. They must be removed or secured before real customer traffic hits production. Arun: ask Claude to audit this list before flipping the switch to a real audience.
+
+- **Debug/test endpoints to remove entirely:**
+  - `/api/admin/test-session` — lets any signed-in user instantly spin up a live coaching session against any meeting link, bypassing the real session-creation flow and the newer security/billing checks built on top of it.
+  - `/api/admin/test-voice`, `/api/admin/debug-bot`, `/api/admin/test-email`, `/api/admin/seed-topics` — similar dev-only conveniences.
+- **Security gaps to close:**
+  - Admin bypass in `/api/auth/session` (a hidden header that skips real login).
+  - `/api/walkthrough-state/[userId]` has no authentication — anyone who knows a user ID can read that user's session content.
+  - A couple of admin endpoints leak internal details (API key prefixes, user ID lists) in their responses.
+- **Copy cleanup:** ~30 places in user-facing text still hardcode the word "AI" instead of adapting to context.
+
+Full detail on each item lives in this session's memory (`project_pre_production_cleanup.md`) — ask Claude to pull the complete list when this gate is reached.
+
+---
+
 ## P0 — Blockers (fix first)
 
 ### LIVE-01 — Live Session: Visualization Shows Wrong Content (Display/Speech Desync)
