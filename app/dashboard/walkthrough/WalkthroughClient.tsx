@@ -338,6 +338,23 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
     const connect = async () => {
       if (cancelled) return
       const isReconnect = hasConnectedRef.current
+      // Detect mid-session reconnects from the Attendee bot reloading its page.
+      // hasConnectedRef is false on fresh page loads, so isReconnect misses this case.
+      // If the DB shows we're past section 0, the session was already underway.
+      const isMidSession = !isReconnect && (currentSectionIndexRef.current > 0)
+
+      // The bot's own page-warmup reload happens once, shortly after first load —
+      // matches the existing botViewReady delay below (setTimeout 3000ms). Starting
+      // a real voice connection before that reload lands gets it torn down almost
+      // immediately (WS opens, mic starts, then the remount cleanup closes it —
+      // Hume logs this as a clean USER_ENDED with no error, easy to misread as a
+      // Hume-side rejection). Wait out the same warmup window on a genuinely fresh
+      // bot load before opening the connection at all; reconnects/mid-session skip this.
+      if (botView && !isReconnect && !isMidSession) {
+        await new Promise((resolve) => setTimeout(resolve, 3500))
+        if (cancelled) return
+      }
+
       setAgentStatus('connecting')
       setAgentError(null)
 
@@ -347,11 +364,6 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
         // agent via sendUserMessage() fed by the transcript webhook instead.
         const micStream = await navigator.mediaDevices.getUserMedia({ audio: true })
         if (cancelled) return
-
-        // Detect mid-session reconnects from the Attendee bot reloading its page.
-        // hasConnectedRef is false on fresh page loads, so isReconnect misses this case.
-        // If the DB shows we're past section 0, the session was already underway.
-        const isMidSession = !isReconnect && (currentSectionIndexRef.current > 0)
 
         // ── HUME EVI 3 path ───────────────────────────────────────────────────
         if (VOICE_PROVIDER === 'hume') {
