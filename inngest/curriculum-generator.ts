@@ -127,8 +127,47 @@ export const curriculumGenerator = inngest.createFunction(
             bridgeArc = await generateBridgingArc(delta.added, delta.kept, deltaProfile)
           }
 
-          const existingVisible = Array.isArray(activePlan.visible_sessions) ? activePlan.visible_sessions as unknown[] : []
-          const existingQueue   = Array.isArray(activePlan.queue_sessions)   ? activePlan.queue_sessions   as unknown[] : []
+          // Re-read the row immediately before writing (rather than trusting the
+          // snapshot captured in the earlier step). This shrinks — though does not
+          // fully eliminate — the window in which a concurrent topics-selected run
+          // for the same user clobbers this merge with a stale visible/queue array.
+          // A conditional update guarded by generated_at below is the real guard.
+          const { data: freshPlan } = await supabase
+            .from('curriculum_plans')
+            .select('id, visible_sessions, queue_sessions, generated_at')
+            .eq('id', activePlan.id)
+            .is('superseded_at', null)
+            .maybeSingle()
+
+          // The plan we intended to merge into was superseded or deleted between
+          // our read and now (a concurrent run won the race). Do not blindly fall
+          // through to full regeneration — that is exactly how duplicate rows are
+          // created. Re-resolve the CURRENT active plan and merge into that one,
+          // since delta.added must always merge into whatever plan is active now,
+          // never spawn a second row.
+          const mergeTarget = freshPlan ?? await (async () => {
+            const { data } = await supabase
+              .from('curriculum_plans')
+              .select('id, visible_sessions, queue_sessions, generated_at')
+              .eq('user_id', userId)
+              .is('superseded_at', null)
+              .order('generated_at', { ascending: false })
+              .limit(1)
+              .maybeSingle()
+            return data
+          })()
+
+          if (!mergeTarget) {
+            // Genuinely no active plan exists right now (e.g. it was superseded
+            // and the new one hasn't been inserted yet). Surface this so the
+            // caller falls through to full regeneration exactly once, with the
+            // insert-side unique-violation guard as the final backstop against
+            // a duplicate row.
+            return { success: false, reason: 'no_active_plan_after_reread' as const }
+          }
+
+          const existingVisible = Array.isArray(mergeTarget.visible_sessions) ? mergeTarget.visible_sessions as unknown[] : []
+          const existingQueue   = Array.isArray(mergeTarget.queue_sessions)   ? mergeTarget.queue_sessions   as unknown[] : []
 
           // Bridge goes first — it's the on-ramp into the new topic — then the new topic arcs.
           // Kept arcs (existingVisible/existingQueue) are spread unchanged, never mutated.
@@ -139,7 +178,13 @@ export const curriculumGenerator = inngest.createFunction(
           const mergedVisible = [...existingVisible, ...newVisibleArcs]
           const mergedQueue   = [...existingQueue, ...newQueueArcs]
 
-          await supabase
+          // Conditional update: only write if the row is still the active,
+          // non-superseded plan at the moment of the write. If a concurrent run
+          // superseded it in between our re-read and this update, this affects
+          // zero rows instead of silently merging into a plan that's about to be
+          // (or already was) retired — surfacing as a clean no-op we can log,
+          // rather than corrupting either row.
+          const { data: updatedRows } = await supabase
             .from('curriculum_plans')
             .update({
               visible_sessions: mergedVisible,
@@ -147,7 +192,14 @@ export const curriculumGenerator = inngest.createFunction(
               // Mark not-approved so the user reviews the updated plan before sessions materialize.
               is_approved: false,
             })
-            .eq('id', activePlan.id)
+            .eq('id', mergeTarget.id)
+            .is('superseded_at', null)
+            .select('id')
+
+          if (!updatedRows || updatedRows.length === 0) {
+            console.warn('[curriculum-generator] Merge target was superseded mid-write — retrying will re-resolve', { userId, planId: mergeTarget.id })
+            return { success: false, reason: 'merge_target_superseded_mid_write' as const }
+          }
 
           await supabase
             .from('users')
@@ -156,22 +208,34 @@ export const curriculumGenerator = inngest.createFunction(
 
           console.log('[curriculum-generator] Additive delta merged', {
             userId,
-            planId: activePlan.id,
+            planId: mergeTarget.id,
             addedTopics: delta.added,
             newArcCount: arcsToAdd.length,
             bridged: !!bridgeArc,
             newArcsFallback,
           })
 
-          return { success: true, planId: activePlan.id, additive: true, bridged: !!bridgeArc }
+          return { success: true, planId: mergeTarget.id, additive: true, bridged: !!bridgeArc }
         })
 
-        return additiveResult
+        if (additiveResult.success) {
+          return additiveResult
+        }
+
+        // additive merge could not complete safely (race). Throwing here lets
+        // Inngest's built-in retry (3, exponential backoff — see function config)
+        // re-run the whole function from the top, which will re-resolve the
+        // active plan fresh rather than falling through to a full regeneration
+        // that would create a second row.
+        throw new Error(`[curriculum-generator] Additive delta merge could not complete safely (${additiveResult.reason}) — retrying`)
       }
 
       console.warn('[curriculum-generator] Delta with added topics but no active plan found — falling back to full regeneration', { userId })
-      // No active plan to merge into (e.g. first save with a delta payload) —
-      // fall through to the standard full-generation path below.
+      // No active plan to merge into (e.g. first save with a delta payload, or a
+      // genuinely brand-new user) — fall through to the standard full-generation
+      // path below. The insert in that path is guarded against duplicate rows by
+      // catching a unique-constraint violation and re-resolving into the winning
+      // row instead (see save-plan step below).
     }
 
     // ── Early-exit guard (second line of defence against duplicate runs) ──────
@@ -302,7 +366,7 @@ export const curriculumGenerator = inngest.createFunction(
           queue_rationale: a.queue_rationale,
         }))
 
-      const { data: newPlan } = await supabase
+      const { data: newPlan, error: insertError } = await supabase
         .from('curriculum_plans')
         .insert({
           user_id:           userId,
@@ -314,6 +378,29 @@ export const curriculumGenerator = inngest.createFunction(
         })
         .select('id')
         .single()
+
+      if (insertError) {
+        // 23505 = unique_violation. Once idx_curriculum_plans_one_active_per_user
+        // (partial unique index on user_id WHERE superseded_at IS NULL) is applied,
+        // a concurrent run that already inserted the active plan for this user
+        // causes this insert to fail here instead of silently succeeding as a
+        // second live row. Re-resolve to the row that won the race and use it —
+        // never treat this as a hard failure.
+        if (insertError.code === '23505') {
+          console.warn('[curriculum-generator] Concurrent insert detected (unique_violation) — resolving to winning row', { userId })
+          const { data: winner } = await supabase
+            .from('curriculum_plans')
+            .select('id')
+            .eq('user_id', userId)
+            .is('superseded_at', null)
+            .order('generated_at', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+          return winner?.id ?? null
+        }
+        console.error('[curriculum-generator] Insert failed:', insertError)
+        return null
+      }
 
       return newPlan?.id ?? null
     })
