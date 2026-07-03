@@ -110,7 +110,10 @@ export async function POST(request: NextRequest) {
         subscription_status: subscription.status,
         stripe_subscription_id: subscription.id,
         minutes_included: MINUTES_MAP[plan],
-        minutes_balance: trialOptIn ? 5 : MINUTES_MAP[plan],
+        // T-07 (SCALING_PLAYBOOK.md): 15 min covers one full orientation/aha
+        // session (~8-10 min) with buffer. 5 min was cutting the trial off
+        // before the user reached the "aha" moment.
+        minutes_balance: trialOptIn ? 15 : MINUTES_MAP[plan],
         trial_opted_in: trialOptIn,
         trial_ends_at: trialEndDate,
       })

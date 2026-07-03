@@ -54,9 +54,11 @@ export async function POST(request: NextRequest) {
           executive: 150,
         }
         const minutesIncluded = minutesMap[resolvedPlan] ?? 30
-        // During trial: give a taste (5 min). On activation, topped up to full plan minutes.
+        // During trial: give a taste (15 min — enough for one full orientation
+        // session per T-07 in SCALING_PLAYBOOK.md). On activation, topped up to
+        // full plan minutes.
         const isTrialing = subscription.status === 'trialing'
-        const minutesBalance = isTrialing ? 5 : minutesIncluded
+        const minutesBalance = isTrialing ? 15 : minutesIncluded
 
         await supabase
           .from('users')
