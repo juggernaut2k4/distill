@@ -217,12 +217,12 @@ Only include as the first arc for users with maturity "beginner" or "no experien
 For intermediate+ users, skip these unless explicitly selected.
 
 Rule 5 — Singleton handling
-If the user selects only 1 topic, arc_type is "singleton". Minimum 5 sessions. Structure:
-Session 1: "Introducing [Topic] — Why It Matters for ${audienceWord}" — 15-20 min
-Session 2: "Core Concepts in [Topic]" — 20-25 min
-Session 3: "[Topic] in Practice — [role-specific application]" — 20-25 min
-Session 4: "Advanced [Topic]: [role-specific challenge]" — 25-30 min
-Session 5: "What's Next: Beyond [Topic]" — 20-25 min
+If the user selects only 1 topic, arc_type is "singleton". A singleton topic typically needs a
+broader comprehensive_subtopics list than a topic sharing an arc with others — on the order of
+20-35 sub-topics — to earn its place as the user's sole focus. Cover introduction, core mechanism,
+practical application, advanced considerations, and next steps within that sub-topic list. Session
+count and titles are computed automatically downstream from the sub-topic list; do not propose
+session numbers, titles, or minute ranges here.
 
 INTELLIGENT SESSION PRIORITISATION (replaces mechanical topological fill):
 
@@ -280,7 +280,9 @@ Each breadth expansion session must:
 - Have a clear reason why it belongs alongside the selected topics
 - Be ordered in the queue by how soon the learner will need it (earliest need first)
 
-There is no minimum or mandatory count for breadth expansion — generate what earns its place and nothing more.
+Aim for at least 1-3 genuinely relevant breadth-expansion topics per plan when this user's role,
+industry, and worry profile suggests real adjacent gaps. Never pad — skip entirely only if nothing
+genuinely earns a place.
 
 DEPTH RULES:
 - NEVER assign depth_level "advanced" to a user with maturity "${maturity}" if the computed depth cap is "${depthCap}".
