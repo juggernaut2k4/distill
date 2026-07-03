@@ -318,6 +318,16 @@ export default function SessionDetailClient({ session, minutesBalance }: Props) 
   const [botStatus, setBotStatus] = useState<BotStatus>('idle')
   const [botId, setBotId] = useState<string | null>(null)
   const [botError, setBotError] = useState<string | null>(null)
+  // Guards against a click landing on the End Session button in the same
+  // click sequence that launched the bot. Root cause: Launch and End render
+  // in the same DOM slot and swap the instant botStatus flips 'joining' →
+  // 'active'; a single mousedown(Launch)/mouseup(End) pair (or a fast
+  // double-click at the same screen position) can register as an End click
+  // before the user ever sees the End button. Confirmed in production logs:
+  // POST /api/recall/bot → Attendee join_requested → DELETE /api/recall/bot
+  // (leave_requested, event_sub_type: user_requested) within <1s, repeatedly.
+  const activeSinceRef = useRef<number>(0)
+  const END_SESSION_GUARD_MS = 1500
 
   // Session timer state
   const [timerSecondsLeft, setTimerSecondsLeft] = useState<number | null>(null)
@@ -400,6 +410,7 @@ export default function SessionDetailClient({ session, minutesBalance }: Props) 
         return
       }
       setBotId(data.botId)
+      activeSinceRef.current = Date.now()
       setBotStatus('active')
       startTimer(effectiveDurationMins)
     } catch {
@@ -410,6 +421,13 @@ export default function SessionDetailClient({ session, minutesBalance }: Props) 
 
   async function handleEndSession() {
     if (!botId && botStatus !== 'active') return
+    // See activeSinceRef comment above — swallow End clicks that land within
+    // the guard window of the bot going active; these are click-swap
+    // artifacts from the Launch→End DOM swap, never an intentional end.
+    if (Date.now() - activeSinceRef.current < END_SESSION_GUARD_MS) {
+      console.warn('[SessionDetail] Ignored End Session click within guard window (likely click-swap artifact)')
+      return
+    }
     setBotStatus('ending')
     stopTimer()
 
