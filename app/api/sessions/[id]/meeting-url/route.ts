@@ -31,6 +31,33 @@ export async function PATCH(
 
   const supabase = createSupabaseAdminClient()
 
+  // AUTOGEN-01 §11 Q5 / §3 Part C: /meeting-url requires curriculum_plan.is_approved = true.
+  const { data: existing, error: fetchError } = await supabase
+    .from('sessions')
+    .select('id, curriculum_plan_id')
+    .eq('id', params.id)
+    .eq('user_id', user.id)
+    .single()
+
+  if (fetchError || !existing) {
+    return NextResponse.json({ error: 'Session not found' }, { status: 404 })
+  }
+
+  if (existing.curriculum_plan_id) {
+    const { data: plan } = await supabase
+      .from('curriculum_plans')
+      .select('is_approved')
+      .eq('id', existing.curriculum_plan_id)
+      .maybeSingle()
+
+    if (!plan?.is_approved) {
+      return NextResponse.json(
+        { error: 'This session\'s plan has not been approved yet.' },
+        { status: 403 }
+      )
+    }
+  }
+
   const { data, error } = await supabase
     .from('sessions')
     .update({ meeting_url: parsed.data.meetingUrl })

@@ -28,7 +28,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   const [{ data: session }, { data: user }] = await Promise.all([
     supabase
       .from('sessions')
-      .select('id, status, duration_mins')
+      .select('id, status, duration_mins, curriculum_plan_id')
       .eq('id', params.id)
       .eq('user_id', userId!)
       .single(),
@@ -41,6 +41,22 @@ export async function POST(request: NextRequest, { params }: Params) {
 
   if (!session) {
     return NextResponse.json({ error: 'Session not found' }, { status: 404 })
+  }
+
+  // AUTOGEN-01 §11 Q5 / §3 Part C: /start requires curriculum_plan.is_approved = true.
+  if (session.curriculum_plan_id) {
+    const { data: plan } = await supabase
+      .from('curriculum_plans')
+      .select('is_approved')
+      .eq('id', session.curriculum_plan_id)
+      .maybeSingle()
+
+    if (!plan?.is_approved) {
+      return NextResponse.json(
+        { error: 'This session\'s plan has not been approved yet.' },
+        { status: 403 }
+      )
+    }
   }
 
   const minutesBalance = user?.minutes_balance ?? 0
