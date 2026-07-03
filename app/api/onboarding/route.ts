@@ -7,8 +7,13 @@ import { OnboardingSchema, saveOnboardingProfile } from '@/lib/onboarding'
  * GET /api/onboarding
  * Returns { hasProfile: boolean } — used by the onboarding page to detect
  * returning users and redirect them to /dashboard immediately.
+ *
+ * AUTH-02: also accepts ?edit=1, in which case it additionally returns the
+ * saved `profile` fields needed to pre-fill the onboarding question flow for
+ * an authenticated user editing their answers (spec Section 15 — this reuses
+ * the existing GET rather than inventing a new endpoint for this read).
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   const { userId } = auth()
   if (!userId) {
     return NextResponse.json({ hasProfile: false })
@@ -16,11 +21,33 @@ export async function GET() {
   const supabase = createSupabaseAdminClient()
   const { data } = await supabase
     .from('users')
-    .select('id, role')
+    .select('id, role, role_level, industry, ai_maturity, worry_tags, delivery_preference, domains, custom_domains, primary_domain, domain_proficiency, learning_goal, sub_domain')
     .eq('id', userId)
     .maybeSingle()
   // A row with a non-null role means onboarding was completed
   const hasProfile = !!(data?.role)
+
+  const isEdit = request.nextUrl.searchParams.get('edit') === '1'
+  if (isEdit && hasProfile && data) {
+    return NextResponse.json({
+      hasProfile,
+      profile: {
+        role: data.role,
+        roleLevel: data.role_level,
+        industry: data.industry,
+        aiMaturity: data.ai_maturity,
+        worry: Array.isArray(data.worry_tags) ? data.worry_tags[0] ?? '' : '',
+        deliveryPreference: data.delivery_preference,
+        domains: data.domains ?? [],
+        customDomains: data.custom_domains ?? [],
+        primaryDomain: data.primary_domain,
+        domainProficiency: data.domain_proficiency ?? {},
+        learningGoal: data.learning_goal,
+        subDomain: data.sub_domain,
+      },
+    })
+  }
+
   return NextResponse.json({ hasProfile })
 }
 

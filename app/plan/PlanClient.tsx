@@ -82,7 +82,12 @@ export default function PlanClient() {
           </div>
           <span className="text-white font-bold group-hover:text-[#A855F7] transition-colors">Clio</span>
         </Link>
-        <p className="text-[#475569] text-sm">Step 2 of 2 — Choose your plan</p>
+        <div className="flex items-center gap-4">
+          <p className="text-[#475569] text-sm">Step 2 of 2 — Choose your plan</p>
+          <Link href="/onboarding?edit=1" className="text-xs text-[#475569] hover:text-[#94A3B8] underline underline-offset-2 transition-colors">
+            Edit my answers
+          </Link>
+        </div>
       </div>
 
       <div className="flex-1 flex flex-col items-center justify-center px-6 py-12">

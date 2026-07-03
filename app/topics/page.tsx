@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useUser } from '@clerk/nextjs'
 import { motion, AnimatePresence } from 'framer-motion'
+import Link from 'next/link'
 import {
   TrendingUp, Briefcase, Wrench, Target, Code2, Users, Plus, ArrowRight, BookOpen, ChevronRight, Lightbulb,
 } from 'lucide-react'
@@ -679,6 +680,9 @@ export default function TopicsPage() {
                   <p className="text-sm text-[#94A3B8] mt-1">
                     Select the topics you want to master. Pick at least 1 to get started.
                   </p>
+                  <Link href="/onboarding?edit=1" className="inline-block mt-2 text-xs text-[#475569] hover:text-[#94A3B8] underline underline-offset-2 transition-colors">
+                    Edit my answers
+                  </Link>
                 </div>
                 {selectedPill}
               </div>

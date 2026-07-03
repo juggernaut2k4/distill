@@ -2,15 +2,40 @@
 
 import { useState, useRef, Suspense, useMemo, useEffect } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useUser, SignUp } from '@clerk/nextjs'
 import { ProgressBar } from '@/components/onboarding/ProgressBar'
+import { AlreadySignedInInterstitial } from '@/components/onboarding/AlreadySignedInInterstitial'
 import { ArrowRight, ArrowLeft, Plus, X, Search } from 'lucide-react'
 import {
   ALL_DOMAINS, PROFICIENCY_LEVELS, LEARNING_GOALS,
   getDomainsForRole, searchDomains,
   type Domain, type Proficiency, type LearningGoal,
 } from '@/lib/learning/taxonomy'
+
+// AUTH-02: server-side account-state classification (Section 4.2)
+type AccountState = 'no_account' | 'started_no_signup' | 'signed_up_unpaid' | 'active_paying'
+interface AccountStateResponse {
+  state: AccountState
+  resumeUrl?: string
+  email?: string
+}
+
+// AUTH-02 Section 15: shape returned by GET /api/onboarding?edit=1
+interface SavedProfile {
+  role?: string
+  roleLevel?: string
+  industry?: string
+  aiMaturity?: string
+  worry?: string
+  deliveryPreference?: 'email' | 'sms' | 'both'
+  domains?: string[]
+  customDomains?: string[]
+  primaryDomain?: string
+  domainProficiency?: Record<string, string>
+  learningGoal?: string
+  subDomain?: string
+}
 
 // ─── Step definitions ─────────────────────────────────────────────────────────
 
@@ -474,7 +499,14 @@ function SubDomainStep({
 
 function OnboardingContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const isEditMode = searchParams.get('edit') === '1'
   const { isLoaded: clerkLoaded, isSignedIn } = useUser()
+
+  // AUTH-02: server-classified account state. null while unresolved.
+  // 'active_paying' renders the AlreadySignedInInterstitial instead of the
+  // question flow. All other states fall through to existing behavior.
+  const [accountState, setAccountState] = useState<AccountState | null>(null)
 
   const [step, setStep] = useState(0)
   const [direction, setDirection] = useState<'right' | 'left'>('right')
@@ -502,7 +534,9 @@ function OnboardingContent() {
   // ── Session restore + auto-submit after sign-up return ───────────────────────
   // Runs once Clerk has loaded. Four cases:
   //   1. Not signed in → show form normally (sessionChecked = true unlocks render)
-  //   2. Signed in + existing DB profile → redirect to /dashboard (returning user login)
+  //   2. Signed in + existing DB profile → AUTH-02: classify via account-state
+  //      (active_paying → interstitial; signed_up_unpaid → resume URL; edit mode
+  //      → pre-fill and show form)
   //   3. Signed in + complete localStorage data → auto-submit without showing form (new user post-signup)
   //   4. Signed in + partial localStorage data → restore state and jump to saved step
   useEffect(() => {
@@ -512,20 +546,57 @@ function OnboardingContent() {
       return
     }
 
-    // Case 2: returning user — check DB for an existing profile
-    // If found, skip onboarding entirely and go straight to dashboard.
-    fetch('/api/onboarding')
+    // AUTH-02: explicit edit mode — always pre-fill from the saved profile and
+    // show the question flow. Never redirect, never show the interstitial,
+    // regardless of subscription state (spec Section 15 / Section 9).
+    if (isEditMode) {
+      fetch('/api/onboarding?edit=1')
+        .then((r) => r.json())
+        .then((data: { hasProfile?: boolean; profile?: SavedProfile }) => {
+          if (data.hasProfile && data.profile) {
+            const p = data.profile
+            if (p.roleLevel) setRoleLevel(p.roleLevel)
+            if (p.role) setRole(p.role)
+            if (p.industry) setIndustry(p.industry)
+            if (p.aiMaturity) setAiEngagement(p.aiMaturity as 'observer' | 'emerging' | 'practitioner' | 'leader' | '')
+            if (p.domains) setSelectedDomains(p.domains)
+            if (p.customDomains) setCustomDomains(p.customDomains)
+            if (p.domainProficiency) setDomainProficiency(p.domainProficiency as Record<string, Proficiency>)
+            if (p.learningGoal) setLearningGoal(p.learningGoal as LearningGoal)
+            if (p.worry) setWorry(p.worry)
+            if (p.deliveryPreference) setDeliveryPreference(p.deliveryPreference)
+            // Land on the last step with full backward navigation already
+            // supported by the existing step UI (Section 9) — no forced
+            // step-by-step walk required to reach it.
+            setStep(TOTAL_STEPS - 1)
+          }
+          setSessionChecked(true)
+        })
+        .catch(() => setSessionChecked(true))
+      return
+    }
+
+    // Case 2: returning user — classify account state (AUTH-02 Section 4).
+    fetch('/api/onboarding/account-state')
       .then((r) => r.json())
-      .then((data: { hasProfile?: boolean }) => {
-        if (data.hasProfile) {
-          router.replace('/dashboard')
+      .then((data: AccountStateResponse) => {
+        if (data.state === 'active_paying') {
+          setAccountState('active_paying')
+          setSessionChecked(true)
           return
         }
-        // No existing profile — fall through to localStorage restore / auto-submit
+        if (data.state === 'signed_up_unpaid' && data.resumeUrl && data.resumeUrl !== '/onboarding') {
+          router.replace(data.resumeUrl)
+          return
+        }
+        // signed_up_unpaid with resumeUrl === '/onboarding' (no profile saved yet)
+        // or any other state — fall through to localStorage restore / auto-submit,
+        // exactly like today's states (a)/(b).
         continueOnboarding()
       })
       .catch(() => {
-        // On fetch error, allow the form to show rather than blocking the user
+        // On fetch error, fail open to the safest state — a blank question flow,
+        // never toward /dashboard (spec Section 11).
         continueOnboarding()
       })
 
@@ -580,7 +651,7 @@ function OnboardingContent() {
       setSessionChecked(true)
     }
     } // end continueOnboarding
-  }, [clerkLoaded, isSignedIn]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [clerkLoaded, isSignedIn, isEditMode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Can proceed from each step ──────────────────────────────────────────────
   const canProceed = useMemo(() => {
@@ -740,6 +811,12 @@ function OnboardingContent() {
     }
   }
 
+  // AUTH-02 Section 5.1 — state (d): fully active, paying customer. Rendered
+  // in place at /onboarding, never redirected to /dashboard.
+  if (accountState === 'active_paying') {
+    return <AlreadySignedInInterstitial />
+  }
+
   if (submitError === '__needs_auth__') {
     return (
       <div className="min-h-screen bg-[#080808] flex flex-col items-center justify-center px-6 py-12">
@@ -820,7 +897,15 @@ function OnboardingContent() {
             className="w-full"
           >
             {step === 0 && (
-              <LevelStep value={roleLevel} onChange={(v) => { setRoleLevel(v); setRole('') }} />
+              <LevelStep value={roleLevel} onChange={(v) => {
+                setRoleLevel(v)
+                // AUTH-02 Section 9: only clear the department selection if it's
+                // genuinely invalid under the new level — preserve it otherwise
+                // (e.g. re-clicking the same level, or a still-valid department
+                // shared across levels) so editing one answer doesn't unnecessarily
+                // wipe an unrelated, still-correct one.
+                if (!(DEPARTMENTS[v] ?? []).some((o) => o.roleId === role)) setRole('')
+              }} />
             )}
 
             {step === 1 && (

@@ -374,12 +374,17 @@ function CheckoutContent() {
       <div className="lg:w-[420px] lg:min-h-screen bg-[#0d0d0d] border-b lg:border-b-0 lg:border-r border-[#1a1a1a] flex flex-col p-8 lg:p-12">
 
         {/* Logo */}
-        <Link href="/" className="flex items-center gap-2 mb-12 group">
-          <div className="w-8 h-8 rounded-full bg-[#7C3AED] flex items-center justify-center">
-            <span className="text-sm font-extrabold text-white">C</span>
-          </div>
-          <span className="text-white font-bold text-lg group-hover:text-[#A855F7] transition-colors">Clio</span>
-        </Link>
+        <div className="flex items-center justify-between mb-12">
+          <Link href="/" className="flex items-center gap-2 group">
+            <div className="w-8 h-8 rounded-full bg-[#7C3AED] flex items-center justify-center">
+              <span className="text-sm font-extrabold text-white">C</span>
+            </div>
+            <span className="text-white font-bold text-lg group-hover:text-[#A855F7] transition-colors">Clio</span>
+          </Link>
+          <Link href="/onboarding?edit=1" className="text-xs text-[#475569] hover:text-[#94A3B8] underline underline-offset-2 transition-colors">
+            Edit my answers
+          </Link>
+        </div>
 
         <div className="flex-1">
           {/* Plan switcher */}
