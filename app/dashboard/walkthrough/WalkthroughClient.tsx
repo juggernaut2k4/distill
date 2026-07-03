@@ -225,6 +225,44 @@ function resolveNavIndex(command: string, tabs: VisualizationTab[], current: num
   return idx >= 0 ? idx : current
 }
 
+// Multi-word / unambiguous closing phrases only. Deliberately excludes bare
+// "bye" and "see you" — both are common inside ordinary conversational
+// sentences (e.g. Clio's own opening greeting "Great to see you today") and
+// produced false-positive session terminations when matched as a substring.
+const FAREWELL_PHRASES = [
+  'goodbye',
+  'farewell',
+  'take care',
+  'until next time',
+  'session is complete',
+  "that's all for today",
+  "we're done",
+  'all done',
+  'great work today',
+  'well done today',
+]
+
+/**
+ * Detects whether an AI utterance is a genuine session-closing remark.
+ *
+ * Word-boundary matching avoids substring false positives (e.g. "goodbye"
+ * inside a longer word). The very first AI message of a session is never
+ * treated as a farewell — it's always Clio's opening greeting, and greetings
+ * routinely contain phrasing ("great to see you today") that would otherwise
+ * collide with farewell detection before any real conversation has happened.
+ *
+ * @param text - the AI message text to check
+ * @param isFirstAiMessage - true if this is the first AI message in the session
+ */
+function isFarewellMessage(text: string, isFirstAiMessage: boolean): boolean {
+  if (isFirstAiMessage) return false
+  const lower = text.toLowerCase()
+  return FAREWELL_PHRASES.some((phrase) => {
+    const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return new RegExp(`\\b${escaped}\\b`).test(lower)
+  })
+}
+
 interface Props {
   userId: string
   botView?: boolean
@@ -298,6 +336,9 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
   const pendingTranscriptRef = useRef<string | null>(null)
   const sendTranscriptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const sessionEndedRef = useRef(false)
+  // Counts AI utterances so farewell detection can skip the very first one
+  // (Clio's opening greeting) — see isFarewellMessage above.
+  const aiMessageCountRef = useRef(0)
   const topicRef = useRef<string | null | undefined>(initialState.topic_title)
   const skippedTopicsRef = useRef<string[]>(initialState.skipped_topics ?? [])
   const sectionsRef = useRef<TemplateSection[]>(initialState.sections ?? [])
@@ -507,12 +548,12 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
                     }
                   }
                 }
-                // Farewell detection
-                const lower = text.toLowerCase()
-                const farewells = ['bye', 'goodbye', 'farewell', 'take care', 'see you',
-                  'until next time', 'session is complete', "that's all for today",
-                  "we're done", 'all done', 'great work today', 'well done today']
-                if (farewells.some((w) => lower.includes(w))) {
+                // Farewell detection — skip the first AI message (opening
+                // greeting) and use word-boundary matching (see isFarewellMessage).
+                const isFirstAiMessage = aiMessageCountRef.current === 0
+                aiMessageCountRef.current += 1
+                if (isFarewellMessage(text, isFirstAiMessage)) {
+                  console.log('[Walkthrough/Hume] Farewell detected in agent speech — marking session ended')
                   sessionEndedRef.current = true
                   setSessionComplete(true)
                 }
@@ -873,11 +914,11 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
               }
 
               // ── Farewell detection ─────────────────────────────────────────
-              const lower = message.toLowerCase()
-              const farewells = ['bye', 'goodbye', 'farewell', 'take care', 'see you',
-                'until next time', 'session is complete', "that's all for today",
-                "we're done", 'all done', 'great work today', 'well done today']
-              if (farewells.some((w) => lower.includes(w))) {
+              // Skip the first AI message (opening greeting) and use
+              // word-boundary matching (see isFarewellMessage above).
+              const isFirstAiMessage = aiMessageCountRef.current === 0
+              aiMessageCountRef.current += 1
+              if (isFarewellMessage(message, isFirstAiMessage)) {
                 console.log('[Walkthrough] Farewell detected in agent speech — marking session ended')
                 sessionEndedRef.current = true
                 setSessionComplete(true)
