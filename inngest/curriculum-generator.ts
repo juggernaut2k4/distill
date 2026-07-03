@@ -1,10 +1,17 @@
 import { inngest } from './client'
 import { createSupabaseAdminClient } from '@/lib/supabase'
-import { generateCurriculumPlan, buildProfileHash } from '@/lib/curriculum/planner'
+import { generateCurriculumPlan, buildProfileHash, generateArcsForTopics, generateBridgingArc, type Arc } from '@/lib/curriculum/planner'
 import { checkDimensionCoverage } from '@/lib/curriculum/enrichment'
 
+interface TopicDelta {
+  removed: string[]
+  added: string[]
+  kept: string[]
+  needsBridging: boolean
+}
+
 interface TopicsSelectedEvent {
-  data: { userId: string }
+  data: { userId: string; delta?: TopicDelta }
 }
 type Step = { run: <T>(name: string, fn: () => Promise<T>) => Promise<T>; sendEvent: (name: string, event: { name: string; data: object }) => Promise<void> }
 
@@ -73,6 +80,92 @@ export const curriculumGenerator = inngest.createFunction(
     const worry     = Array.isArray(user.worry_tags) ? user.worry_tags.join(', ') : ''
     const planTier  = (user.plan_tier   as string | null) ?? null
     const profileHash = buildProfileHash(role, maturity, topics, roleLevel)
+
+    // ── Smart Topic Delta (CORE_OBJECTIVES.md Objective 4) ────────────────────
+    // If this event carries a delta (fired by POST /api/topics on an existing user),
+    // branch off the standard full-regeneration path entirely:
+    //   - added.length === 0 (pure deletion, or no change): the deletion route
+    //     (app/api/topics/route.ts) already stripped removed-topic sessions/arcs
+    //     structurally. Kept arcs are untouched. No LLM call needed here — exit.
+    //   - added.length > 0: generate arcs ONLY for the added topics, judge bridging
+    //     relatedness, and merge into the existing plan. Kept arcs are never
+    //     re-sent to the LLM and never rewritten.
+    const delta = event.data.delta
+    if (delta) {
+      if (delta.added.length === 0) {
+        console.log('[curriculum-generator] Pure deletion or no-op delta — skipping LLM regeneration', { userId, removed: delta.removed })
+        return { skipped: true, reason: 'pure_deletion_no_llm_call' }
+      }
+
+      const activePlan = await step.run('load-active-plan-for-delta', async () => {
+        const { data } = await supabase
+          .from('curriculum_plans')
+          .select('id, visible_sessions, queue_sessions')
+          .eq('user_id', userId)
+          .is('superseded_at', null)
+          .order('generated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        return data
+      })
+
+      if (activePlan) {
+        const deltaProfile = { role, industry, maturity, worry, roleLevel, planTier }
+
+        const additiveResult = await step.run('additive-delta-generation', async () => {
+          const { arcs: newArcs, isFallback: newArcsFallback } = await generateArcsForTopics(delta.added, deltaProfile)
+
+          let bridgeArc: Arc | null = null
+          if (delta.needsBridging) {
+            bridgeArc = await generateBridgingArc(delta.added, delta.kept, deltaProfile)
+          }
+
+          const existingVisible = Array.isArray(activePlan.visible_sessions) ? activePlan.visible_sessions as unknown[] : []
+          const existingQueue   = Array.isArray(activePlan.queue_sessions)   ? activePlan.queue_sessions   as unknown[] : []
+
+          // Bridge goes first — it's the on-ramp into the new topic — then the new topic arcs.
+          // Kept arcs (existingVisible/existingQueue) are spread unchanged, never mutated.
+          const arcsToAdd = bridgeArc ? [bridgeArc, ...newArcs] : newArcs
+          const newVisibleArcs = arcsToAdd.filter((a) => a.is_visible)
+          const newQueueArcs   = arcsToAdd.filter((a) => !a.is_visible)
+
+          const mergedVisible = [...existingVisible, ...newVisibleArcs]
+          const mergedQueue   = [...existingQueue, ...newQueueArcs]
+
+          await supabase
+            .from('curriculum_plans')
+            .update({
+              visible_sessions: mergedVisible,
+              queue_sessions: mergedQueue,
+              // Mark not-approved so the user reviews the updated plan before sessions materialize.
+              is_approved: false,
+            })
+            .eq('id', activePlan.id)
+
+          await supabase
+            .from('users')
+            .update({ plan_approved: false })
+            .eq('id', userId)
+
+          console.log('[curriculum-generator] Additive delta merged', {
+            userId,
+            planId: activePlan.id,
+            addedTopics: delta.added,
+            newArcCount: arcsToAdd.length,
+            bridged: !!bridgeArc,
+            newArcsFallback,
+          })
+
+          return { success: true, planId: activePlan.id, additive: true, bridged: !!bridgeArc }
+        })
+
+        return additiveResult
+      }
+
+      console.warn('[curriculum-generator] Delta with added topics but no active plan found — falling back to full regeneration', { userId })
+      // No active plan to merge into (e.g. first save with a delta payload) —
+      // fall through to the standard full-generation path below.
+    }
 
     // ── Early-exit guard (second line of defence against duplicate runs) ──────
     // Inngest idempotency keys prevent two runs from starting, but if two events

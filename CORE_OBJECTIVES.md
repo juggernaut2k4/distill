@@ -113,6 +113,27 @@ Steps 2 and 3 must receive the `user_learning_profile` record — not the static
 
 ## Objective 4: Smart Topic Delta — Curriculum Adapts When Topics Change
 
+**Status: BUILT 2026-07-03.** All 4 sub-features complete:
+1. Topic-picker pre-selection — built (existing).
+2. Scoped deletion of scheduled sessions for removed topics — built (existing, `app/api/topics/route.ts`).
+3. Queue-promotion to fill freed visible slots — built (existing, `app/api/topics/route.ts`).
+4. Bridging sessions on topic addition — built. `app/api/topics/route.ts` already computed the
+   `delta` object and fired it on `clio/topics.selected`, but `inngest/curriculum-generator.ts` was
+   dropping it (event type had no `delta` field). Fixed by:
+   - `inngest/curriculum-generator.ts`: event type now includes `delta`. Pure-deletion/no-op deltas
+     (`added.length === 0`) short-circuit before any LLM call — fixes a bug where deletion was
+     previously still triggering a full plan regeneration via profile-hash mismatch. Additive deltas
+     (`added.length > 0`) generate arcs only for the new topics and merge them into the existing plan;
+     kept arcs are never re-sent to the LLM or rewritten.
+   - `lib/curriculum/planner.ts`: new `generateArcsForTopics()` (scoped arc generation for added
+     topics only) and `generateBridgingArc()` (LLM judges semantic relatedness between kept and added
+     topics; returns `null` and skips bridging if the topics don't genuinely connect — no forced
+     bridges). Both reuse the existing `ArcSchema`/ `buildSystemPrompt` machinery.
+   - Session materialization for the new/bridge arcs happens the same way it already does for any
+     plan change: `plan_approved` resets to `false`, and the existing `app/api/plan/approve` v2 path
+     (`organizeSubtopicsIntoSessions` → `designSessionsForTopic`) picks up the merged arcs on next
+     approval. No changes needed there.
+
 **Pre-selection:** When a user opens the topic picker, their existing `topic_interests` must be pre-selected.
 
 **Delta behavior:**

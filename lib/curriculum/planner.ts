@@ -511,6 +511,188 @@ export async function generateCurriculumPlan(input: PlannerInput): Promise<Plann
   }
 }
 
+// ─── Smart Topic Delta: additive arc generation ───────────────────────────────
+// CORE_OBJECTIVES.md Objective 4. Used by inngest/curriculum-generator.ts when
+// topics are added to an existing plan. Generates arcs ONLY for the newly added
+// topics — existing (kept) arcs are never touched or re-sent to the LLM.
+
+export interface DeltaArcInput {
+  role: string
+  industry: string
+  maturity: string
+  worry: string
+  roleLevel: string
+  planTier: string | null
+}
+
+/**
+ * Generates one or more arcs for newly-added topics only. Mirrors generateCurriculumPlan's
+ * single-call shape but scoped to addedTopics, with a small visible allotment (this is an
+ * incremental addition to an existing plan, not a full plan).
+ */
+export async function generateArcsForTopics(
+  addedTopics: string[],
+  input: DeltaArcInput,
+): Promise<{ arcs: Arc[]; isFallback: boolean }> {
+  const { role, industry, maturity, worry, roleLevel, planTier } = input
+  const { visible: tierVisibleLimit } = getTierLimits(planTier)
+  // An addition earns at most a small slice of the tier's total visible budget —
+  // the existing kept arcs already occupy the rest.
+  const visibleLimit = Math.max(1, Math.min(addedTopics.length * 2, tierVisibleLimit))
+
+  const apiKey = process.env.ANTHROPIC_API_KEY ?? ''
+  if (!apiKey || apiKey.startsWith('PLACEHOLDER_')) {
+    console.error('[planner] ANTHROPIC_API_KEY not set — returning fallback arcs for added topics')
+    const fallback = buildFallbackPlan(addedTopics, maturity, '', planTier, roleLevel)
+    return { arcs: fallback.arcs, isFallback: true }
+  }
+
+  const systemPrompt = buildSystemPrompt(role, industry, maturity, worry, addedTopics, visibleLimit, 0, roleLevel)
+  const client = new Anthropic({ apiKey })
+  const controller = new AbortController()
+  const callTimeout = setTimeout(() => controller.abort(), 180_000)
+
+  try {
+    const message = await client.messages.create(
+      {
+        model: 'claude-sonnet-4-6',
+        max_tokens: 4096,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: 'Generate the curriculum plan JSON for these newly added topics only.' }],
+      },
+      { signal: controller.signal }
+    )
+
+    const rawText = message.content[0].type === 'text' ? message.content[0].text : ''
+    const trimmed = rawText.trim()
+    const jsonText = trimmed.startsWith('```') ? trimmed.replace(/^```[a-z]*\n?/, '').replace(/\n?```$/, '') : trimmed
+    const parsed = JSON.parse(jsonText)
+    const validated = CurriculumOutputSchema.parse(parsed)
+
+    // All new-topic arcs are visible by default (they're what the user just asked for),
+    // capped to visibleLimit.
+    let visibleCount = 0
+    const arcs = validated.arcs.map((arc) => {
+      if (visibleCount < visibleLimit) {
+        visibleCount++
+        return { ...arc, is_visible: true, queue_rationale: null }
+      }
+      return { ...arc, is_visible: false, queue_rationale: arc.queue_rationale ?? 'Deferred due to plan tier limit.' }
+    })
+
+    return { arcs, isFallback: false }
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err)
+    console.error('[curriculum/planner] generateArcsForTopics failed — using fallback:', errMsg)
+    const fallback = buildFallbackPlan(addedTopics, maturity, '', planTier, roleLevel)
+    return { arcs: fallback.arcs, isFallback: true }
+  } finally {
+    clearTimeout(callTimeout)
+  }
+}
+
+/**
+ * Judges whether newly added topics are semantically related enough to the topics the
+ * user already knows (kept) to warrant a bridging arc, and if so, generates it.
+ * Returns null when unrelated — per CORE_OBJECTIVES.md: "Skip if topics are semantically
+ * unrelated (don't force a poor bridge)." This is a real LLM go/no-go judgment, not a heuristic.
+ */
+export async function generateBridgingArc(
+  addedTopics: string[],
+  keptTopics: string[],
+  input: DeltaArcInput,
+): Promise<Arc | null> {
+  if (keptTopics.length === 0 || addedTopics.length === 0) return null
+
+  const apiKey = process.env.ANTHROPIC_API_KEY ?? ''
+  if (!apiKey || apiKey.startsWith('PLACEHOLDER_')) {
+    console.log('[planner] ANTHROPIC_API_KEY not set — skipping bridging arc generation')
+    return null
+  }
+
+  const { role, industry, maturity, worry, roleLevel } = input
+  const normalisedMaturity = normaliseMaturity(maturity)
+
+  const bridgeSystemPrompt = `You are an expert learning curriculum designer judging whether a short "bridging" arc
+should be created to connect a learner's existing knowledge to newly added topics.
+
+USER PROFILE:
+- Role: ${role}
+- Industry: ${industry}
+- AI maturity: ${maturity} (normalised: ${normalisedMaturity})
+- Biggest AI worry: ${worry || 'not specified'}
+- Seniority level: ${roleLevel}
+
+Topics the learner ALREADY knows (kept, untouched): ${keptTopics.join(', ')}
+Topics the learner JUST ADDED: ${addedTopics.join(', ')}
+
+TASK:
+Decide: is there a genuine, natural conceptual connection between what they already know and what
+they just added, such that a short bridging arc would help them see how the new topic builds on or
+relates to their existing knowledge?
+
+Skip bridging (return should_bridge: false) if the topics are semantically unrelated — do NOT force
+a poor bridge just to have one. A bridge only earns its place if skipping it would leave a genuine
+gap in how the new topic connects to what they already know.
+
+If should_bridge is true, generate ONE short bridging arc:
+- 1-2 sessions worth of content only (typically 4-10 comprehensive_subtopics total)
+- Placed conceptually at the ENTRY POINT of the new topic's arc — it should explicitly reference
+  what the learner already knows and use it as the on-ramp into the new topic
+- arc_type must be "singleton"
+- is_visible must be true (bridges are always shown, never queued)
+
+Return ONLY valid JSON, no markdown, no explanation:
+{
+  "should_bridge": boolean,
+  "reasoning": "one sentence explaining the decision",
+  "arc": {
+    "arc_name": string,
+    "arc_type": "singleton",
+    "arc_description": "one sentence: how this bridges kept knowledge into the new topic",
+    "comprehensive_subtopics": ["string", "..."],
+    "is_visible": true,
+    "queue_rationale": null
+  } | null
+}`
+
+  const client = new Anthropic({ apiKey })
+  const controller = new AbortController()
+  const callTimeout = setTimeout(() => controller.abort(), 90_000)
+
+  try {
+    const message = await client.messages.create(
+      {
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1500,
+        system: bridgeSystemPrompt,
+        messages: [{ role: 'user', content: 'Judge relatedness and generate the bridging arc JSON if warranted.' }],
+      },
+      { signal: controller.signal }
+    )
+
+    const rawText = message.content[0].type === 'text' ? message.content[0].text : ''
+    const trimmed = rawText.trim()
+    const jsonText = trimmed.startsWith('```') ? trimmed.replace(/^```[a-z]*\n?/, '').replace(/\n?```$/, '') : trimmed
+    const parsed = JSON.parse(jsonText) as { should_bridge?: boolean; reasoning?: string; arc?: unknown }
+
+    if (!parsed.should_bridge || !parsed.arc) {
+      console.log('[planner] Bridging skipped — topics judged unrelated:', parsed.reasoning ?? '(no reasoning given)')
+      return null
+    }
+
+    const validatedArc = ArcSchema.parse(parsed.arc)
+    console.log('[planner] Bridging arc generated:', validatedArc.arc_name, '—', parsed.reasoning)
+    return validatedArc
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err)
+    console.error('[curriculum/planner] generateBridgingArc failed — skipping bridge:', errMsg)
+    return null
+  } finally {
+    clearTimeout(callTimeout)
+  }
+}
+
 // ─── Queue regeneration ────────────────────────────────────────────────────────
 
 export async function generateQueueExtension(

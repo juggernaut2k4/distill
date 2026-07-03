@@ -290,9 +290,11 @@ Pass the actual values. Ensure the conflict key fix (LIVE-02) is applied first s
 **File:** the article/content generation prompt (content pipeline)
 
 ### SCR-01 — Adaptive Script System
-**Status:** Architecture approved 2026-06-04. Not built.
-**What:** 7 response variants pre-generated per checkpoint; YES/NO coverage check for deferral; daily cron processes transcripts → extracts action items → reorders plan → reschedules sessions.
-**Dependency:** SCH-01 must be complete (rescheduler needs `scheduled_at` to be set).
+**Status:** ✅ Done — confirmed 2026-07-03. The approved spec (`docs/specs/SCR-01-requirement-document.md`) explicitly descopes the 7-variant system and action-item extraction (Section 10, "Out of Scope") — those live elsewhere:
+- **7 response variants per checkpoint:** built in `lib/content/script-generator.ts` (CONTENT-01's `CheckpointVariants`, 7 named fields v1-v7) as part of CONTENT-01, not this spec.
+- **YES/NO coverage check:** superseded by a 7-dimension coverage model under CURR-01 (`inngest/session-quality-evaluator.ts`), not a binary check — deliberate redesign, not a gap.
+- **Plan-reorder engine (SCR-01's actual scope):** fully shipped — event-triggered (not a literal daily cron) via `distill/session.plan.adapt`, handled by `inngest/adapt-plan.ts` (6-step scoring/reorder/audit job), migrations 043/044 applied, acknowledge route live.
+- Action-item extraction and `scheduled_at` rescheduling were explicitly deferred by the spec itself to a future item — not part of SCR-01.
 
 ---
 
