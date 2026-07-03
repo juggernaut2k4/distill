@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
   if (!chatId) {
     const configId = process.env.NEXT_PUBLIC_HUME_CONFIG_ID
     const listRes = await fetch(
-      `https://api.hume.ai/v0/evi/chats?page_size=10${configId ? `&config_id=${configId}` : ''}`,
+      `https://api.hume.ai/v0/evi/chats?page_size=5&ascending_order=false${configId ? `&config_id=${configId}` : ''}`,
       { headers: { 'X-Hume-Api-Key': apiKey } }
     )
     const list = listRes.ok ? await listRes.json() : { error: await listRes.text() }
