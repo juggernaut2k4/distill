@@ -75,7 +75,9 @@ export class HumeAdapter implements VoiceSessionAdapter {
 
         // Auth/policy error (code 1008) — retrying won't help
         if (event.code === 1008 || this.reconnectAttempts >= HumeAdapter.MAX_RECONNECT) {
-          this.config.onError('Hume EVI WebSocket disconnected and could not reconnect')
+          const reason = event.reason || 'no reason given'
+          console.error(`[HumeAdapter] WS closed (code ${event.code}) — reason: ${reason}`)
+          this.config.onError(`Hume EVI WebSocket disconnected: ${reason} (code ${event.code})`)
           this.config.onDisconnect()
           return
         }
@@ -83,7 +85,7 @@ export class HumeAdapter implements VoiceSessionAdapter {
         // Exponential backoff: 1 s → 2 s → 4 s
         this.reconnectAttempts++
         const delay = Math.pow(2, this.reconnectAttempts - 1) * 1000
-        console.warn(`[HumeAdapter] WS closed (code ${event.code}) — reconnect attempt ${this.reconnectAttempts}/${HumeAdapter.MAX_RECONNECT} in ${delay}ms`)
+        console.warn(`[HumeAdapter] WS closed (code ${event.code}, reason: ${event.reason || 'none'}) — reconnect attempt ${this.reconnectAttempts}/${HumeAdapter.MAX_RECONNECT} in ${delay}ms`)
         setTimeout(() => {
           this.openConnection().catch(() => { /* onclose handles further retries */ })
         }, delay)

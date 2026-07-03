@@ -398,16 +398,20 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
                 console.log(`[Walkthrough/Hume] Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current}/${MAX_RECONNECT})`)
                 reconnectTimerRef.current = setTimeout(connect, delay)
               } else if (!cancelled) {
-                const reason = 'Hume EVI WebSocket dropped and could not reconnect after 6 attempts.'
+                // Prefer whatever specific reason onError already captured (e.g. an
+                // actual Hume-provided close reason) over this generic fallback —
+                // onError fires first on a terminal close, and this handler used to
+                // unconditionally clobber it a moment later, hiding the real cause.
                 setAgentStatus('error')
-                setAgentError(reason)
-                setConnectionError(reason)
+                setAgentError((prev) => prev || 'Hume EVI WebSocket dropped and could not reconnect after 6 attempts.')
+                setConnectionError((prev) => prev || 'Hume EVI WebSocket dropped and could not reconnect after 6 attempts.')
               }
             },
             onError: (message) => {
               console.error('[Walkthrough/Hume] Error:', message)
               setAgentStatus('error')
-              setAgentError(message.slice(0, 60))
+              setAgentError(message.slice(0, 200))
+              setConnectionError(message)
             },
             onModeChange: (mode) => {
               console.log('[Walkthrough/Hume] Mode:', mode)
