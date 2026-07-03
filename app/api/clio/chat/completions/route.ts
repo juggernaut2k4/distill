@@ -206,14 +206,19 @@ function toAnthropicMessages(messages: OAIMessage[]): Anthropic.MessageParam[] {
  * conversation turn. We fetch the full session context (41k chars) from walkthrough_state
  * and call Claude Sonnet — bypassing ElevenLabs' prompt override size limit entirely.
  *
- * Configure in ElevenLabs dashboard: Agent → LLM → Custom → URL = https://distill-peach.vercel.app/api/clio/llm
+ * Configure in ElevenLabs dashboard: Agent → LLM → Custom → URL = https://distill-peach.vercel.app/api/clio/chat/completions
  * Set Authorization header secret = ELEVENLABS_CUSTOM_LLM_SECRET env var.
+ *
+ * Hume EVI userId mechanism (root-caused 2026-07-03): Hume's CLM docs confirm that for
+ * SSE endpoints (this route), `custom_session_id` is sent back as a query param on this
+ * callback ONLY after it has been set via a `session_settings` message sent over the EVI
+ * WebSocket post-connect — the `custom_session_id` query param on the initial WS *connect*
+ * URL alone is not sufficient. See lib/voice/hume-adapter.ts `onopen` handler for the fix.
  */
 export async function POST(request: NextRequest) {
-  // Full diagnostic logging — capture everything Hume sends so we can find the userId mechanism
+  // Diagnostic logging — kept to confirm the userId mechanism holds in production.
   const allHeaders = Object.fromEntries(request.headers.entries())
   console.log('[clio/llm] URL:', request.url)
-  console.log('[clio/llm] ALL HEADERS:', JSON.stringify(allHeaders))
 
   // Verify the request is from ElevenLabs using a shared secret.
   // WARNING: this endpoint is also used by Hume (both providers hit the same

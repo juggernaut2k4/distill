@@ -65,6 +65,21 @@ export class HumeAdapter implements VoiceSessionAdapter {
 
       this.ws.onopen = () => {
         this.reconnectAttempts = 0
+
+        // Root-cause fix (2026-07-03): the `custom_session_id` query param on the
+        // WS connect URL alone is NOT reliably forwarded into Hume's separate HTTP
+        // call to our custom-LLM endpoint (/api/clio/chat/completions). Hume's docs
+        // state the supported mechanism is a `session_settings` message sent over
+        // this WebSocket after connecting — that's what actually gets echoed back
+        // to the CLM callback as a query param on every turn. Without this, the
+        // bridge endpoint logs "userId extracted: (none)" on every request and Clio
+        // has zero session context during live Hume calls. Send it once, immediately
+        // on open, before mic capture starts.
+        this.ws?.send(JSON.stringify({
+          type: 'session_settings',
+          custom_session_id: this.config.userId,
+        }))
+
         this.startMicCapture()
         if (!resolved) { resolved = true; resolve() }
       }
