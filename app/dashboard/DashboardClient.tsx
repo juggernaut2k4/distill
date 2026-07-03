@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition, useEffect } from 'react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { ScoreRing } from '@/components/dashboard/ScoreRing'
 import { StreakCounter } from '@/components/dashboard/StreakCounter'
 import { MessageCard } from '@/components/dashboard/MessageCard'
@@ -9,6 +9,7 @@ import { DeliveryToggle } from '@/components/dashboard/DeliveryToggle'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
+import { RecommendationCard, type RecommendationData } from '@/components/plan/RecommendationCard'
 import {
   ArrowRight,
   RefreshCw,
@@ -18,6 +19,7 @@ import {
   CalendarDays,
   MessageSquare,
   PlusCircle,
+  Sparkles,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -258,6 +260,99 @@ function NextSessionCard({ session }: { session: NextSession | null }) {
         </Button>
       </Link>
     </Card>
+  )
+}
+
+// ─── Home recommendation section (compact, dashboard-home variant of the plan page's) ──
+//
+// Assumption (2026-07-03, logged in SCALING_PLAYBOOK.md R-05): dashboard home shows only
+// 1 recommendation (vs. plan page's up-to-2), given limited home real estate.
+// Accepting behaves identically to the plan page — calls the accept-recommendation
+// endpoint directly and stays on this page with an inline success state (no redirect).
+
+function HomeRecommendationSection({
+  minutesBalance,
+  minutesIncluded,
+}: {
+  minutesBalance: number
+  minutesIncluded: number
+}) {
+  const [recommendation, setRecommendation] = useState<RecommendationData | null>(null)
+  const [loaded, setLoaded] = useState(false)
+  const [accepted, setAccepted] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    async function fetchRecommendation() {
+      try {
+        const res = await fetch('/api/curriculum/plan')
+        if (!res.ok) return
+        const data = await res.json() as { recommendations?: RecommendationData[] }
+        if (!cancelled) {
+          setRecommendation((data.recommendations ?? [])[0] ?? null)
+        }
+      } catch {
+        // silently ignore — this is a secondary dashboard widget
+      } finally {
+        if (!cancelled) setLoaded(true)
+      }
+    }
+    fetchRecommendation()
+    return () => { cancelled = true }
+  }, [])
+
+  async function handleAccept(sessionId: string) {
+    const res = await fetch('/api/curriculum/accept-recommendation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId }),
+    })
+    if (!res.ok) throw new Error('accept failed')
+    setAccepted(true)
+  }
+
+  async function handleDismiss(sessionId: string) {
+    await fetch('/api/curriculum/dismiss-recommendation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId }),
+    }).catch(() => {})
+    setRecommendation(null)
+  }
+
+  if (!loaded || !recommendation) return null
+
+  return (
+    <motion.section
+      custom={2.5}
+      initial="hidden"
+      animate="visible"
+      variants={sectionVariant}
+      aria-label="Recommended for you"
+    >
+      <div className="flex items-center gap-2 mb-4">
+        <Sparkles size={16} className="text-[#A855F7]" />
+        <h2 className="text-lg font-bold text-white">Recommended for you</h2>
+      </div>
+      {accepted ? (
+        <Card className="p-4 flex items-center gap-2">
+          <CheckCircle2 size={16} className="text-[#10B981]" />
+          <span className="text-sm text-[#10B981] font-medium">Added to your plan</span>
+        </Card>
+      ) : (
+        <AnimatePresence>
+          <RecommendationCard
+            key={recommendation.session_id}
+            recommendation={recommendation}
+            onAccept={handleAccept}
+            onDismiss={handleDismiss}
+            minutesBalance={minutesBalance}
+            minutesIncluded={minutesIncluded}
+            estimatedMinutes={recommendation.estimated_minutes}
+          />
+        </AnimatePresence>
+      )}
+    </motion.section>
   )
 }
 
@@ -580,6 +675,13 @@ export default function DashboardClient({
           </div>
         </div>
       </motion.section>
+
+      {/* ── Section 3.5: Recommended for you (compact home variant) ── */}
+
+      <HomeRecommendationSection
+        minutesBalance={minutesBalance}
+        minutesIncluded={minutesIncluded}
+      />
 
       {/* ── Section 4: Recent Insights ── */}
 

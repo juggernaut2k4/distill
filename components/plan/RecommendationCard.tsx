@@ -10,15 +10,36 @@ export interface RecommendationData {
   title: string
   queue_rationale: string
   arc_name?: string
+  estimated_minutes?: number
 }
 
 interface RecommendationCardProps {
   recommendation: RecommendationData
   onAccept: (sessionId: string) => Promise<void>
   onDismiss: (sessionId: string) => Promise<void>
+  /**
+   * Minutes-aware framing (R-03). When provided alongside `minutesIncluded`,
+   * and the recommended session's estimated duration would meaningfully eat
+   * into the user's remaining monthly balance, shows "~X min · you have Y min left".
+   * Assumption (2026-07-03, logged in SCALING_PLAYBOOK.md): only rendered when
+   * remaining balance < 2x the session's typical duration — avoids showing this
+   * on every recommendation and creating false urgency.
+   */
+  minutesBalance?: number | null
+  minutesIncluded?: number | null
+  estimatedMinutes?: number | null
 }
 
-export function RecommendationCard({ recommendation, onAccept, onDismiss }: RecommendationCardProps) {
+const DEFAULT_SESSION_MINUTES = 20
+
+export function RecommendationCard({
+  recommendation,
+  onAccept,
+  onDismiss,
+  minutesBalance,
+  minutesIncluded,
+  estimatedMinutes,
+}: RecommendationCardProps) {
   const [state, setState] = useState<'idle' | 'accepting' | 'accepted' | 'dismissing' | 'error'>('idle')
 
   async function handleAccept() {
@@ -42,6 +63,13 @@ export function RecommendationCard({ recommendation, onAccept, onDismiss }: Reco
 
   if (state === 'dismissing') return null
 
+  const sessionMinutes = estimatedMinutes ?? DEFAULT_SESSION_MINUTES
+  const showMinutesFraming =
+    typeof minutesBalance === 'number' &&
+    typeof minutesIncluded === 'number' &&
+    minutesIncluded > 0 &&
+    minutesBalance < sessionMinutes * 2
+
   return (
     <motion.div
       layout
@@ -62,6 +90,11 @@ export function RecommendationCard({ recommendation, onAccept, onDismiss }: Reco
               </div>
             ) : (
               <p className="text-xs text-[#475569] mt-0.5 line-clamp-2">{recommendation.queue_rationale}</p>
+            )}
+            {showMinutesFraming && state !== 'accepting' && state !== 'accepted' && (
+              <p className="text-xs text-[#F59E0B] mt-1">
+                ~{sessionMinutes} min · you have {minutesBalance} min left this month
+              </p>
             )}
             {state === 'error' && (
               <p className="text-xs text-[#EF4444] mt-1">Couldn&apos;t add — try again</p>

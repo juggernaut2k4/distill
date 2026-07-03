@@ -4,7 +4,7 @@
 > Captures process rules, tasks, stories, decisions, and open questions as we brainstorm.
 > At the end of each session: review, prioritize, group, then build.
 >
-> **Last updated:** 2026-05-30
+> **Last updated:** 2026-07-03
 
 ---
 
@@ -167,11 +167,18 @@ If two Inngest runs are in flight simultaneously (old run + new reset run), they
 
 | ID | Story | Outcome | Complexity | Status |
 |----|-------|---------|------------|--------|
-| R-01 | Completion recommendation: "X of Y recommended topics for your role covered" with gap list | User sees their progress toward role readiness | M | Not started |
-| R-02 | Unlock recommendation: after completing topic X, show what X unlocks | Creates progression feel, drives continued learning | M | Not started |
-| R-03 | Minutes-aware recommendation: frame missing topics as "75 more minutes to complete your path" | Natural purchase trigger without forced upsell | S | Not started |
-| R-04 | API: `GET /api/recommendations` — returns { roleGaps, unlocked, nextBest } for current user | Powers all recommendation UI surfaces | M | Not started |
-| R-05 | UI: Recommendations panel on dashboard — "Continue your CFO path" with 3 topic cards | User sees what to do next after each session | M | Not started |
+| R-01 | Completion recommendation: "X of Y recommended topics for your role covered" with gap list | User sees their progress toward role readiness | M | Done (via CURR-02) |
+| R-02 | Unlock recommendation: after completing topic X, show what X unlocks | Creates progression feel, drives continued learning | M | Done (via CURR-02) |
+| R-03 | Minutes-aware recommendation: frame missing topics as "75 more minutes to complete your path" | Natural purchase trigger without forced upsell | S | Done 2026-07-03 |
+| R-04 | API: `GET /api/recommendations` — returns { roleGaps, unlocked, nextBest } for current user | Powers all recommendation UI surfaces | M | Done (via CURR-02) |
+| R-05 | UI: Recommendations panel on dashboard — "Continue your CFO path" with 3 topic cards | User sees what to do next after each session | M | Done 2026-07-03 |
+
+**R-03 / R-05 assumed defaults (2026-07-03)** — proceeded without a full BA Q&A round since these are low-stakes, reversible UI decisions. Logged here as documented assumptions, not silent guesses:
+1. Dashboard-home panel shows only **1** recommendation (vs. the plan page's up-to-2/up-to-1 by tier), given limited home real estate.
+2. Minutes-aware framing (R-03) only renders when the recommended session's estimated duration would meaningfully eat into the remaining balance — specifically when `minutesBalance < 2 × session's estimated_minutes` (default 20 min if unknown). Not shown on every recommendation, to avoid clutter/false urgency.
+3. Accepting a recommendation from dashboard home behaves identically to the plan page: calls `POST /api/curriculum/accept-recommendation` directly, adds the session to the plan, and shows an inline "Added to your plan" success state — no redirect off the dashboard.
+
+Implementation: `HomeRecommendationSection` in `app/dashboard/DashboardClient.tsx` fetches `GET /api/curriculum/plan` client-side, takes `recommendations[0]`, and reuses `components/plan/RecommendationCard.tsx` (extended with optional `minutesBalance` / `minutesIncluded` / `estimatedMinutes` props for the minutes-aware copy).
 
 ---
 
