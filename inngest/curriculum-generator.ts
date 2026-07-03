@@ -3,6 +3,13 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
 import { generateCurriculumPlan, buildProfileHash, generateArcsForTopics, generateBridgingArc, type Arc } from '@/lib/curriculum/planner'
 import { checkDimensionCoverage } from '@/lib/curriculum/enrichment'
 
+// Matches the slugify() used in session-designer-auto.ts so that if/when a queued
+// arc is promoted or accepted and later session-designed, the real session_id
+// (`${arcSlug}-part-1`) lines up with the placeholder id assigned here.
+function slugify(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+}
+
 interface TopicDelta {
   removed: string[]
   added: string[]
@@ -279,7 +286,21 @@ export const curriculumGenerator = inngest.createFunction(
         .map((a) => ({ arc_name: a.arc_name, arc_type: a.arc_type, arc_description: a.arc_description, comprehensive_subtopics: a.comprehensive_subtopics }))
       const queueSessions = output.arcs
         .filter((a) => !a.is_visible)
-        .map((a) => ({ arc_name: a.arc_name, arc_type: a.arc_type, arc_description: a.arc_description, comprehensive_subtopics: a.comprehensive_subtopics, queue_rationale: a.queue_rationale }))
+        .map((a) => ({
+          // session_id/arc_position identify this queued arc's entry point so the
+          // "Recommended for you" filter (arc_position === 1) in
+          // GET /api/curriculum/plan can find it. These arcs haven't been
+          // session-designed yet (that only happens for visible/accepted arcs via
+          // session-designer-auto.ts), so arc_position: 1 means "this arc's entry
+          // point" rather than a literal index into a real session breakdown.
+          session_id: `${slugify(a.arc_name)}-part-1`,
+          arc_position: 1,
+          arc_name: a.arc_name,
+          arc_type: a.arc_type,
+          arc_description: a.arc_description,
+          comprehensive_subtopics: a.comprehensive_subtopics,
+          queue_rationale: a.queue_rationale,
+        }))
 
       const { data: newPlan } = await supabase
         .from('curriculum_plans')
