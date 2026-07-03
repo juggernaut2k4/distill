@@ -31,6 +31,34 @@ const MAX_RECONNECT = 6
 // topic_context is truncated to fill the remaining budget.
 const MAX_PROMPT_CHARS = 12_000
 
+// ─── AUTOGEN-01 Part D — billing audit event helper ───────────────────────────
+// Writes one row to the session billing audit log via the public,
+// userId-keyed /api/sessions/audit-event route (this component runs inside the
+// Recall.ai bot's own headless browser and only knows userId, not session id —
+// same constraint as the existing /api/walkthrough-state/[userId] polling route).
+// Non-fatal by design: audit logging must never break or delay the live session.
+//
+// SECURITY (CEO review fix): the route now requires `token` — the per-session
+// audit token minted by /api/sessions/[id]/start and read here from
+// walkthrough_state's initial server-rendered state (see auditTokenRef). If the
+// token is missing (e.g. state hasn't loaded yet), we still attempt the call —
+// the server rejects it with 401 and logs are non-fatal to the live session,
+// same as any other audit-event failure.
+type BillingAuditEventType = 'voice_connect_attempt' | 'speak_verified' | 'gap_start' | 'gap_end'
+
+function writeAuditEvent(
+  userId: string,
+  eventType: BillingAuditEventType,
+  token: string | null,
+  provider?: 'elevenlabs' | 'hume'
+): void {
+  fetch('/api/sessions/audit-event', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, eventType, provider, token }),
+  }).catch((err) => console.error(`[Walkthrough] Failed to write audit event "${eventType}":`, err))
+}
+
 // ─── Split-mode script formatter ──────────────────────────────────────────────
 // Formats a single section's training script for injection via injectContext.
 // Produces the same structure as buildSessionScript for one section in isolation.
@@ -108,6 +136,12 @@ interface WalkthroughState {
   // Per-section tab manifests — keyed by section index as string (e.g. "0", "1").
   // Present only when the section has a VisualizationTabPanel with 2+ tabs.
   tab_manifests?: Record<string, TabManifest> | null
+  // SECURITY (CEO review fix, AUTOGEN-01 Part D) — minted by POST
+  // /api/sessions/[id]/start and required on every write to
+  // /api/sessions/audit-event (see that route + lib/session-billing.ts). Read
+  // once from the server-rendered initial state; never re-fetched by this
+  // client on its own.
+  audit_token?: string | null
 }
 
 /**
@@ -196,6 +230,13 @@ interface Props {
   botView?: boolean
   userFirstName?: string
   initialState: WalkthroughState
+  // SECURITY (CEO review fix) — explicit override for the public bot page
+  // (app/walkthrough/[userId]/page.tsx), which sources the token from a URL
+  // query param rather than from initialState (see that file's comment for why).
+  // The Clerk-authenticated dashboard page does not pass this; it relies on
+  // initialState.audit_token instead, which is safe there because that page is
+  // auth-gated.
+  auditToken?: string | null
 }
 
 function DotsLoader() {
@@ -231,7 +272,7 @@ function PulsingRing() {
   )
 }
 
-export default function WalkthroughClient({ userId, userFirstName, initialState, botView = false }: Props) {
+export default function WalkthroughClient({ userId, userFirstName, initialState, botView = false, auditToken = null }: Props) {
   const [state, setState] = useState<WalkthroughState>(initialState)
   const [showLandscapePrompt, setShowLandscapePrompt] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -269,8 +310,21 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
   const sessionScriptRef = useRef<string | null>(initialState.session_script ?? null)
   // Legacy fallback
   const clioSessionContextRef = useRef<string | null>(initialState.clio_session_context ?? null)
+  // SECURITY (CEO review fix) — audit token proving this bot instance owns the
+  // current session; required on every /api/sessions/audit-event write. Read
+  // once from server-rendered initial state; refreshed by the walkthrough_state
+  // poll below in case a reconnect picks up a rotated token.
+  const auditTokenRef = useRef<string | null>(auditToken ?? initialState.audit_token ?? null)
   const reconnectAttemptsRef = useRef(0)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // AUTOGEN-01 Part D — billing audit trail state.
+  // speakVerifiedWrittenRef: true once the `speak_verified` audit event has been
+  // written for this session (across the whole component lifetime, not per-adapter
+  // instance — reconnects must never re-fire billing-start).
+  const speakVerifiedWrittenRef = useRef(false)
+  // gapOpenRef: true while a voice-connection gap is currently open (disconnected
+  // after billing had already started, not yet reconnected).
+  const gapOpenRef = useRef(false)
 
   // Track container dimensions
   useEffect(() => {
@@ -365,6 +419,9 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
         const micStream = await navigator.mediaDevices.getUserMedia({ audio: true })
         if (cancelled) return
 
+        // AUTOGEN-01 Part D — informational only, NOT the billing-start signal.
+        writeAuditEvent(userId, 'voice_connect_attempt', auditTokenRef.current, VOICE_PROVIDER === 'hume' ? 'hume' : 'elevenlabs')
+
         // ── HUME EVI 3 path ───────────────────────────────────────────────────
         if (VOICE_PROVIDER === 'hume') {
           const tokenRes = await fetch('/api/hume-token')
@@ -385,11 +442,26 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
                 setRetryCount(0)
                 console.log('[Walkthrough/Hume] Connection stable for 30s — retry counter reset')
               }, 30_000)
+              // AUTOGEN-01 Part D / Edge Case D2 — a successful (re)connect after
+              // billing had already started (speak_verified written) closes any
+              // open gap. onConnect alone is NOT the speak_verified signal (see
+              // onSpeakVerified registration below) — this only closes gaps.
+              if (gapOpenRef.current) {
+                gapOpenRef.current = false
+                writeAuditEvent(userId, 'gap_end', auditTokenRef.current, 'hume')
+              }
             },
             onDisconnect: () => {
               console.log('[Walkthrough/Hume] Disconnected')
               adapterRef.current = null
               setAgentStatus('disconnected')
+              // AUTOGEN-01 Part D / Edge Case D2 — only a genuine gap if billing had
+              // already started; a disconnect before speak_verified is just a failed
+              // connection attempt (AC-D3 covers that case with zero billed minutes).
+              if (speakVerifiedWrittenRef.current && !gapOpenRef.current && !sessionEndedRef.current) {
+                gapOpenRef.current = true
+                writeAuditEvent(userId, 'gap_start', auditTokenRef.current, 'hume')
+              }
               if (sessionEndedRef.current) return
               if (!cancelled && reconnectAttemptsRef.current < MAX_RECONNECT) {
                 reconnectAttemptsRef.current++
@@ -530,6 +602,17 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
           hasConnectedRef.current = true
           adapterRef.current = hume
           lastActivityRef.current = Date.now()
+
+          // AUTOGEN-01 Part D / AC-D1 — billing starts here, and only here: once
+          // BOTH onConnect (chat_metadata) and the first assistant_message/speaking
+          // event have occurred (enforced inside HumeAdapter). Written at most once
+          // per session lifetime regardless of reconnects.
+          hume.onSpeakVerified(() => {
+            if (!speakVerifiedWrittenRef.current) {
+              speakVerifiedWrittenRef.current = true
+              writeAuditEvent(userId, 'speak_verified', auditTokenRef.current, 'hume')
+            }
+          })
 
           if (botView) {
             if (isReconnect || isMidSession) {
@@ -712,12 +795,26 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
               setRetryCount(0)
               console.log('[Walkthrough] Connection stable for 30s — retry counter reset')
             }, 30_000)
+            // AUTOGEN-01 Part D / Edge Case D2 — a successful reconnect after
+            // billing had already started closes any open gap.
+            if (gapOpenRef.current) {
+              gapOpenRef.current = false
+              writeAuditEvent(userId, 'gap_end', auditTokenRef.current, 'elevenlabs')
+            }
           },
           onDisconnect: () => {
             console.log('[Walkthrough] Agent disconnected')
             adapterRef.current = null
             elevenLabsConvRef.current = null
             setAgentStatus('disconnected')
+
+            // AUTOGEN-01 Part D / Edge Case D2 — only a genuine gap if billing had
+            // already started; a disconnect before speak_verified is just a failed
+            // connection attempt (AC-D3 covers that with zero billed minutes).
+            if (speakVerifiedWrittenRef.current && !gapOpenRef.current && !sessionEndedRef.current) {
+              gapOpenRef.current = true
+              writeAuditEvent(userId, 'gap_start', auditTokenRef.current, 'elevenlabs')
+            }
 
             if (sessionEndedRef.current) {
               console.log('[Walkthrough] Session ended by agent — not reconnecting')
@@ -797,6 +894,16 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
         elevenLabsConvRef.current = conv
         adapterRef.current = createVoiceAdapter('elevenlabs', conv)
         lastActivityRef.current = Date.now()
+
+        // AUTOGEN-01 Part D / AC-D1 — billing starts here, and only here: once the
+        // adapter confirms a verified `isOpen()` transition. Written at most once
+        // per session lifetime regardless of reconnects.
+        adapterRef.current.onSpeakVerified(() => {
+          if (!speakVerifiedWrittenRef.current) {
+            speakVerifiedWrittenRef.current = true
+            writeAuditEvent(userId, 'speak_verified', auditTokenRef.current, 'elevenlabs')
+          }
+        })
 
         // Bot view warmup: on first join, delay revealing content for 3s so Attendee's
         // headless browser screen capture has time to stabilise. On reconnects the
@@ -898,6 +1005,12 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
         if (data.topic_context) topicContextRef.current = data.topic_context
         if (data.session_script) sessionScriptRef.current = data.session_script
         if (data.clio_session_context) clioSessionContextRef.current = data.clio_session_context
+        // SECURITY: /api/walkthrough-state/[userId] intentionally strips audit_token
+        // from its response (that endpoint is public/unauthenticated), so this is
+        // normally a no-op — auditTokenRef is set once, from initialState/auditToken
+        // at mount. Kept defensive in case a future authenticated-only variant of
+        // this poll route legitimately includes it.
+        if (data.audit_token !== undefined) auditTokenRef.current = data.audit_token ?? null
 
         // elevenLabsConvRef used for sendUserMessage (ElevenLabs-specific transcript forwarding)
         const conv = elevenLabsConvRef.current

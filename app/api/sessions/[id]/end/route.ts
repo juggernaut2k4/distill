@@ -3,6 +3,7 @@ import { requireSessionAuth } from '@/lib/session-auth'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { releaseAgent } from '@/lib/elevenlabs-pool'
 import { inngest } from '@/inngest/client'
+import { writeAuditEvent, computeBilledMinutes } from '@/lib/session-billing'
 
 interface Params {
   params: { id: string }
@@ -12,6 +13,11 @@ interface Params {
  * POST /api/sessions/[id]/end
  * Marks the session completed, calculates actual time used, and deducts from minutes_balance.
  * Called when the user clicks "End Session" or the timer hits zero.
+ *
+ * AUTOGEN-01 Part D: minutes are now computed strictly from the billing audit log
+ * — (disconnected_at − speak_verified_at) − Σ(gap durations) — never from
+ * session.started_at (bot-join time). If the session never reached
+ * `speak_verified`, zero minutes are deducted (AC-D3, explicit branch below).
  */
 export async function POST(request: NextRequest, { params }: Params) {
   const { userId, error } = await requireSessionAuth(request)
@@ -37,16 +43,27 @@ export async function POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Session not found' }, { status: 404 })
   }
 
-  // Deduct actual elapsed time (rounded up to nearest minute), capped at current balance.
-  // session.duration_mins is the planned length — not a cap. Users run until balance runs out.
-  let minutesUsed = 1
-  if (session.started_at) {
-    const elapsedMs = Date.now() - new Date(session.started_at).getTime()
-    minutesUsed = Math.max(1, Math.ceil(elapsedMs / (1000 * 60)))
-  }
-  minutesUsed = Math.min(minutesUsed, userRow?.minutes_balance ?? minutesUsed)
-
   const now = new Date().toISOString()
+
+  // Billing-end audit event — this timestamp is what minutes are computed up to.
+  await writeAuditEvent({
+    sessionId: params.id,
+    userId: userId!,
+    eventType: 'disconnected',
+    occurredAt: now,
+  })
+
+  // AC-D2 / AC-D3: computeBilledMinutes returns an explicit zero when this
+  // session's audit log never contains a `speak_verified` row — never a raw
+  // wall-clock fallback.
+  const { minutesUsed: rawMinutesUsed, reachedSpeakVerified } = await computeBilledMinutes(
+    params.id,
+    { disconnectedAt: now }
+  )
+  if (!reachedSpeakVerified) {
+    console.log(`[session/end] Session ${params.id} never reached speak_verified — billing 0 minutes`)
+  }
+  const minutesUsed = Math.min(rawMinutesUsed, userRow?.minutes_balance ?? rawMinutesUsed)
 
   // Deduct minutes and mark session completed in parallel
   const [deductResult] = await Promise.all([

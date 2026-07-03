@@ -34,4 +34,17 @@ export interface VoiceSessionAdapter {
 
   /** Returns true if the underlying connection is currently open. */
   isOpen(): boolean
+
+  /**
+   * AUTOGEN-01 Part D — registers a callback fired exactly once, the moment this
+   * adapter has confirmed a REAL, working voice connection capable of producing
+   * audio. This is the billing-start signal — it must NOT fire on bot-join,
+   * screen-share-start, or a merely-attempted (not yet confirmed) connection.
+   *   ElevenLabs: fires when `isOpen()` is confirmed true (verified open transition).
+   *   Hume:       fires only when BOTH `onConnect` (chat_metadata) has occurred AND
+   *               the first successful assistant_message/speaking-mode event has
+   *               occurred — `onConnect` alone is not sufficient proof Clio can speak.
+   * If the connection never reaches this state, the callback is simply never called.
+   */
+  onSpeakVerified(callback: () => void): void
 }

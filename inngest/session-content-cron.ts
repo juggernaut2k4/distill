@@ -7,10 +7,23 @@
  *   2. Pending generation — fire content pipeline for sessions not yet generated,
  *      excluding any session currently in-flight (content_status='generating').
  *   3. Empty-subtopic guard — never fire the pipeline for sessions with no subtopics
- *      designed yet; prevents ai-fundamentals fallback content being stored under
- *      the wrong cache key.
+ *      designed yet (i.e. the plan's topics/subtopics aren't finalized); prevents
+ *      ai-fundamentals fallback content being stored under the wrong cache key.
  *
- * Rate: one old-style session per user per hour. Curriculum sessions: all pending.
+ * AUTOGEN-01 Part A (Trigger 4): curriculum sessions no longer require plan
+ * approval (`status: 'scheduled'`) to be picked up — Session 2-N content must
+ * generate in the background whether or not the user has approved the plan yet.
+ * Eligible statuses are 'draft' (pre-approval) and 'scheduled' (post-approval);
+ * 'active'/'completed'/'cancelled' sessions are never targeted.
+ *
+ * Rate: exactly ONE session-start per user per hour, across both old-style and
+ * curriculum sessions combined (AC-A4) — never multiple sessions for the same
+ * user in a single tick, regardless of how many are pending. The oldest pending
+ * session (lowest session_index) is picked. A session already 'generating' or
+ * 'ready' is always skipped, which is what makes queue-jumps (Part C) safe: if
+ * another mechanism jumped a session ahead, this cron just skips it (it's no
+ * longer 'pending') and advances to the next oldest pending session for that
+ * user — no double-spend of the one-per-hour budget.
  */
 
 import { inngest } from './client'
@@ -76,11 +89,13 @@ export const sessionContentCron = inngest.createFunction(
       .gt('scheduled_at', new Date().toISOString())
       .order('session_index', { ascending: true })
 
-    // Branch B: sessions with subtopics assigned (session designer has run)
+    // Branch B: sessions with subtopics assigned (session designer has run).
+    // AUTOGEN-01 Part A: eligible regardless of approval — 'draft' (pre-approval,
+    // the whole premise of Part A) and 'scheduled' (post-approval) both qualify.
     const { data: curriculumSessions, error: err2 } = await supabase
       .from('sessions')
       .select(SELECT_COLS)
-      .eq('status', 'scheduled')
+      .in('status', ['draft', 'scheduled'])
       .not('content_status', 'eq', 'ready')
       .not('content_status', 'eq', 'generating')
       .not('sub_sessions', 'is', null)
@@ -114,12 +129,16 @@ export const sessionContentCron = inngest.createFunction(
     }
 
     // ── Task 3: Build firing targets ─────────────────────────────────────────
-    // Old-style: one per user (lowest session_index).
-    // Curriculum: all pending, but skip any session with no subtopics designed yet
-    // (Fix 3: pipeline would silently fall back to ai-fundamentals subtopics and
-    // store content under the wrong cache key).
+    // AC-A4: exactly ONE session-start per user per hour, across old-style AND
+    // curriculum sessions combined — never more than one per user in a single tick.
+    // Both queries are ordered by session_index ascending, so the first row seen
+    // per user is always that user's oldest pending session.
+    // Curriculum sessions additionally skip any session with no subtopics designed
+    // yet (Fix 3: pipeline would silently fall back to ai-fundamentals subtopics and
+    // store content under the wrong cache key) — i.e. the plan's topics aren't
+    // finalized yet for that session.
     const perUserOldStyle = new Map<string, typeof allPending[0]>()
-    const curriculumTargets: typeof allPending = []
+    const curriculumByUser = new Map<string, typeof allPending[0]>()
     const skippedNoSubtopics: string[] = []
 
     for (const session of allPending) {
@@ -135,12 +154,18 @@ export const sessionContentCron = inngest.createFunction(
           )
           continue
         }
-        curriculumTargets.push(session)
+        // AC-A4: skip if this user was already claimed by an old-style session
+        // this tick, and only keep the first (oldest) curriculum session per user.
+        if (perUserOldStyle.has(session.user_id)) continue
+        if (!curriculumByUser.has(session.user_id)) {
+          curriculumByUser.set(session.user_id, session)
+        }
       } else if (!perUserOldStyle.has(session.user_id)) {
         perUserOldStyle.set(session.user_id, session)
       }
     }
 
+    const curriculumTargets = Array.from(curriculumByUser.values())
     const targets = [...Array.from(perUserOldStyle.values()), ...curriculumTargets]
     console.log(
       `[session-content-cron] Firing ${targets.length} sessions ` +

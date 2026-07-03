@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useUser } from '@clerk/nextjs'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -8,6 +8,13 @@ import {
   TrendingUp, Briefcase, Wrench, Target, Code2, Users, Plus, ArrowRight, BookOpen, ChevronRight, Lightbulb,
 } from 'lucide-react'
 import { inferRoleLevel } from '@/lib/curriculum/role-utils'
+
+// TOPIC-01 feature flag — gates the new viewport-driven section expand/collapse and
+// score-based section ordering. Defaults to OFF (pre-TOPIC01 behavior: all returned
+// sections render fully expanded, only the beginner-technical "Advanced topics" block
+// collapses) unless explicitly enabled — same convention as NEXT_PUBLIC_VOICE_PROVIDER
+// (see lib/elevenlabs-pool.ts / app/dashboard/walkthrough/WalkthroughClient.tsx).
+const TOPIC01_ENABLED = process.env.NEXT_PUBLIC_TOPIC01_ENABLED === 'true'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -17,6 +24,9 @@ interface RecommendedTopic {
   description: string
   /** true for custom user-added topics */
   isCustom?: boolean
+  /** TOPIC-01 (Q1): 0-100 relevance score from the four-factor rubric. Absent for
+   *  legacy cached responses and custom user-added topics. */
+  score?: number
 }
 
 interface RecommendationSection {
@@ -168,6 +178,62 @@ function Section({ section, selectedIds, onToggle, colorClass }: SectionProps) {
   )
 }
 
+// ── Collapsible section (TOPIC-01: generalized viewport-driven collapse) ───────
+// Same visual treatment as the pre-TOPIC01 one-off "Advanced topics" block, but
+// applicable to any section, not just the beginner-technical special case.
+
+interface CollapsibleSectionProps {
+  section: RecommendationSection
+  selectedIds: Set<string>
+  onToggle: (id: string) => void
+  colorClass: string
+  isExpanded: boolean
+  onToggleExpanded: () => void
+}
+
+function CollapsibleSection({ section, selectedIds, onToggle, colorClass, isExpanded, onToggleExpanded }: CollapsibleSectionProps) {
+  const IconComponent = SECTION_ICON_MAP[section.icon] ?? TrendingUp
+
+  return (
+    <div className="border border-[#222222] rounded-2xl overflow-hidden">
+      <button
+        onClick={onToggleExpanded}
+        className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-[#111111] transition-colors"
+      >
+        <motion.div animate={{ rotate: isExpanded ? 90 : 0 }} transition={{ duration: 0.2 }}>
+          <ChevronRight size={16} className="text-[#475569]" />
+        </motion.div>
+        <IconComponent size={16} className={colorClass} />
+        <p className="text-sm font-semibold text-white">{section.label}</p>
+      </button>
+      <AnimatePresence>
+        {isExpanded && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.25 }}
+            className="overflow-hidden"
+          >
+            <div className="px-5 pb-5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {section.topics.map((topic) => (
+                  <TopicCard
+                    key={topic.id}
+                    topic={topic}
+                    isSelected={selectedIds.has(topic.id)}
+                    onToggle={onToggle}
+                  />
+                ))}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
 const SECTION_COLORS = [
   'text-[#06B6D4]',   // trending — cyan
   'text-[#7C3AED]',   // role — purple
@@ -191,7 +257,79 @@ export default function TopicsPage() {
   const [customInput, setCustomInput] = useState('')
   const [domainLabel, setDomainLabel] = useState('')
 
+  // TOPIC-01 (viewport-driven expand/collapse) — only used when TOPIC01_ENABLED
+  const [autoExpandedCount, setAutoExpandedCount] = useState(1)
+  const [manuallyExpanded, setManuallyExpanded] = useState<Set<string>>(new Set())
+
   const customInputRef = useRef<HTMLInputElement>(null)
+
+  // ── TOPIC-01: score-ranked section order (Q1) ─────────────────────────────────
+  // Combines sections + advancedSections into one ranked pool — under the new flag
+  // there is no separate "advanced" special case, every section is ranked and
+  // rendered expanded/collapsed purely by score + viewport fit (Q2).
+  const orderedSections = useMemo(() => {
+    if (!TOPIC01_ENABLED) return sections
+    const pool = [...sections, ...advancedSections]
+    const scored = pool.map((section) => {
+      const topicScores = section.topics.map((t) => t.score ?? 50)
+      const avgScore = topicScores.length
+        ? topicScores.reduce((a, b) => a + b, 0) / topicScores.length
+        : 0
+      return { section, avgScore }
+    })
+    scored.sort((a, b) => b.avgScore - a.avgScore)
+    return scored.map((s) => s.section)
+  }, [sections, advancedSections])
+
+  // ── TOPIC-01: measure above-the-fold viewport height, decide expand count (Q2) ─
+  // Display rule only — ranking (order) comes from orderedSections above; this
+  // effect only decides HOW MANY of that ordered list render expanded before the
+  // rest collapse to tappable headers. Re-runs on resize so short mobile vs tall
+  // desktop viewports genuinely produce different expand counts.
+  useEffect(() => {
+    if (!TOPIC01_ENABLED) return
+    if (typeof window === 'undefined') return
+
+    function computeExpandedCount() {
+      // Rough above-the-fold budget: viewport height minus page header / custom-topics
+      // area chrome and the fixed bottom action bar.
+      const HEADER_CHROME_PX = 260
+      const STICKY_BAR_PX = 88
+      const SECTION_HEADER_PX = 32
+      const CARD_ROW_PX = 108 // card height (~96px) + grid gap (12px)
+      const cardsPerRow = window.innerWidth >= 640 ? 2 : 1
+
+      const available = window.innerHeight - HEADER_CHROME_PX - STICKY_BAR_PX
+
+      let used = 0
+      let count = 0
+      for (const section of orderedSections) {
+        const rows = Math.ceil(section.topics.length / cardsPerRow)
+        const height = SECTION_HEADER_PX + rows * CARD_ROW_PX
+        // Minimum of 1 section always expanded, even on a degenerate short viewport.
+        if (count === 0 || used + height <= available) {
+          used += height
+          count += 1
+        } else {
+          break
+        }
+      }
+      setAutoExpandedCount(Math.max(1, Math.min(count, orderedSections.length)))
+    }
+
+    computeExpandedCount()
+    window.addEventListener('resize', computeExpandedCount)
+    return () => window.removeEventListener('resize', computeExpandedCount)
+  }, [orderedSections])
+
+  const toggleSectionExpanded = useCallback((id: string) => {
+    setManuallyExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -596,67 +734,105 @@ export default function TopicsPage() {
               </AnimatePresence>
 
               {/* AI sections */}
-              {sections.map((section, idx) => {
-                // Ensure icon falls back gracefully
-                const iconKey = section.icon in SECTION_ICON_MAP
-                  ? section.icon
-                  : (FALLBACK_SECTION_ICONS[section.id] ?? 'TrendingUp')
-                const sectionWithIcon = { ...section, icon: iconKey }
-                return (
-                  <Section
-                    key={section.id}
-                    section={sectionWithIcon}
-                    selectedIds={selectedIds}
-                    onToggle={toggleTopic}
-                    colorClass={SECTION_COLORS[idx % SECTION_COLORS.length]}
-                  />
-                )
-              })}
+              {TOPIC01_ENABLED ? (
+                // TOPIC-01: sections ordered by score (Q1); top N render expanded based
+                // on measured above-the-fold viewport height (Q2), remainder collapsed.
+                orderedSections.map((section, idx) => {
+                  const iconKey = section.icon in SECTION_ICON_MAP
+                    ? section.icon
+                    : (FALLBACK_SECTION_ICONS[section.id] ?? 'TrendingUp')
+                  const sectionWithIcon = { ...section, icon: iconKey }
+                  const isAutoExpanded = idx < autoExpandedCount
 
-              {/* Collapsed advanced topics — shown only for beginner technical users */}
-              {maturity === 'beginner' && advancedSections.length > 0 && (
-                <div className="border border-[#222222] rounded-2xl overflow-hidden">
-                  <button
-                    onClick={() => setIsAdvancedExpanded((v) => !v)}
-                    className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-[#111111] transition-colors"
-                  >
-                    <motion.div animate={{ rotate: isAdvancedExpanded ? 90 : 0 }} transition={{ duration: 0.2 }}>
-                      <ChevronRight size={16} className="text-[#475569]" />
-                    </motion.div>
-                    <div>
-                      <p className="text-sm font-semibold text-[#475569]">Advanced topics — unlock when you&apos;re ready</p>
-                      <p className="text-xs text-[#334155] mt-0.5">These will make more sense after you&apos;ve built the fundamentals.</p>
-                    </div>
-                  </button>
-                  <AnimatePresence>
-                    {isAdvancedExpanded && (
-                      <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: 'auto' }}
-                        exit={{ opacity: 0, height: 0 }}
-                        transition={{ duration: 0.25 }}
-                        className="overflow-hidden"
+                  if (isAutoExpanded) {
+                    return (
+                      <Section
+                        key={section.id}
+                        section={sectionWithIcon}
+                        selectedIds={selectedIds}
+                        onToggle={toggleTopic}
+                        colorClass={SECTION_COLORS[idx % SECTION_COLORS.length]}
+                      />
+                    )
+                  }
+
+                  return (
+                    <CollapsibleSection
+                      key={section.id}
+                      section={sectionWithIcon}
+                      selectedIds={selectedIds}
+                      onToggle={toggleTopic}
+                      colorClass={SECTION_COLORS[idx % SECTION_COLORS.length]}
+                      isExpanded={manuallyExpanded.has(section.id)}
+                      onToggleExpanded={() => toggleSectionExpanded(section.id)}
+                    />
+                  )
+                })
+              ) : (
+                <>
+                  {sections.map((section, idx) => {
+                    // Ensure icon falls back gracefully
+                    const iconKey = section.icon in SECTION_ICON_MAP
+                      ? section.icon
+                      : (FALLBACK_SECTION_ICONS[section.id] ?? 'TrendingUp')
+                    const sectionWithIcon = { ...section, icon: iconKey }
+                    return (
+                      <Section
+                        key={section.id}
+                        section={sectionWithIcon}
+                        selectedIds={selectedIds}
+                        onToggle={toggleTopic}
+                        colorClass={SECTION_COLORS[idx % SECTION_COLORS.length]}
+                      />
+                    )
+                  })}
+
+                  {/* Collapsed advanced topics — shown only for beginner technical users */}
+                  {maturity === 'beginner' && advancedSections.length > 0 && (
+                    <div className="border border-[#222222] rounded-2xl overflow-hidden">
+                      <button
+                        onClick={() => setIsAdvancedExpanded((v) => !v)}
+                        className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-[#111111] transition-colors"
                       >
-                        <div className="px-5 pb-5 space-y-6">
-                          {advancedSections.map((section, idx) => {
-                            const iconKey = section.icon in SECTION_ICON_MAP
-                              ? section.icon
-                              : (FALLBACK_SECTION_ICONS[section.id] ?? 'TrendingUp')
-                            return (
-                              <Section
-                                key={`adv-${section.id}`}
-                                section={{ ...section, icon: iconKey }}
-                                selectedIds={selectedIds}
-                                onToggle={toggleTopic}
-                                colorClass={SECTION_COLORS[(sections.length + idx) % SECTION_COLORS.length]}
-                              />
-                            )
-                          })}
+                        <motion.div animate={{ rotate: isAdvancedExpanded ? 90 : 0 }} transition={{ duration: 0.2 }}>
+                          <ChevronRight size={16} className="text-[#475569]" />
+                        </motion.div>
+                        <div>
+                          <p className="text-sm font-semibold text-[#475569]">Advanced topics — unlock when you&apos;re ready</p>
+                          <p className="text-xs text-[#334155] mt-0.5">These will make more sense after you&apos;ve built the fundamentals.</p>
                         </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
+                      </button>
+                      <AnimatePresence>
+                        {isAdvancedExpanded && (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            exit={{ opacity: 0, height: 0 }}
+                            transition={{ duration: 0.25 }}
+                            className="overflow-hidden"
+                          >
+                            <div className="px-5 pb-5 space-y-6">
+                              {advancedSections.map((section, idx) => {
+                                const iconKey = section.icon in SECTION_ICON_MAP
+                                  ? section.icon
+                                  : (FALLBACK_SECTION_ICONS[section.id] ?? 'TrendingUp')
+                                return (
+                                  <Section
+                                    key={`adv-${section.id}`}
+                                    section={{ ...section, icon: iconKey }}
+                                    selectedIds={selectedIds}
+                                    onToggle={toggleTopic}
+                                    colorClass={SECTION_COLORS[(sections.length + idx) % SECTION_COLORS.length]}
+                                  />
+                                )
+                              })}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  )}
+                </>
               )}
 
               {/* Add your own topic input */}

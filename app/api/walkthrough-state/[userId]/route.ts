@@ -26,6 +26,16 @@ export async function GET(
     .eq('user_id', params.userId)
     .single()
 
+  // SECURITY (CEO review fix): this route is fully public and userId-keyed — never
+  // return audit_token here. It's the credential /api/sessions/audit-event requires
+  // to write billing events; if it were readable via this endpoint, anyone who
+  // knew/guessed a userId could fetch it and defeat that fix entirely. The token is
+  // instead delivered to the bot's browser out-of-band, via a query param on the
+  // walkthroughUrl (see app/api/recall/bot/route.ts + app/walkthrough/[userId]/page.tsx).
+  if (data && 'audit_token' in data) {
+    delete (data as Record<string, unknown>).audit_token
+  }
+
   if (data?.pending_transcript) {
     console.log('[walkthrough-state] GET returning pending_transcript:', (data.pending_transcript as string).slice(0, 80))
   }

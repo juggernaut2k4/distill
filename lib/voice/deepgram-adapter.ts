@@ -44,4 +44,8 @@ export class DeepgramAdapter implements VoiceSessionAdapter {
     console.log('[DeepgramAdapter STUB] isOpen called')
     return false
   }
+
+  onSpeakVerified(_callback: () => void): void {
+    console.log('[DeepgramAdapter STUB] onSpeakVerified registered — stub never fires it')
+  }
 }

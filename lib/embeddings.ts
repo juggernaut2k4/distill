@@ -15,8 +15,13 @@
  *   3. Search:   semanticSearchContent(query, userContext) → ranked cache rows
  *
  * Integration points:
- *   - inngest/session-content-async.ts: stores embedding after each section is generated
  *   - lib/session-ai.ts: calls semanticSearchContent for off-script user questions during live sessions
+ *
+ * Note (AUTOGEN-01 Part B): the legacy inngest/session-content-async.ts pipeline used to call
+ * embedAndStoreSection() after each subtopic. That pipeline has been retired in favor of the
+ * canonical inngest/session-content-pipeline.ts, which does not currently call this embedding
+ * store. Flagged here for visibility — re-wiring embedding storage into the canonical pipeline
+ * is out of scope for AUTOGEN-01 Part B (not called out in the approved requirement document).
  */
 
 import { VoyageAIClient } from 'voyageai'

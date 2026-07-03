@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
     const supabase = createSupabaseAdminClient()
 
     // ── Step 1: Fetch session + user profile ────────────────────────────────
-    const [{ data: sessionData }, { data: userRow }, learningProfile] = await Promise.all([
+    const [{ data: sessionData }, { data: userRow }, learningProfile, { data: walkthroughRow }] = await Promise.all([
       supabase
         .from('sessions')
         .select('session_title, topic_id, session_plan, session_index, curriculum_session_id, duration_mins, sub_sessions')
@@ -65,7 +65,20 @@ export async function POST(request: NextRequest) {
         .eq('id', userId)
         .single(),
       getUserLearningProfile(userId).catch(() => null),
+      // SECURITY (CEO review fix): the audit token minted by POST
+      // /api/sessions/[id]/start (which always runs before this route — see
+      // SessionDetailClient.tsx's handleLaunchBot). Carried to the bot's headless
+      // browser via the walkthroughUrl query param below — NEVER via
+      // walkthrough_state's public poll endpoint (/api/walkthrough-state/[userId]
+      // strips this column from its response on purpose, since that endpoint is
+      // fully unauthenticated and userId-guessable).
+      supabase.from('walkthrough_state').select('audit_token').eq('user_id', userId).maybeSingle(),
     ])
+
+    const auditToken = (walkthroughRow?.audit_token as string | null) ?? null
+    const tokenedWalkthroughUrl = auditToken
+      ? `${walkthroughUrl}?token=${encodeURIComponent(auditToken)}`
+      : walkthroughUrl
 
     const sessionTitle = sessionData?.session_title ?? 'AI Coaching Session'
     // topicId is used for context/labelling only (walkthrough_state.topic_id, logs).
@@ -323,7 +336,7 @@ export async function POST(request: NextRequest) {
     // ── Step 4: Create the bot — context is already in DB ───────────────────
     const provider = getMeetingBotProvider()
     console.log(`[recall/bot] Using provider: ${provider.name}`)
-    const { botId } = await provider.createBot(meetingUrl, userId, walkthroughUrl, sessionId)
+    const { botId } = await provider.createBot(meetingUrl, userId, tokenedWalkthroughUrl, sessionId)
 
     // Update with the real botId now that we have it
     await supabase
@@ -380,6 +393,10 @@ export async function DELETE(request: NextRequest) {
       session_script: null,
       clio_session_context: null,
       current_section_index: 0,
+      // SECURITY: rotate the audit token out on teardown (see
+      // lib/session-billing.ts mintAuditToken/verifyAuditToken) so a stale
+      // token from this session can never be replayed against a future one.
+      audit_token: null,
     }).eq('user_id', userId)
 
     return NextResponse.json({ success: true }, { status: 200 })

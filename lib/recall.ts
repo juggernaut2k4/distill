@@ -12,6 +12,7 @@
  *     Revert: set RECALL_TRANSCRIPT_PROVIDER=recall in Vercel dashboard (no deploy needed).
  */
 import { textToMp3Base64 } from './tts'
+import { redactAuditTokenFromUrl } from './session-billing'
 
 const RECALL_REGION = process.env.RECALL_AI_REGION ?? 'us-west-2'
 const RECALL_BASE = `https://${RECALL_REGION}.recall.ai/api/v1`
@@ -44,7 +45,8 @@ export async function createBot(
 ): Promise<CreateBotResult> {
   if (isPlaceholder) {
     const mockBotId = `mock-bot-${userId}-${Date.now()}`
-    console.log('[MOCK RECALL] createBot called', { meetingUrl, userId, walkthroughUrl, mockBotId })
+    // SECURITY: walkthroughUrl carries the audit token as a query param — never log it raw.
+    console.log('[MOCK RECALL] createBot called', { meetingUrl, userId, walkthroughUrl: redactAuditTokenFromUrl(walkthroughUrl), mockBotId })
     return { botId: mockBotId }
   }
 

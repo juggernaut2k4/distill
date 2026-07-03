@@ -8,7 +8,11 @@ const SchedulingPrefsSchema = z.object({
   preferredHour:   z.number().int().min(1).max(12),
   preferredMinute: z.union([z.literal(0), z.literal(15), z.literal(30), z.literal(45)]),
   ampm:            z.enum(['AM', 'PM']),
-  maxDurationMins: z.union([z.literal(15), z.literal(30)]),
+  // AUTOGEN-01 Part B: duration is fixed at generation time from onboarding data.
+  // app/dashboard/schedule-setup/ScheduleSetupClient.tsx no longer collects or sends
+  // this field. Kept optional (not removed) because components/dashboard/ScheduleCard.tsx
+  // — a separate, out-of-scope settings screen — still reads/writes it via this same route.
+  maxDurationMins: z.union([z.literal(15), z.literal(30)]).optional(),
   timezone:        z.string().min(1).max(100),
 })
 

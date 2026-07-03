@@ -1,6 +1,6 @@
 import { inngest } from './client'
 import { createSupabaseAdminClient } from '@/lib/supabase'
-import { getMeetingBotProvider } from '@/lib/meeting-bot/provider'
+import { forceEndSession } from '@/lib/session-billing'
 
 /**
  * Server-side session timer — enforces session duration regardless of client state.
@@ -10,7 +10,8 @@ import { getMeetingBotProvider } from '@/lib/meeting-bot/provider'
  *  1. Sleep (durationMins - 1) minutes
  *  2. Write a 1-minute warning to pending_transcript → Clio reads it via poll and wraps up
  *  3. Sleep 1 final minute
- *  4. Force-end: delete bot, clear walkthrough_state, deduct minutes, mark session completed
+ *  4. Force-end: delete bot, clear walkthrough_state, deduct minutes (computed from the
+ *     billing audit log — AUTOGEN-01 Part D, Edge Case D3), mark session completed
  */
 export const sessionTimerJob = inngest.createFunction(
   {
@@ -65,69 +66,16 @@ export const sessionTimerJob = inngest.createFunction(
     // Wait the final minute
     await step.sleep('wait-final-minute', '1m')
 
-    // Force-end the session if it hasn't already ended
+    // Force-end the session if it hasn't already ended. Shared with the voice-gap
+    // watchdog (inngest/voice-gap-watchdog.ts) — both back stops must compute
+    // minutes identically, strictly from the billing audit log.
     await step.run('force-end-session', async () => {
-      const supabase = createSupabaseAdminClient()
-
-      const [{ data: wsRow }, { data: session }, { data: userRow }] = await Promise.all([
-        supabase.from('walkthrough_state').select('bot_id').eq('user_id', userId).maybeSingle(),
-        supabase.from('sessions').select('started_at, duration_mins, status').eq('id', sessionId).single(),
-        supabase.from('users').select('minutes_balance').eq('id', userId).single(),
-      ])
-
-      if (!session || session.status === 'completed') {
+      const result = await forceEndSession({ userId, sessionId })
+      if (result.skipped) {
         console.log(`[session-timer] Session ${sessionId} already ended — skipping force-end`)
-        return
+      } else {
+        console.log(`[session-timer] Force-ended session ${sessionId} — ${result.minutesUsed} minutes deducted`)
       }
-
-      // Delete bot if still in the meeting
-      const botId = wsRow?.bot_id as string | null
-      if (botId) {
-        try {
-          await getMeetingBotProvider().deleteBot(botId)
-          console.log(`[session-timer] Bot ${botId} removed from meeting`)
-        } catch (err) {
-          console.error(`[session-timer] Bot deletion failed (non-fatal):`, err)
-        }
-      }
-
-      // Clear walkthrough_state
-      await supabase.from('walkthrough_state').update({
-        bot_id: null,
-        meeting_url: null,
-        status: 'idle',
-        visual_spec: null,
-        topic_title: null,
-        topic_id: null,
-        sections: null,
-        training_scripts: null,
-        session_brief: null,
-        topic_context: null,
-        session_script: null,
-        clio_session_context: null,
-        current_section_index: 0,
-        pending_transcript: null,
-      }).eq('user_id', userId)
-
-      // Calculate actual elapsed minutes, capped at current balance
-      let minutesUsed = durationMins
-      if (session.started_at) {
-        const elapsedMs = Date.now() - new Date(session.started_at).getTime()
-        minutesUsed = Math.max(1, Math.ceil(elapsedMs / (1000 * 60)))
-      }
-      minutesUsed = Math.min(minutesUsed, userRow?.minutes_balance ?? minutesUsed)
-
-      const now = new Date().toISOString()
-      await Promise.all([
-        supabase.rpc('deduct_minutes', { p_user_id: userId, p_minutes: minutesUsed }),
-        supabase.from('sessions').update({
-          ended_at: now,
-          status: 'completed',
-          duration_mins: minutesUsed,
-        }).eq('id', sessionId),
-      ])
-
-      console.log(`[session-timer] Force-ended session ${sessionId} — ${minutesUsed} minutes deducted`)
     })
   },
 )

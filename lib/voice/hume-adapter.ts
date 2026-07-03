@@ -28,6 +28,16 @@ export class HumeAdapter implements VoiceSessionAdapter {
   private reconnectAttempts = 0
   private static readonly MAX_RECONNECT = 3
 
+  // AUTOGEN-01 Part D — speak-verification state. `onConnect` (chat_metadata) alone
+  // is NOT sufficient proof Clio can speak (it only proves basic metadata was
+  // received) — we additionally require the first successful assistant_message
+  // (speaking-mode) event before firing onSpeakVerified. Fires exactly once for
+  // the lifetime of this adapter instance, even across this adapter's own internal
+  // reconnects — a reconnect is a gap, not a new billing start.
+  private hasReceivedChatMetadata = false
+  private speakVerifiedFired = false
+  private speakVerifiedCallback: (() => void) | null = null
+
   constructor(config: HumeAdapterConfig) {
     this.config = config
   }
@@ -107,6 +117,7 @@ export class HumeAdapter implements VoiceSessionAdapter {
       case 'chat_metadata':
         this.sessionId = (msg.chat_id as string) ?? ''
         this.connected = true
+        this.hasReceivedChatMetadata = true
         this.config.onConnect(this.sessionId)
         break
 
@@ -124,6 +135,14 @@ export class HumeAdapter implements VoiceSessionAdapter {
 
       case 'assistant_message': {
         this.config.onModeChange('speaking')
+        // Billing-start signal: onConnect (chat_metadata) alone already occurred
+        // by definition (we can't be in speaking mode without it), but per spec
+        // we require BOTH signals explicitly — this is the first proof Clio has
+        // actually produced audio, not just connected.
+        if (this.hasReceivedChatMetadata && !this.speakVerifiedFired) {
+          this.speakVerifiedFired = true
+          this.speakVerifiedCallback?.()
+        }
         const msgObj = msg.message as { content?: string } | undefined
         const text = msgObj?.content ?? ''
         if (text) this.config.onMessage(text, 'ai')
@@ -269,4 +288,16 @@ export class HumeAdapter implements VoiceSessionAdapter {
   sendFeedback(_like: boolean): void { /* Hume EVI doesn't expose a per-message feedback API */ }
   getId(): string { return this.sessionId }
   isOpen(): boolean { return this.connected && this.ws?.readyState === WebSocket.OPEN }
+
+  /**
+   * AUTOGEN-01 Part D — registers the billing-start callback. Fires exactly once
+   * for the lifetime of this adapter instance (see assistant_message handling
+   * above) — never on chat_metadata/onConnect alone. If the required signals
+   * already occurred before this was registered (a late subscriber), fires
+   * immediately so the caller doesn't miss it.
+   */
+  onSpeakVerified(callback: () => void): void {
+    this.speakVerifiedCallback = callback
+    if (this.speakVerifiedFired) callback()
+  }
 }

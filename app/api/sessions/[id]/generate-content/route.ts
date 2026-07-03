@@ -14,13 +14,6 @@ import { requireSessionAuth } from '@/lib/session-auth'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { inngest } from '@/inngest/client'
 import type { SessionPlan } from '@/lib/session-plan'
-// These imports retained for the GET handler
-import { generateSessionContentOutline } from '@/lib/content/session-content-generator'
-import { generateTrainingScript, adaptScriptToDuration } from '@/lib/content/script-generator'
-import { selectTemplate } from '@/lib/templates/selector'
-import { generateTemplateData } from '@/lib/templates/generator'
-import { getCachedSection, setCachedSection } from '@/lib/topic-cache'
-import type { TemplateSection, TemplateMeta } from '@/lib/templates/types'
 
 export const maxDuration = 300
 
@@ -114,7 +107,11 @@ export async function GET(req: NextRequest, { params }: Params) {
   })
 }
 
-// ─── POST — kick off async pipeline via Inngest (returns jobId immediately) ───
+// ─── POST — kick off the canonical content pipeline via Inngest (fire-and-forget) ───
+// AUTOGEN-01 Part B: repointed from the legacy async_jobs + clio/session.content.requested
+// path to the canonical distill/session.content.generate event (session-content-pipeline.ts).
+// Plan approval is NOT required to call this route (AUTOGEN-01 Section 3 Part C /
+// Section 11 Q5) — only session ownership is checked.
 
 export async function POST(req: NextRequest, { params }: Params) {
   const { userId, error } = await requireSessionAuth(req)
@@ -135,24 +132,15 @@ export async function POST(req: NextRequest, { params }: Params) {
     return NextResponse.json({ ok: true, status: 'already_ready' })
   }
 
-  // Create async job row
-  const { data: job, error: jobErr } = await supabase
-    .from('async_jobs')
-    .insert({ user_id: userId, type: 'session_content', payload: { sessionId: params.id } })
-    .select('id')
-    .single()
-
-  if (jobErr || !job) {
-    return NextResponse.json({ error: 'Failed to create job' }, { status: 500 })
-  }
-
-  // Fire Inngest event — returns immediately, no blocking
+  // Fire Inngest event — returns immediately, no blocking.
+  // priority: 'immediate' distinguishes a user-initiated queue-jump from the
+  // hourly cron's priority: 'background' (Part A step 6 / Part C step 2).
   await inngest.send({
-    name: 'clio/session.content.requested',
-    data: { jobId: job.id, sessionId: params.id, userId },
+    name: 'distill/session.content.generate',
+    data: { sessionId: params.id, userId, priority: 'immediate' },
   })
 
-  return NextResponse.json({ jobId: job.id, status: 'queued' })
+  return NextResponse.json({ ok: true, status: 'queued' })
 }
 
 // ─── DELETE — reset status so the pipeline can be re-run ──────────────────────

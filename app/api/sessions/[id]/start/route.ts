@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireSessionAuth } from '@/lib/session-auth'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { inngest } from '@/inngest/client'
+import { writeAuditEvent, mintAuditToken } from '@/lib/session-billing'
 
 interface Params {
   params: { id: string }
@@ -11,6 +12,11 @@ interface Params {
  * POST /api/sessions/[id]/start
  * Marks the session as active and returns the effective duration (capped by minutes_balance).
  * Called when the Recall.ai bot successfully joins the meeting.
+ *
+ * AUTOGEN-01 Part D: this route no longer starts the billing clock. It only
+ * records an informational `bot_joined` audit event. Billing starts later, at
+ * whatever moment the voice adapter fires `onSpeakVerified` (see
+ * /api/sessions/audit-event and lib/session-billing.ts).
  */
 export async function POST(request: NextRequest, { params }: Params) {
   const { userId, error } = await requireSessionAuth(request)
@@ -63,6 +69,25 @@ export async function POST(request: NextRequest, { params }: Params) {
     .update({ started_at: startedAt, status: 'active' })
     .eq('id', params.id)
     .eq('user_id', userId!)
+
+  // Informational only — NOT the billing-start instant. Billing starts at
+  // `speak_verified`, written separately once the voice adapter confirms it can
+  // actually produce audio (AC-D1).
+  await writeAuditEvent({
+    sessionId: params.id,
+    userId: userId!,
+    eventType: 'bot_joined',
+    occurredAt: startedAt,
+  })
+
+  // SECURITY (CEO review fix): mint the per-session audit token here, the moment
+  // the session actually starts. Stored on walkthrough_state (keyed by userId) —
+  // WalkthroughClient.tsx (running in the bot's headless browser, no Clerk
+  // session) picks it up for free from its server-rendered initial state and
+  // must present it on every /api/sessions/audit-event write. See
+  // lib/session-billing.ts's mintAuditToken/verifyAuditToken for the full
+  // rationale.
+  await mintAuditToken(userId!)
 
   // Start server-side timer — cancels automatically when session ends
   inngest.send({

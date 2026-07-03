@@ -2,10 +2,10 @@
 
 import { motion } from 'framer-motion'
 import Link from 'next/link'
-import { Clock, ChevronRight, FlaskConical, Loader2, BookOpen, Link as LinkIcon, Loader, Zap, CalendarDays, Sparkles, X } from 'lucide-react'
+import { Clock, ChevronRight, FlaskConical, Loader2, BookOpen, Link as LinkIcon, Loader, Zap, CalendarDays, Sparkles, X, CheckCircle, Circle } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { TopUpModal } from '@/components/ui/TopUpModal'
-import { useState } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 
 interface Session {
   id: string
@@ -17,6 +17,15 @@ interface Session {
   duration_mins: number
   curriculum_session_id: string | null
   meeting_url: string | null
+  /** AUTOGEN-01 Part C: generation readiness — 'pending' | 'generating' | 'ready' | 'failed' */
+  content_status: string | null
+}
+
+/** AUTOGEN-01 Part C: one row per subtopic, sourced from GET /generate-content's sub_sessions[] */
+interface SubtopicProgress {
+  title: string
+  slug: string
+  pipeline_status: string
 }
 
 interface SessionsClientProps {
@@ -138,9 +147,9 @@ function MeetingLinkWidget({ sessionId, initialUrl }: { sessionId: string; initi
   )
 }
 
-function SessionRow({ session, index }: { session: Session; index: number }) {
+/** Existing "Ready" row style — clickable, opens the session detail / meeting-URL entry. */
+function ReadyRow({ session, index, title }: { session: Session; index: number; title: string }) {
   const status = STATUS_STYLE[session.status] ?? STATUS_STYLE.scheduled
-  const title = session.session_title ?? `Session ${session.session_index}`
 
   return (
     <motion.div
@@ -179,6 +188,148 @@ function SessionRow({ session, index }: { session: Session; index: number }) {
       <MeetingLinkWidget sessionId={session.id} initialUrl={session.meeting_url} />
     </motion.div>
   )
+}
+
+/**
+ * AUTOGEN-01 Part C — "Not Ready" row.
+ * Shows a compact status indicator ("Not started" / "Generating…"). Clicking it
+ * jumps the queue: POSTs /generate-content (priority: 'immediate', already built
+ * in Part B) and expands a per-subtopic progress list, polling GET /generate-content
+ * every 3s — the same interval SessionDetailClient.tsx already uses for content-pipeline
+ * status polling, kept consistent rather than inventing a new cadence.
+ * Once content_status reaches 'ready' it auto-transitions to the Ready row, no
+ * manual refresh required (AC-C3).
+ */
+function NotReadySessionRow({ session, index, title }: { session: Session; index: number; title: string }) {
+  const [contentStatus, setContentStatus] = useState<string>(session.content_status ?? 'pending')
+  const [subtopics, setSubtopics] = useState<SubtopicProgress[]>([])
+  const [expanded, setExpanded] = useState(false)
+  const [triggering, setTriggering] = useState(false)
+  const failuresRef = useRef(0)
+
+  const fetchStatus = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/sessions/${session.id}/generate-content`)
+      if (!res.ok) {
+        failuresRef.current += 1
+        return
+      }
+      failuresRef.current = 0
+      const data = await res.json() as { content_status: string; sub_sessions: SubtopicProgress[] }
+      setContentStatus(data.content_status)
+      setSubtopics(data.sub_sessions ?? [])
+    } catch {
+      failuresRef.current += 1
+    }
+  }, [session.id])
+
+  // Poll only once the user has jumped the queue (expanded) and it isn't ready yet.
+  // Stop polling after repeated failures so we don't spin forever on a dead network.
+  useEffect(() => {
+    if (!expanded || contentStatus === 'ready' || failuresRef.current >= 5) return
+    const interval = setInterval(fetchStatus, 3000)
+    return () => clearInterval(interval)
+  }, [expanded, contentStatus, fetchStatus])
+
+  async function handleJump() {
+    if (expanded) return
+    setExpanded(true)
+    setTriggering(true)
+    // Optimistic: reflect the immediate content_status:'generating' transition (AC-C1)
+    // without waiting on the round trip.
+    setContentStatus((prev) => (prev === 'pending' || prev === 'failed' ? 'generating' : prev))
+    try {
+      await fetch(`/api/sessions/${session.id}/generate-content`, { method: 'POST' })
+    } catch {
+      // Non-fatal — polling below will reconcile the real state.
+    } finally {
+      setTriggering(false)
+      fetchStatus()
+    }
+  }
+
+  if (contentStatus === 'ready') {
+    return <ReadyRow session={session} index={index} title={title} />
+  }
+
+  const isGenerating = contentStatus === 'generating' || triggering
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25, delay: index * 0.04 }}
+      className="px-4 py-3"
+    >
+      <button
+        onClick={handleJump}
+        className="w-full flex items-center gap-3 rounded-lg hover:bg-[#1A1A1A] transition-colors -mx-1 px-1 py-1 text-left"
+      >
+        {/* Session number */}
+        <div className="w-7 h-7 rounded-full bg-purple-950/50 border border-purple-800/40 flex items-center justify-center flex-shrink-0">
+          <span className="text-[10px] font-bold text-[#A855F7]">{session.session_index}</span>
+        </div>
+
+        {/* Title */}
+        <p className="text-sm text-white flex-1 min-w-0 truncate">{title}</p>
+
+        {/* Compact status indicator (Section 8) */}
+        <div className="flex items-center gap-1.5 text-xs flex-shrink-0">
+          {isGenerating ? (
+            <>
+              <Loader size={11} className="text-[#06B6D4] animate-spin" />
+              <span className="text-[#06B6D4] font-medium">Generating…</span>
+            </>
+          ) : (
+            <>
+              <Circle size={11} className="text-[#475569]" />
+              <span className="text-[#475569] font-medium">Not started</span>
+            </>
+          )}
+        </div>
+
+        <ChevronRight size={13} className="text-[#333] flex-shrink-0" />
+      </button>
+
+      {/* Per-subtopic progress view (AC-C2) — one row per subtopic */}
+      {expanded && (
+        <div className="mt-3 ml-10 space-y-1.5">
+          {subtopics.length === 0 ? (
+            <p className="text-xs text-[#475569] flex items-center gap-1.5">
+              <Loader size={11} className="animate-spin" /> Starting generation…
+            </p>
+          ) : (
+            subtopics.map((s) => (
+              <div key={s.slug} className="flex items-center gap-2">
+                {s.pipeline_status === 'ready' ? (
+                  <CheckCircle size={12} className="text-[#10B981] flex-shrink-0" />
+                ) : s.pipeline_status === 'generating' ? (
+                  <Loader size={12} className="text-[#06B6D4] animate-spin flex-shrink-0" />
+                ) : (
+                  <Circle size={12} className="text-[#333333] flex-shrink-0" />
+                )}
+                <span className="text-xs text-[#94A3B8] truncate">{s.title}</span>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </motion.div>
+  )
+}
+
+function SessionRow({ session, index }: { session: Session; index: number }) {
+  const title = session.session_title ?? `Session ${session.session_index}`
+
+  // AUTOGEN-01 Part C: only sessions still in 'scheduled' status (post-approval,
+  // pre-content) are gated. 'active'/'completed'/'cancelled' sessions always render
+  // as Ready — their content was necessarily already generated to get there.
+  const isNotReady = session.status === 'scheduled' && session.content_status !== 'ready'
+
+  if (isNotReady) {
+    return <NotReadySessionRow session={session} index={index} title={title} />
+  }
+  return <ReadyRow session={session} index={index} title={title} />
 }
 
 interface TopicGroup {

@@ -29,7 +29,7 @@ export default async function SessionsPage() {
   const [{ data: sessions }, { data: plan }, { data: latestAdaptation }] = await Promise.all([
     supabase
       .from('sessions')
-      .select('id, session_index, session_title, scheduled_at, status, topics, duration_mins, curriculum_session_id, meeting_url')
+      .select('id, session_index, session_title, scheduled_at, status, topics, duration_mins, curriculum_session_id, meeting_url, content_status')
       .eq('user_id', userId)
       .neq('status', 'draft')
       .order('session_index', { ascending: true }),

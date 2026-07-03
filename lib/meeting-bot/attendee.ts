@@ -1,4 +1,5 @@
 import type { MeetingBotProvider, CreateBotResult } from './types'
+import { redactAuditTokenFromUrl } from '../session-billing'
 
 const BASE_URL = 'https://app.attendee.dev/api/v1'
 
@@ -16,7 +17,8 @@ export const attendeeProvider: MeetingBotProvider = {
     const key = process.env.ATTENDEE_API_KEY
     if (!key || key.startsWith('PLACEHOLDER')) {
       const mockBotId = `mock-attendee-${Date.now()}`
-      console.log('[MOCK ATTENDEE] createBot', { meetingUrl, userId, walkthroughUrl, mockBotId })
+      // SECURITY: walkthroughUrl carries the audit token as a query param — never log it raw.
+      console.log('[MOCK ATTENDEE] createBot', { meetingUrl, userId, walkthroughUrl: redactAuditTokenFromUrl(walkthroughUrl), mockBotId })
       return { botId: mockBotId }
     }
 

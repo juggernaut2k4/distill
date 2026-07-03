@@ -201,6 +201,28 @@ export const sessionContentPipeline = inngest.createFunction(
       const subtopicTitle = article.subtopic_title
       const isLast = i === articles.length - 1
 
+      // AUTOGEN-01 Part B / Part C parity: write a placeholder row with
+      // pipeline_status: 'generating' before starting the heavy LLM work for this
+      // subtopic, so the per-subtopic progress UI (Part C) can distinguish
+      // "pending" (no row yet) from "generating" (row exists, not ready yet) rather
+      // than only ever seeing a row once it's fully 'ready'. Mirrors the granularity
+      // the legacy session-content-async.ts pipeline used to provide.
+      await step.run(`mark-subtopic-generating-${subtopicSlug}`, async () => {
+        await supabase
+          .from('topic_content_cache')
+          .upsert(
+            {
+              topic_id: topicId,
+              subtopic_slug: subtopicSlug,
+              subtopic_title: subtopicTitle,
+              industry: userContext.industry ?? '',
+              role: userContext.role ?? '',
+              pipeline_status: 'generating',
+            },
+            { onConflict: 'topic_id,subtopic_slug,industry,role' }
+          )
+      })
+
       await step.run(`process-subtopic-${subtopicSlug}`, async () => {
         // Step D: Single atomic LLM call → script segments + visualization spec.
         // durationMins drives proactive word-budget in the prompt so generation

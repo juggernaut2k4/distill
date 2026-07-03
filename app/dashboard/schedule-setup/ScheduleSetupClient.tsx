@@ -67,7 +67,6 @@ export default function ScheduleSetupClient() {
   const [hour, setHour] = useState(9)
   const [minute, setMinute] = useState(0)
   const [ampm, setAmpm] = useState<'AM' | 'PM'>('AM')
-  const [duration, setDuration] = useState<15 | 30>(30)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -109,7 +108,6 @@ export default function ScheduleSetupClient() {
           preferredHour: hour,
           preferredMinute: minute,
           ampm,
-          maxDurationMins: duration,
           timezone,
         }),
       })
@@ -146,7 +144,9 @@ export default function ScheduleSetupClient() {
         topics: s.topics ?? [],
         subtopics: [],
         scheduledAt: dates[i] ?? new Date().toISOString(),
-        estimatedMinutes: Math.min(s.duration_mins ?? 30, duration),
+        // Duration is fixed at generation time from onboarding data — this screen
+        // no longer collects or overrides it (AUTOGEN-01 Part B).
+        estimatedMinutes: s.duration_mins ?? 30,
       }))
 
       // 5. Schedule sessions
@@ -261,31 +261,6 @@ export default function ScheduleSetupClient() {
               </button>
             ))}
           </div>
-        </div>
-      </div>
-
-      {/* ── Duration ── */}
-      <div className="mb-8">
-        <p className="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-3">
-          Session length
-        </p>
-        <div className="grid grid-cols-2 gap-3">
-          {([15, 30] as const).map((mins) => (
-            <button
-              key={mins}
-              onClick={() => setDuration(mins)}
-              className={
-                duration === mins
-                  ? 'bg-purple-950/30 border border-[#7C3AED] rounded-xl p-4 cursor-pointer text-left transition-colors'
-                  : 'bg-[#111111] border border-[#222222] rounded-xl p-4 cursor-pointer text-left hover:border-[#333333] transition-colors'
-              }
-            >
-              <p className="text-white font-semibold text-base">{mins} min</p>
-              <p className="text-xs text-[#475569] mt-0.5">
-                {mins === 15 ? 'Quick focused sessions' : 'Deep dives'}
-              </p>
-            </button>
-          ))}
         </div>
       </div>
 
