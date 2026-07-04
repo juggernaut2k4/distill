@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import SessionsClient from './SessionsClient'
 import DashboardShell from '@/components/dashboard/DashboardShell'
+import { isTestSessionEnabled } from '@/lib/admin-access'
 
 // Shape of each entry in curriculum_plans.visible_sessions
 interface VisibleSession {
@@ -79,6 +80,7 @@ export default async function SessionsPage() {
         planAdaptedAt={user.plan_adapted_at ?? null}
         planAdaptationAcknowledgedAt={user.plan_adaptation_acknowledged_at ?? null}
         sessionsReorderedCount={latestAdaptation?.sessions_reordered ?? null}
+        testSessionEnabled={isTestSessionEnabled()}
       />
     </DashboardShell>
   )

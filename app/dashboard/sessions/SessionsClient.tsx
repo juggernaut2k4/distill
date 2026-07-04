@@ -43,6 +43,8 @@ interface SessionsClientProps {
   planAdaptationAcknowledgedAt?: string | null
   /** SCR-01: count of sessions reordered in the most recent adaptation */
   sessionsReorderedCount?: number | null
+  /** Server-authoritative gate for the dev-only "Test session" shortcut button (ADMIN_TEST_SESSION_ENABLED). */
+  testSessionEnabled?: boolean
 }
 
 const STATUS_STYLE: Record<string, { label: string; className: string }> = {
@@ -481,7 +483,7 @@ function TestSessionButton() {
   )
 }
 
-export default function SessionsClient({ sessions, topicTitleMap, arcNameMap = {}, arcTypeMap = {}, minutesBalance = 0, schedulingPrefsNull, planAdaptedAt, planAdaptationAcknowledgedAt, sessionsReorderedCount }: SessionsClientProps) {
+export default function SessionsClient({ sessions, topicTitleMap, arcNameMap = {}, arcTypeMap = {}, minutesBalance = 0, schedulingPrefsNull, planAdaptedAt, planAdaptationAcknowledgedAt, sessionsReorderedCount, testSessionEnabled = true }: SessionsClientProps) {
   const [topUpOpen, setTopUpOpen] = useState(false)
   const [bannerDismissed, setBannerDismissed] = useState(false)
 
@@ -609,7 +611,7 @@ export default function SessionsClient({ sessions, topicTitleMap, arcNameMap = {
               <Zap size={12} className="text-[#F59E0B]" />
               Top up
             </button>
-            <TestSessionButton />
+            {testSessionEnabled && <TestSessionButton />}
           </div>
         </div>
         <p className="text-[#94A3B8] text-sm">

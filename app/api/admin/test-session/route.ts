@@ -2,6 +2,7 @@ import { auth } from '@clerk/nextjs/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { createBot } from '@/lib/recall'
+import { isTestSessionEnabled } from '@/lib/admin-access'
 
 /**
  * POST /api/admin/test-session
@@ -10,6 +11,13 @@ import { createBot } from '@/lib/recall'
  * Body: { title?, meetingUrl, durationMins? }
  */
 export async function POST(request: NextRequest) {
+  if (!isTestSessionEnabled()) {
+    return NextResponse.json(
+      { error: 'Test session endpoint is disabled' },
+      { status: 403 }
+    )
+  }
+
   const { userId } = auth()
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -87,6 +95,26 @@ export async function POST(request: NextRequest) {
       console.error('[test-session] walkthrough_state upsert failed:', upsertError)
     } else {
       console.log('[test-session] walkthrough_state upserted for user:', userId, 'bot:', botId)
+    }
+
+    // LIVE-01 parity fix: /api/sessions/[id]/start (commit fcd4aa7) now resets
+    // the per-user walkthrough_state live-conductor fields at the start of every
+    // real session, because that row is a singleton reused across sessions and
+    // stale tab index/visual state otherwise carries over (the "static page"
+    // bug). This dev-only shortcut creates/updates the same walkthrough_state
+    // row above, so it must apply the identical reset or testing via this route
+    // can reproduce that same stale-state bug.
+    const { error: resetError } = await supabase
+      .from('walkthrough_state')
+      .update({
+        live_conductor_tab_index: 0,
+        live_conductor_visual: null,
+        live_conductor_tab_turn_count: 0,
+      })
+      .eq('user_id', userId)
+
+    if (resetError) {
+      console.error('[test-session] live_conductor state reset failed:', resetError)
     }
 
     return NextResponse.json({
