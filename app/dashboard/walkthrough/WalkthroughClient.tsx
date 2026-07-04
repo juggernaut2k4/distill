@@ -39,6 +39,19 @@ const HUME_CONFIG_ID = process.env.NEXT_PUBLIC_HUME_CONFIG_ID ?? ''
 const KEEPALIVE_INTERVAL = 8_000
 const MAX_RECONNECT = 6
 
+// ─── Silence / no-response handling ───────────────────────────────────────
+// Two-stage escalation when NEITHER side has spoken for a while. This is a
+// simpler, safer v1 than "after Clio asks a question": detecting whether a
+// specific utterance was literally a question is unreliable, so instead we
+// reset a single "last activity from either side" clock every time the user
+// speaks (transcript forwarded) OR Clio speaks (onMessage source === 'ai').
+// Stage 1 fires a gentle in-context check-in nudge; Stage 2 (measured from
+// the Stage-1 check-in, not from the original silence start) ends the call
+// gracefully via the existing end-call mechanism, framed as a possible
+// technical/audio issue rather than the user being unresponsive.
+const SILENCE_CHECKIN_MS = 18_000
+const SILENCE_END_CALL_MS = 18_000
+
 // ElevenLabs agent.prompt.prompt override has a practical limit around 12,000 chars.
 // Beyond this the connection drops silently. session_brief + session_script fit easily;
 // topic_context is truncated to fill the remaining budget.
@@ -371,6 +384,17 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
   const elevenLabsConvRef = useRef<Conversation | null>(null)
   const lastSentTranscriptRef = useRef<string | null>(null)
   const lastActivityRef = useRef<number>(Date.now())
+  // ─── Silence / no-response handling ─────────────────────────────────────
+  // lastEitherSpokeRef: timestamp of the last time EITHER side spoke (user
+  // transcript forwarded, or Clio's onMessage fired with source 'ai'). Kept
+  // separate from lastActivityRef (which drives the pre-existing ElevenLabs
+  // keep-alive/inactivity-disconnect logic above) so this new feature cannot
+  // change that unrelated behavior.
+  const lastEitherSpokeRef = useRef<number>(Date.now())
+  // checkinSentAtRef: set when the Stage-1 gentle check-in is injected; used
+  // to measure the Stage-2 window from the check-in itself (not from the
+  // original silence start), and reset to null on any subsequent activity.
+  const checkinSentAtRef = useRef<number | null>(null)
   const hasConnectedRef = useRef(false)
   // Debounce: buffer the latest transcript and wait 500ms after the last update
   // before sending to ElevenLabs. Prevents cascade from partial transcript events.
@@ -581,6 +605,13 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
             },
             onMessage: (text, source) => {
               console.log(`[Walkthrough/Hume] Message [${source}]:`, text.slice(0, 120))
+              // Silence handling: reset on Clio speaking too, so the escalation
+              // only fires during genuine two-sided silence, never while she's
+              // mid-monologue.
+              if (source === 'ai') {
+                lastEitherSpokeRef.current = Date.now()
+                checkinSentAtRef.current = null
+              }
               if (source === 'ai') {
                 // NAV command processing — same logic as ElevenLabs path
                 const { navCommand } = parseNavCommand(text)
@@ -953,6 +984,13 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
           },
           onMessage: ({ message, source }: { message: string; source: string }) => {
             console.log(`[Walkthrough] Agent message [${source}]:`, message.slice(0, 120))
+            // Silence handling: reset on Clio speaking too, so the escalation
+            // only fires during genuine two-sided silence, never while she's
+            // mid-monologue.
+            if (source === 'ai') {
+              lastEitherSpokeRef.current = Date.now()
+              checkinSentAtRef.current = null
+            }
             if (source === 'ai') {
               // ── NAV command processing ─────────────────────────────────────
               // Strip [NAV:...] from the spoken text and fire tab navigation.
@@ -1139,6 +1177,15 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
         // We buffer the latest transcript and only send after 500ms of no new updates,
         // ensuring one LLM call per utterance rather than one per partial word chunk.
         const transcript = data.pending_transcript
+        // Silence handling: any new transcript content means the user spoke —
+        // reset the shared "either side spoke" clock for BOTH providers (Hume's
+        // user speech also arrives via this same pending_transcript field from
+        // Recall.ai transcription, even though Hume forwards it server-side
+        // rather than via elevenLabsConvRef/sendUserMessage below).
+        if (transcript && transcript !== lastSentTranscriptRef.current) {
+          lastEitherSpokeRef.current = Date.now()
+          checkinSentAtRef.current = null
+        }
         if (transcript && transcript !== lastSentTranscriptRef.current && conv && !sessionEndedRef.current) {
           // Skip very short transcripts while Clio is speaking — filler words ("mm", "ok",
           // "yeah") picked up during TTS should not interrupt or queue a new LLM call.
@@ -1174,6 +1221,42 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
           lastActivityRef.current = Date.now()
           adapterRef.current.injectContext('Session is ongoing. Participant may be listening.')
           console.log('[Walkthrough] Keep-alive sent')
+        }
+
+        // ─── Silence / no-response escalation (two-stage) ───────────────────
+        // Applies generally after Clio finishes speaking (and equally after the
+        // user speaks) — not narrowly scoped to "after a detected question".
+        // The clock resets whenever EITHER side speaks (see resets above and
+        // in both onMessage handlers), so this only escalates during genuine
+        // two-sided silence, never mid-monologue.
+        if (adapterRef.current && !sessionEndedRef.current) {
+          const now = Date.now()
+          if (checkinSentAtRef.current === null) {
+            // Stage 1: no activity from either side for SILENCE_CHECKIN_MS —
+            // nudge Clio to check in naturally, via the same injectContext
+            // mechanism used for keep-alives above (no new injection pathway).
+            if (now - lastEitherSpokeRef.current > SILENCE_CHECKIN_MS) {
+              checkinSentAtRef.current = now
+              adapterRef.current.injectContext(
+                'The participant has been silent for a while. Naturally check in with them in one short sentence — e.g. ask if they\'re still there or still with you — then wait for their response. Do not repeat this if they already responded.'
+              )
+              console.log('[Walkthrough] Silence check-in sent')
+            }
+          } else if (now - checkinSentAtRef.current > SILENCE_END_CALL_MS) {
+            // Stage 2: still silent SILENCE_END_CALL_MS after the check-in —
+            // end the session gracefully via the existing end-call mechanism,
+            // framed as a possible technical/audio issue (not the user being
+            // unresponsive).
+            console.log('[Walkthrough] No response after check-in — ending session (assumed audio/technical issue)')
+            sessionEndedRef.current = true
+            setSessionComplete(true)
+            try {
+              adapterRef.current.injectContext(
+                'It seems there may be a technical issue with the participant\'s audio or connection — say a brief, friendly line acknowledging this (assume a technical difficulty, not that they are ignoring you) and that the session will end for now, then stop.'
+              )
+            } catch { /* noop — non-fatal, end-call proceeds regardless */ }
+            endCallOnServer(userId, auditTokenRef.current)
+          }
         }
       } catch (err) {
         if (active) setPollError(String(err).slice(0, 30))
