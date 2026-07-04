@@ -9,6 +9,19 @@ import type { VisualSpec } from '@/lib/session-ai'
 import type { TabManifest, TemplateSection, VisualizationTab } from '@/lib/templates/types'
 import { Conversation } from '@11labs/client'
 import { createVoiceAdapter, type VoiceSessionAdapter, HumeAdapter } from '@/lib/voice'
+// LIVE-01 — new, isolated client module for the toggle-gated live conductor
+// path. This is invoked conditionally at a few well-defined points below (tool
+// registration + poll-state application + rendering); it does NOT read or
+// write any of this component's existing refs (sectionsRef, trainingScriptsRef,
+// billing/audit state, etc.) and holds its own state object instead.
+import {
+  isLiveConductorEnabledClient,
+  createLiveConductorClientState,
+  applyLiveConductorPoll,
+  createAdvanceTabToolHandler,
+  type LiveConductorClientState,
+} from '@/lib/content/live-conductor-client'
+import LiveConductorVisual from '@/components/live-conductor/LiveConductorVisual'
 
 const AGENT_ID = process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID ?? 'agent_0701krp1ta48fswrff17ctb0520m'
 
@@ -142,6 +155,12 @@ interface WalkthroughState {
   // once from the server-rendered initial state; never re-fetched by this
   // client on its own.
   audit_token?: string | null
+  // LIVE-01 — additive fields for the toggle-gated live conductor path (see
+  // migration 054_live_conductor_state.sql). Present only when
+  // NEXT_PUBLIC_LIVE_CONDUCTOR_ENABLED is on and a live-conductor session is
+  // active; otherwise always null/absent and never read.
+  live_conductor_tab_index?: number | null
+  live_conductor_visual?: import('@/lib/content/live-conductor-visual').LiveConductorVisualData | null
 }
 
 /**
@@ -366,6 +385,14 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
   // gapOpenRef: true while a voice-connection gap is currently open (disconnected
   // after billing had already started, not yet reconnected).
   const gapOpenRef = useRef(false)
+
+  // LIVE-01 — own, isolated state for the toggle-gated live conductor path.
+  // Deliberately a separate ref object (not merged into sectionsRef /
+  // trainingScriptsRef / any of the above) so the two paths never share
+  // mutable state. Only read/written when isLiveConductorEnabledClient() is
+  // true; a no-op object otherwise.
+  const liveConductorRef = useRef<LiveConductorClientState>(createLiveConductorClientState())
+  const [liveConductorVisual, setLiveConductorVisual] = useState<LiveConductorClientState['visual']>(null)
 
   // Track container dimensions
   useEffect(() => {
@@ -636,6 +663,13 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
                 setSessionComplete(true)
                 return 'Session ended.'
               },
+              // LIVE-01 — registered unconditionally (a no-op tool if the model
+              // never calls it), so the handler map shape doesn't change based
+              // on the toggle. The actual tab-advance + visual generation work
+              // happens server-side in the bridge route; this client only
+              // acknowledges the call and later picks up the result via polling
+              // (see applyLiveConductorPoll in the poll effect below).
+              advance_tab: createAdvanceTabToolHandler(),
             },
           })
 
@@ -823,6 +857,12 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
               }
               return 'Question saved for follow-up session.'
             },
+            // LIVE-01 — same additive, unconditional registration as the Hume
+            // path above; see that comment for why this is safe to register
+            // even when the toggle is off (server-side model prompt never
+            // instructs calling this tool unless the live-conductor branch is
+            // active, so it is simply never invoked in the default path).
+            advance_tab: createAdvanceTabToolHandler(),
           },
           onConnect: ({ conversationId }: { conversationId: string }) => {
             console.log('[Walkthrough] Agent connected, id:', conversationId)
@@ -1053,6 +1093,17 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
         // this poll route legitimately includes it.
         if (data.audit_token !== undefined) auditTokenRef.current = data.audit_token ?? null
 
+        // LIVE-01 — only reads/writes liveConductorRef (its own isolated state
+        // object) and only when the toggle is on. When off, this block never
+        // runs and liveConductorRef stays at its initial no-op value.
+        if (isLiveConductorEnabledClient()) {
+          applyLiveConductorPoll(liveConductorRef.current, {
+            live_conductor_tab_index: data.live_conductor_tab_index,
+            live_conductor_visual: data.live_conductor_visual,
+          })
+          setLiveConductorVisual(liveConductorRef.current.visual)
+        }
+
         // elevenLabsConvRef used for sendUserMessage (ElevenLabs-specific transcript forwarding)
         const conv = elevenLabsConvRef.current
 
@@ -1130,6 +1181,14 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
     agentStatus === 'error'        ? 'bg-red-900/80 text-red-300' :
     'bg-gray-900/80 text-gray-500'
 
+  // LIVE-01 — only true when the toggle is on AND this session actually has a
+  // live-conductor tab index reported by the poll (i.e. the pipeline branch in
+  // inngest/session-content-pipeline.ts ran for this session). When false, the
+  // render tree below falls through entirely to the pre-existing tab
+  // panel / session stack / legacy renderer logic, completely unchanged.
+  const showLiveConductorVisual =
+    isLiveConductorEnabledClient() && typeof state.live_conductor_tab_index === 'number'
+
   return (
     <div
       ref={containerRef}
@@ -1166,6 +1225,23 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
         </div>
       )}
 
+      {/* LIVE-01 — live conductor visual, shown only when the toggle is on and
+          this session has live-conductor state. Renders LiveConductorVisual
+          (a new, separate component — not any of the 22 template renderers)
+          with whatever visual is currently in walkthrough_state.live_conductor_visual
+          (null = text-only fallback, handled inside the component itself).
+          When this branch is active it takes over the whole screen and the
+          existing tab-panel / session-stack / legacy renderer below are never
+          reached for this render (mutually exclusive via early return in JSX). */}
+      {showLiveConductorVisual ? (
+        <div className="absolute inset-0 flex flex-col">
+          <LiveConductorVisual
+            data={liveConductorVisual}
+            tabTitle={state.topic_title ?? 'Live session'}
+          />
+        </div>
+      ) : (
+        <>
       {/* VisualizationTabPanel — shown when the active section has a tab manifest with 2+ tabs */}
       {shouldShowTabPanel && currentTabManifest && (
         <div className="absolute inset-0 flex flex-col">
@@ -1276,6 +1352,8 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
           </motion.div>
         )}
       </AnimatePresence>}
+        </>
+      )}
 
       {/* Session complete overlay */}
       {sessionComplete && (

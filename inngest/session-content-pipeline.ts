@@ -23,6 +23,18 @@ import { generateTemplateData } from '@/lib/templates/generator'
 import { sendAdminAlert } from '@/lib/delivery/email'
 import { runAutomatedQA } from '@/lib/kb-qa-agent'
 import type { TemplateSection, TemplateMeta, TabManifest, VisualizationTab } from '@/lib/templates/types'
+// LIVE-01 — new, isolated two-layer content generation for the toggle-gated
+// live conductor path. Does NOT modify generateContentArticles, script-generator.ts,
+// or anything else in the old pipeline — only adds a new branch below (see
+// "LIVE-01 BRANCH POINT").
+import { generateTopicBackground } from '@/lib/content/live-conductor-content'
+import type { LiveConductorContent } from '@/lib/content/live-conductor-content'
+
+// LIVE-01 — toggle check, matching the NEXT_PUBLIC_TOPIC01_ENABLED convention.
+// Default false/unset — when off, none of the code below this check ever runs
+// and Steps D-I execute completely unchanged, exactly as they did before this
+// feature existed.
+const LIVE_CONDUCTOR_ENABLED = process.env.NEXT_PUBLIC_LIVE_CONDUCTOR_ENABLED === 'true'
 
 // ─── ROLE LEVEL INFERENCE ─────────────────────────────────────────────────────
 
@@ -193,6 +205,66 @@ export const sessionContentPipeline = inngest.createFunction(
         userContext
       )
     })
+
+    // ── LIVE-01 BRANCH POINT ───────────────────────────────────────────────────
+    // Per the resolved spec ("the toggle must branch above content generation, not
+    // just at the transport/adapter layer"), check the flag HERE, immediately after
+    // Step C and before any script-generation or template-generation work begins.
+    // When true: skip Steps D/D.5/E/F entirely (no script generation, no template
+    // generation) and instead build the two-layer live-conductor content (topic
+    // background + per-tab ContentArticles, reusing the `articles` from Step C
+    // as-is) and store it on sessions.live_conductor_content for the bridge route
+    // to read (see lib/voice/live-conductor-bridge.ts).
+    // When false (default): execution falls through to the unmodified Steps D-I
+    // below, byte-for-byte as they existed before this feature.
+    if (LIVE_CONDUCTOR_ENABLED) {
+      await step.run('live-conductor-generate-and-store', async () => {
+        const topicBackground = await generateTopicBackground(topicTitle, articles, userContext)
+
+        const liveConductorContent: LiveConductorContent = {
+          topic_background: topicBackground,
+          tabs: articles.map((article) => ({
+            subtopic_slug: article.subtopic_slug,
+            subtopic_title: article.subtopic_title,
+            article,
+          })),
+          generated_at: new Date().toISOString(),
+        }
+
+        const { error: sessionUpdateError } = await supabase
+          .from('sessions')
+          .update({
+            live_conductor_content: liveConductorContent,
+            content_status: 'ready',
+          })
+          .eq('id', sessionId)
+
+        if (sessionUpdateError) {
+          console.error('[session-content-pipeline][LIVE-01] Failed to store live_conductor_content:', sessionUpdateError.message)
+          throw new Error(`live_conductor_content update failed for session ${sessionId}: ${sessionUpdateError.message}`)
+        }
+
+        // Reset the per-user tab pointer to the first tab and clear any stale
+        // visual from a previous session, so a fresh live-conductor session
+        // always starts at tab 0 with no leftover visual.
+        const { error: wsError } = await supabase
+          .from('walkthrough_state')
+          .update({ live_conductor_tab_index: 0, live_conductor_visual: null })
+          .eq('user_id', userId)
+
+        if (wsError) {
+          // Non-fatal: the bridge route defaults tabIndex to 0 anyway when the
+          // column is null/missing. Content generation (the important part) is
+          // already committed above.
+          console.warn('[session-content-pipeline][LIVE-01] Failed to reset walkthrough_state tab pointer:', wsError.message)
+        }
+
+        console.log(`[session-content-pipeline][LIVE-01] Stored live_conductor_content for session ${sessionId} — ${articles.length} tab(s), background ${topicBackground.length} chars`)
+      })
+
+      return { sessionId, subtopicsProcessed: articles.length, liveConductor: true }
+    }
+    // ── END LIVE-01 BRANCH POINT — everything below is the pre-existing path ──
 
     // ── Steps D–G: Per subtopic — atomic script+viz, template, cache upsert ───
     for (let i = 0; i < articles.length; i++) {

@@ -1,6 +1,18 @@
 import { NextRequest } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { createSupabaseAdminClient } from '@/lib/supabase'
+// LIVE-01 — new, isolated module for the toggle-gated live conductor path.
+// Nothing below this import changes the behavior of the existing default path
+// when the toggle is off; see the "LIVE-01 BRANCH POINT" comments below for
+// exactly where this plugs in.
+import {
+  isLiveConductorEnabled,
+  getLiveConductorState,
+  buildLiveConductorSystemPrompt,
+  handleAdvanceTab,
+  LIVE_CONDUCTOR_TOOLS,
+} from '@/lib/voice/live-conductor-bridge'
+import type { UserContext } from '@/lib/content/session-content-generator'
 
 export const maxDuration = 60
 
@@ -263,13 +275,64 @@ export async function POST(request: NextRequest) {
 
   // Resolve session context — cached after first turn, validated every 5 min
   let systemPrompt = 'You are Clio, an expert AI business coach running a live coaching session.'
+  let toolsForThisTurn: Anthropic.Tool[] = CLIO_TOOLS
+  // LIVE-01 — set only when the toggle is on AND this session has
+  // live-conductor content available; used below to route advance_tab tool
+  // calls to handleAdvanceTab instead of the default path's client-side tools.
+  let liveConductorCtx: {
+    supabase: ReturnType<typeof createSupabaseAdminClient>
+    content: NonNullable<Awaited<ReturnType<typeof getLiveConductorState>>>['content']
+    tabIndex: number
+    userContext: UserContext
+  } | null = null
 
   if (userId) {
     try {
       const supabase = createSupabaseAdminClient()
-      const { prompt, cacheStatus } = await getSystemPrompt(userId, supabase)
-      systemPrompt = prompt
-      console.log(`[clio/llm] user=${userId} cache=${cacheStatus} context=${systemPrompt.length}chars`)
+
+      // ── LIVE-01 BRANCH POINT ─────────────────────────────────────────────
+      // Only branches when the toggle is on. Does not restructure or replace
+      // the default getSystemPrompt() call below — if live-conductor content
+      // isn't available for this session (toggle on but content not yet
+      // generated, or an old-path session), we fall straight through to the
+      // existing default system prompt / CLIO_TOOLS unchanged.
+      if (isLiveConductorEnabled()) {
+        const liveState = await getLiveConductorState(userId, supabase)
+        if (liveState) {
+          const { data: userRow } = await supabase
+            .from('users')
+            .select('role, industry, ai_maturity, role_level')
+            .eq('id', userId)
+            .single()
+
+          const userContext: UserContext = {
+            role: (userRow as { role?: string } | null)?.role ?? 'executive',
+            industry: (userRow as { industry?: string } | null)?.industry ?? 'business',
+            maturity: (userRow as { ai_maturity?: string } | null)?.ai_maturity ?? 'beginner',
+            roleLevel: (userRow as { role_level?: string } | null)?.role_level ?? 'c-suite',
+          }
+          // No first-name column exists on `users` (name comes from Clerk, not
+          // this table — see app/dashboard/walkthrough/page.tsx). Participant
+          // greeting-by-name is a separate, not-yet-built feature (see
+          // project memory: "Participant Greeting") — out of scope here.
+          const firstName: string | null = null
+
+          systemPrompt = buildLiveConductorSystemPrompt(liveState.content, liveState.tabIndex, {
+            ...userContext,
+            firstName,
+          })
+          toolsForThisTurn = LIVE_CONDUCTOR_TOOLS
+          liveConductorCtx = { supabase, content: liveState.content, tabIndex: liveState.tabIndex, userContext }
+          console.log(`[clio/llm][LIVE-01] user=${userId} tab=${liveState.tabIndex + 1}/${liveState.content.tabs.length} context=${systemPrompt.length}chars`)
+        }
+      }
+      // ── END LIVE-01 BRANCH POINT ─────────────────────────────────────────
+
+      if (!liveConductorCtx) {
+        const { prompt, cacheStatus } = await getSystemPrompt(userId, supabase)
+        systemPrompt = prompt
+        console.log(`[clio/llm] user=${userId} cache=${cacheStatus} context=${systemPrompt.length}chars`)
+      }
     } catch (err) {
       console.error('[clio/llm] Failed to fetch context:', err)
     }
@@ -306,17 +369,23 @@ export async function POST(request: NextRequest) {
           max_tokens: 1024,
           system: systemPrompt,
           messages: anthropicMessages,
-          tools: CLIO_TOOLS,
+          tools: toolsForThisTurn,
           tool_choice: { type: 'auto' },
         })
 
         let toolCallIndex = 0
         let inToolUse = false
+        // LIVE-01 — tracks the tool name of the block currently streaming so we
+        // know, at content_block_stop, whether it was advance_tab (only
+        // meaningful when liveConductorCtx is set — the default path never
+        // populates this or reads it).
+        let currentToolName: string | null = null
 
         for await (const event of anthropicStream) {
           if (event.type === 'content_block_start') {
             if (event.content_block.type === 'tool_use') {
               inToolUse = true
+              currentToolName = event.content_block.name
               // Emit the tool call start with name and empty args
               send(JSON.stringify({
                 id: responseId, object: 'chat.completion.chunk', created, model: 'claude-sonnet-4-6',
@@ -359,6 +428,22 @@ export async function POST(request: NextRequest) {
           if (event.type === 'content_block_stop' && inToolUse) {
             inToolUse = false
             toolCallIndex++
+
+            // ── LIVE-01 BRANCH POINT ────────────────────────────────────────
+            // advance_tab has no input args (empty schema), so there's nothing
+            // to parse — just fire the side effect. Only reachable when
+            // liveConductorCtx was populated above (toggle on + content
+            // available), and only for this specific tool name, so the default
+            // path's show_visual/end_session tool_use blocks are completely
+            // unaffected.
+            if (currentToolName === 'advance_tab' && liveConductorCtx) {
+              const ctx = liveConductorCtx
+              void handleAdvanceTab(userId!, ctx.content, ctx.tabIndex, ctx.userContext, ctx.supabase).catch((err: unknown) => {
+                console.error('[clio/llm][LIVE-01] handleAdvanceTab failed:', err)
+              })
+            }
+            currentToolName = null
+            // ── END LIVE-01 BRANCH POINT ────────────────────────────────────
           }
 
           if (event.type === 'message_delta') {
