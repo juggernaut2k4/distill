@@ -81,6 +81,16 @@ export const LIVE_CONDUCTOR_TOOLS: Anthropic.Tool[] = [
 
 // ─── STATE SHAPE ──────────────────────────────────────────────────────────────
 
+/**
+ * In-memory guard against firing tab-1 visual generation more than once
+ * concurrently for the same session while the DB write is still in flight
+ * (chat-completion turns can arrive faster than one Supabase round-trip).
+ * Not persisted — fine, since a duplicate fire after a cold start is harmless
+ * (both calls just regenerate the same visual), but this keeps the common
+ * case (several turns landing within the same second on tab 1) to one call.
+ */
+const tab1GenerationInFlight = new Set<string>()
+
 interface LiveConductorRow {
   live_conductor_content: LiveConductorContent | null
   live_conductor_tab_index: number | null
@@ -98,11 +108,12 @@ interface LiveConductorRow {
  */
 export async function getLiveConductorState(
   userId: string,
-  supabase: ReturnType<typeof createSupabaseAdminClient>
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  userContext?: UserContext
 ): Promise<{ content: LiveConductorContent; tabIndex: number } | null> {
   const { data: wsRow } = await supabase
     .from('walkthrough_state')
-    .select('live_conductor_tab_index, session_id')
+    .select('live_conductor_tab_index, live_conductor_visual, session_id')
     .eq('user_id', userId)
     .single()
 
@@ -136,7 +147,51 @@ export async function getLiveConductorState(
   if (!content || !content.tabs || content.tabs.length === 0) return null
 
   const tabIndex = (wsRow as { live_conductor_tab_index?: number | null } | null)?.live_conductor_tab_index ?? 0
-  return { content, tabIndex: Math.max(0, Math.min(tabIndex, content.tabs.length - 1)) }
+  const clampedTabIndex = Math.max(0, Math.min(tabIndex, content.tabs.length - 1))
+
+  // ── Proactive tab-1 visual generation (LIVE-01 gap fix) ──────────────────
+  // Normally a tab's visual is kicked off by handleAdvanceTab when the model
+  // calls advance_tab to move INTO that tab. Tab 1 (index 0) has no preceding
+  // advance_tab call — nothing ever generates its visual, so the first tab of
+  // every session showed LiveConductorVisual's empty-state fallback forever.
+  //
+  // Guard: only fire when we're truly at session start (tabIndex 0 AND
+  // live_conductor_visual is still null), and not already generating for this
+  // user (tab1GenerationInFlight covers the case where several turns land
+  // within the same second, before the DB write below has landed). Once the
+  // write completes, live_conductor_visual is non-null on success, so
+  // subsequent turns skip this block via the existingVisual check alone; on
+  // failure/timeout it's written back as null and the next turn will retry —
+  // that self-heals a transient generation failure instead of leaving tab 1
+  // permanently stuck on the empty-state fallback.
+  const existingVisual = (wsRow as { live_conductor_visual?: LiveConductorVisualData | null } | null)
+    ?.live_conductor_visual ?? null
+
+  if (clampedTabIndex === 0 && existingVisual === null && userContext && !tab1GenerationInFlight.has(userId)) {
+    const firstTab = content.tabs[0]
+    tab1GenerationInFlight.add(userId)
+    // Fire-and-forget, mirroring handleAdvanceTab's pattern exactly: never
+    // awaited here, never blocks the caller's turn/response.
+    void generateLiveVisualWithTimeout(firstTab, userContext, LIVE_CONDUCTOR_TRANSITION_BUFFER_MS)
+      .then(async (visual: LiveConductorVisualData | null) => {
+        try {
+          await supabase
+            .from('walkthrough_state')
+            .update({ live_conductor_visual: visual })
+            .eq('user_id', userId)
+        } catch (err) {
+          console.error('[live-conductor-bridge] Failed to write tab-1 live_conductor_visual:', err)
+        }
+      })
+      .catch((err: unknown) => {
+        console.error('[live-conductor-bridge] tab-1 visual generation chain failed:', err)
+      })
+      .finally(() => {
+        tab1GenerationInFlight.delete(userId)
+      })
+  }
+
+  return { content, tabIndex: clampedTabIndex }
 }
 
 // ─── SYSTEM PROMPT ────────────────────────────────────────────────────────────

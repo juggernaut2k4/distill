@@ -297,20 +297,25 @@ export async function POST(request: NextRequest) {
       // generated, or an old-path session), we fall straight through to the
       // existing default system prompt / CLIO_TOOLS unchanged.
       if (isLiveConductorEnabled()) {
-        const liveState = await getLiveConductorState(userId, supabase)
-        if (liveState) {
-          const { data: userRow } = await supabase
-            .from('users')
-            .select('role, industry, ai_maturity, role_level')
-            .eq('id', userId)
-            .single()
+        // Fetched up-front (rather than after getLiveConductorState, as
+        // before) so it can be passed into getLiveConductorState — needed
+        // there to proactively generate tab 1's visual on session start (see
+        // that function's "Proactive tab-1 visual generation" block).
+        const { data: userRow } = await supabase
+          .from('users')
+          .select('role, industry, ai_maturity, role_level')
+          .eq('id', userId)
+          .single()
 
-          const userContext: UserContext = {
-            role: (userRow as { role?: string } | null)?.role ?? 'executive',
-            industry: (userRow as { industry?: string } | null)?.industry ?? 'business',
-            maturity: (userRow as { ai_maturity?: string } | null)?.ai_maturity ?? 'beginner',
-            roleLevel: (userRow as { role_level?: string } | null)?.role_level ?? 'c-suite',
-          }
+        const userContext: UserContext = {
+          role: (userRow as { role?: string } | null)?.role ?? 'executive',
+          industry: (userRow as { industry?: string } | null)?.industry ?? 'business',
+          maturity: (userRow as { ai_maturity?: string } | null)?.ai_maturity ?? 'beginner',
+          roleLevel: (userRow as { role_level?: string } | null)?.role_level ?? 'c-suite',
+        }
+
+        const liveState = await getLiveConductorState(userId, supabase, userContext)
+        if (liveState) {
           // No first-name column exists on `users` (name comes from Clerk, not
           // this table — see app/dashboard/walkthrough/page.tsx). Participant
           // greeting-by-name is a separate, not-yet-built feature (see
