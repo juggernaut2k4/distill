@@ -16,6 +16,15 @@
  *  Adjust based on real observed live-visual generation latency once tested live. */
 export const LIVE_CONDUCTOR_TRANSITION_BUFFER_MS = 10_000
 
+/**
+ * 2026-07-04 — Arun's explicit instruction: replace the single hard 10s timeout
+ * with a retry loop. Each attempt gets up to this many ms; up to
+ * LIVE_CONDUCTOR_VISUAL_MAX_ATTEMPTS attempts are made (worst case ~40s total).
+ * See generateLiveVisualWithTimeout in lib/content/live-conductor-visual.ts.
+ */
+export const LIVE_CONDUCTOR_VISUAL_ATTEMPT_TIMEOUT_MS = 4_000
+export const LIVE_CONDUCTOR_VISUAL_MAX_ATTEMPTS = 10
+
 /** Tunable default — whole-topic background word budget (Section 11, Resolved Q4). */
 export const LIVE_CONDUCTOR_TOPIC_BACKGROUND_WORD_TARGET_MIN = 1500
 export const LIVE_CONDUCTOR_TOPIC_BACKGROUND_WORD_TARGET_MAX = 2000

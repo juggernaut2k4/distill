@@ -11,6 +11,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { LiveConductorContent, LiveConductorTab } from './live-conductor-content'
 import type { UserContext } from './session-content-generator'
+import { LIVE_CONDUCTOR_VISUAL_MAX_ATTEMPTS } from './live-conductor-prompt'
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 
@@ -139,26 +140,63 @@ Return ONLY valid JSON, no markdown, no commentary:
 }
 
 /**
- * Races generateLiveVisual against a timeout so callers never block the live
- * conversation past the transition buffer. Resolves to null on timeout OR on
- * any generation failure — the caller's job is simply to treat null as
- * "text-only for this tab" (Section 11, Resolved Q6): no visual shown, Clio
- * keeps talking normally, no fallback to the old template pipeline.
+ * 2026-07-04 — Arun's explicit instruction: replace the previous single hard
+ * 10s timeout with a retry loop. Each attempt races generateLiveVisual against
+ * `timeoutMs` (per-attempt budget, not a total budget); if an attempt doesn't
+ * resolve in time, it is abandoned and a fresh attempt is started, up to
+ * `maxAttempts` total. The first attempt to succeed returns immediately — we
+ * do not wait for all attempts once one has produced a result. If every
+ * attempt fails or times out, this resolves to null, same as before (the
+ * caller's fallback path is unchanged: null → "text-only for this tab",
+ * Section 11, Resolved Q6). No visual shown, Clio keeps talking normally, no
+ * fallback to the old template pipeline.
+ *
+ * Worst case latency is now maxAttempts * timeoutMs (e.g. 10 * 4s = ~40s)
+ * rather than the previous fixed 10s. Arun is explicitly fine with this longer
+ * worst case in exchange for a much higher chance of a real visual landing.
+ *
+ * Note: with a worst case around 40s, Clio's natural transition/segue speech
+ * (the mechanism the prompt in live-conductor-prompt.ts relies on to "cover"
+ * generation latency) will not literally cover the entire window on a
+ * multi-retry run — flagging this per Arun's request, not silently treating it
+ * as a non-issue. Per Arun's explicit approval this is acceptable as-is; no
+ * prompt changes were made here since that is out of scope for this change.
  */
 export async function generateLiveVisualWithTimeout(
   tab: LiveConductorTab,
   userContext: UserContext,
-  timeoutMs: number
+  timeoutMs: number,
+  maxAttempts: number = LIVE_CONDUCTOR_VISUAL_MAX_ATTEMPTS
 ): Promise<LiveConductorVisualData | null> {
-  try {
-    return await Promise.race([
-      generateLiveVisual(tab, userContext),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
-    ])
-  } catch (err) {
-    // Defensive: generateLiveVisual already catches internally and returns null,
-    // but guard the race itself too so an unhandled rejection can never surface.
-    console.error('[live-conductor-visual] generateLiveVisualWithTimeout unexpected error:', err)
-    return null
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const result = await Promise.race([
+        generateLiveVisual(tab, userContext),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
+      ])
+      if (result) {
+        return result
+      }
+      console.log(
+        `[live-conductor-visual] attempt ${attempt}/${maxAttempts} timed out or returned null for tab`,
+        tab.subtopic_slug
+      )
+    } catch (err) {
+      // Defensive: generateLiveVisual already catches internally and returns null,
+      // but guard the race itself too so an unhandled rejection can never surface.
+      console.error(
+        `[live-conductor-visual] attempt ${attempt}/${maxAttempts} unexpected error for tab`,
+        tab.subtopic_slug,
+        ':',
+        err
+      )
+    }
   }
+
+  console.error(
+    `[live-conductor-visual] all ${maxAttempts} attempts failed for tab`,
+    tab.subtopic_slug,
+    '— falling back to null (text-only)'
+  )
+  return null
 }

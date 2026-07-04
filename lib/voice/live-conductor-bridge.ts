@@ -22,7 +22,7 @@
 
 import Anthropic from '@anthropic-ai/sdk'
 import { createSupabaseAdminClient } from '@/lib/supabase'
-import { CLIO_LIVE_CONDUCTOR_BEHAVIOR, LIVE_CONDUCTOR_TRANSITION_BUFFER_MS } from '@/lib/content/live-conductor-prompt'
+import { CLIO_LIVE_CONDUCTOR_BEHAVIOR, LIVE_CONDUCTOR_VISUAL_ATTEMPT_TIMEOUT_MS } from '@/lib/content/live-conductor-prompt'
 import { formatTabContentForPrompt, type LiveConductorContent, type LiveConductorTab } from '@/lib/content/live-conductor-content'
 import { generateLiveVisualWithTimeout, buildAgendaVisual, type LiveConductorVisualData } from '@/lib/content/live-conductor-visual'
 import type { UserContext } from '@/lib/content/session-content-generator'
@@ -332,7 +332,10 @@ export async function handleAdvanceTab(
   // awaited by the caller — the model's own conclusion/segue speech (per the
   // prompt in live-conductor-prompt.ts) is what covers this latency, not a
   // blocked tool response.
-  void generateLiveVisualWithTimeout(newTab, userContext, LIVE_CONDUCTOR_TRANSITION_BUFFER_MS)
+  // 2026-07-04 — now a per-attempt timeout (retried up to 10x internally,
+  // ~4s per attempt, worst case ~40s) rather than a single hard 10s cutoff.
+  // See lib/content/live-conductor-visual.ts for the retry loop.
+  void generateLiveVisualWithTimeout(newTab, userContext, LIVE_CONDUCTOR_VISUAL_ATTEMPT_TIMEOUT_MS)
     .then(async (visual: LiveConductorVisualData | null) => {
       try {
         await supabase

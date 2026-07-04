@@ -38,7 +38,6 @@ export default function LiveConductorVisual({ data, tabTitle }: LiveConductorVis
           className="text-center space-y-2"
         >
           <p className="text-white text-2xl font-bold">{tabTitle}</p>
-          <p className="text-[#475569] text-sm">Listening in — no visual for this section.</p>
         </motion.div>
       </div>
     )
