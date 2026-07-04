@@ -105,6 +105,32 @@ export async function POST(request: NextRequest, { params }: Params) {
   // rationale.
   await mintAuditToken(userId!)
 
+  // LIVE-01 bug fix (2026-07-04): walkthrough_state.live_conductor_tab_index /
+  // live_conductor_visual / live_conductor_tab_turn_count are a per-USER
+  // singleton (see migration 054_live_conductor_state.sql), not per-session —
+  // there is exactly one walkthrough_state row per user, reused across every
+  // session. Nothing previously reset this row back to "tab 1" when a NEW
+  // session started, so any session after the user's first ever live-conductor
+  // session inherited whatever tab index/visual was left over from the last
+  // one — e.g. starting on tab 2+ with a stale/null visual, meaning the tab-1
+  // agenda screen (getLiveConductorState's `clampedTabIndex === 0` guard in
+  // lib/voice/live-conductor-bridge.ts) never fires because the index is never
+  // actually 0 again. Root cause of "I don't see a difference / static page"
+  // symptom reported after this session (session=2f04bdb6-...): confirmed via
+  // Vercel logs (chat completions opened at tab=2/4 turn=0) + direct DB read
+  // (walkthrough_state row created at an earlier test, live_conductor_visual
+  // was null the whole session). Reset here, at the one place every session
+  // unambiguously begins, so each session starts fresh on tab 1 with the
+  // agenda visual able to generate again.
+  await supabase
+    .from('walkthrough_state')
+    .update({
+      live_conductor_tab_index: 0,
+      live_conductor_visual: null,
+      live_conductor_tab_turn_count: 0,
+    })
+    .eq('user_id', userId!)
+
   // Start server-side timer — cancels automatically when session ends
   inngest.send({
     name: 'clio/session.started',
