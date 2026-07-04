@@ -11,6 +11,7 @@ import {
   buildLiveConductorSystemPrompt,
   handleAdvanceTab,
   LIVE_CONDUCTOR_TOOLS,
+  FORCE_AT_TURN,
 } from '@/lib/voice/live-conductor-bridge'
 import type { UserContext } from '@/lib/content/session-content-generator'
 
@@ -316,19 +317,44 @@ export async function POST(request: NextRequest) {
 
         const liveState = await getLiveConductorState(userId, supabase, userContext)
         if (liveState) {
-          // No first-name column exists on `users` (name comes from Clerk, not
-          // this table — see app/dashboard/walkthrough/page.tsx). Participant
-          // greeting-by-name is a separate, not-yet-built feature (see
-          // project memory: "Participant Greeting") — out of scope here.
-          const firstName: string | null = null
+          // ── Tab-stuck backstop: server-forced advance ──────────────────────
+          // The live-conductor path has no pre-scripted [NAV:tab_id] markers
+          // (see script-generator.ts) — its only trigger is the model calling
+          // `advance_tab` voluntarily. Confirmed in production it can get stuck
+          // on a tab indefinitely. If we've been on this tab for FORCE_AT_TURN+
+          // turns (the soft nudge in buildLiveConductorSystemPrompt already
+          // fired at NUDGE_AT_TURN and didn't work), force the advance
+          // server-side instead of waiting on the model any longer — this is
+          // the deterministic mirror of the old NAV-marker system.
+          const isLastTab = liveState.tabIndex >= liveState.content.tabs.length - 1
+          if (liveState.tabTurnCount >= FORCE_AT_TURN && !isLastTab) {
+            console.warn(
+              `[clio/llm][LIVE-01] user=${userId} FORCING advance from tab ${liveState.tabIndex + 1} ` +
+              `after ${liveState.tabTurnCount} turns stuck`
+            )
+            const forced = await handleAdvanceTab(userId, liveState.content, liveState.tabIndex, userContext, supabase, true)
+            const newTabIndex = liveState.tabIndex + 1
+            const firstName: string | null = null
+            systemPrompt =
+              buildLiveConductorSystemPrompt(liveState.content, newTabIndex, { ...userContext, firstName }) +
+              `\n\n${forced.resultText}`
+            toolsForThisTurn = LIVE_CONDUCTOR_TOOLS
+            liveConductorCtx = { supabase, content: liveState.content, tabIndex: newTabIndex, userContext }
+          } else {
+            // No first-name column exists on `users` (name comes from Clerk, not
+            // this table — see app/dashboard/walkthrough/page.tsx). Participant
+            // greeting-by-name is a separate, not-yet-built feature (see
+            // project memory: "Participant Greeting") — out of scope here.
+            const firstName: string | null = null
 
-          systemPrompt = buildLiveConductorSystemPrompt(liveState.content, liveState.tabIndex, {
-            ...userContext,
-            firstName,
-          })
-          toolsForThisTurn = LIVE_CONDUCTOR_TOOLS
-          liveConductorCtx = { supabase, content: liveState.content, tabIndex: liveState.tabIndex, userContext }
-          console.log(`[clio/llm][LIVE-01] user=${userId} tab=${liveState.tabIndex + 1}/${liveState.content.tabs.length} context=${systemPrompt.length}chars`)
+            systemPrompt = buildLiveConductorSystemPrompt(liveState.content, liveState.tabIndex, {
+              ...userContext,
+              firstName,
+            }, liveState.tabTurnCount)
+            toolsForThisTurn = LIVE_CONDUCTOR_TOOLS
+            liveConductorCtx = { supabase, content: liveState.content, tabIndex: liveState.tabIndex, userContext }
+            console.log(`[clio/llm][LIVE-01] user=${userId} tab=${liveState.tabIndex + 1}/${liveState.content.tabs.length} turn=${liveState.tabTurnCount} context=${systemPrompt.length}chars`)
+          }
         }
       }
       // ── END LIVE-01 BRANCH POINT ─────────────────────────────────────────

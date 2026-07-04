@@ -79,6 +79,34 @@ export const LIVE_CONDUCTOR_TOOLS: Anthropic.Tool[] = [
   },
 ]
 
+// ─── TAB-STUCK BACKSTOP ───────────────────────────────────────────────────────
+
+/**
+ * The live-conductor path has no pre-scripted [NAV:tab_id] markers the way the
+ * old script-generator/WalkthroughClient path did (see script-generator.ts —
+ * markers were embedded inline in the TEACH text at write-time, so the client
+ * just parsed and executed a deterministic instruction). Here the model
+ * decides live, at speak-time, when a tab is "done" by calling `advance_tab` —
+ * confirmed in production that it can simply never do so once past the intro,
+ * getting stuck on a tab for the rest of the session.
+ *
+ * This is the backstop, tracked via live_conductor_tab_turn_count (turns spent
+ * on the CURRENT tab, reset by handleAdvanceTab):
+ *   - turn >= NUDGE_AT_TURN: inject a stronger "wrap up now" instruction into
+ *     the system prompt on the next turn (still model-discretionary)
+ *   - turn >= FORCE_AT_TURN: bypass the model and force the advance
+ *     server-side — deterministic, mirrors the old NAV-marker system exactly
+ *
+ * Turn count (not wall-clock time) is the unit here because this bridge only
+ * sees discrete conversational turns (no session timer is plumbed through this
+ * route) and each tab is scripted for a small, bounded number of exchanges —
+ * TEACH + CHECKPOINT + (PROBE) + CONTINUE is ~3-4 turns of canonical pacing
+ * per script-generator.ts's segment durations. Thresholds are generous relative
+ * to that so normal back-and-forth is never cut off.
+ */
+export const NUDGE_AT_TURN = 5
+export const FORCE_AT_TURN = 8
+
 // ─── STATE SHAPE ──────────────────────────────────────────────────────────────
 
 /**
@@ -110,10 +138,10 @@ export async function getLiveConductorState(
   userId: string,
   supabase: ReturnType<typeof createSupabaseAdminClient>,
   userContext?: UserContext
-): Promise<{ content: LiveConductorContent; tabIndex: number } | null> {
+): Promise<{ content: LiveConductorContent; tabIndex: number; tabTurnCount: number } | null> {
   const { data: wsRow } = await supabase
     .from('walkthrough_state')
-    .select('live_conductor_tab_index, live_conductor_visual, session_id')
+    .select('live_conductor_tab_index, live_conductor_visual, live_conductor_tab_turn_count, session_id')
     .eq('user_id', userId)
     .single()
 
@@ -183,7 +211,22 @@ export async function getLiveConductorState(
     })()
   }
 
-  return { content, tabIndex: clampedTabIndex }
+  // ── Tab-stuck backstop: increment the per-tab turn counter ──────────────────
+  // Fire-and-forget, same pattern as the tab-1 agenda write above — never
+  // blocks the response, and a lost increment on rare failure just delays the
+  // nudge/force by one turn, which is harmless.
+  const priorTurnCount = (wsRow as { live_conductor_tab_turn_count?: number | null } | null)
+    ?.live_conductor_tab_turn_count ?? 0
+  const nextTurnCount = priorTurnCount + 1
+  void supabase
+    .from('walkthrough_state')
+    .update({ live_conductor_tab_turn_count: nextTurnCount })
+    .eq('user_id', userId)
+    .then(undefined, (err: unknown) => {
+      console.error('[live-conductor-bridge] Failed to increment tab turn count:', err)
+    })
+
+  return { content, tabIndex: clampedTabIndex, tabTurnCount: priorTurnCount }
 }
 
 // ─── SYSTEM PROMPT ────────────────────────────────────────────────────────────
@@ -196,10 +239,22 @@ export async function getLiveConductorState(
 export function buildLiveConductorSystemPrompt(
   content: LiveConductorContent,
   tabIndex: number,
-  userContext: UserContext & { firstName?: string | null }
+  userContext: UserContext & { firstName?: string | null },
+  tabTurnCount: number = 0
 ): string {
   const currentTab = content.tabs[tabIndex]
   const isLastTab = tabIndex >= content.tabs.length - 1
+
+  // Tab-stuck backstop (nudge stage) — see NUDGE_AT_TURN/FORCE_AT_TURN above.
+  // Escalates the instruction's urgency the longer we've sat on one tab; if it
+  // still doesn't work, handleAdvanceTab's caller forces the advance instead of
+  // waiting on this instruction indefinitely (see route.ts FORCE_AT_TURN check).
+  const nudgeLine =
+    tabTurnCount >= NUDGE_AT_TURN
+      ? isLastTab
+        ? "\n\n⚠️ You have spent significant time on this tab. Wrap up the session now — deliver your closing thought and call `end_session` within your next 1-2 responses."
+        : `\n\n⚠️ You have spent significant time on this tab (${tabTurnCount} exchanges). Wrap up now: deliver a brief closing thought and call \`advance_tab\` in your NEXT response — do not start any new sub-topic on this tab.`
+      : ''
 
   return [
     CLIO_LIVE_CONDUCTOR_BEHAVIOR,
@@ -219,6 +274,7 @@ export function buildLiveConductorSystemPrompt(
     isLastTab
       ? 'This is the LAST tab. When you finish teaching it, wrap up the session and call `end_session` — do not call `advance_tab` again.'
       : `When you are done teaching this tab, call \`advance_tab\` to move to tab ${tabIndex + 2} of ${content.tabs.length}.`,
+    nudgeLine,
   ].join('\n')
 }
 
@@ -232,6 +288,17 @@ export function buildLiveConductorSystemPrompt(
  * failure/timeout — WalkthroughClient's poll picks up whichever state exists
  * next tick; there is no blocking wait here).
  *
+ * Also called directly by route.ts's tab-stuck backstop (FORCE_AT_TURN) to
+ * force an advance the model didn't initiate — same function, same DB writes,
+ * only the caller (model tool-call vs. server timeout) differs. This is the
+ * deterministic mirror of the old NAV-marker system: when the soft nudge
+ * doesn't produce a call within the grace period, the server just advances.
+ *
+ * @param forced - true when this call is the server-forced backstop rather
+ *   than a genuine advance_tab tool call from the model. Only changes the
+ *   returned resultText's framing (so a forced call, if it were ever echoed
+ *   back to the model, reads as an environment event, not the model's own
+ *   decision) — the DB writes and visual-generation kickoff are identical.
  * @returns the tool result text to send back to the model for this turn, and
  *          the new tab (or null if already on the last tab).
  */
@@ -240,7 +307,8 @@ export async function handleAdvanceTab(
   content: LiveConductorContent,
   currentTabIndex: number,
   userContext: UserContext,
-  supabase: ReturnType<typeof createSupabaseAdminClient>
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  forced: boolean = false
 ): Promise<{ resultText: string; newTab: LiveConductorTab | null; isLastTab: boolean }> {
   const isLastTab = currentTabIndex >= content.tabs.length - 1
   if (isLastTab) {
@@ -251,10 +319,13 @@ export async function handleAdvanceTab(
   const newTab = content.tabs[newIndex]
 
   // Persist the new tab index immediately so a concurrent poll / reconnect
-  // reads the right tab even before visual generation finishes.
+  // reads the right tab even before visual generation finishes. Also resets
+  // the tab-stuck turn counter (see NUDGE_AT_TURN/FORCE_AT_TURN) — whether
+  // this advance was model-initiated or server-forced, the new tab starts
+  // fresh at turn 0.
   await supabase
     .from('walkthrough_state')
-    .update({ live_conductor_tab_index: newIndex, live_conductor_visual: null })
+    .update({ live_conductor_tab_index: newIndex, live_conductor_visual: null, live_conductor_tab_turn_count: 0 })
     .eq('user_id', userId)
 
   // Fire-and-forget: generate the next tab's visual asynchronously. Never
@@ -280,10 +351,13 @@ export async function handleAdvanceTab(
     })
 
   return {
-    resultText:
-      `Advanced to tab ${newIndex + 1} of ${content.tabs.length}: "${newTab.subtopic_title}". ` +
-      `Its visual is generating in the background — keep speaking naturally (your conclusion/segue for ` +
-      `the previous tab) until it's ready, then move into this tab's content.`,
+    resultText: forced
+      ? `[System-forced advance — you spent too long on the previous tab.] Now on tab ${newIndex + 1} of ` +
+        `${content.tabs.length}: "${newTab.subtopic_title}". Briefly and naturally bridge from the previous ` +
+        `topic into this one, then begin teaching its content.`
+      : `Advanced to tab ${newIndex + 1} of ${content.tabs.length}: "${newTab.subtopic_title}". ` +
+        `Its visual is generating in the background — keep speaking naturally (your conclusion/segue for ` +
+        `the previous tab) until it's ready, then move into this tab's content.`,
     newTab,
     isLastTab: newIndex >= content.tabs.length - 1,
   }
