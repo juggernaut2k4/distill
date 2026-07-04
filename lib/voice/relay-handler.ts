@@ -12,6 +12,7 @@ import type { IncomingMessage } from 'http'
 import { WebSocket } from 'ws'
 import { parse } from 'url'
 import { createSupabaseAdminClient } from '../supabase'
+import { forceEndSession } from '../session-billing'
 
 const AGENT_ID = process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID ?? ''
 const VOICE_ID = process.env.NEXT_PUBLIC_ELEVENLABS_VOICE_ID ?? 'eXpIbVcVbLo8ZJQDlDnl'
@@ -102,15 +103,28 @@ async function handleShowVisual(userId: string, sectionIndex: number): Promise<s
 }
 
 async function handleEndSession(userId: string, sessionId: string): Promise<void> {
-  const supabase = createSupabaseAdminClient()
-  if (sessionId) {
-    const { error } = await supabase
-      .from('sessions')
-      .update({ status: 'complete' })
-      .eq('id', sessionId)
-    if (error) console.error(`[relay] Failed to mark session ${sessionId} complete:`, error)
+  // Call-end fix: this previously only flipped `sessions.status` to a value
+  // ('complete') that doesn't match the 'completed' status the rest of the app
+  // uses, and never told Recall.ai to leave the meeting — so the bot lingered
+  // in the call indefinitely after end_session fired. Route through the same
+  // idempotent forceEndSession() used by the wall-clock timer (D3) and the
+  // voice-gap watchdog (D2/AC-D8): it deletes the bot, tears down
+  // walkthrough_state, deducts audit-log-derived minutes, and marks the
+  // session 'completed'. Unlike WalkthroughClient's browser-mode path (which
+  // calls the public /api/sessions/end-call route because it runs inside the
+  // bot's headless browser), this handler already runs server-side with a
+  // trusted userId/sessionId from the relay's own WS query params, so it can
+  // call forceEndSession directly — no HTTP hop or token needed.
+  if (!sessionId) {
+    console.warn(`[relay] end_session called with no sessionId — skipping teardown for user=${userId}`)
+    return
   }
-  console.log(`[relay] Session ended — user=${userId} session=${sessionId}`)
+  try {
+    const result = await forceEndSession({ userId, sessionId })
+    console.log(`[relay] Session ended — user=${userId} session=${sessionId}:`, result)
+  } catch (err) {
+    console.error(`[relay] forceEndSession failed for session ${sessionId}:`, err)
+  }
 }
 
 // ─── Main relay handler ───────────────────────────────────────────────────────

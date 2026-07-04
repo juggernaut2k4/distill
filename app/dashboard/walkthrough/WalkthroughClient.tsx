@@ -72,6 +72,28 @@ function writeAuditEvent(
   }).catch((err) => console.error(`[Walkthrough] Failed to write audit event "${eventType}":`, err))
 }
 
+// ─── Call-end fix ──────────────────────────────────────────────────────────
+// Actually tells Recall.ai to leave/delete the bot when a session ends — the
+// `end_session` client tool and farewell-detection heuristics below previously
+// only flipped local UI state, so the bot lingered in the meeting indefinitely.
+// Public, userId+token-keyed (same auth model as writeAuditEvent above — this
+// component runs inside the bot's own headless browser with no Clerk session).
+// Fire-and-forget by design: the UI must still show "Session Complete" even if
+// this call is slow or fails; forceEndSession on the server is idempotent, so
+// the D3 wall-clock backstop or the gap watchdog will still clean up the bot
+// if this request never lands.
+function endCallOnServer(userId: string, token: string | null): void {
+  if (!token) {
+    console.warn('[Walkthrough] endCallOnServer: no audit token available — skipping bot teardown call')
+    return
+  }
+  fetch('/api/sessions/end-call', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, token }),
+  }).catch((err) => console.error('[Walkthrough] Failed to call end-call:', err))
+}
+
 // ─── Split-mode script formatter ──────────────────────────────────────────────
 // Formats a single section's training script for injection via injectContext.
 // Produces the same structure as buildSessionScript for one section in isolation.
@@ -583,6 +605,7 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
                   console.log('[Walkthrough/Hume] Farewell detected in agent speech — marking session ended')
                   sessionEndedRef.current = true
                   setSessionComplete(true)
+                  endCallOnServer(userId, auditTokenRef.current)
                 }
               }
             },
@@ -661,6 +684,7 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
                 console.log('[Walkthrough/Hume] end_session called')
                 sessionEndedRef.current = true
                 setSessionComplete(true)
+                endCallOnServer(userId, auditTokenRef.current)
                 return 'Session ended.'
               },
               // LIVE-01 — registered unconditionally (a no-op tool if the model
@@ -736,6 +760,7 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
               console.log('[Walkthrough] Agent called end_session — session closing')
               sessionEndedRef.current = true
               setSessionComplete(true)
+              endCallOnServer(userId, auditTokenRef.current)
               return 'Session ended.'
             },
             show_visual: async ({
@@ -962,6 +987,7 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
                 console.log('[Walkthrough] Farewell detected in agent speech — marking session ended')
                 sessionEndedRef.current = true
                 setSessionComplete(true)
+                endCallOnServer(userId, auditTokenRef.current)
               }
             }
           },
