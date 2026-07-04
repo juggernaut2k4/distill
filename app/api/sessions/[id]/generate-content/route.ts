@@ -47,12 +47,38 @@ export async function GET(req: NextRequest, { params }: Params) {
   // Get session to verify ownership and fetch content_status
   const { data: session } = await supabase
     .from('sessions')
-    .select('topic_id, content_status, topics, session_title, session_plan, sub_sessions')
+    .select('topic_id, content_status, topics, session_title, session_plan, sub_sessions, live_conductor_content')
     .eq('id', params.id)
     .eq('user_id', userId!)
     .single()
 
   if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 })
+
+  // LIVE-01 fix: the live-conductor pipeline branch (session-content-pipeline.ts,
+  // "LIVE-01 BRANCH POINT") intentionally skips Steps D-G — it never writes rows to
+  // topic_content_cache, since it stores everything on sessions.live_conductor_content
+  // instead. The polling logic below was built against the old pipeline's readiness
+  // signal (topic_content_cache rows) and had no path for the new one, so it reported
+  // every subtopic stuck at 'pending' forever for live-conductor sessions even though
+  // content_status was genuinely 'ready'. When live_conductor_content is populated,
+  // short-circuit here and report every configured tab as 'ready' directly from it —
+  // this is the authoritative source of truth for this session's content in that path.
+  const liveConductorContent = (session as unknown as {
+    live_conductor_content?: { tabs?: Array<{ subtopic_slug: string; subtopic_title: string }> } | null
+  }).live_conductor_content
+  if (session.content_status === 'ready' && liveConductorContent?.tabs?.length) {
+    return NextResponse.json({
+      content_status: 'ready',
+      sub_sessions: liveConductorContent.tabs.map((tab) => ({
+        title: tab.subtopic_title,
+        slug: tab.subtopic_slug,
+        pipeline_status: 'ready',
+        training_script: null,
+        content_outline: null,
+        template_type: null,
+      })),
+    })
+  }
 
   // The pipeline always writes topic_content_cache rows with topic_id = DB session UUID (params.id).
   // session.topic_id is the curriculum plan session_id — different value. Always use params.id here.
