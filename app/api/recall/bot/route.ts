@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
     const [{ data: sessionData }, { data: userRow }, learningProfile, { data: walkthroughRow }] = await Promise.all([
       supabase
         .from('sessions')
-        .select('session_title, topic_id, session_plan, session_index, curriculum_session_id, duration_mins, sub_sessions')
+        .select('session_title, topic_id, session_plan, session_index, curriculum_session_id, duration_mins, sub_sessions, content_status, live_conductor_content')
         .eq('id', sessionId)
         .single(),
       supabase
@@ -259,10 +259,28 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // ── LIVE-01 fix (same root cause as GET /api/sessions/[id]/generate-content) ──
+    // The live-conductor pipeline branch (session-content-pipeline.ts, "LIVE-01
+    // BRANCH POINT") never writes rows to topic_content_cache — it stores
+    // everything on sessions.live_conductor_content instead. Every readiness
+    // signal above (readySections from session_plan, freshSections from
+    // topic_content_cache) is blind to that path, so a genuinely ready
+    // live-conductor session still falls through to the "no content" guard
+    // below. Short-circuit here: if live_conductor_content has tabs and
+    // content_status is 'ready', this session is ready to launch regardless of
+    // the old-pipeline signals.
+    const liveConductorContent = (sessionData as unknown as {
+      content_status?: string
+      live_conductor_content?: { tabs?: Array<{ subtopic_slug: string }> } | null
+    } | null)
+    const hasLiveConductorContent =
+      liveConductorContent?.content_status === 'ready' &&
+      !!liveConductorContent?.live_conductor_content?.tabs?.length
+
     // ── Guard: refuse to launch a curriculum session with no content ────────
     // A missing-sections launch silently degrades to on-the-fly generation —
     // invisible during the call and much harder to debug than a clear error now.
-    if (isCurriculumSession && freshSections.length === 0) {
+    if (isCurriculumSession && freshSections.length === 0 && !hasLiveConductorContent) {
       console.error(
         `[recall/bot] BLOCKED: no sections in topic_content_cache for ` +
         `curriculum session topic_id=${topicId} session=${sessionId}. ` +
