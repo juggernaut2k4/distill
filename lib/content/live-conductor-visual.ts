@@ -9,7 +9,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk'
-import type { LiveConductorTab } from './live-conductor-content'
+import type { LiveConductorContent, LiveConductorTab } from './live-conductor-content'
 import type { UserContext } from './session-content-generator'
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
@@ -18,6 +18,33 @@ export interface LiveConductorVisualData {
   headline: string
   items: string[]     // up to 3-4 items
   so_what: string
+}
+
+// ─── AGENDA (tab 1 only) ──────────────────────────────────────────────────────
+
+/**
+ * Item 2, 2026-07-04 — Arun's explicit product direction: tab 1 of every live
+ * conductor session should show a session AGENDA (the list of tabs/topics to
+ * be covered), not per-topic content. Tabs 2+ keep showing real per-lesson
+ * content exactly as already built (generateLiveVisual / generateLiveVisualWithTimeout,
+ * unchanged).
+ *
+ * Deliberately NOT routed through generateLiveVisual/Anthropic — the tab titles
+ * are static data already known the moment the session starts
+ * (content.tabs[].subtopic_title), so this is a pure, synchronous, deterministic
+ * transform. No LLM call, no latency risk, nothing to time out or fail.
+ *
+ * Reuses the existing generic LiveConductorVisualData shape / renderer
+ * (LiveConductorVisual.tsx) as-is — headline + up to 4 items + so_what — rather
+ * than building a new visual mode, per the feasibility check: the shape already
+ * fits an agenda naturally (headline = session framing, items = tab titles).
+ */
+export function buildAgendaVisual(content: LiveConductorContent): LiveConductorVisualData {
+  return {
+    headline: "Today's session",
+    items: content.tabs.slice(0, 4).map((tab) => tab.subtopic_title),
+    so_what: "Let's get started.",
+  }
 }
 
 // ─── CLIENT ───────────────────────────────────────────────────────────────────

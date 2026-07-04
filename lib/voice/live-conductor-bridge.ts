@@ -24,7 +24,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { CLIO_LIVE_CONDUCTOR_BEHAVIOR, LIVE_CONDUCTOR_TRANSITION_BUFFER_MS } from '@/lib/content/live-conductor-prompt'
 import { formatTabContentForPrompt, type LiveConductorContent, type LiveConductorTab } from '@/lib/content/live-conductor-content'
-import { generateLiveVisualWithTimeout, type LiveConductorVisualData } from '@/lib/content/live-conductor-visual'
+import { generateLiveVisualWithTimeout, buildAgendaVisual, type LiveConductorVisualData } from '@/lib/content/live-conductor-visual'
 import type { UserContext } from '@/lib/content/session-content-generator'
 
 // ─── TOGGLE ───────────────────────────────────────────────────────────────────
@@ -149,46 +149,38 @@ export async function getLiveConductorState(
   const tabIndex = (wsRow as { live_conductor_tab_index?: number | null } | null)?.live_conductor_tab_index ?? 0
   const clampedTabIndex = Math.max(0, Math.min(tabIndex, content.tabs.length - 1))
 
-  // ── Proactive tab-1 visual generation (LIVE-01 gap fix) ──────────────────
-  // Normally a tab's visual is kicked off by handleAdvanceTab when the model
-  // calls advance_tab to move INTO that tab. Tab 1 (index 0) has no preceding
-  // advance_tab call — nothing ever generates its visual, so the first tab of
-  // every session showed LiveConductorVisual's empty-state fallback forever.
+  // ── Tab-1 = session AGENDA (Item 2, 2026-07-04 — Arun's product direction) ──
+  // Supersedes the earlier "proactive tab-1 visual generation" LLM fix: tab 1
+  // no longer shows per-topic content at all — it shows a deterministic agenda
+  // (the list of tabs to be covered this session). No LLM call, no timeout, no
+  // race — this is synchronous static data already known the moment
+  // getLiveConductorState is called, so it's written on the very first read
+  // instead of being kicked off async like tabs 2+ (handleAdvanceTab).
   //
-  // Guard: only fire when we're truly at session start (tabIndex 0 AND
-  // live_conductor_visual is still null), and not already generating for this
-  // user (tab1GenerationInFlight covers the case where several turns land
-  // within the same second, before the DB write below has landed). Once the
-  // write completes, live_conductor_visual is non-null on success, so
-  // subsequent turns skip this block via the existingVisual check alone; on
-  // failure/timeout it's written back as null and the next turn will retry —
-  // that self-heals a transient generation failure instead of leaving tab 1
-  // permanently stuck on the empty-state fallback.
+  // Guard: only fire once (existingVisual === null) and not concurrently
+  // (tab1GenerationInFlight) — same duplicate-fire guard as before, kept even
+  // though this path can't time out, since several turns can still land on tab
+  // 1 within the same second before the DB write below has landed.
   const existingVisual = (wsRow as { live_conductor_visual?: LiveConductorVisualData | null } | null)
     ?.live_conductor_visual ?? null
 
-  if (clampedTabIndex === 0 && existingVisual === null && userContext && !tab1GenerationInFlight.has(userId)) {
-    const firstTab = content.tabs[0]
+  if (clampedTabIndex === 0 && existingVisual === null && !tab1GenerationInFlight.has(userId)) {
     tab1GenerationInFlight.add(userId)
-    // Fire-and-forget, mirroring handleAdvanceTab's pattern exactly: never
-    // awaited here, never blocks the caller's turn/response.
-    void generateLiveVisualWithTimeout(firstTab, userContext, LIVE_CONDUCTOR_TRANSITION_BUFFER_MS)
-      .then(async (visual: LiveConductorVisualData | null) => {
-        try {
-          await supabase
-            .from('walkthrough_state')
-            .update({ live_conductor_visual: visual })
-            .eq('user_id', userId)
-        } catch (err) {
-          console.error('[live-conductor-bridge] Failed to write tab-1 live_conductor_visual:', err)
-        }
-      })
-      .catch((err: unknown) => {
-        console.error('[live-conductor-bridge] tab-1 visual generation chain failed:', err)
-      })
-      .finally(() => {
+    const agenda = buildAgendaVisual(content)
+    console.log(`[live-conductor-bridge] Writing tab-1 agenda visual for user=${userId}: ${agenda.items.join(' | ')}`)
+    void (async () => {
+      try {
+        await supabase
+          .from('walkthrough_state')
+          .update({ live_conductor_visual: agenda })
+          .eq('user_id', userId)
+        console.log(`[live-conductor-bridge] Tab-1 agenda visual write completed for user=${userId}`)
+      } catch (err) {
+        console.error('[live-conductor-bridge] Failed to write tab-1 agenda visual:', err)
+      } finally {
         tab1GenerationInFlight.delete(userId)
-      })
+      }
+    })()
   }
 
   return { content, tabIndex: clampedTabIndex }
