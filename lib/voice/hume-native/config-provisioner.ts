@@ -195,6 +195,17 @@ export async function provisionNativeConfig(
     prompt: {
       text: assembledPrompt,
     },
+    // Required by Hume's EVI3 config schema — omitting this causes
+    // "Attempting to create an EVI3 config without specifying a voice."
+    // Same voice ("Ellie") as the existing production Custom-LLM config
+    // (NEXT_PUBLIC_HUME_CONFIG_ID, see docs/voice-provider-toggle.md), so
+    // native-mode Clio sounds identical to the current Clio. Ellie is a
+    // Hume Voice Library preset, hence provider: HUME_AI (per dev.hume.ai
+    // Configs API: voice is `{ id | name, provider: "HUME_AI" | "CUSTOM_VOICE" }`).
+    voice: {
+      provider: 'HUME_AI',
+      id: '21289f74-417c-422c-be9f-b8f84ee07d44',
+    },
     // Hume's native/supplemental Language Model option — explicitly NOT
     // CUSTOM_LANGUAGE_MODEL. This is the mode switch that puts Hume's own
     // LLM in charge of the whole conversation for this Config.
