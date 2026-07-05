@@ -1,6 +1,7 @@
 import { auth } from '@clerk/nextjs/server'
 import { redirect } from 'next/navigation'
 import { createSupabaseAdminClient } from '@/lib/supabase'
+import { getTotalMinutesConsumed } from '@/lib/session-billing'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -21,11 +22,21 @@ export default async function BillingPage() {
   if (!userId) redirect('/sign-in')
 
   const supabase = createSupabaseAdminClient()
-  const { data: user } = await supabase
-    .from('users')
-    .select('plan_tier, subscription_status, stripe_customer_id, email, minutes_balance')
-    .eq('id', userId)
-    .single()
+
+  // BILLING-LEDGER-01 Section 4.2 — all-time total is a secondary stat, not
+  // load-bearing: if it fails, the page falls back to rendering exactly as it
+  // does today, without the new line at all (fail silent, not fail loud).
+  const [{ data: user }, totalMinutesConsumed] = await Promise.all([
+    supabase
+      .from('users')
+      .select('plan_tier, subscription_status, stripe_customer_id, email, minutes_balance')
+      .eq('id', userId)
+      .single(),
+    getTotalMinutesConsumed(userId).catch((err) => {
+      console.error('[billing-page] getTotalMinutesConsumed failed (non-fatal):', err)
+      return null
+    }),
+  ])
 
   if (!user) redirect('/onboarding')
 
@@ -92,6 +103,21 @@ export default async function BillingPage() {
             <div className="text-xs text-[#475569]">
               Minutes are deducted at the end of each coaching session. They never expire.
             </div>
+
+            {/* BILLING-LEDGER-01 Section 4.2 — all-time total consumed */}
+            {totalMinutesConsumed !== null && (
+              <div className="mt-3 pt-3 border-t border-[#222222]">
+                <p className="text-[13px] text-[#94A3B8]">
+                  {totalMinutesConsumed === 0 ? (
+                    <span className="text-[#475569]">
+                      Total consumed to date: 0 min — you haven&apos;t started a coaching session yet.
+                    </span>
+                  ) : (
+                    <>Total consumed to date: {totalMinutesConsumed} min</>
+                  )}
+                </p>
+              </div>
+            )}
           </Card>
         )}
 

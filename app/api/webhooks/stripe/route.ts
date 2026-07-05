@@ -9,6 +9,7 @@ import {
 } from '@/lib/delivery/email'
 import { sendSMS } from '@/lib/delivery/sms'
 import { inngest } from '@/inngest/client'
+import { writeMinutesLedgerEvent } from '@/lib/session-billing'
 import type Stripe from 'stripe'
 
 /**
@@ -204,6 +205,19 @@ export async function POST(request: NextRequest) {
           }
 
           console.log(`[stripe-webhook] Top-up: +${minutes} min for user ${userId}, new balance: ${newBalance}`)
+
+          // BILLING-LEDGER-01 — purely additive: log this recharge event
+          // alongside the already-succeeded add_minutes RPC. Never blocks or
+          // reverses the balance change on failure (writeMinutesLedgerEvent
+          // is non-fatal by design).
+          await writeMinutesLedgerEvent({
+            userId,
+            eventType: 'recharge',
+            deltaMinutes: minutes,
+            resultingBalance: newBalance as number,
+            stripeCheckoutSessionId: session.id,
+            metadata: { source: 'stripe_topup_webhook' },
+          })
 
           const { data: topupUser } = await supabase
             .from('users')

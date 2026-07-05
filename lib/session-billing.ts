@@ -259,7 +259,7 @@ export async function forceEndSession(params: {
   const { minutesUsed } = await computeBilledMinutes(sessionId, { disconnectedAt: now })
   const cappedMinutes = Math.min(minutesUsed, userRow?.minutes_balance ?? minutesUsed)
 
-  await Promise.all([
+  const [deductResult] = await Promise.all([
     supabase.rpc('deduct_minutes', { p_user_id: userId, p_minutes: cappedMinutes }),
     supabase.from('sessions').update({
       ended_at: now,
@@ -268,9 +268,85 @@ export async function forceEndSession(params: {
     }).eq('id', sessionId),
   ])
 
+  // BILLING-LEDGER-01 — reuse the RPC's own returned balance (never recompute
+  // independently); fall back to the pre-fetched balance minus the deduction
+  // only if the RPC unexpectedly returned no data, so a ledger write is never
+  // dropped even in that edge case.
+  const resultingBalance =
+    (deductResult.data as number | null) ?? (userRow?.minutes_balance ?? 0) - cappedMinutes
+
+  await writeMinutesLedgerEvent({
+    userId,
+    eventType: 'session_deduction',
+    deltaMinutes: -cappedMinutes,
+    resultingBalance,
+    sessionId,
+    metadata: { reached_speak_verified: minutesUsed > 0 || cappedMinutes > 0 },
+  })
+
   console.log(`[session-billing] Force-ended session ${sessionId} — ${cappedMinutes} minutes deducted (audit-log derived)`)
 
   return { skipped: false, minutesUsed: cappedMinutes }
+}
+
+/**
+ * BILLING-LEDGER-01 — Appends one row to the durable, append-only minutes
+ * ledger (recharges + session deductions). This is the ONLY function in the
+ * codebase that may write to `minutes_ledger` — same convention as
+ * `writeAuditEvent()` above for `session_billing_audit_log`.
+ *
+ * Purely additive observability: never call this in place of, or before,
+ * the existing `add_minutes`/`deduct_minutes` RPC calls — only immediately
+ * after they succeed, reusing their own returned balance (never recomputed
+ * independently, to avoid any drift between the ledger and the RPC's actual
+ * mutation).
+ *
+ * Non-fatal on failure by the same convention as `writeAuditEvent()`: must
+ * never take down the billing routes that call it. A missing row degrades
+ * diagnosability for that one event but never blocks or reverses the actual
+ * balance change.
+ */
+export async function writeMinutesLedgerEvent(params: {
+  userId: string
+  eventType: 'recharge' | 'session_deduction'
+  deltaMinutes: number // signed: +N recharge, -N deduction
+  resultingBalance: number
+  sessionId?: string | null
+  stripeCheckoutSessionId?: string | null
+  metadata?: Record<string, unknown>
+}): Promise<void> {
+  const supabase = createSupabaseAdminClient()
+  const { error } = await supabase.from('minutes_ledger').insert({
+    user_id: params.userId,
+    event_type: params.eventType,
+    delta_minutes: params.deltaMinutes,
+    resulting_balance: params.resultingBalance,
+    session_id: params.sessionId ?? null,
+    stripe_checkout_session_id: params.stripeCheckoutSessionId ?? null,
+    metadata: params.metadata ?? {},
+  })
+
+  if (error) {
+    console.error('[minutes-ledger] Failed to write ledger event:', params.eventType, error.message)
+  }
+}
+
+/**
+ * BILLING-LEDGER-01 — Sums all `session_deduction` rows for a user to produce
+ * their all-time total minutes consumed (billing page display, Section 4.2 of
+ * the requirement doc). Deliberately a plain SUM/reduce over ledger rows —
+ * no pagination or aggregation-table optimization in scope for this ship.
+ */
+export async function getTotalMinutesConsumed(userId: string): Promise<number> {
+  const supabase = createSupabaseAdminClient()
+  const { data } = await supabase
+    .from('minutes_ledger')
+    .select('delta_minutes')
+    .eq('user_id', userId)
+    .eq('event_type', 'session_deduction')
+
+  const total = (data ?? []).reduce((sum, row) => sum + Math.abs(row.delta_minutes as number), 0)
+  return total
 }
 
 /**

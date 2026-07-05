@@ -3,7 +3,7 @@ import { requireSessionAuth } from '@/lib/session-auth'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { releaseAgent } from '@/lib/elevenlabs-pool'
 import { inngest } from '@/inngest/client'
-import { writeAuditEvent, computeBilledMinutes } from '@/lib/session-billing'
+import { writeAuditEvent, computeBilledMinutes, writeMinutesLedgerEvent } from '@/lib/session-billing'
 
 interface Params {
   params: { id: string }
@@ -83,6 +83,18 @@ export async function POST(request: NextRequest, { params }: Params) {
   ])
 
   const newBalance = (deductResult.data as number) ?? 0
+
+  // BILLING-LEDGER-01 — purely additive: log this session deduction alongside
+  // the already-succeeded deduct_minutes RPC, reusing its returned balance.
+  // Non-fatal on failure (writeMinutesLedgerEvent never throws).
+  await writeMinutesLedgerEvent({
+    userId: userId!,
+    eventType: 'session_deduction',
+    deltaMinutes: -minutesUsed,
+    resultingBalance: newBalance,
+    sessionId: params.id,
+    metadata: { reached_speak_verified: reachedSpeakVerified },
+  })
 
   // Cancel the server-side timer — session is ending manually so the Inngest job
   // should not also try to force-end it after the planned duration elapses.

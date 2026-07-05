@@ -483,6 +483,25 @@ export default function SessionDetailClient({ session, minutesBalance }: Props) 
               {status.icon}
               {status.label}
             </div>
+
+            {/* BILLING-LEDGER-01 — Section 4.1: per-call minutes used, completed sessions only */}
+            {session.status === 'completed' && session.duration_mins != null && (
+              <div className="mt-3">
+                <p className="text-xs uppercase tracking-wide text-[#475569] mb-1">Minutes used</p>
+                <div className="flex items-center gap-2">
+                  <Timer size={16} className="text-[#06B6D4] flex-shrink-0" />
+                  {session.duration_mins === 0 ? (
+                    <span className="text-sm font-semibold text-[#475569]">
+                      0 min (session ended before connecting)
+                    </span>
+                  ) : (
+                    <span className="text-xl font-semibold text-white">
+                      {session.duration_mins} min
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </motion.div>
