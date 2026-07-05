@@ -14,21 +14,47 @@
  * Config is created per session (never reused) to avoid stale-prompt bleed
  * between users.
  *
- * SIMPLIFIED CLONE-AND-OVERRIDE-TWO-FIELDS APPROACH (see git history for the
- * prior field-by-field approach, and the subsequent tools-management approach
- * that self-managed a separate Hume Tools API lifecycle): the base Config
- * referenced by NEXT_PUBLIC_HUME_CONFIG_ID is now fully set up by hand in
- * Hume's dashboard — voice, language model, both custom tools
- * (`advance_tab` and `show_visual`), the built-in `hang_up` tool, and
- * `event_messages` are all already correct there, with only `prompt` left
- * blank/null for this module to fill in per session. So provisioning is now
- * just: fetch that base Config via `GET /v0/evi/configs/{id}`
- * (getExistingConfig), spread its body as-is into the new Config, and
- * override ONLY `name` (must be unique per session) and `prompt` (the
- * assembled per-session prompt). `tools`, `language_model`, `voice`,
- * `event_messages`, timeouts, etc. are all inherited untouched — there is no
- * need for this module to create, look up, version, or manage tools via
- * Hume's Tools API at all; the clone carries them over for free.
+ * EXPLICIT-RECONSTRUCTION APPROACH (third provisioning fix — see git history
+ * for the prior field-by-field approach, the tools-management approach that
+ * self-managed a separate Hume Tools API lifecycle, and the clone-and-spread
+ * approach that preceded this one and broke because of it): the base Config
+ * referenced by NEXT_PUBLIC_HUME_CONFIG_ID is fetched via
+ * `GET /v0/evi/configs/{id}` (getExistingConfig) purely as a source of
+ * *values* to carry forward — its body is never spread wholesale into the
+ * POST payload again, because Hume's GET and POST schemas are NOT
+ * symmetrical for every field:
+ *
+ *   - `voice`: GET returns a richer object (description, tags, type, etc.)
+ *     than POST accepts. POST only accepts `{ provider, id }` (or
+ *     `{ provider, name }`). Spreading the GET shape in causes POST to
+ *     reject/drop the field, which surfaces as
+ *     `400: "Attempting to create an EVI3 config without specifying a
+ *     voice. Voice spec is required."` — this was the confirmed root cause
+ *     of the second provisioning bug. Fixed here by explicitly reconstructing
+ *     `{ provider: 'HUME_AI', id: '21289f74-417c-422c-be9f-b8f84ee07d44' }`
+ *     ("Ellie", the known-good production voice).
+ *   - `language_model`: GET reports this back as `{ provider, model }`, but
+ *     POST's schema (`posted_language_model`) expects `{ model_provider,
+ *     model_resource, temperature? }` — different key names entirely, so a
+ *     naive spread silently produces a body POST doesn't recognize. Fixed
+ *     here by explicitly reconstructing `{ model_provider: 'ANTHROPIC',
+ *     model_resource: 'claude-sonnet-4-6' }`.
+ *   - `tools`: POST's `tools` array takes minimal `{id, version}` references
+ *     (`posted_user_defined_tool_spec`) into pre-created Hume Tools, which
+ *     round-trips fine from GET — but built-in tools (`hang_up`, `web_search`)
+ *     live in a wholly separate top-level field, `builtin_tools`
+ *     (`posted_builtin_tool`, shape `{ name, fallback_content? }`), NOT
+ *     inside `tools`. Confirmed via Hume's Create Config API reference
+ *     (dev.hume.ai). Fixed here by explicitly reconstructing both fields:
+ *     `tools` as `{id, version}` refs for `advance_tab` and `show_visual`,
+ *     and `builtin_tools` as `{ name: 'hang_up' }`.
+ *
+ * Everything else — `event_messages`, `interruption`, `turn_detection`,
+ * `nudges`, `timeouts`, `webhooks`, `ellm_model` — has no evidence of
+ * GET/POST asymmetry and continues to be inherited from the base config via
+ * spread, same as `evi_version`. Only `name` (must be unique per session)
+ * and `prompt` (the assembled per-session prompt) are session-specific
+ * overrides on top of that inherited base.
  */
 
 const HUME_CONFIGS_URL = 'https://api.hume.ai/v0/evi/configs'
@@ -97,12 +123,12 @@ export async function provisionNativeConfig(
 
   const { sessionId, assembledPrompt } = params
 
-  // Clone base: fetch the existing production config as our starting
-  // template (see getExistingConfig doc comment above). Every field —
-  // voice, language_model, tools (advance_tab, show_visual, built-in
-  // hang_up), event_messages, timeouts, etc. — is already correctly
-  // configured on this base Config directly in Hume's dashboard, and is
-  // inherited as-is below.
+  // Fetch the existing production config purely as a source of values to
+  // carry forward for the fields that DO round-trip cleanly between GET and
+  // POST (event_messages, interruption, turn_detection, nudges, timeouts,
+  // webhooks, ellm_model, evi_version). See module doc comment above for why
+  // voice, language_model, and tools/builtin_tools are NOT taken from this
+  // spread and are reconstructed explicitly instead.
   let baseConfig: Record<string, unknown>
   try {
     baseConfig = await getExistingConfig(apiKey, baseConfigId)
@@ -111,19 +137,20 @@ export async function provisionNativeConfig(
     throw new Error('Failed to fetch existing Hume Config to clone')
   }
 
-  // Clone the base config's body, keeping every field (voice, language_model,
-  // tools, event_messages, timeouts, etc.) as-is, and overriding only what
-  // genuinely must differ per session: `name` (must be unique per session —
-  // see 09dd72d) and `prompt` (our assembled per-session prompt, replacing
-  // the base's blank/null prompt). `id`/`version`/timestamps/etc. from the
-  // GET response are dropped since POST /v0/evi/configs creates a new config
-  // and does not accept those fields.
+  // Drop GET-only/identity fields that POST /v0/evi/configs does not accept,
+  // plus the fields we reconstruct explicitly below (voice, language_model,
+  // tools, builtin_tools) so the inherited spread can never silently
+  // reintroduce their incompatible GET shapes.
   const {
     id: _baseId,
     version: _baseVersion,
     version_description: _baseVersionDescription,
     created_on: _baseCreatedOn,
     modified_on: _baseModifiedOn,
+    voice: _baseVoice,
+    language_model: _baseLanguageModel,
+    tools: _baseTools,
+    builtin_tools: _baseBuiltinTools,
     ...inheritedFields
   } = baseConfig
 
@@ -134,6 +161,23 @@ export async function provisionNativeConfig(
     prompt: {
       text: assembledPrompt,
     },
+    // Explicitly reconstructed — see module doc comment for why these
+    // cannot be safely spread from the GET response.
+    voice: {
+      provider: 'HUME_AI',
+      id: '21289f74-417c-422c-be9f-b8f84ee07d44', // "Ellie"
+    },
+    language_model: {
+      model_provider: 'ANTHROPIC',
+      model_resource: 'claude-sonnet-4-6',
+    },
+    tools: [
+      { id: '4f15c0c2-9af1-421c-8040-ad34b6345234', version: 1 }, // advance_tab
+      { id: '65a3d139-2f7b-4e26-9fce-caeb7fa78e05', version: 1 }, // show_visual
+    ],
+    builtin_tools: [
+      { name: 'hang_up' },
+    ],
   }
 
   let res: Response
