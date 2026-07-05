@@ -616,6 +616,8 @@ export default function DashboardClient({
             <p className="text-xs text-[#475569]">
               {minutesIncluded > 0
                 ? `${minutesBalance} / ${minutesIncluded} coaching min remaining`
+                : minutesBalance > 0
+                ? `${minutesBalance} coaching min remaining`
                 : 'Daily micro-learning'}
             </p>
             {minutesIncluded > 0 && (
