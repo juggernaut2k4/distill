@@ -191,7 +191,7 @@ export async function provisionNativeConfig(
 
   const body = {
     evi_version: '3',
-    name: `hume-native-session-${sessionId}`,
+    name: `hume-native-session-${sessionId}-${Date.now()}`,
     prompt: {
       text: assembledPrompt,
     },
