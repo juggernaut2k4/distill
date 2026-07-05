@@ -152,27 +152,56 @@ export async function computeBilledMinutes(
   sessionId: string,
   options?: { disconnectedAt?: string }
 ): Promise<BilledMinutesResult> {
-  const rows = await getAuditLog(sessionId)
+  const allRows = await getAuditLog(sessionId)
+
+  // BUGFIX (2026-07-05): a `sessions` row can be reused across many separate
+  // connect/disconnect cycles (voice drop + reconnect, or repeated manual
+  // testing on the same session id) — its audit log then contains more than
+  // one `speak_verified` and/or `disconnected` row. `.find()` always returns
+  // the FIRST match in the ascending-ordered log, so without scoping to the
+  // current cycle, a stale `speak_verified` from hours/days earlier gets
+  // paired with the current call's fresh `disconnected` timestamp, producing
+  // a wildly inflated duration (only saved from being charged as billed by
+  // the `Math.min(minutesUsed, balance)` cap in the callers, which silently
+  // absorbs the bogus number instead of surfacing it).
+  //
+  // Fix: only consider rows belonging to the CURRENT cycle. Every caller of
+  // this function writes a fresh `disconnected` row for the current cycle
+  // BEFORE calling computeBilledMinutes (see forceEndSession and
+  // /api/sessions/[id]/end). So among all `disconnected` rows in the log,
+  // the current cycle's own end event is the LAST one, and the previous
+  // cycle's end event (if any) is the second-to-last. The current cycle is
+  // everything strictly after that second-to-last `disconnected` row. If
+  // fewer than 2 `disconnected` rows exist, there is no prior cycle to
+  // exclude and the whole log belongs to the current (first) cycle.
+  const disconnects = allRows.filter((r) => r.event_type === 'disconnected')
+  const priorCycleEndAt =
+    disconnects.length >= 2 ? disconnects[disconnects.length - 2].occurred_at : null
+
+  const rows = priorCycleEndAt ? allRows.filter((r) => r.occurred_at > priorCycleEndAt) : allRows
 
   const speakVerifiedRow = rows.find((r) => r.event_type === 'speak_verified')
   if (!speakVerifiedRow) {
-    // AC-D3: never reached speak-readiness — zero minutes, explicit branch.
+    // AC-D3: never reached speak-readiness in the CURRENT cycle — zero
+    // minutes, explicit branch. (A speak_verified from a prior, already
+    // disconnected cycle must never be borrowed here.)
     return { minutesUsed: 0, reachedSpeakVerified: false, gapDurationMs: 0 }
   }
 
   const speakVerifiedAt = new Date(speakVerifiedRow.occurred_at).getTime()
 
-  const disconnectedRow = rows.find((r) => r.event_type === 'disconnected')
+  // Within the current cycle, use the LAST disconnected row (there should be
+  // at most one, but be defensive) rather than the first.
+  const currentCycleDisconnects = rows.filter((r) => r.event_type === 'disconnected')
+  const disconnectedRow = currentCycleDisconnects[currentCycleDisconnects.length - 1]
   const disconnectedAt = options?.disconnectedAt
     ? new Date(options.disconnectedAt).getTime()
     : disconnectedRow
       ? new Date(disconnectedRow.occurred_at).getTime()
       : Date.now()
 
-  // Sum gap durations: pair each gap_start with the next gap_end after it.
-  // An unclosed trailing gap_start (no matching gap_end before disconnect) is
-  // treated as extending to disconnectedAt — the user is never billed for
-  // silence between a gap starting and the session ending.
+  // Sum gap durations: pair each gap_start with the next gap_end after it,
+  // scoped to the current cycle only (see above).
   let gapDurationMs = 0
   let openGapStart: number | null = null
   for (const row of rows) {
