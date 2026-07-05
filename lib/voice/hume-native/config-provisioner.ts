@@ -77,8 +77,13 @@ function buildToolDefinitions(): ToolDefinition[] {
       description: 'Advance to the next visualization tab within the current section.',
       parameters: JSON.stringify({
         type: 'object',
+        required: ['direction'],
         properties: {
-          direction: { type: 'string', description: 'Navigation direction, e.g. "next" or "previous".' },
+          direction: {
+            type: 'string',
+            enum: ['next', 'previous'],
+            description: 'Navigation direction: "next" or "previous".',
+          },
         },
       }),
     },
