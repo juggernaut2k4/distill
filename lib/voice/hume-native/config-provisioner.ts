@@ -16,6 +16,7 @@
  */
 
 const HUME_CONFIGS_URL = 'https://api.hume.ai/v0/evi/configs'
+const HUME_TOOLS_URL = 'https://api.hume.ai/v0/evi/tools'
 
 export interface ProvisionNativeConfigParams {
   sessionId: string
@@ -27,15 +28,39 @@ export interface ProvisionNativeConfigResult {
 }
 
 /**
- * Tool definitions attached to the Config — same wire-protocol tool_call /
- * tool_response pattern already implemented in hume-adapter.ts for CLM mode
- * today. No new tool schema; this is the identical show_visual / advance_tab /
- * end_session set, just declared here for native-mode Config provisioning.
+ * Definition for a single user-defined tool, as required by Hume's
+ * `POST /v0/evi/tools` API. Note there is no `id` field here — Hume assigns
+ * that server-side on creation (confirmed via dev.hume.ai/reference for
+ * Create tool: the request body accepts name/parameters/description/
+ * fallback_content/version_description only; `id` is response-only, a
+ * server-generated UUID).
  */
-function buildToolDefinitions() {
+interface ToolDefinition {
+  name: string
+  description: string
+  parameters: string
+}
+
+/**
+ * Reference to an existing Hume tool, as required inside a Config's `tools`
+ * array (`POST /v0/evi/configs`). Per Hume's docs, Config tools entries are
+ * NOT inline tool definitions — they are `{ id, version }` references to
+ * tools already created via the Tools API.
+ */
+interface ToolReference {
+  id: string
+  version: number
+}
+
+/**
+ * Same wire-protocol tool_call / tool_response pattern already implemented
+ * in hume-adapter.ts for CLM mode today. No new tool schema; this is the
+ * identical show_visual / advance_tab / end_session set, just declared here
+ * for native-mode Config provisioning.
+ */
+function buildToolDefinitions(): ToolDefinition[] {
   return [
     {
-      type: 'function',
       name: 'show_visual',
       description: 'Display the visual for a given session section on the shared screen.',
       parameters: JSON.stringify({
@@ -48,7 +73,6 @@ function buildToolDefinitions() {
       }),
     },
     {
-      type: 'function',
       name: 'advance_tab',
       description: 'Advance to the next visualization tab within the current section.',
       parameters: JSON.stringify({
@@ -59,12 +83,79 @@ function buildToolDefinitions() {
       }),
     },
     {
-      type: 'function',
       name: 'end_session',
       description: 'End the coaching session gracefully after the final section has been summarized.',
       parameters: JSON.stringify({ type: 'object', properties: {} }),
     },
   ]
+}
+
+/**
+ * Looks up an existing Hume tool by exact name via `GET /v0/evi/tools?name=`.
+ * Hume's `name` filter is an exact-match lookup (per dev.hume.ai/reference for
+ * List tools). Returns the most recent version's `{id, version}` if found, or
+ * null if no tool with this name exists yet.
+ */
+async function findExistingToolByName(
+  apiKey: string,
+  name: string
+): Promise<ToolReference | null> {
+  const url = `${HUME_TOOLS_URL}?name=${encodeURIComponent(name)}&restrict_to_most_recent=true&page_size=1`
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: { 'X-Hume-Api-Key': apiKey },
+  })
+
+  if (!res.ok) {
+    // Non-fatal — treat as "not found" and fall through to creation. Hume's
+    // create-tool call will surface any real auth/permission problem.
+    console.error('[hume-native/config-provisioner] Tool lookup failed:', res.status)
+    return null
+  }
+
+  const data = await res.json() as { tools_page?: Array<{ id: string; version: number; name: string }> }
+  const match = data.tools_page?.find((t) => t.name === name)
+  return match ? { id: match.id, version: match.version } : null
+}
+
+/**
+ * Creates a new user-defined Hume tool via `POST /v0/evi/tools`. Hume
+ * assigns the `id` server-side; we never invent one.
+ */
+async function createTool(apiKey: string, tool: ToolDefinition): Promise<ToolReference> {
+  const res = await fetch(HUME_TOOLS_URL, {
+    method: 'POST',
+    headers: {
+      'X-Hume-Api-Key': apiKey,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(tool),
+  })
+
+  if (!res.ok) {
+    const errorBody = await res.text().catch(() => '(unreadable response body)')
+    console.error('[hume-native/config-provisioner] Tool creation failed:', res.status, errorBody)
+    throw new Error(`Hume tool creation failed for "${tool.name}" with status ${res.status}: ${errorBody}`)
+  }
+
+  const data = await res.json() as { id: string; version: number }
+  return { id: data.id, version: data.version }
+}
+
+/**
+ * Resolves the `{id, version}` references Hume's Config API expects for its
+ * `tools` array. Idempotent: looks up each tool by name first (so repeated
+ * provisioning calls, e.g. across sessions, don't create duplicate tools on
+ * Hume's side) and only creates it if it doesn't exist yet.
+ */
+async function resolveToolReferences(apiKey: string): Promise<ToolReference[]> {
+  const definitions = buildToolDefinitions()
+  const refs: ToolReference[] = []
+  for (const def of definitions) {
+    const existing = await findExistingToolByName(apiKey, def.name)
+    refs.push(existing ?? (await createTool(apiKey, def)))
+  }
+  return refs
 }
 
 /**
@@ -87,6 +178,17 @@ export async function provisionNativeConfig(
 
   const { sessionId, assembledPrompt } = params
 
+  // Config's `tools` array only accepts `{id, version}` references to
+  // pre-existing Hume tools — not inline definitions. Resolve (creating if
+  // needed, idempotently by name) before building the config body.
+  let toolRefs: ToolReference[]
+  try {
+    toolRefs = await resolveToolReferences(apiKey)
+  } catch (err) {
+    console.error('[hume-native/config-provisioner] Failed to resolve tool references:', err instanceof Error ? err.message : err)
+    throw new Error('Failed to provision required Hume tools')
+  }
+
   const body = {
     evi_version: '3',
     name: `hume-native-session-${sessionId}`,
@@ -100,7 +202,7 @@ export async function provisionNativeConfig(
       model_provider: 'ANTHROPIC',
       model_resource: 'claude-sonnet-4-6',
     },
-    tools: buildToolDefinitions(),
+    tools: toolRefs,
   }
 
   let res: Response
