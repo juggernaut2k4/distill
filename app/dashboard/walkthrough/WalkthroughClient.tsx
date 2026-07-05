@@ -34,6 +34,15 @@ const VOICE_ID = process.env.NEXT_PUBLIC_ELEVENLABS_VOICE_ID ?? 'eXpIbVcVbLo8ZJQ
 const VOICE_PROVIDER = process.env.NEXT_PUBLIC_VOICE_PROVIDER ?? 'elevenlabs'
 const HUME_CONFIG_ID = process.env.NEXT_PUBLIC_HUME_CONFIG_ID ?? ''
 
+// HUME-NATIVE-01 — separate, additive toggle (per BA spec 4.1). Branches
+// alongside (not inside) VOICE_PROVIDER/LIVE_CONDUCTOR checks, at the point
+// where a session's Hume Config is selected, in this component's session-start
+// path below. Default unset/false leaves the existing VOICE_PROVIDER==='hume'
+// (Custom-LLM/LIVE-01) path completely untouched — this only ever changes
+// which configId is requested before connecting; hume-adapter.ts itself is
+// not modified and requires no changes.
+const HUME_NATIVE_ENABLED = process.env.NEXT_PUBLIC_HUME_NATIVE_ENABLED === 'true'
+
 // How long (ms) of polling silence before sending a keep-alive context update.
 // Keep short — ElevenLabs closes the WebSocket after ~15s of inactivity.
 const KEEPALIVE_INTERVAL = 8_000
@@ -542,14 +551,48 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
           if (!tokenRes.ok) throw new Error(`Hume token fetch failed: ${tokenRes.status}`)
           const { accessToken } = await tokenRes.json() as { accessToken: string }
 
+          // HUME-NATIVE-01 — small, clearly-commented conditional block, not an
+          // inline restructuring of this function. Branches at the point the
+          // Config is selected (per BA spec 4.1), above HumeAdapter.create().
+          // hume-adapter.ts requires no change: which mode runs is entirely a
+          // property of which configId is passed in below. On any failure here,
+          // provision-config's route already blocks with a clear error (no
+          // silent fallback to Custom-LLM mode) — that error simply propagates
+          // up through this connect() try/catch like any other connect failure.
+          let humeConfigId = HUME_CONFIG_ID
+          if (HUME_NATIVE_ENABLED) {
+            const provisionRes = await fetch('/api/hume-native/provision-config', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ userId }),
+            })
+            if (!provisionRes.ok) {
+              const errBody = await provisionRes.text().catch(() => '')
+              throw new Error(`Hume native Config provisioning failed (${provisionRes.status}): ${errBody.slice(0, 200)}`)
+            }
+            const { configId } = await provisionRes.json() as { configId: string }
+            humeConfigId = configId
+          }
+
           const hume = await HumeAdapter.create({
             accessToken,
-            configId: HUME_CONFIG_ID,
+            configId: humeConfigId,
             userId,
             mediaStream: micStream,
             onConnect: (sessionId) => {
               console.log('[Walkthrough/Hume] Connected, session:', sessionId)
               setAgentStatus('listening')
+              // HUME-NATIVE-01 — capture hume_chat_id (per BA spec 4.5), gated so
+              // it only runs when native mode is enabled for this session — no
+              // behavior change for Custom-LLM-mode sessions, which don't need
+              // this field. Fire-and-forget: never blocks or affects connect flow.
+              if (HUME_NATIVE_ENABLED && sessionId) {
+                fetch('/api/hume-native/session-chat-id', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ userId, humeChatId: sessionId }),
+                }).catch((err) => console.warn('[Walkthrough/Hume] Failed to persist hume_chat_id:', err))
+              }
               if (stableConnectionTimerRef.current) clearTimeout(stableConnectionTimerRef.current)
               stableConnectionTimerRef.current = setTimeout(() => {
                 reconnectAttemptsRef.current = 0
