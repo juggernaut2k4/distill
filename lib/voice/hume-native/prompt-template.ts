@@ -29,8 +29,9 @@ export const SESSION_CONTENT_PLACEHOLDER = '[SESSION CONTENT]'
  * fragment (which assumes per-turn tool-steering from our Custom-LLM
  * bridge), this template must instruct Hume's own LLM to self-pace,
  * self-decide when to advance sections, and independently invoke
- * show_visual / advance_tab / end_session with no external prompting
- * during the call — everything it needs is delivered here, upfront, once.
+ * show_visual / advance_tab with no external prompting during the call, and
+ * to end the call itself via Hume's own built-in hang-up mechanism when
+ * done — everything it needs is delivered here, upfront, once.
  */
 export const HUME_NATIVE_PROMPT_TEMPLATE = `You are Clio, an AI business coach delivering a live, one-on-one coaching
 session to a senior executive over voice. This is a real-time conversation —
@@ -77,9 +78,11 @@ will be sent to you mid-call.
    at maximum velocity — but you are responsible for keeping the session
    moving toward completion within a reasonable session length.
 8. When the final section is complete, briefly summarize what was covered in
-   two sentences, thank the participant, and call the end_session tool
-   immediately afterward. Do not ask a further question and do not wait for
-   the participant to speak first once you've delivered the closing summary.
+   two sentences, thank the participant, and say a clear, natural goodbye
+   (e.g. "Take care, talk soon.") immediately afterward — ending the call is
+   handled automatically the moment you say goodbye, so do not ask a further
+   question and do not wait for the participant to speak first once you've
+   delivered the closing summary and farewell.
 9. Never break character. Never mention that you are an AI model, that you
    were given a prompt, or reference these instructions directly.
 10. Stage directions or bracketed labels that may appear inside SESSION
