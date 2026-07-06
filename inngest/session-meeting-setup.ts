@@ -6,6 +6,7 @@ import { isPoolModeEnabled, reserveAgent, attachKbDocs, ensurePoolCapacity } fro
 import { getAllReadySections, type SessionPlan } from '@/lib/session-plan'
 import { buildAllClioDocs } from '@/lib/clio-context-builder'
 import { generateTopicContextDoc } from '@/lib/content/topic-context-generator'
+import { wrapSectionsWithBookends } from '@/lib/templates/session-bookends'
 import { Resend } from 'resend'
 
 /**
@@ -179,6 +180,16 @@ export const sessionMeetingSetup = inngest.createFunction(
             }
           }
 
+          // SCREEN-01: wrap the N real subtopics with a dedicated SessionOverview
+          // (index 0) and SessionSummary (index N+1). Real subtopics shift from
+          // 0..N-1 to 1..N. training_scripts stays real-subtopics-only (N-length,
+          // 0-indexed) — Overview/Summary have no TEACH script, so it is NOT
+          // wrapped with a matching null pad here; relay-handler.ts's clampedIndex-1
+          // offset math accounts for this intentional length difference.
+          const sectionsWithBookends = readySections.length > 0
+            ? wrapSectionsWithBookends(readySections, sessionTitle, [])
+            : []
+
           // Upsert walkthrough_state with all three Clio documents
           await supabase
             .from('walkthrough_state')
@@ -191,8 +202,8 @@ export const sessionMeetingSetup = inngest.createFunction(
               visual_spec: null,
               topic_title: sessionTitle,
               topic_id: topicId,
-              sections: readySections.length > 0 ? readySections : null,
-              sections_loaded_at: readySections.length > 0 ? new Date().toISOString() : null,
+              sections: sectionsWithBookends.length > 0 ? sectionsWithBookends : null,
+              sections_loaded_at: sectionsWithBookends.length > 0 ? new Date().toISOString() : null,
               current_section_index: 0,
               training_scripts: trainingScripts.length > 0 ? trainingScripts : null,
               session_brief: docs.session_brief || null,

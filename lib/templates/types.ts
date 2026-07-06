@@ -339,6 +339,23 @@ export interface AnswerSpotlightData {
   so_what: string
 }
 
+// ─── SCREEN-01: SESSION OVERVIEW / SUMMARY DATA TYPES ────────────────────────
+// These are reserved structural entries in `sections` (index 0 and index N+1)
+// — never passed through selectTemplate(), constructed directly at the point
+// `sections` is assembled. See docs/specs/SCREEN-01-requirement-document.md.
+
+export interface SessionOverviewData {
+  session_title: string
+  agenda: Array<{ subtopic_title: string; skipped: boolean }>
+  framing_line: string   // fixed literal string — never LLM-generated
+}
+
+export interface SessionSummaryData {
+  session_title: string
+  covered_subtopics: string[]   // excludes skipped subtopics entirely
+  closing_line: string          // fixed literal string — never LLM-generated
+}
+
 // ─── VISUALIZATION TAB MANIFEST ───────────────────────────────────────────────
 
 export interface VisualizationTab {
@@ -384,6 +401,8 @@ export type TemplateName =
   | 'DefinitionTriptych'
   | 'HorizontalDecision'
   | 'AnswerSpotlight'
+  | 'SessionOverview'
+  | 'SessionSummary'
 
 // ─── DISCRIMINATED UNION ──────────────────────────────────────────────────────
 
@@ -411,3 +430,5 @@ export type TemplateSection =
   | { id: string; type: 'DefinitionTriptych'; data: DefinitionTriptychData; meta: TemplateMeta; status: SectionStatus }
   | { id: string; type: 'HorizontalDecision'; data: HorizontalDecisionData; meta: TemplateMeta; status: SectionStatus }
   | { id: string; type: 'AnswerSpotlight'; data: AnswerSpotlightData; meta: TemplateMeta; status: SectionStatus }
+  | { id: string; type: 'SessionOverview'; data: SessionOverviewData; meta: TemplateMeta; status: SectionStatus }
+  | { id: string; type: 'SessionSummary'; data: SessionSummaryData; meta: TemplateMeta; status: SectionStatus }

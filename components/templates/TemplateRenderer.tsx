@@ -25,6 +25,8 @@ import DefinitionTriptych from './renderers/DefinitionTriptych'
 import HorizontalDecision from './renderers/HorizontalDecision'
 import AnswerSpotlight from './renderers/AnswerSpotlight'
 import HorizontalTree from './renderers/HorizontalTree'
+import SessionOverview from './renderers/SessionOverview'
+import SessionSummary from './renderers/SessionSummary'
 
 export interface TemplateRendererProps {
   section: TemplateSection
@@ -80,5 +82,9 @@ export default function TemplateRenderer({ section, isActive, onReady }: Templat
       return <HorizontalDecision data={section.data} isActive={isActive} onReady={onReady} />
     case 'AnswerSpotlight':
       return <AnswerSpotlight data={section.data} isActive={isActive} onReady={onReady} />
+    case 'SessionOverview':
+      return <SessionOverview data={section.data} isActive={isActive} onReady={onReady} />
+    case 'SessionSummary':
+      return <SessionSummary data={section.data} isActive={isActive} onReady={onReady} />
   }
 }

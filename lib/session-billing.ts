@@ -5,6 +5,16 @@ import { getMeetingBotProvider } from '@/lib/meeting-bot/provider'
 import { fetchHumeChatDuration } from '@/lib/voice/hume-native/session-details'
 
 /**
+ * HUME-DURATION-02 — trivial setTimeout-based delay helper, no new npm package.
+ * Used by finalizeHumeNativeBilling() to give Hume's chat-duration API time to
+ * finalize before the first fetch attempt, and again before the single
+ * conditional retry.
+ */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/**
  * AUTOGEN-01 Part D — verified minute billing.
  *
  * Billing starts at the `speak_verified` audit event (the voice adapter's confirmed,
@@ -226,8 +236,8 @@ export async function computeBilledMinutes(
 
 export type FinalizeHumeNativeBillingResult =
   | { source: 'not_applicable' }
-  | { source: 'hume'; minutesUsed: number; durationSeconds: number }
-  | { source: 'fallback'; reason: string }
+  | { source: 'hume'; minutesUsed: number; durationSeconds: number; retryUsed: boolean; totalWaitMs: number }
+  | { source: 'fallback'; reason: string; retryUsed: boolean; totalWaitMs: number }
 
 /**
  * HUME-DURATION-BILLING-01 — For Hume-native sessions, sources billed minutes
@@ -243,12 +253,18 @@ export type FinalizeHumeNativeBillingResult =
  * - Hume-native sessions with no `hume_chat_id`: returns
  *   `{ source: 'fallback', reason: 'no_hume_chat_id' }` immediately — no
  *   fetch attempted, since there is nothing to fetch.
- * - Hume-native sessions with a `hume_chat_id`: attempts a single
- *   `fetchHumeChatDuration()` call (5s timeout, no retries). On success,
- *   returns `{ source: 'hume', minutesUsed, durationSeconds }` where
- *   `minutesUsed = ceil(durationSeconds / 60)`. On any failure (timeout,
- *   non-2xx, missing fields), returns `{ source: 'fallback', reason }` and
- *   the caller proceeds to `computeBilledMinutes()` exactly as today.
+ * - Hume-native sessions with a `hume_chat_id`: HUME-DURATION-02 — waits 3s
+ *   before the first `fetchHumeChatDuration()` attempt (Hume frequently hasn't
+ *   finalized its own chat record that quickly after we see `disconnected`).
+ *   If that first attempt fails with `reason: 'missing_timestamps'`
+ *   specifically, waits 4 more seconds and retries exactly once more (7s
+ *   total elapsed); any other failure reason, or a second failure on the
+ *   retry, falls back immediately with no further retries. On success,
+ *   returns `{ source: 'hume', minutesUsed, durationSeconds, retryUsed,
+ *   totalWaitMs }` where `minutesUsed = ceil(durationSeconds / 60)`. On
+ *   failure, returns `{ source: 'fallback', reason, retryUsed, totalWaitMs }`
+ *   and the caller proceeds to `computeBilledMinutes()` exactly as today.
+ *   `totalWaitMs` is 3000 if no retry ran, 7000 if it did.
  *
  * Billing is NEVER silently skipped by this function — it only ever decides
  * which of the two minute-computation sources to use; both callers still
@@ -283,20 +299,31 @@ export async function finalizeHumeNativeBilling(params: {
     console.warn(
       `[session-billing] finalizeHumeNativeBilling: session ${sessionId} is hume_native_enabled but has no hume_chat_id — falling back to computeBilledMinutes`
     )
-    return { source: 'fallback', reason: 'no_hume_chat_id' }
+    return { source: 'fallback', reason: 'no_hume_chat_id', retryUsed: false, totalWaitMs: 0 }
   }
 
-  const result = await fetchHumeChatDuration(humeChatId)
+  // HUME-DURATION-02 — give Hume's chat record time to finalize before asking.
+  await delay(3000)
+  let result = await fetchHumeChatDuration(humeChatId)
+  let retryUsed = false
+
+  if (!result.ok && result.reason === 'missing_timestamps') {
+    retryUsed = true
+    await delay(4000)
+    result = await fetchHumeChatDuration(humeChatId)
+  }
+
+  const totalWaitMs = retryUsed ? 7000 : 3000
 
   if (!result.ok) {
     console.warn(
-      `[session-billing] finalizeHumeNativeBilling: Hume duration fetch failed for session ${sessionId} (chat ${humeChatId}), reason=${result.reason} — falling back to computeBilledMinutes`
+      `[session-billing] finalizeHumeNativeBilling: Hume duration fetch failed for session ${sessionId} (chat ${humeChatId}), reason=${result.reason}, retryUsed=${retryUsed} — falling back to computeBilledMinutes`
     )
-    return { source: 'fallback', reason: result.reason }
+    return { source: 'fallback', reason: result.reason, retryUsed, totalWaitMs }
   }
 
   const minutesUsed = Math.max(0, Math.ceil(result.durationSeconds / 60))
-  return { source: 'hume', minutesUsed, durationSeconds: result.durationSeconds }
+  return { source: 'hume', minutesUsed, durationSeconds: result.durationSeconds, retryUsed, totalWaitMs }
 }
 
 /**
@@ -374,13 +401,23 @@ export async function forceEndSession(params: {
   if (humeResult.source === 'hume') {
     minutesUsed = humeResult.minutesUsed
     billingSource = 'hume'
-    billingSourceMetadata = { hume_duration_seconds: humeResult.durationSeconds }
+    billingSourceMetadata = {
+      hume_duration_seconds: humeResult.durationSeconds,
+      retry_used: humeResult.retryUsed,
+      total_wait_ms: humeResult.totalWaitMs,
+    }
   } else {
     const computed = await computeBilledMinutes(sessionId, { disconnectedAt: now })
     minutesUsed = computed.minutesUsed
     billingSource = 'fallback_audit_log'
     billingSourceMetadata =
-      humeResult.source === 'fallback' ? { fallback_reason: humeResult.reason } : {}
+      humeResult.source === 'fallback'
+        ? {
+            fallback_reason: humeResult.reason,
+            retry_used: humeResult.retryUsed,
+            total_wait_ms: humeResult.totalWaitMs,
+          }
+        : {}
   }
 
   const cappedMinutes = Math.min(minutesUsed, userRow?.minutes_balance ?? minutesUsed)

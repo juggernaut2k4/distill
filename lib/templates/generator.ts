@@ -339,6 +339,13 @@ function getSchemaForTemplate(type: TemplateName): string {
   "important_nuance": string | null,
   "so_what": string
 }`,
+    // SCREEN-01: SessionOverview/SessionSummary are never LLM-generated — they
+    // are constructed directly in code by lib/templates/session-bookends.ts and
+    // never passed through selectTemplate()/generateTemplateData(). These
+    // entries exist only so this Record<TemplateName, string> stays exhaustive;
+    // they are never read at runtime.
+    SessionOverview: '',
+    SessionSummary: '',
   }
 
   return schemas[type]
@@ -869,6 +876,12 @@ export function getMockData(type: TemplateName, subtopicTitle: string): Template
       },
       so_what: 'As a CEO, you own the governance layer even if you don\'t touch the model layer. Most AI failures happen because leadership disengages after the model is deployed.',
     },
+    // SCREEN-01: never LLM-generated and never selected by selectTemplate() —
+    // real Overview/Summary data is built by lib/templates/session-bookends.ts.
+    // These entries exist only to keep this Record<TemplateName, ...> map
+    // exhaustive; they are never read at runtime.
+    SessionOverview: { session_title: '', agenda: [], framing_line: '' },
+    SessionSummary: { session_title: '', covered_subtopics: [], closing_line: '' },
   }
 
   return mockMap[type]

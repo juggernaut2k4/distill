@@ -9,6 +9,7 @@ import type { LiveConductorTab } from '@/lib/content/live-conductor-content'
 import { buildAllClioDocs } from '@/lib/clio-context-builder'
 import { generateTopicContextDoc } from '@/lib/content/topic-context-generator'
 import { getUserLearningProfile, buildProfileContextForClio } from '@/lib/learning/user-profile'
+import { wrapSectionsWithBookends } from '@/lib/templates/session-bookends'
 
 const CreateBotSchema = z.object({
   meetingUrl: z.string().url(),
@@ -360,33 +361,23 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // ── Step 2b: Prepend synthetic Session Overview section ─────────────────
-    // Mirrors KB-VIZ-01 logic in KBTopicClient — the walkthrough page renders
-    // sections directly from walkthrough_state, so the overview must be here too.
-    const rawSubSessions = (sessionData as unknown as { sub_sessions?: unknown }).sub_sessions
-    const subSessionTitles: string[] = Array.isArray(rawSubSessions)
-      ? (rawSubSessions as Array<{ title?: string }>).map((s) => s.title ?? '').filter(Boolean)
+    // ── Step 2b: Wrap with SessionOverview / SessionSummary bookends ─────────
+    // SCREEN-01: previously this synthesised an ad-hoc Overview here using
+    // TopicHero (a title-card template, not a dedicated Overview screen) and
+    // never added a Summary at all — a second, independent source of the same
+    // section_index inconsistency this fix eliminates. Now uses the single
+    // shared helper (lib/templates/session-bookends.ts) so this route produces
+    // byte-for-byte the same Overview/Summary contract as
+    // inngest/session-meeting-setup.ts. Real subtopics shift from 0..N-1 to
+    // 1..N; Overview lands at 0, Summary at N+1.
+    const sectionsWithOverview: TemplateSection[] = freshSections.length > 0
+      ? wrapSectionsWithBookends(freshSections, sessionTitle, skippedTopics)
       : []
-
-    const syntheticOverview: TemplateSection | null = freshSections.length > 0 ? {
-      id: 'session-overview',
-      type: 'TopicHero',
-      meta: { subtopicTitle: 'Session Overview', sessionTitle, userRole, userIndustry },
-      data: {
-        topic_name: sessionTitle,
-        key_question: 'What will we cover in this session?',
-        key_takeaways: subSessionTitles.length > 0 ? subSessionTitles : freshSections.map((s) => s.meta?.subtopicTitle ?? s.id),
-        so_what_preview: `${sessionDurationMins}-minute session · ${freshSections.length} subtopic${freshSections.length !== 1 ? 's' : ''}`,
-      },
-      status: 'active' as const,
-    } : null
-
-    const sectionsWithOverview: TemplateSection[] = syntheticOverview
-      ? [syntheticOverview, ...freshSections]
-      : freshSections
-    const scriptsWithOverview = syntheticOverview
-      ? [null, ...trainingScripts]
-      : trainingScripts
+    // training_scripts stays real-subtopics-only (N-length, 0-indexed) — Overview
+    // and Summary have no TEACH script. relay-handler.ts's clampedIndex-1 offset
+    // math (and WalkthroughClient's existing idx-1 split-mode math) account for
+    // this intentional length difference against the N+2-length sections array.
+    const scriptsWithOverview = trainingScripts
 
     // ── Step 3: Write context to walkthrough_state BEFORE bot creation ───────
     // Critical: Recall.ai loads walkthroughUrl immediately after createBot returns.

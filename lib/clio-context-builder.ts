@@ -90,6 +90,7 @@ export function buildSessionBrief(input: Omit<BuildDocsInput, 'topicContextDocs'
     `This shows the Session Overview. While it loads, say: "Let me pull up today's overview."`,
     `Briefly walk through the agenda (read the section titles aloud), then proceed to Section 1.`,
     `Do NOT begin any TEACH content until after the overview has been shown and the agenda read.`,
+    `After the final bridge and 2-sentence summary, call show_visual({ section_index: ${sections.length + 1} }) to show the closing Summary screen, THEN call end_session.`,
     ``,
     `=== BEHAVIOURAL RULES ===`,
     `1. NEVER ask what the participant wants to cover — the agenda is fixed.`,
@@ -129,6 +130,26 @@ export function buildTopicContext(
     ``,
     ...blocks,
   ].join('\n\n')
+}
+
+// ─── SHARED: rotating checkpoint fallback (item 21) ───────────────────────────
+
+/**
+ * Default verification-question phrasing used only when a section has no
+ * LLM-generated CHECKPOINT segment (fallback path). Previously a single fixed
+ * string repeated verbatim every section it fired for — rotates through a
+ * small set of natural variants keyed by section index so a session that hits
+ * this fallback more than once doesn't repeat the same line word-for-word.
+ */
+const CHECKPOINT_FALLBACK_VARIANTS = [
+  'How does that land for you?',
+  'Does that make sense so far?',
+  'What questions does that raise for you?',
+  'How are you thinking about that?',
+]
+
+function checkpointFallback(sectionIndex: number): string {
+  return CHECKPOINT_FALLBACK_VARIANTS[sectionIndex % CHECKPOINT_FALLBACK_VARIANTS.length]
 }
 
 // ─── DOCUMENT 3: SESSION SCRIPT ───────────────────────────────────────────────
@@ -175,7 +196,7 @@ export function buildSessionScript(
       teach ?? `(No script — explain the key concepts from the knowledge base in plain language.)`,
       ``,
       `[STAGE DIRECTION — DO NOT SAY] Verification question — ask after TEACH:`,
-      checkpoint ?? `How does that land for you?`,
+      checkpoint ?? checkpointFallback(i),
       ...variantBlock,
       ``,
       `[STAGE DIRECTION — DO NOT SAY] Reframe fallback — use if participant seems uncertain:`,
@@ -260,7 +281,7 @@ export function formatSingleSectionScript(
     teach ?? `(No script — explain the key concepts from the knowledge base in plain language.)`,
     ``,
     `[STAGE DIRECTION — DO NOT SAY] Verification question — ask after TEACH:`,
-    checkpoint ?? `How does that land for you?`,
+    checkpoint ?? checkpointFallback(sectionNum),
     ...variantBlock,
     ``,
     `[STAGE DIRECTION — DO NOT SAY] Reframe fallback — use if participant seems uncertain:`,

@@ -3,6 +3,12 @@
  * Maps subtopic titles to the most appropriate template type using keyword matching.
  * When a templateHint (from the LLM's visual_spec) is provided and valid, it takes
  * priority over keyword matching — the LLM knows the content shape, the title does not.
+ *
+ * SCREEN-01: selectTemplate() is only ever called for REAL subtopics (position
+ * 'first'/'middle'/'last' among the N real subtopics). The SessionOverview and
+ * SessionSummary sections (sections[0] and sections[N+1]) are constructed
+ * directly with type: 'SessionOverview' / 'SessionSummary' at the point
+ * `sections` is assembled — they never pass through this function.
  */
 
 import type { TemplateName } from './types'

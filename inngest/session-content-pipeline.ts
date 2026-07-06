@@ -493,7 +493,9 @@ export const sessionContentPipeline = inngest.createFunction(
         if (idx === -1) continue
         const section = row.section_data as TemplateSection | null
         if (!section) continue
-        tabManifests[String(idx)] = buildTabManifest(row.subtopic_slug, section, idx)
+        // Section 0 is the "Session Overview" bookend (see lib/templates/session-bookends.ts),
+        // so real subtopics are shifted one slot to the right in the `sections` array.
+        tabManifests[String(idx + 1)] = buildTabManifest(row.subtopic_slug, section, idx)
       }
 
       if (Object.keys(tabManifests).length === 0) {

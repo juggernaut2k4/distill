@@ -61,14 +61,26 @@ async function handleShowVisual(userId: string, sectionIndex: number): Promise<s
 
   if (!data) return `Now showing section ${sectionIndex}`
 
+  // SCREEN-01: `sections` is the full wrapper array (Overview at 0, real
+  // subtopics at 1..N, Summary at N+1). `training_scripts` remains the
+  // real-subtopics-only, N-length, 0-indexed array — Overview/Summary have no
+  // TEACH script — so it is intentionally shorter than `sections` by 2 and
+  // offset by exactly 1 (sections[1] maps to training_scripts[0], etc.).
   const sections = (data.sections as Array<{ meta: { subtopicTitle: string } }> | null) ?? []
   const scripts = (data.training_scripts as Array<{
     subtopic_title: string
     segments: Array<{ type: string; content: string }>
   } | null> | null) ?? []
 
-  const section = sections[sectionIndex]
-  const script = scripts[sectionIndex] ?? null
+  // SCREEN-01: bounds-clamp sectionIndex against sections.length, matching the
+  // defensive clamping convention already used in WalkthroughClient.tsx.
+  const clampedIndex = Math.max(0, Math.min(sectionIndex, sections.length - 1))
+  const section = sections[clampedIndex]
+
+  // scriptIdx is null (no lookup) when clampedIndex is 0 (Overview) or the
+  // last index (Summary) — both fall outside the valid training_scripts range.
+  const scriptIdx = clampedIndex - 1
+  const script = scriptIdx >= 0 && scriptIdx < scripts.length ? scripts[scriptIdx] ?? null : null
 
   if (!section) return `Now showing section ${sectionIndex}`
 

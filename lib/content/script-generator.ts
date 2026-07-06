@@ -517,6 +517,13 @@ SCRIPT SEGMENTS — write in this exact order:
    Every sentence must teach something new.
    Prioritise the insight that will most change how this ${userContext.role} thinks or acts.
 
+   SOUND SPOKEN, NOT WRITTEN — this will be read aloud by a voice model, not displayed as text:
+   - Use short, varied sentence lengths. Avoid long compound sentences with multiple clauses and semicolons — those read fine on a page but sound like an essay out loud.
+   - Use contractions throughout ("you're", "it's", "that's") — a coach talks like this, an article doesn't.
+   - Avoid written-register words and transitions common in articles: "furthermore", "however", "in essence", "it is worth noting", "moreover", "additionally". Use spoken equivalents instead ("but", "so", "here's the thing", "and").
+   - Vary how sentences start — do not open every sentence the same way (e.g. do not stack multiple sentences all starting with "This means...").
+   - Read your draft back mentally as if saying it to someone across a table. If it sounds like something you'd read from a page rather than say to a colleague, rewrite it.
+
    MANDATORY OPENING — orient before teaching (first 2-3 sentences, counts toward 140 words):
    a) State what this subtopic covers and what the user will be able to do/decide/say by the end
    b) State why it specifically matters for a ${userContext.role} in ${userContext.industry}
