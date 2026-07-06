@@ -8,7 +8,7 @@ import {
 } from '@/lib/voice/hume-native/prompt-template'
 import { provisionNativeConfig } from '@/lib/voice/hume-native/config-provisioner'
 import type { TemplateSection } from '@/lib/templates/types'
-import { generateLiveConductorContent } from '@/lib/content/live-conductor-content'
+import { generateLiveConductorContent, formatTabContentForPrompt } from '@/lib/content/live-conductor-content'
 import type { LiveConductorTab } from '@/lib/content/live-conductor-content'
 import type { UserContext } from '@/lib/content/session-content-generator'
 
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
   // not `walkthrough_state` — so we need the current active session row.
   const { data: sessionRow, error: sessionErr } = await supabase
     .from('sessions')
-    .select('id')
+    .select('id, live_conductor_content')
     .eq('user_id', userId)
     .eq('status', 'active')
     .order('scheduled_at', { ascending: false })
@@ -74,6 +74,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'No active session found for this user' }, { status: 404 })
   }
   const sessionId = sessionRow.id as string
+
+  // Real per-subtopic content, sourced the same way the old CLM path
+  // (lib/voice/live-conductor-bridge.ts) builds its knowledge base: each
+  // ContentArticle produced by generateLiveConductorContent already contains
+  // overview/key_facts/how_it_works/enterprise_implications/misconceptions/etc,
+  // and formatTabContentForPrompt() is the existing formatter the CLM path uses
+  // to turn one tab's article into prompt text. Keyed by subtopic_slug so it can
+  // be matched 1:1 against `sections` regardless of ordering.
+  let liveConductorTabsBySlug = new Map<string, LiveConductorTab>(
+    (
+      (sessionRow as { live_conductor_content?: { tabs?: LiveConductorTab[] } | null }).live_conductor_content
+        ?.tabs ?? []
+    ).map((tab) => [tab.subtopic_slug, tab])
+  )
 
   // Existing whole-topic + per-tab content, read from walkthrough_state exactly
   // as LIVE-01 produced it — no new content-generation call (per BA spec 4.2).
@@ -294,6 +308,11 @@ export async function POST(request: NextRequest) {
       }) as Parameters<typeof buildSessionScript>[1]
       topicTitleForContent = topicTitle
 
+      // Freshly-healed tabs supersede whatever was read from sessionRow above —
+      // rebuild the lookup so the real per-subtopic docs below reflect the
+      // content we just generated and persisted, not stale/empty data.
+      liveConductorTabsBySlug = new Map(tabs.map((tab) => [tab.subtopic_slug, tab]))
+
       const recheckContent = [
         topicTitleForContent ? `# ${topicTitleForContent}` : '',
         buildTopicContext(sections, sections.map(() => null)),
@@ -317,12 +336,19 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // topic_context per-section docs aren't separately stored on walkthrough_state
-  // today (LIVE-01 folds them into the combined system_prompt at session-brief
-  // time) — pass an all-null array so buildTopicContext falls back to its
-  // existing "coach from the session script" per-section default, matching
-  // the same fallback LIVE-01 itself uses when a doc hasn't been generated yet.
-  const topicContextDocs: (string | null)[] = sections.map(() => null)
+  // Real per-subtopic topic-context docs — matched 1:1 against `sections` by
+  // subtopic_slug (== section.id, see the DefinitionTriptych mapping above and
+  // in app/api/recall/bot/route.ts). Mirrors the old CLM path
+  // (lib/voice/live-conductor-bridge.ts buildLiveConductorSystemPrompt), which
+  // formats each tab's ContentArticle via formatTabContentForPrompt() rather
+  // than issuing a fresh per-section LLM call — no new content-generation call
+  // is introduced here, and any tab genuinely missing from
+  // live_conductor_content (e.g. a future regression) still falls back to
+  // buildTopicContext's existing per-section default via `null`.
+  const topicContextDocs: (string | null)[] = sections.map((section) => {
+    const tab = liveConductorTabsBySlug.get(section.id)
+    return tab ? formatTabContentForPrompt(tab) : null
+  })
 
   const sessionContent = [
     topicTitleForContent ? `# ${topicTitleForContent}` : '',
