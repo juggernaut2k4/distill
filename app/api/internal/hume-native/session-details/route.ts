@@ -18,10 +18,16 @@ export const dynamic = 'force-dynamic'
  *
  * GET /api/internal/hume-native/session-details?sessionId=<uuid>
  *
- * 200 -> HumeSessionDetailsResult (JSON)
+ * 200 -> HumeSessionDetailsResult (JSON). In the live-fallback branch, this
+ *        can be a partial success: the Config fetch succeeded but the
+ *        transcript fetch failed (e.g. stale/expired/never-started chat_id).
+ *        In that case `transcriptEvents` is `[]` and `transcriptFetchError`
+ *        is set on the body describing the transcript-specific failure —
+ *        this is still a 200 since the requested Config data is present.
  * 400 -> { error: string }  (missing/malformed sessionId)
  * 404 -> { error: string }  (session_not_found, not_eligible_no_hume_ids)
- * 502 -> { error: string, humeStatus?: number }  (live_fetch_failed, live_fetch_config_deleted)
+ * 502 -> { error: string, humeStatus?: number }  (live_fetch_failed, live_fetch_config_deleted —
+ *        both of these are Config-fetch failures; a transcript-only failure never reaches this path)
  */
 export async function GET(request: NextRequest) {
   const sessionId = request.nextUrl.searchParams.get('sessionId')

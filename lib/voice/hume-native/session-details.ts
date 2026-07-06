@@ -15,6 +15,16 @@
  * never sets hume_config_archived_at, never calls DELETE on any Hume Config.
  * Zero interaction with the nightly job's write path — purely a downstream
  * consumer of data the nightly job (or Hume itself) already has.
+ *
+ * Partial-success handling (live-fallback branch only): the Config fetch and
+ * the transcript fetch are independent failure modes. A Config fetch failure
+ * is still a hard error (throws HumeSessionDetailsLookupError as before) —
+ * without the Config there is nothing useful to return. A transcript fetch
+ * failure (e.g. the chat_id is stale/expired/never actually started, commonly
+ * surfacing as a 404 from Hume) is treated as NON-FATAL: the already-fetched
+ * configSnapshot is still returned, transcriptEvents is `[]`, and
+ * `transcriptFetchError` is set on the result so callers can tell the
+ * difference between "no transcript exists" and "transcript fetch failed."
  */
 
 import { createSupabaseAdminClient } from '@/lib/supabase'
@@ -30,6 +40,11 @@ export interface HumeSessionDetailsResult {
   humeConfigId: string
   humeChatId: string
   archivedAt: string | null // ISO timestamp if source === 'archive', else null
+  // Set only in the live-fallback branch when the config fetch succeeded but
+  // the transcript fetch subsequently failed (e.g. stale/expired/never-started
+  // chat_id returning 404). transcriptEvents is [] in that case. Undefined on
+  // full success (and always undefined for source === 'archive').
+  transcriptFetchError?: string
 }
 
 export type HumeSessionDetailsError =
@@ -104,6 +119,12 @@ async function fetchAllTranscriptEvents(apiKey: string, chatId: string): Promise
  * otherwise. Throws HumeSessionDetailsLookupError (wrapping one of the codes
  * in HumeSessionDetailsError) on failure — callers (including the route
  * wrapper) must catch and translate to their own response shape.
+ *
+ * Exception: in the live-fallback branch, a transcript-fetch failure (after
+ * the Config fetch has already succeeded) does NOT throw. The returned
+ * result still contains `configSnapshot`, with `transcriptEvents: []` and
+ * `transcriptFetchError` set to describe what went wrong. A Config fetch
+ * failure is unaffected and still throws.
  */
 export async function getHumeSessionDetails(
   sessionId: string
@@ -231,7 +252,27 @@ export async function getHumeSessionDetails(
 
   const configSnapshot = (await configRes.json()) as Record<string, unknown>
 
-  const transcriptEvents = await fetchAllTranscriptEvents(apiKey, humeChatId)
+  // The config fetch above already succeeded — that's the data callers most
+  // often need (e.g. inspecting builtin_tools). A transcript fetch failure
+  // (stale/expired/never-started chat_id, commonly a 404) must NOT discard
+  // it. Only the config fetch failing above remains a hard error.
+  let transcriptEvents: unknown[] = []
+  let transcriptFetchError: string | undefined
+
+  try {
+    transcriptEvents = await fetchAllTranscriptEvents(apiKey, humeChatId)
+  } catch (err) {
+    transcriptFetchError =
+      err instanceof HumeSessionDetailsLookupError
+        ? err.detail.message
+        : err instanceof Error
+          ? err.message
+          : String(err)
+    console.warn(
+      `[hume-native/session-details] transcript fetch failed for session ${sessionId} (chat ${humeChatId}) — returning config snapshot without transcript`,
+      transcriptFetchError
+    )
+  }
 
   return {
     sessionId,
@@ -241,5 +282,6 @@ export async function getHumeSessionDetails(
     humeConfigId,
     humeChatId,
     archivedAt: null,
+    ...(transcriptFetchError ? { transcriptFetchError } : {}),
   }
 }
