@@ -5,6 +5,7 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
 import { getMeetingBotProvider } from '@/lib/meeting-bot/provider'
 import { getAllReadySections, type SessionPlan } from '@/lib/session-plan'
 import type { TemplateSection } from '@/lib/templates/types'
+import type { LiveConductorTab } from '@/lib/content/live-conductor-content'
 import { buildAllClioDocs } from '@/lib/clio-context-builder'
 import { generateTopicContextDoc } from '@/lib/content/topic-context-generator'
 import { getUserLearningProfile, buildProfileContextForClio } from '@/lib/learning/user-profile'
@@ -271,11 +272,75 @@ export async function POST(request: NextRequest) {
     // the old-pipeline signals.
     const liveConductorContent = (sessionData as unknown as {
       content_status?: string
-      live_conductor_content?: { tabs?: Array<{ subtopic_slug: string }> } | null
+      live_conductor_content?: { tabs?: LiveConductorTab[] } | null
     } | null)
     const hasLiveConductorContent =
       liveConductorContent?.content_status === 'ready' &&
       !!liveConductorContent?.live_conductor_content?.tabs?.length
+
+    // ── CONTENT-POP-01 Part A ────────────────────────────────────────────────
+    // Root-cause fix: hasLiveConductorContent correctly detects that this
+    // session's content is ready, but nothing previously read that content into
+    // freshSections/trainingScripts — the fields Step 2b and Step 3 below (and
+    // downstream provisioning) actually consume. Map live_conductor_content.tabs
+    // into both here, using ContentArticle's richest available fields since
+    // ContentArticle has no template/script shape of its own (see
+    // CONTENT-POP-01 requirement doc, Section 6, for the full field mapping and
+    // rationale). Gated entirely inside `if (hasLiveConductorContent)` — when
+    // false, this block never runs and freshSections/trainingScripts retain
+    // exactly the values already computed above; zero behavior change for the
+    // old-pipeline path.
+    if (hasLiveConductorContent) {
+      const tabs = liveConductorContent!.live_conductor_content!.tabs as LiveConductorTab[]
+
+      freshSections = tabs.map((tab) => {
+        const a = tab.article
+        const misconceptions = a?.sections?.common_misconceptions ?? []
+        return {
+          id: tab.subtopic_slug,
+          type: 'DefinitionTriptych',
+          data: {
+            term: a?.subtopic_title ?? tab.subtopic_title ?? '',
+            category: 'AI Concept',
+            what_it_is: a?.sections?.overview ?? '',
+            real_example: {
+              company: '',
+              what: a?.sections?.illustrative_example ?? '',
+              result: '',
+            },
+            common_myth: misconceptions[0] ?? '',
+            so_what: a?.sections?.enterprise_implications ?? '',
+          },
+          meta: {
+            subtopicTitle: a?.subtopic_title ?? tab.subtopic_title ?? '',
+            sessionTitle,
+            userRole,
+            userIndustry,
+          },
+          status: 'ready',
+        } as TemplateSection
+      })
+
+      trainingScripts = tabs.map((tab) => {
+        const a = tab.article
+        return {
+          subtopic_title: a?.subtopic_title ?? tab.subtopic_title ?? '',
+          subtopic_slug: a?.subtopic_slug ?? tab.subtopic_slug,
+          segments: [
+            {
+              type: 'TEACH',
+              content: [
+                a?.sections?.overview ?? '',
+                a?.sections?.how_it_works ?? '',
+                a?.sections?.enterprise_implications ?? '',
+              ].filter(Boolean).join(' '),
+            },
+          ],
+        }
+      })
+
+      console.log(`[recall/bot] CONTENT-POP-01: mapped ${freshSections.length} live-conductor tabs into freshSections/trainingScripts for session=${sessionId}`)
+    }
 
     // ── Guard: refuse to launch a curriculum session with no content ────────
     // A missing-sections launch silently degrades to on-the-fly generation —

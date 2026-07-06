@@ -8,8 +8,18 @@ import {
 } from '@/lib/voice/hume-native/prompt-template'
 import { provisionNativeConfig } from '@/lib/voice/hume-native/config-provisioner'
 import type { TemplateSection } from '@/lib/templates/types'
+import { generateLiveConductorContent } from '@/lib/content/live-conductor-content'
+import type { LiveConductorTab } from '@/lib/content/live-conductor-content'
+import type { UserContext } from '@/lib/content/session-content-generator'
 
 export const dynamic = 'force-dynamic'
+
+// CONTENT-POP-01 Part B: the self-heal path calls generateLiveConductorContent
+// synchronously (whole-topic background + N per-subtopic ContentArticle
+// generations). 120s matches the existing precedent in app/api/recall/bot/route.ts
+// so the route is not killed by the platform before the 60s internal timeout
+// below can fire and be handled gracefully.
+export const maxDuration = 120
 
 /**
  * HUME-NATIVE-01 — POST /api/hume-native/provision-config
@@ -78,8 +88,234 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'No session content available for this user yet' }, { status: 404 })
   }
 
-  const sections = (stateRow.sections ?? []) as TemplateSection[]
-  const trainingScripts = (stateRow.training_scripts ?? []) as Parameters<typeof buildSessionScript>[1]
+  let sections = (stateRow.sections ?? []) as TemplateSection[]
+  let trainingScripts = (stateRow.training_scripts ?? []) as Parameters<typeof buildSessionScript>[1]
+  let topicTitleForContent = stateRow.topic_title as string | null
+
+  // ── CONTENT-POP-01 Part B: self-healing pre-flight completeness check ──────
+  // Defensive backstop: if sections/training_scripts/topic_title reach this
+  // point empty (a regression, a race condition, a partial write, a new bug —
+  // any future cause, not just the one fixed in Part A), don't silently
+  // provision Clio with nothing to teach from. Detect it here, attempt one
+  // synchronous on-demand regeneration, and only hard-fail if that also comes
+  // back empty. See CONTENT-POP-01 requirement doc, Section 6, Part B.
+  const isSuspiciouslyEmpty = (
+    sects: TemplateSection[],
+    scripts: Parameters<typeof buildSessionScript>[1],
+    title: string | null,
+    content: string
+  ): boolean => {
+    if (!sects || sects.length === 0) return true
+
+    const hasUsableText = sects.some((section) => {
+      const data = (section as unknown as { data?: Record<string, unknown> }).data ?? {}
+      const candidate =
+        (typeof data.what_it_is === 'string' && data.what_it_is) ||
+        (typeof data.overview === 'string' && data.overview) ||
+        (typeof data.direct_answer === 'string' && data.direct_answer) ||
+        (typeof data.one_line === 'string' && data.one_line) ||
+        JSON.stringify(data)
+      return typeof candidate === 'string' && candidate.trim().length >= 40
+    })
+    if (!hasUsableText) return true
+
+    if (!title || title.trim().length === 0) return true
+
+    if (content.trim().length < 200) return true
+
+    return false
+  }
+
+  const sessionContentPreCheck = [
+    topicTitleForContent ? `# ${topicTitleForContent}` : '',
+    buildTopicContext(sections, sections.map(() => null)),
+    buildSessionScript(sections, trainingScripts),
+  ].filter(Boolean).join('\n\n---\n\n')
+
+  if (isSuspiciouslyEmpty(sections, trainingScripts, topicTitleForContent, sessionContentPreCheck)) {
+    console.warn(
+      '[hume-native/provision-config] CONTENT-POP-01: empty content detected for session',
+      sessionId,
+      '— triggering on-demand generation',
+      { sectionsCount: sections.length, topicTitle: topicTitleForContent, sessionContentLength: sessionContentPreCheck.length }
+    )
+
+    try {
+      // Re-derive generation inputs for this sessionId. Priority order and
+      // fallback values must match inngest/session-content-pipeline.ts exactly
+      // (inferRoleLevel and getSubtopicsForSession are module-private there,
+      // so their logic is reimplemented inline here — same behavior, no import).
+      const [{ data: sessionForHeal, error: sessionForHealErr }, { data: userForHeal, error: userForHealErr }] = await Promise.all([
+        supabase
+          .from('sessions')
+          .select('session_title, session_plan, sub_sessions, topics')
+          .eq('id', sessionId)
+          .single(),
+        supabase
+          .from('users')
+          .select('role, industry, ai_maturity, role_level')
+          .eq('id', userId)
+          .single(),
+      ])
+
+      if (sessionForHealErr || !sessionForHeal || userForHealErr) {
+        throw new Error(
+          `CONTENT-POP-01 re-derivation query failed: ${sessionForHealErr?.message ?? userForHealErr?.message ?? 'session or user row missing'}`
+        )
+      }
+
+      const topicId = sessionId
+      const topicTitle = sessionForHeal.session_title ?? 'AI Strategy Session'
+
+      const planSubtopics = (sessionForHeal.session_plan as { sub_sessions?: Array<{ title: string; skipped?: boolean }> } | null)
+        ?.sub_sessions?.filter((s) => !s.skipped)?.map((s) => s.title) ?? []
+      const jsonbSubtopics = (sessionForHeal.sub_sessions as Array<{ title: string }> | null)
+        ?.map((s) => s.title) ?? []
+
+      const inferRoleLevel = (role?: string | null): string => {
+        if (!role) return 'c-suite'
+        const lower = role.toLowerCase()
+        if (/developer|engineer|architect|specialist|analyst|scientist/.test(lower)) return 'specialist'
+        if (/manager|lead|head/.test(lower)) return 'manager'
+        if (/vp|svp|evp|director/.test(lower)) return 'vp-dir'
+        return 'c-suite'
+      }
+
+      const getSubtopicsForSession = (id: string, subtopicsFromDb: string[] | null): string[] => {
+        if (subtopicsFromDb && subtopicsFromDb.length > 0) return subtopicsFromDb
+        const FALLBACK_SUBTOPICS: Record<string, string[]> = {
+          'ai-fundamentals': [
+            'What generative AI is and why this moment is strategically different',
+            'The foundation model landscape: GPT, Claude, Gemini — what they share',
+            'What AI can realistically do today vs. what vendors claim',
+            'The three decisions every executive must make in the next 12 months',
+            'How to frame AI as a capability, not a one-time project',
+          ],
+        }
+        return FALLBACK_SUBTOPICS[id] ?? FALLBACK_SUBTOPICS['ai-fundamentals']
+      }
+
+      const subtopicTitles = planSubtopics.length > 0
+        ? planSubtopics
+        : jsonbSubtopics.length > 0
+          ? jsonbSubtopics
+          : getSubtopicsForSession(topicId, sessionForHeal.topics as string[] | null)
+
+      const userContext: UserContext = {
+        role: userForHeal?.role ?? 'executive',
+        industry: userForHeal?.industry ?? 'business',
+        maturity: userForHeal?.ai_maturity ?? 'beginner',
+        roleLevel: userForHeal?.role_level ?? inferRoleLevel(userForHeal?.role),
+      }
+
+      console.log('[hume-native/provision-config] CONTENT-POP-01: starting synchronous on-demand generation for session', sessionId)
+      const startedAt = Date.now()
+
+      const TIMEOUT_MS = 60_000
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('CONTENT-POP-01 self-heal timed out after 60s')), TIMEOUT_MS)
+      })
+
+      let healed: Awaited<ReturnType<typeof generateLiveConductorContent>>
+      try {
+        healed = await Promise.race([
+          generateLiveConductorContent(sessionId, topicId, topicTitle, subtopicTitles, userId, userContext),
+          timeoutPromise,
+        ])
+      } catch (genErr) {
+        const isTimeout = genErr instanceof Error && genErr.message.includes('timed out')
+        if (isTimeout) {
+          console.error('[hume-native/provision-config] CONTENT-POP-01: on-demand generation TIMED OUT after 60s for session', sessionId)
+        } else {
+          console.error('[hume-native/provision-config] CONTENT-POP-01: on-demand generation FAILED for session', sessionId, genErr instanceof Error ? genErr.message : genErr)
+        }
+        return NextResponse.json({ error: 'Session content unavailable — on-demand generation failed' }, { status: 502 })
+      }
+
+      // Persist, mirroring session-content-pipeline.ts's exact write shape.
+      const { error: sessionWriteErr } = await supabase
+        .from('sessions')
+        .update({
+          live_conductor_content: healed,
+          content_status: 'ready',
+        })
+        .eq('id', sessionId)
+      if (sessionWriteErr) {
+        console.error('[hume-native/provision-config] CONTENT-POP-01: failed to persist self-healed live_conductor_content:', sessionWriteErr.message)
+      }
+
+      // Re-run Part A's mapping logic inline so provisioning proceeds with the
+      // freshly-generated data in this same request — no second round-trip to
+      // walkthrough_state is required.
+      const tabs = healed.tabs as LiveConductorTab[]
+      sections = tabs.map((tab) => {
+        const a = tab.article
+        const misconceptions = a?.sections?.common_misconceptions ?? []
+        return {
+          id: tab.subtopic_slug,
+          type: 'DefinitionTriptych',
+          data: {
+            term: a?.subtopic_title ?? tab.subtopic_title ?? '',
+            category: 'AI Concept',
+            what_it_is: a?.sections?.overview ?? '',
+            real_example: {
+              company: '',
+              what: a?.sections?.illustrative_example ?? '',
+              result: '',
+            },
+            common_myth: misconceptions[0] ?? '',
+            so_what: a?.sections?.enterprise_implications ?? '',
+          },
+          meta: {
+            subtopicTitle: a?.subtopic_title ?? tab.subtopic_title ?? '',
+            sessionTitle: topicTitle,
+            userRole: userContext.role,
+            userIndustry: userContext.industry,
+          },
+          status: 'ready',
+        } as TemplateSection
+      })
+      trainingScripts = tabs.map((tab) => {
+        const a = tab.article
+        return {
+          subtopic_title: a?.subtopic_title ?? tab.subtopic_title ?? '',
+          subtopic_slug: a?.subtopic_slug ?? tab.subtopic_slug,
+          segments: [
+            {
+              type: 'TEACH' as const,
+              content: [
+                a?.sections?.overview ?? '',
+                a?.sections?.how_it_works ?? '',
+                a?.sections?.enterprise_implications ?? '',
+              ].filter(Boolean).join(' '),
+            },
+          ],
+        }
+      }) as Parameters<typeof buildSessionScript>[1]
+      topicTitleForContent = topicTitle
+
+      const recheckContent = [
+        topicTitleForContent ? `# ${topicTitleForContent}` : '',
+        buildTopicContext(sections, sections.map(() => null)),
+        buildSessionScript(sections, trainingScripts),
+      ].filter(Boolean).join('\n\n---\n\n')
+
+      if (isSuspiciouslyEmpty(sections, trainingScripts, topicTitleForContent, recheckContent)) {
+        console.error('[hume-native/provision-config] CONTENT-POP-01: on-demand generation completed but content is STILL empty for session', sessionId, '— blocking call')
+        return NextResponse.json({ error: 'Session content unavailable — on-demand generation failed' }, { status: 502 })
+      }
+
+      console.log(
+        '[hume-native/provision-config] CONTENT-POP-01: on-demand generation succeeded for session',
+        sessionId,
+        '— proceeding with fresh content',
+        { tabsGenerated: tabs.length, durationMs: Date.now() - startedAt }
+      )
+    } catch (healErr) {
+      console.error('[hume-native/provision-config] CONTENT-POP-01: on-demand generation FAILED for session', sessionId, healErr instanceof Error ? healErr.message : healErr)
+      return NextResponse.json({ error: 'Session content unavailable — on-demand generation failed' }, { status: 502 })
+    }
+  }
 
   // topic_context per-section docs aren't separately stored on walkthrough_state
   // today (LIVE-01 folds them into the combined system_prompt at session-brief
@@ -89,14 +325,14 @@ export async function POST(request: NextRequest) {
   const topicContextDocs: (string | null)[] = sections.map(() => null)
 
   const sessionContent = [
-    stateRow.topic_title ? `# ${stateRow.topic_title}` : '',
+    topicTitleForContent ? `# ${topicTitleForContent}` : '',
     buildTopicContext(sections, topicContextDocs),
     buildSessionScript(sections, trainingScripts),
   ].filter(Boolean).join('\n\n---\n\n')
 
   // Full user profile (untrimmed) via the existing serializer.
   const profile = await getUserLearningProfile(userId)
-  const currentDomain = stateRow.topic_title ?? 'general'
+  const currentDomain = topicTitleForContent ?? 'general'
   const profileContext = profile ? buildProfileContextForClio(profile, currentDomain) : ''
 
   // Full detected-intent sub-block (omitted cleanly if no session_insights row exists yet).
