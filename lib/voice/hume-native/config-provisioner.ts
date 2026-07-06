@@ -14,15 +14,19 @@
  * Config is created per session (never reused) to avoid stale-prompt bleed
  * between users.
  *
- * EXPLICIT-RECONSTRUCTION APPROACH (third provisioning fix — see git history
+ * EXPLICIT-RECONSTRUCTION APPROACH (fourth provisioning fix — see git history
  * for the prior field-by-field approach, the tools-management approach that
- * self-managed a separate Hume Tools API lifecycle, and the clone-and-spread
- * approach that preceded this one and broke because of it): the base Config
- * referenced by NEXT_PUBLIC_HUME_CONFIG_ID is fetched via
- * `GET /v0/evi/configs/{id}` (getExistingConfig) purely as a source of
+ * self-managed a separate Hume Tools API lifecycle, and the two
+ * clone-and-spread approaches that preceded this one and broke because of
+ * it): the base Config referenced by NEXT_PUBLIC_HUME_CONFIG_ID is fetched
+ * via `GET /v0/evi/configs/{id}` (getExistingConfig) purely as a source of
  * *values* to carry forward — its body is never spread wholesale into the
- * POST payload again, because Hume's GET and POST schemas are NOT
- * symmetrical for every field:
+ * POST payload again, because Hume's GET (`ReturnConfig`) and POST
+ * (`PostedConfig`) schemas are NOT symmetrical for every field. Verified
+ * directly against Hume's Fern-generated Python SDK type definitions
+ * (github.com/HumeAI/hume-python-sdk, src/hume/empathic_voice/types/), which
+ * mirror the same OpenAPI definition dev.hume.ai's Create Config reference is
+ * generated from:
  *
  *   - `voice`: GET returns a richer object (description, tags, type, etc.)
  *     than POST accepts. POST only accepts `{ provider, id }` (or
@@ -30,31 +34,62 @@
  *     reject/drop the field, which surfaces as
  *     `400: "Attempting to create an EVI3 config without specifying a
  *     voice. Voice spec is required."` — this was the confirmed root cause
- *     of the second provisioning bug. Fixed here by explicitly reconstructing
+ *     of the second provisioning bug. Fixed by explicitly reconstructing
  *     `{ provider: 'HUME_AI', id: '21289f74-417c-422c-be9f-b8f84ee07d44' }`
  *     ("Ellie", the known-good production voice).
  *   - `language_model`: GET reports this back as `{ provider, model }`, but
  *     POST's schema (`posted_language_model`) expects `{ model_provider,
  *     model_resource, temperature? }` — different key names entirely, so a
- *     naive spread silently produces a body POST doesn't recognize. Fixed
- *     here by explicitly reconstructing `{ model_provider: 'ANTHROPIC',
+ *     naive spread silently produces a body POST doesn't recognize. Fixed by
+ *     explicitly reconstructing `{ model_provider: 'ANTHROPIC',
  *     model_resource: 'claude-sonnet-4-6' }`.
- *   - `tools`: POST's `tools` array takes minimal `{id, version}` references
- *     (`posted_user_defined_tool_spec`) into pre-created Hume Tools, which
- *     round-trips fine from GET — but built-in tools (`hang_up`, `web_search`)
- *     live in a wholly separate top-level field, `builtin_tools`
- *     (`posted_builtin_tool`, shape `{ name, fallback_content? }`), NOT
- *     inside `tools`. Confirmed via Hume's Create Config API reference
- *     (dev.hume.ai). Fixed here by explicitly reconstructing both fields:
- *     `tools` as `{id, version}` refs for `advance_tab` and `show_visual`,
- *     and `builtin_tools` as `{ name: 'hang_up' }`.
+ *   - `tools` / `builtin_tools`: POST's `tools` array takes minimal
+ *     `{id, version}` references (`posted_user_defined_tool_spec`) into
+ *     pre-created Hume Tools, which round-trips fine from GET — but built-in
+ *     tools (`hang_up`, `web_search`) live in a wholly separate top-level
+ *     field, `builtin_tools` (`posted_builtin_tool`, shape
+ *     `{ name, fallback_content? }`), NOT inside `tools`. The base config
+ *     carries BOTH `web_search` and `hang_up` in `builtin_tools` (confirmed
+ *     via a live GET against the production config), but the prior fix only
+ *     reconstructed `hang_up` — silently dropping `web_search` on every
+ *     clone even though the base config has it enabled. Fixed by explicitly
+ *     reconstructing `tools` as `{id, version}` refs for `advance_tab` and
+ *     `show_visual`, and `builtin_tools` as BOTH `{ name: 'web_search' }`
+ *     and `{ name: 'hang_up' }`.
+ *   - `event_messages`: this is the newly-found asymmetry. Hume's GET
+ *     response (`ReturnEventMessageSpecs`) includes a fourth key,
+ *     `on_resume_chat`, alongside `on_new_chat`, `on_inactivity_timeout`,
+ *     `on_max_duration_timeout` — confirmed via a live GET of the base
+ *     config, which returns all four. POST's schema (`PostedEventMessageSpecs`)
+ *     declares only THREE keys: `on_new_chat`, `on_inactivity_timeout`,
+ *     `on_max_duration_timeout` — `on_resume_chat` does not exist as a
+ *     modeled field anywhere in POST's request schema. A blind spread of the
+ *     GET body therefore ships an undeclared key inside `event_messages`
+ *     that POST's schema has no slot for. Fixed by explicitly reconstructing
+ *     only the three POST-valid keys with the base config's known-good
+ *     values (`on_new_chat: { enabled: true, text: '' }`, the other two left
+ *     at their base disabled state).
+ *   - `turn_detection`, `interruption`, `nudges`, `timeouts`: field-for-field
+ *     identical between `Posted*` and `Return*` types in the SDK (same key
+ *     names, same nesting, same types on both sides) — there is no
+ *     structural asymmetry here. However, this is still explicitly
+ *     reconstructed rather than spread, both as defense-in-depth (the same
+ *     "spread now, discover asymmetry later" failure mode already hit voice/
+ *     language_model/builtin_tools/event_messages) and because it directly
+ *     explains the observed symptom: `timeouts.max_duration` showing
+ *     `enabled: true, duration_secs: 1800` in a clone even though the base
+ *     config has `max_duration.enabled: false` — 1800 seconds (30 minutes)
+ *     is documented in Hume's own SDK docstring as the hard WebSocket
+ *     ceiling EVI falls back to once ANY part of a config's timeout/turn
+ *     handling fails to apply as posted, which lines up with `event_messages`
+ *     (a sibling field in the same POST body) being silently invalid on
+ *     every prior clone.
  *
- * Everything else — `event_messages`, `interruption`, `turn_detection`,
- * `nudges`, `timeouts`, `webhooks`, `ellm_model` — has no evidence of
- * GET/POST asymmetry and continues to be inherited from the base config via
- * spread, same as `evi_version`. Only `name` (must be unique per session)
- * and `prompt` (the assembled per-session prompt) are session-specific
- * overrides on top of that inherited base.
+ * `webhooks` continues to be inherited from the base config via spread
+ * (empty array in the base config, same shape both directions) alongside
+ * `evi_version`, `ellm_model`, and `prompt`'s non-text fields. Only `name`
+ * (must be unique per session) and `prompt` (the assembled per-session
+ * prompt) are session-specific overrides on top of that inherited base.
  */
 
 const HUME_CONFIGS_URL = 'https://api.hume.ai/v0/evi/configs'
@@ -125,10 +160,10 @@ export async function provisionNativeConfig(
 
   // Fetch the existing production config purely as a source of values to
   // carry forward for the fields that DO round-trip cleanly between GET and
-  // POST (event_messages, interruption, turn_detection, nudges, timeouts,
-  // webhooks, ellm_model, evi_version). See module doc comment above for why
-  // voice, language_model, and tools/builtin_tools are NOT taken from this
-  // spread and are reconstructed explicitly instead.
+  // POST (webhooks, ellm_model, evi_version). See module doc comment above
+  // for why voice, language_model, tools/builtin_tools, event_messages,
+  // timeouts, turn_detection, interruption, and nudges are NOT taken from
+  // this spread and are reconstructed explicitly instead.
   let baseConfig: Record<string, unknown>
   try {
     baseConfig = await getExistingConfig(apiKey, baseConfigId)
@@ -138,9 +173,11 @@ export async function provisionNativeConfig(
   }
 
   // Drop GET-only/identity fields that POST /v0/evi/configs does not accept,
-  // plus the fields we reconstruct explicitly below (voice, language_model,
-  // tools, builtin_tools) so the inherited spread can never silently
-  // reintroduce their incompatible GET shapes.
+  // plus every field we reconstruct explicitly below (voice, language_model,
+  // tools, builtin_tools, event_messages, timeouts, turn_detection,
+  // interruption, nudges) so the inherited spread can never silently
+  // reintroduce their incompatible GET shapes or stray GET-only keys (e.g.
+  // event_messages.on_resume_chat).
   const {
     id: _baseId,
     version: _baseVersion,
@@ -151,6 +188,11 @@ export async function provisionNativeConfig(
     language_model: _baseLanguageModel,
     tools: _baseTools,
     builtin_tools: _baseBuiltinTools,
+    event_messages: _baseEventMessages,
+    timeouts: _baseTimeouts,
+    turn_detection: _baseTurnDetection,
+    interruption: _baseInterruption,
+    nudges: _baseNudges,
     ...inheritedFields
   } = baseConfig
 
@@ -176,8 +218,37 @@ export async function provisionNativeConfig(
       { id: '65a3d139-2f7b-4e26-9fce-caeb7fa78e05', version: 1 }, // show_visual
     ],
     builtin_tools: [
+      { name: 'web_search' },
       { name: 'hang_up' },
     ],
+    // Reconstructed explicitly — GET's event_messages includes a fourth key,
+    // on_resume_chat, that POST's PostedEventMessageSpecs schema does not
+    // declare. Only the three POST-valid keys are sent, with the base
+    // config's known-good values.
+    event_messages: {
+      on_new_chat: { enabled: true, text: '' },
+      on_inactivity_timeout: { enabled: false, text: null },
+      on_max_duration_timeout: { enabled: false, text: null },
+    },
+    // Reconstructed explicitly as defense-in-depth (field names are
+    // identical between GET/POST here, but see module doc comment for why
+    // this is still not spread from the GET response).
+    timeouts: {
+      inactivity: { enabled: true, duration_secs: 120 },
+      max_duration: { enabled: false },
+    },
+    turn_detection: {
+      end_of_turn_silence_ms: 800,
+      speech_detection_threshold: 0.5,
+      prefix_padding_ms: 300,
+    },
+    interruption: {
+      min_interruption_ms: 800,
+    },
+    nudges: {
+      enabled: true,
+      interval_secs: 3,
+    },
   }
 
   let res: Response
