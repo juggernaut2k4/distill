@@ -48,20 +48,30 @@
  *     pre-created Hume Tools, which round-trips fine from GET — but built-in
  *     tools (`hang_up`, `web_search`) live in a wholly separate top-level
  *     field, `builtin_tools` (`posted_builtin_tool`, shape
- *     `{ name, fallback_content? }`), NOT inside `tools`. Unlike `voice` and
- *     `language_model` above, there is no GET/POST shape asymmetry for
- *     `builtin_tools` — GET's per-entry shape (`{ name, fallback_content? }`)
- *     already matches what POST expects exactly. So rather than hardcoding a
- *     second static literal (which would silently drift again the next time
- *     the base config's enabled builtin tools change — exactly how the prior
- *     fix silently dropped `web_search` in the first place), `builtin_tools`
- *     is dynamically reconstructed from `baseConfig.builtin_tools` (captured
- *     before destructuring, already in scope from `getExistingConfig()` — no
- *     extra API call needed), mapping each entry to `{ name, fallback_content? }`
- *     to strip any GET-only sibling keys. `tools` (the user-defined
- *     `advance_tab` / `show_visual` refs) is still explicitly reconstructed as
- *     `{id, version}` pairs, since those are per-app fixed identifiers, not
- *     values that should track whatever the base config happens to have.
+ *     `{ name, fallback_content? }`), NOT inside `tools`. There is no GET/POST
+ *     shape asymmetry for either field — GET's per-entry shape for
+ *     `builtin_tools` (`{ name, fallback_content? }`) already matches what
+ *     POST expects exactly, and GET's per-entry shape for `tools`
+ *     (`{ id, version, ...other GET-only keys }`) already matches the minimal
+ *     `{id, version}` reference POST expects once the extra GET-only sibling
+ *     keys (e.g. `name`, `parameters`) are dropped. So, mirroring the
+ *     `builtin_tools` fix, `tools` is now dynamically reconstructed from
+ *     `baseConfig.tools` (captured before destructuring, already in scope from
+ *     `getExistingConfig()` — no extra API call needed) instead of a hardcoded
+ *     literal. Hardcoding is exactly what silently dropped `web_search` from
+ *     `builtin_tools` previously, and what silently excluded the base
+ *     config's third custom tool (confirmed live, id
+ *     `6fc0bfde-1f63-44a1-b752-3507b5b5d30d`, believed to be `defer_question`
+ *     based on the CLM prompt's rule 9) from every cloned config's `tools`
+ *     array before this fix — that tool existed on the base config the whole
+ *     time but was never carried into native-mode clones because only two
+ *     specific ids were ever hardcoded. Whatever custom tools exist on the
+ *     base config at clone time are now automatically included, and any
+ *     future tool added to the account will automatically propagate too, with
+ *     no code change required. If `baseConfig.tools` is ever missing or
+ *     malformed, this falls back to the previous hardcoded two-tool list
+ *     (`advance_tab`, `show_visual`) as a safety net, mirroring the
+ *     `builtin_tools` fallback below.
  *   - `event_messages`: this is the newly-found asymmetry. Hume's GET
  *     response (`ReturnEventMessageSpecs`) includes a fourth key,
  *     `on_resume_chat`, alongside `on_new_chat`, `on_inactivity_timeout`,
@@ -219,10 +229,22 @@ export async function provisionNativeConfig(
       model_provider: 'ANTHROPIC',
       model_resource: 'claude-sonnet-4-6',
     },
-    tools: [
-      { id: '4f15c0c2-9af1-421c-8040-ad34b6345234', version: 1 }, // advance_tab
-      { id: '65a3d139-2f7b-4e26-9fce-caeb7fa78e05', version: 1 }, // show_visual
-    ],
+    // Dynamically reconstructed from the base config's actual tools (captured
+    // in baseConfig before destructuring above) rather than a hardcoded list
+    // of two specific ids — see module doc comment. This ensures every custom
+    // tool on the base config (including any added later, e.g. a third tool
+    // such as `defer_question`) is automatically carried into every native
+    // clone. Falls back to the previous hardcoded two-tool list only if the
+    // base config's field is ever missing/malformed.
+    tools: Array.isArray(baseConfig.tools)
+      ? (baseConfig.tools as Array<{ id: string; version: number }>).map((tool) => ({
+          id: tool.id,
+          version: tool.version,
+        }))
+      : [
+          { id: '4f15c0c2-9af1-421c-8040-ad34b6345234', version: 1 }, // advance_tab
+          { id: '65a3d139-2f7b-4e26-9fce-caeb7fa78e05', version: 1 }, // show_visual
+        ],
     // Dynamically reconstructed from the base config's actual builtin_tools
     // (captured in baseConfig before destructuring below) rather than a
     // hardcoded literal — see module doc comment. Falls back to the single
