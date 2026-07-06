@@ -2,6 +2,7 @@ import crypto from 'crypto'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { inngest } from '@/inngest/client'
 import { getMeetingBotProvider } from '@/lib/meeting-bot/provider'
+import { fetchHumeChatDuration } from '@/lib/voice/hume-native/session-details'
 
 /**
  * AUTOGEN-01 Part D — verified minute billing.
@@ -223,6 +224,81 @@ export async function computeBilledMinutes(
   return { minutesUsed, reachedSpeakVerified: true, gapDurationMs }
 }
 
+export type FinalizeHumeNativeBillingResult =
+  | { source: 'not_applicable' }
+  | { source: 'hume'; minutesUsed: number; durationSeconds: number }
+  | { source: 'fallback'; reason: string }
+
+/**
+ * HUME-DURATION-BILLING-01 — For Hume-native sessions, sources billed minutes
+ * from Hume's own authoritative chat duration instead of our
+ * speak_verified-to-disconnected audit-log calculation, so our billing can
+ * never silently drift from what Hume itself will invoice us for compute.
+ *
+ * Per docs/specs/HUME-DURATION-BILLING-01-requirement-doc.md Section 4.1/6.2:
+ * - Non-Hume-native sessions (ElevenLabs/Custom-LLM): returns
+ *   `{ source: 'not_applicable' }` immediately, no Hume API call attempted.
+ *   The caller falls through to the existing, completely unchanged
+ *   `computeBilledMinutes()` path.
+ * - Hume-native sessions with no `hume_chat_id`: returns
+ *   `{ source: 'fallback', reason: 'no_hume_chat_id' }` immediately — no
+ *   fetch attempted, since there is nothing to fetch.
+ * - Hume-native sessions with a `hume_chat_id`: attempts a single
+ *   `fetchHumeChatDuration()` call (5s timeout, no retries). On success,
+ *   returns `{ source: 'hume', minutesUsed, durationSeconds }` where
+ *   `minutesUsed = ceil(durationSeconds / 60)`. On any failure (timeout,
+ *   non-2xx, missing fields), returns `{ source: 'fallback', reason }` and
+ *   the caller proceeds to `computeBilledMinutes()` exactly as today.
+ *
+ * Billing is NEVER silently skipped by this function — it only ever decides
+ * which of the two minute-computation sources to use; both callers still
+ * write the ledger/deduction exactly as before.
+ */
+export async function finalizeHumeNativeBilling(params: {
+  sessionId: string
+  humeNativeEnabled?: boolean
+  humeChatId?: string | null
+}): Promise<FinalizeHumeNativeBillingResult> {
+  const { sessionId } = params
+  let humeNativeEnabled = params.humeNativeEnabled
+  let humeChatId = params.humeChatId
+
+  if (humeNativeEnabled === undefined || humeChatId === undefined) {
+    const supabase = createSupabaseAdminClient()
+    const { data } = await supabase
+      .from('sessions')
+      .select('hume_native_enabled, hume_chat_id')
+      .eq('id', sessionId)
+      .maybeSingle()
+
+    humeNativeEnabled = data?.hume_native_enabled ?? false
+    humeChatId = (data?.hume_chat_id as string | null) ?? null
+  }
+
+  if (!humeNativeEnabled) {
+    return { source: 'not_applicable' }
+  }
+
+  if (!humeChatId) {
+    console.warn(
+      `[session-billing] finalizeHumeNativeBilling: session ${sessionId} is hume_native_enabled but has no hume_chat_id — falling back to computeBilledMinutes`
+    )
+    return { source: 'fallback', reason: 'no_hume_chat_id' }
+  }
+
+  const result = await fetchHumeChatDuration(humeChatId)
+
+  if (!result.ok) {
+    console.warn(
+      `[session-billing] finalizeHumeNativeBilling: Hume duration fetch failed for session ${sessionId} (chat ${humeChatId}), reason=${result.reason} — falling back to computeBilledMinutes`
+    )
+    return { source: 'fallback', reason: result.reason }
+  }
+
+  const minutesUsed = Math.max(0, Math.ceil(result.durationSeconds / 60))
+  return { source: 'hume', minutesUsed, durationSeconds: result.durationSeconds }
+}
+
 /**
  * Shared force-end path used by both the wall-clock session timer (D3 backstop)
  * and the voice-gap watchdog (D2/AC-D8). Writes the `disconnected` audit event,
@@ -285,7 +361,28 @@ export async function forceEndSession(params: {
   const now = new Date().toISOString()
   await writeAuditEvent({ sessionId, userId, eventType: 'disconnected', occurredAt: now })
 
-  const { minutesUsed } = await computeBilledMinutes(sessionId, { disconnectedAt: now })
+  // HUME-DURATION-BILLING-01 — for Hume-native sessions, prefer Hume's own
+  // authoritative chat duration over the audit-log calculation. Falls back
+  // to the existing, unmodified computeBilledMinutes() for ElevenLabs/
+  // Custom-LLM sessions and whenever the Hume fetch is unavailable/fails.
+  const humeResult = await finalizeHumeNativeBilling({ sessionId })
+
+  let minutesUsed: number
+  let billingSource: 'hume' | 'fallback_audit_log'
+  let billingSourceMetadata: Record<string, unknown>
+
+  if (humeResult.source === 'hume') {
+    minutesUsed = humeResult.minutesUsed
+    billingSource = 'hume'
+    billingSourceMetadata = { hume_duration_seconds: humeResult.durationSeconds }
+  } else {
+    const computed = await computeBilledMinutes(sessionId, { disconnectedAt: now })
+    minutesUsed = computed.minutesUsed
+    billingSource = 'fallback_audit_log'
+    billingSourceMetadata =
+      humeResult.source === 'fallback' ? { fallback_reason: humeResult.reason } : {}
+  }
+
   const cappedMinutes = Math.min(minutesUsed, userRow?.minutes_balance ?? minutesUsed)
 
   const [deductResult] = await Promise.all([
@@ -310,7 +407,11 @@ export async function forceEndSession(params: {
     deltaMinutes: -cappedMinutes,
     resultingBalance,
     sessionId,
-    metadata: { reached_speak_verified: minutesUsed > 0 || cappedMinutes > 0 },
+    metadata: {
+      reached_speak_verified: minutesUsed > 0 || cappedMinutes > 0,
+      billing_source: billingSource,
+      ...billingSourceMetadata,
+    },
   })
 
   console.log(`[session-billing] Force-ended session ${sessionId} — ${cappedMinutes} minutes deducted (audit-log derived)`)

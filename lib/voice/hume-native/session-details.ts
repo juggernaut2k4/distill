@@ -113,6 +113,96 @@ async function fetchAllTranscriptEvents(apiKey: string, chatId: string): Promise
   return transcriptEvents
 }
 
+export type FetchHumeChatDurationResult =
+  | { ok: true; durationSeconds: number }
+  | { ok: false; reason: string }
+
+/**
+ * HUME-DURATION-BILLING-01 — Fetches Hume's own authoritative chat duration
+ * for a Hume-native session, via the lightweight single-chat metadata
+ * endpoint (`GET /v0/evi/chats/{chat_id}`) — distinct from
+ * `fetchAllTranscriptEvents()` above, which hits the paginated
+ * `/v0/evi/chats/{chat_id}/events` transcript endpoint and is far more
+ * expensive. This function is read-only and does not touch any archive
+ * table or write path.
+ *
+ * Per docs/specs/HUME-DURATION-BILLING-01-requirement-doc.md Section 6.1/6.2:
+ * - Single attempt, 5-second timeout, no retries (AbortController).
+ * - Hume's chat metadata does not expose a pre-computed `duration_seconds`
+ *   field; duration is derived as `(end_timestamp - start_timestamp) / 1000`
+ *   from the two epoch-millisecond fields on the metadata object.
+ * - A missing `end_timestamp` (chat not yet ended on Hume's side) is treated
+ *   as "duration data unavailable" — never as a zero duration.
+ * - Every failure mode (network error/timeout, non-2xx, missing fields,
+ *   missing/placeholder API key) returns a typed `{ ok: false, reason }`
+ *   result rather than throwing, so the caller (`finalizeHumeNativeBilling()`
+ *   in lib/session-billing.ts) can fall back without new try/catch logic.
+ */
+export async function fetchHumeChatDuration(
+  humeChatId: string
+): Promise<FetchHumeChatDurationResult> {
+  const apiKey = process.env.HUME_API_KEY
+  if (!apiKey || apiKey.startsWith('PLACEHOLDER_')) {
+    return { ok: false, reason: 'api_key_not_configured' }
+  }
+
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 5000)
+
+  let res: Response
+  try {
+    res = await fetch(`${HUME_CHATS_URL}/${humeChatId}`, {
+      method: 'GET',
+      headers: { 'X-Hume-Api-Key': apiKey },
+      signal: controller.signal,
+    })
+  } catch (err) {
+    const reason = controller.signal.aborted
+      ? 'timeout'
+      : `network_error: ${err instanceof Error ? err.message : String(err)}`
+    console.warn(
+      `[hume-native/session-details] fetchHumeChatDuration failed for chat ${humeChatId}:`,
+      reason
+    )
+    return { ok: false, reason }
+  } finally {
+    clearTimeout(timeout)
+  }
+
+  if (!res.ok) {
+    console.warn(
+      `[hume-native/session-details] fetchHumeChatDuration got non-2xx for chat ${humeChatId}: status ${res.status}`
+    )
+    return { ok: false, reason: `http_${res.status}` }
+  }
+
+  let body: { start_timestamp?: number; end_timestamp?: number }
+  try {
+    body = (await res.json()) as { start_timestamp?: number; end_timestamp?: number }
+  } catch (err) {
+    console.warn(
+      `[hume-native/session-details] fetchHumeChatDuration got unparsable JSON for chat ${humeChatId}:`,
+      err instanceof Error ? err.message : String(err)
+    )
+    return { ok: false, reason: 'unparsable_response' }
+  }
+
+  const { start_timestamp: startTimestamp, end_timestamp: endTimestamp } = body
+
+  if (typeof startTimestamp !== 'number' || typeof endTimestamp !== 'number') {
+    // Missing end_timestamp means the chat hasn't ended on Hume's side yet
+    // (or the response is otherwise malformed) — never treat this as a zero
+    // duration (Section 6.1 / AC-8).
+    console.warn(
+      `[hume-native/session-details] fetchHumeChatDuration missing start/end timestamp for chat ${humeChatId}`
+    )
+    return { ok: false, reason: 'missing_timestamps' }
+  }
+
+  const durationSeconds = (endTimestamp - startTimestamp) / 1000
+  return { ok: true, durationSeconds }
+}
+
 /**
  * Returns the full Config details and transcript for a given session, sourced
  * from the durable archive if available, falling back to a live Hume API call

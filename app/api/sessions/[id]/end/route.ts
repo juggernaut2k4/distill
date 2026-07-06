@@ -3,7 +3,12 @@ import { requireSessionAuth } from '@/lib/session-auth'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { releaseAgent } from '@/lib/elevenlabs-pool'
 import { inngest } from '@/inngest/client'
-import { writeAuditEvent, computeBilledMinutes, writeMinutesLedgerEvent } from '@/lib/session-billing'
+import {
+  writeAuditEvent,
+  computeBilledMinutes,
+  writeMinutesLedgerEvent,
+  finalizeHumeNativeBilling,
+} from '@/lib/session-billing'
 
 interface Params {
   params: { id: string }
@@ -28,7 +33,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   const [{ data: session }, { data: userRow }] = await Promise.all([
     supabase
       .from('sessions')
-      .select('id, started_at, duration_mins, status')
+      .select('id, started_at, duration_mins, status, hume_native_enabled, hume_chat_id')
       .eq('id', params.id)
       .eq('user_id', userId!)
       .single(),
@@ -43,6 +48,20 @@ export async function POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Session not found' }, { status: 404 })
   }
 
+  // HUME-DURATION-BILLING-01 — idempotency guard (mirrors forceEndSession()'s
+  // existing `session.status === 'completed'` check). Without this, a manual
+  // "End Session" click racing with a watchdog/timer force-end for the same
+  // session could independently write a second deduction. If the session is
+  // already completed, no further writes happen — no audit event, no
+  // deduction, no ledger row.
+  if (session.status === 'completed') {
+    return NextResponse.json({
+      minutesUsed: 0,
+      newBalance: userRow?.minutes_balance ?? 0,
+      alreadyCompleted: true,
+    })
+  }
+
   const now = new Date().toISOString()
 
   // Billing-end audit event — this timestamp is what minutes are computed up to.
@@ -53,16 +72,41 @@ export async function POST(request: NextRequest, { params }: Params) {
     occurredAt: now,
   })
 
-  // AC-D2 / AC-D3: computeBilledMinutes returns an explicit zero when this
-  // session's audit log never contains a `speak_verified` row — never a raw
-  // wall-clock fallback.
-  const { minutesUsed: rawMinutesUsed, reachedSpeakVerified } = await computeBilledMinutes(
-    params.id,
-    { disconnectedAt: now }
-  )
-  if (!reachedSpeakVerified) {
-    console.log(`[session/end] Session ${params.id} never reached speak_verified — billing 0 minutes`)
+  // HUME-DURATION-BILLING-01 — for Hume-native sessions, prefer Hume's own
+  // authoritative chat duration over the audit-log calculation. Falls back
+  // to the existing, unmodified computeBilledMinutes() for ElevenLabs/
+  // Custom-LLM sessions and whenever the Hume fetch is unavailable/fails.
+  const humeResult = await finalizeHumeNativeBilling({
+    sessionId: params.id,
+    humeNativeEnabled: session.hume_native_enabled as boolean,
+    humeChatId: (session.hume_chat_id as string | null) ?? null,
+  })
+
+  let rawMinutesUsed: number
+  let reachedSpeakVerified = false
+  let billingSource: 'hume' | 'fallback_audit_log'
+  let billingSourceMetadata: Record<string, unknown>
+
+  if (humeResult.source === 'hume') {
+    rawMinutesUsed = humeResult.minutesUsed
+    billingSource = 'hume'
+    billingSourceMetadata = { hume_duration_seconds: humeResult.durationSeconds }
+  } else {
+    // AC-D2 / AC-D3: computeBilledMinutes returns an explicit zero when this
+    // session's audit log never contains a `speak_verified` row — never a raw
+    // wall-clock fallback.
+    const computed = await computeBilledMinutes(params.id, { disconnectedAt: now })
+    rawMinutesUsed = computed.minutesUsed
+    reachedSpeakVerified = computed.reachedSpeakVerified
+    billingSource = 'fallback_audit_log'
+    billingSourceMetadata =
+      humeResult.source === 'fallback' ? { fallback_reason: humeResult.reason } : {}
+
+    if (!reachedSpeakVerified) {
+      console.log(`[session/end] Session ${params.id} never reached speak_verified — billing 0 minutes`)
+    }
   }
+
   const minutesUsed = Math.min(rawMinutesUsed, userRow?.minutes_balance ?? rawMinutesUsed)
 
   // Deduct minutes and mark session completed in parallel
@@ -93,7 +137,11 @@ export async function POST(request: NextRequest, { params }: Params) {
     deltaMinutes: -minutesUsed,
     resultingBalance: newBalance,
     sessionId: params.id,
-    metadata: { reached_speak_verified: reachedSpeakVerified },
+    metadata: {
+      reached_speak_verified: reachedSpeakVerified,
+      billing_source: billingSource,
+      ...billingSourceMetadata,
+    },
   })
 
   // Cancel the server-side timer — session is ending manually so the Inngest job
