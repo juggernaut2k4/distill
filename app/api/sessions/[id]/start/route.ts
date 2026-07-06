@@ -3,6 +3,7 @@ import { requireSessionAuth } from '@/lib/session-auth'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { inngest } from '@/inngest/client'
 import { writeAuditEvent, mintAuditToken } from '@/lib/session-billing'
+import { isLiveConductorEnabled } from '@/lib/voice/live-conductor-bridge'
 
 interface Params {
   params: { id: string }
@@ -136,14 +137,21 @@ export async function POST(request: NextRequest, { params }: Params) {
   // was null the whole session). Reset here, at the one place every session
   // unambiguously begins, so each session starts fresh on tab 1 with the
   // agenda visual able to generate again.
-  await supabase
-    .from('walkthrough_state')
-    .update({
-      live_conductor_tab_index: 0,
-      live_conductor_visual: null,
-      live_conductor_tab_turn_count: 0,
-    })
-    .eq('user_id', userId!)
+  //
+  // Gated behind isLiveConductorEnabled(): these columns only matter to the
+  // live-conductor feature, so when it's off (env var unset/false) this write
+  // is skipped entirely rather than unconditionally touching every session's
+  // walkthrough_state row.
+  if (isLiveConductorEnabled()) {
+    await supabase
+      .from('walkthrough_state')
+      .update({
+        live_conductor_tab_index: 0,
+        live_conductor_visual: null,
+        live_conductor_tab_turn_count: 0,
+      })
+      .eq('user_id', userId!)
+  }
 
   // Start server-side timer — cancels automatically when session ends
   inngest.send({
