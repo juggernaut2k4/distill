@@ -450,8 +450,16 @@ Keep domainGaps and domainInterests to max 5 items each. crossDomainBridges max 
  * Returns a compact text block injected into Clio's system prompt.
  * Tells Clio what the learner cares about, what they've struggled with,
  * and any cross-domain connections to make.
+ *
+ * HUME-SPEAK-01 (2026-07-06): optional `firstName` param, added so the
+ * Hume-native path (app/api/hume-native/provision-config/route.ts) can get
+ * the primary user's first name into Clio's context — needed so Clio's
+ * self-generated Rule-1 opening greeting can address the user by name.
+ * Purely additive: omitted (as the only other caller,
+ * app/api/recall/bot/route.ts, does) it produces byte-for-byte the same
+ * output as before this change.
  */
-export function buildProfileContextForClio(profile: UserLearningProfile, currentDomain: string): string {
+export function buildProfileContextForClio(profile: UserLearningProfile, currentDomain: string, firstName?: string): string {
   const gaps = profile.perDomainGaps[currentDomain] ?? []
   const interests = profile.perDomainInterests[currentDomain] ?? []
   const recentSessions = profile.sessionHistory.slice(-5)
@@ -463,6 +471,11 @@ export function buildProfileContextForClio(profile: UserLearningProfile, current
     `=== LEARNER PROFILE ===`,
     ``,
   ]
+
+  if (firstName) {
+    lines.push(`LEARNER'S FIRST NAME: ${firstName} — address them by this name when you greet them at the start of the session.`)
+    lines.push(``)
+  }
 
   if (profile.profileSummary) {
     lines.push(profile.profileSummary)

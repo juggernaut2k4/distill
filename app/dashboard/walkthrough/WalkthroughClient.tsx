@@ -580,11 +580,14 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
           // HUME-NATIVE-01 — small, clearly-commented conditional block, not an
           // inline restructuring of this function. Branches at the point the
           // Config is selected (per BA spec 4.1), above HumeAdapter.create().
-          // hume-adapter.ts requires no change: which mode runs is entirely a
-          // property of which configId is passed in below. On any failure here,
-          // provision-config's route already blocks with a clear error (no
-          // silent fallback to Custom-LLM mode) — that error simply propagates
-          // up through this connect() try/catch like any other connect failure.
+          // HUME-SPEAK-01 (2026-07-06): hume-adapter.ts DOES need to know the
+          // mode after all — its pre-emptive `session_settings` send must be
+          // skipped for native sessions (see isNativeMode on HumeAdapterConfig)
+          // — so HUME_NATIVE_ENABLED is passed through below as well as being
+          // used to pick the configId. On any failure here, provision-config's
+          // route already blocks with a clear error (no silent fallback to
+          // Custom-LLM mode) — that error simply propagates up through this
+          // connect() try/catch like any other connect failure.
           let humeConfigId = HUME_CONFIG_ID
           if (HUME_NATIVE_ENABLED) {
             const provisionRes = await fetch('/api/hume-native/provision-config', {
@@ -605,6 +608,7 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
             configId: humeConfigId,
             userId,
             mediaStream: micStream,
+            isNativeMode: HUME_NATIVE_ENABLED,
             onConnect: (sessionId) => {
               console.log('[Walkthrough/Hume] Connected, session:', sessionId)
               setAgentStatus('listening')

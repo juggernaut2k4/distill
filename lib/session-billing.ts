@@ -85,6 +85,10 @@ export type BillingAuditEventType =
   | 'gap_start'
   | 'gap_end'
   | 'disconnected'
+  // HUME-GROUND-TRUTH-01 — written by app/api/webhooks/hume/route.ts when a
+  // signed chat_ended event arrives and resolves to a known session. Read
+  // back by finalizeHumeNativeBilling()'s webhook fast-path below.
+  | 'hume_webhook_chat_ended'
 
 export type VoiceProvider = 'elevenlabs' | 'hume'
 
@@ -240,6 +244,82 @@ export type FinalizeHumeNativeBillingResult =
   | { source: 'fallback'; reason: string; retryUsed: boolean; totalWaitMs: number }
 
 /**
+ * HUME-GROUND-TRUTH-01 — checks whether a `hume_webhook_chat_ended` audit row
+ * already exists for this session (written by app/api/webhooks/hume/route.ts)
+ * and, if so, returns a ready-made `{ source: 'hume', ... }` result so
+ * finalizeHumeNativeBilling() can skip its delay()/fetchHumeChatDuration()
+ * sequence entirely.
+ *
+ * Returns `null` (never throws) whenever no usable row is found, so the
+ * caller can fall through to the existing polling sequence unchanged — this
+ * function is purely additive and must never itself become a new failure
+ * mode that blocks billing (Section 8 Error States).
+ *
+ * Cycle-scoping (Section 9 edge case): a `sessions` row can be reused across
+ * multiple connect/disconnect cycles. To avoid fast-pathing on a STALE
+ * webhook row from an earlier, already-billed cycle, this reuses the exact
+ * same `priorCycleEndAt` derivation already implemented and tested in
+ * computeBilledMinutes() above (find the second-to-last `disconnected` row;
+ * everything strictly after it belongs to the current cycle).
+ */
+async function tryHumeWebhookFastPath(
+  sessionId: string
+): Promise<Extract<FinalizeHumeNativeBillingResult, { source: 'hume' }> | null> {
+  try {
+    const allRows = await getAuditLog(sessionId)
+    const disconnects = allRows.filter((r) => r.event_type === 'disconnected')
+    const priorCycleEndAt =
+      disconnects.length >= 2 ? disconnects[disconnects.length - 2].occurred_at : null
+
+    const supabase = createSupabaseAdminClient()
+    let query = supabase
+      .from('session_billing_audit_log')
+      .select('metadata, occurred_at')
+      .eq('session_id', sessionId)
+      .eq('event_type', 'hume_webhook_chat_ended')
+      .order('occurred_at', { ascending: false })
+      .limit(1)
+
+    if (priorCycleEndAt) {
+      query = query.gt('occurred_at', priorCycleEndAt)
+    }
+
+    const { data, error } = await query.maybeSingle()
+
+    if (error) {
+      console.error(
+        `[session-billing] tryHumeWebhookFastPath: audit-log read failed for session ${sessionId} — falling through to polling:`,
+        error.message
+      )
+      return null
+    }
+
+    if (!data) {
+      return null
+    }
+
+    const metadata = (data.metadata ?? {}) as Record<string, unknown>
+    const durationSeconds = metadata.duration_seconds
+
+    if (typeof durationSeconds !== 'number' || Number.isNaN(durationSeconds)) {
+      console.warn(
+        `[session-billing] tryHumeWebhookFastPath: session ${sessionId} has a hume_webhook_chat_ended row with malformed duration_seconds — falling through to polling`
+      )
+      return null
+    }
+
+    const minutesUsed = Math.max(0, Math.ceil(durationSeconds / 60))
+    return { source: 'hume', minutesUsed, durationSeconds, retryUsed: false, totalWaitMs: 0 }
+  } catch (err) {
+    console.error(
+      `[session-billing] tryHumeWebhookFastPath: unexpected error for session ${sessionId} — falling through to polling:`,
+      err instanceof Error ? err.message : err
+    )
+    return null
+  }
+}
+
+/**
  * HUME-DURATION-BILLING-01 — For Hume-native sessions, sources billed minutes
  * from Hume's own authoritative chat duration instead of our
  * speak_verified-to-disconnected audit-log calculation, so our billing can
@@ -300,6 +380,17 @@ export async function finalizeHumeNativeBilling(params: {
       `[session-billing] finalizeHumeNativeBilling: session ${sessionId} is hume_native_enabled but has no hume_chat_id — falling back to computeBilledMinutes`
     )
     return { source: 'fallback', reason: 'no_hume_chat_id', retryUsed: false, totalWaitMs: 0 }
+  }
+
+  // HUME-GROUND-TRUTH-01 — webhook fast path. If Hume's own chat_ended
+  // webhook has already arrived and been logged (app/api/webhooks/hume/route.ts),
+  // use its authoritative duration_seconds directly and skip delay()/
+  // fetchHumeChatDuration() entirely — no outbound Hume API call, no wait.
+  // Falls through to the existing, byte-for-byte-unchanged polling sequence
+  // below whenever no usable row is found, or the check itself errors.
+  const webhookFastPathResult = await tryHumeWebhookFastPath(sessionId)
+  if (webhookFastPathResult) {
+    return webhookFastPathResult
   }
 
   // HUME-DURATION-02 — give Hume's chat record time to finalize before asking.

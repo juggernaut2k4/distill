@@ -101,11 +101,31 @@
  *     (a sibling field in the same POST body) being silently invalid on
  *     every prior clone.
  *
- * `webhooks` continues to be inherited from the base config via spread
- * (empty array in the base config, same shape both directions) alongside
- * `evi_version`, `ellm_model`, and `prompt`'s non-text fields. Only `name`
- * (must be unique per session) and `prompt` (the assembled per-session
- * prompt) are session-specific overrides on top of that inherited base.
+ * `evi_version`, `ellm_model`, and `prompt`'s non-text fields continue to be
+ * inherited from the base config via spread. `webhooks` is NO LONGER
+ * inherited via spread as of HUME-GROUND-TRUTH-01/HUME-WEBHOOK-01 — it is
+ * now explicitly set on every per-session clone (see below) so every clone
+ * subscribes to `chat_started`/`chat_ended` and Hume's webhook POSTs resolve
+ * to a `sessions` row regardless of whether the base config itself has been
+ * separately updated. Only `name` (must be unique per session), `prompt`
+ * (the assembled per-session prompt), and `webhooks` are session-specific
+ * overrides on top of that inherited base.
+ *
+ * WEBHOOK FIELD NAME (unverified pending a real Hume API round-trip test):
+ * Hume's Create/Update Config REST reference documents a top-level
+ * `webhooks` array field on the Config body, matching the field name
+ * HUME-WEBHOOK-01's own Section 12 references for the base Config. Each
+ * entry's shape is modeled here as `{ url, events }` (the most standard
+ * shape for this kind of webhook-subscription field — an endpoint URL plus
+ * the list of event names to subscribe to), following the same "declare a
+ * reasonable body and confirm on live testing" resolution pattern already
+ * used elsewhere in this file (voice, language_model, tools, etc., which
+ * were also initially uncertain and confirmed against Hume's SDK types).
+ * Unlike those fields, no live GET response or SDK type definition was
+ * available in this repo to confirm `webhooks`'s per-entry shape at build
+ * time — this is flagged here as the one unverified piece, to be confirmed
+ * or corrected against a real Hume Config POST response/webhook delivery
+ * before this fast path is relied upon in production.
  */
 
 const HUME_CONFIGS_URL = 'https://api.hume.ai/v0/evi/configs'
@@ -237,6 +257,7 @@ export async function provisionNativeConfig(
     turn_detection: _baseTurnDetection,
     interruption: _baseInterruption,
     nudges: _baseNudges,
+    webhooks: _baseWebhooks,
     ...inheritedFields
   } = baseConfig
 
@@ -314,6 +335,17 @@ export async function provisionNativeConfig(
       enabled: true,
       interval_secs: 3,
     },
+    // HUME-GROUND-TRUTH-01 — explicitly registers this per-session clone for
+    // chat_started/chat_ended webhook delivery, pointing at the receiver
+    // built for HUME-WEBHOOK-01. See module doc comment above for the field
+    // name's confidence level (best-supported guess, not yet round-trip
+    // verified against a real Hume API response).
+    webhooks: [
+      {
+        url: 'https://distill-peach.vercel.app/api/webhooks/hume',
+        events: ['chat_started', 'chat_ended'],
+      },
+    ],
   }
 
   let res: Response

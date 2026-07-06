@@ -385,4 +385,10 @@ SCR-01                                     ← enhancement layer, not yet built
 
 ---
 
-_BACKLOG.md v3.2 | Updated 2026-07-05 | HUME-NATIVE-01 pipeline + Phase C + CONTENT-POP-01 shipped; config-lifecycle consolidation approved but paused; HUME-WEBHOOK-01 deferred_
+## Future considerations
+
+- **HUME-SPEAK-01 Q3**: no client-side fallback/timeout nudge added if Hume-native still opens silently after the Option A fix — deferred, low priority, per Arun's judgment call 2026-07-06.
+
+---
+
+_BACKLOG.md v3.3 | Updated 2026-07-06 | HUME-SPEAK-01 (Clio not speaking first, Hume-native) shipped: Option A mode-branch + first-name threading_

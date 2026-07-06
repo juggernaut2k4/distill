@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { clerkClient } from '@clerk/nextjs/server'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { getUserLearningProfile, buildProfileContextForClio } from '@/lib/learning/user-profile'
 import { buildTopicContext, buildSessionScript } from '@/lib/clio-context-builder'
@@ -356,10 +357,26 @@ export async function POST(request: NextRequest) {
     buildSessionScript(sections, trainingScripts),
   ].filter(Boolean).join('\n\n---\n\n')
 
+  // HUME-SPEAK-01 / Q2 (2026-07-06): the primary user's first name, sourced
+  // via Clerk by userId — the identical mechanism app/dashboard/walkthrough/
+  // page.tsx already uses to source `userFirstName` for the ElevenLabs path
+  // (clerkClient.users.getUser(userId).firstName). This route only ever
+  // receives a userId (see file-level doc comment above — no Clerk session
+  // available), so the lookup is done here instead of being passed in.
+  // Defensive: a lookup failure or missing name must never block session
+  // connect — fall through with an empty name rather than throwing.
+  let userFirstName = ''
+  try {
+    const clerkUser = await clerkClient.users.getUser(userId)
+    userFirstName = clerkUser.firstName ?? clerkUser.username ?? ''
+  } catch (err) {
+    console.warn('[hume-native/provision-config] Failed to fetch first name from Clerk — proceeding without it:', err instanceof Error ? err.message : err)
+  }
+
   // Full user profile (untrimmed) via the existing serializer.
   const profile = await getUserLearningProfile(userId)
   const currentDomain = topicTitleForContent ?? 'general'
-  const profileContext = profile ? buildProfileContextForClio(profile, currentDomain) : ''
+  const profileContext = profile ? buildProfileContextForClio(profile, currentDomain, userFirstName || undefined) : ''
 
   // Full detected-intent sub-block (omitted cleanly if no session_insights row exists yet).
   const intentContext = await buildIntentContextForHumeNative(userId)

@@ -17,6 +17,16 @@ interface Params {
  * records an informational `bot_joined` audit event. Billing starts later, at
  * whatever moment the voice adapter fires `onSpeakVerified` (see
  * /api/sessions/audit-event and lib/session-billing.ts).
+ *
+ * REVERT-01 (2026-07-06): a completed session can be started again through this
+ * same path, same as a scheduled one — it just flips status back to 'active'.
+ * SESSION-DURATION-01 had added a hard block here preventing this; Arun decided
+ * that block was an unnecessary safety net on top of the real fix (the minute-
+ * calculation scoping fix in lib/session-billing.ts's computeBilledMinutes(),
+ * which is what actually closed the 170-minute overcharge incident and remains
+ * untouched). The block was removed, and RETAKE-01 (a separate "Retake this
+ * session" flow built to route around that block) was removed entirely as a
+ * result — see docs/specs/REVERT-01-remove-restart-block-and-retake.md.
  */
 export async function POST(request: NextRequest, { params }: Params) {
   const { userId, error } = await requireSessionAuth(request)
@@ -41,22 +51,6 @@ export async function POST(request: NextRequest, { params }: Params) {
 
   if (!session) {
     return NextResponse.json({ error: 'Session not found' }, { status: 404 })
-  }
-
-  // SESSION-DURATION-01 (AC-5/AC-6/AC-9): a completed session can never be
-  // (re)started. This is checked first, before the plan-approval and
-  // minutes-balance checks, with no time-based leniency — a pure status
-  // comparison. This closes the root cause of the 170-minute overcharge
-  // incident (a completed session's stale speak_verified timestamp being
-  // paired with a fresh disconnected timestamp on rejoin).
-  if (session.status === 'completed') {
-    return NextResponse.json(
-      {
-        error: "This session has already been completed and can't be restarted.",
-        code: 'SESSION_ALREADY_COMPLETED',
-      },
-      { status: 409 }
-    )
   }
 
   // AUTOGEN-01 §11 Q5 / §3 Part C: /start requires curriculum_plan.is_approved = true.

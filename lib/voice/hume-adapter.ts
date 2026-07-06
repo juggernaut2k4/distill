@@ -11,6 +11,13 @@ export interface HumeAdapterConfig {
   onModeChange: (mode: 'listening' | 'speaking') => void
   onMessage: (text: string, source: 'user' | 'ai') => void
   tools: Record<string, (params: Record<string, unknown>) => Promise<string>>
+  // HUME-SPEAK-01 — true only for Hume-native (supplemental-LLM) sessions.
+  // Defaults to falsy for every existing caller (Custom-LLM bridge, keep-alive,
+  // show_visual split-mode, reconnect), which must keep sending the
+  // `session_settings`/`custom_session_id` message on connect exactly as
+  // before. See the comment on that send inside `openConnection()` for why
+  // native-mode sessions must skip it.
+  isNativeMode?: boolean
 }
 
 export class HumeAdapter implements VoiceSessionAdapter {
@@ -75,10 +82,21 @@ export class HumeAdapter implements VoiceSessionAdapter {
         // bridge endpoint logs "userId extracted: (none)" on every request and Clio
         // has zero session context during live Hume calls. Send it once, immediately
         // on open, before mic capture starts.
-        this.ws?.send(JSON.stringify({
-          type: 'session_settings',
-          custom_session_id: this.config.userId,
-        }))
+        //
+        // HUME-SPEAK-01 (2026-07-06): this send exists ONLY to serve the
+        // Custom-LLM bridge above — Hume-native sessions have no bridge to
+        // forward `custom_session_id` to. It was found to race ahead of and
+        // suppress Hume's own `on_new_chat` auto-greeting inference (the send
+        // lands on the wire at the exact moment Hume dispatches its greeting
+        // LLM call), which is why Clio opened silently on native sessions. Skip
+        // it for native mode; leave it unconditional for every other caller —
+        // do not remove this branch or make the send unconditional again.
+        if (!this.config.isNativeMode) {
+          this.ws?.send(JSON.stringify({
+            type: 'session_settings',
+            custom_session_id: this.config.userId,
+          }))
+        }
 
         this.startMicCapture()
         if (!resolved) { resolved = true; resolve() }

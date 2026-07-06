@@ -54,8 +54,8 @@
       "category": "Content & how Clio speaks",
       "item": "No proper greeting at session open",
       "description": "Clio doesn't open the session herself — she reacts to the participant speaking first instead of greeting them by name.",
-      "status": "backlog — discuss later",
-      "comment": "Moved to backlog per Arun's direction 2026-07-06 morning. Confirmed still real (via transcript) but not actively worked until revisited."
+      "status": "built, type-checked, uncommitted locally — awaiting deploy",
+      "comment": "Real root cause found: a leftover technical message (built for the old voice system, meant to beat Hume's own greeting) was still firing on every call and blocking Clio's own greeting from ever happening. Fixed by skipping that message specifically for the new voice system — nothing else changed, old system fully untouched and verified. Also added the signed-up user's first name into what Clio knows, so her self-generated opening naturally uses it. Greeting other meeting participants stayed out of scope, per Arun's call. npx tsc --noEmit clean. Not committed/pushed/deployed."
     },
     {
       "id": "graceful-ending-wrapup",
@@ -158,8 +158,24 @@
       "category": "Session lifecycle",
       "item": "Retake a completed session",
       "description": "A completed session can't be rejoined (by design, to prevent double-charging). Arun wants a way for the user to take that session's material again as a brand-new attempt — new session, new call, new billing, same topic.",
-      "status": "built, type-checked, uncommitted locally — needs a migration applied before it works",
-      "comment": "A 'Retake this session' button now appears on completed sessions. Clicking it creates a brand-new session (own billing, fresh content, same topic) linked back to the original, which stays completely untouched. npx tsc --noEmit clean; CEO reviewed the actual diff. IMPORTANT: needs one new database migration (061_retaken_from_session_id.sql) applied in Supabase before this can work end-to-end — not yet run. Not committed/pushed/deployed."
+      "status": "removed — Arun decided this was unnecessary complexity, superseded by simply removing the restart block instead",
+      "comment": "2026-07-06: Arun reviewed this and the underlying restart block together and decided both should go. The 'Retake this session' button/modal/API route (app/api/sessions/[id]/retake/route.ts) were deleted; the retaken_from_session_id column is left in place, unused, no down-migration. See REVERT-01 below and docs/specs/REVERT-01-remove-restart-block-and-retake.md. Historical spec/brief kept at .claude/agents/clio/feature-briefs/RETAKE-01-*.md and retake-completed-session.md for record."
+    },
+    {
+      "id": "revert-01-restart-block-removed",
+      "category": "Session lifecycle",
+      "item": "Removed the hard block on restarting a completed session",
+      "description": "SESSION-DURATION-01 added a guard that flatly blocked ever restarting a session once status === 'completed', on top of the actual root-cause fix (a calculation-scoping correction in computeBilledMinutes()). Arun decided the guard was an unnecessary safety net, not a requirement — entering a meeting URL and clicking the normal launch flow on a completed session should just work again.",
+      "status": "done, type-checked, uncommitted locally",
+      "comment": "2026-07-06: removed the 409 SESSION_ALREADY_COMPLETED guard from app/api/sessions/[id]/start/route.ts. A completed session now goes through the identical start path as a scheduled one (status -> active, audit token, bot_joined event); plan-approval and minutes-balance checks unchanged. The real root-cause fix in lib/session-billing.ts (computeBilledMinutes()) was left completely untouched — still load-bearing for the Hume-native fallback path. This also let RETAKE-01 be removed entirely (see above). npx tsc --noEmit clean. Not committed/pushed/deployed."
+    },
+    {
+      "id": "hume-ground-truth-webhook",
+      "category": "Billing & session time",
+      "item": "Instant, exact billing via Hume's own end-of-call webhook",
+      "description": "Today, billing waits ~3-7 seconds after a call ends and asks Hume for the call length (with one retry if Hume hasn't finalized it yet), only falling back to our own estimate if that fails. This adds a faster, more direct path: Hume can proactively tell us the second a call ends, so we don't have to wait and ask.",
+      "status": "built, type-checked, verified by direct code read — needs 1 migration applied, 1 new secret set, and 1 live test before it activates",
+      "comment": "2026-07-06: CEO-agent code review completed (not just trusting the developer's summary — read all 4 changed/new files directly). Confirmed correct: (1) the webhook receiver checks Hume's signature BEFORE trusting/parsing any of the call data, matching how we already do this for Stripe; (2) the fast-path correctly ignores a stale webhook row left over from an earlier reconnect on the same session — verified it reuses the exact same 'current cycle only' logic already proven in the existing billing calculation, not a new untested approach; (3) confirmed the existing wait-and-ask billing path is completely unchanged when this fast path doesn't fire — a wrong guess here cannot make billing worse than it is today. ONE OPEN ITEM: the exact field name/shape Hume expects for 'send webhooks to this URL' inside a call configuration is a well-reasoned best guess (following the same pattern that correctly resolved 4 prior similar guesses in this same file, each confirmed against Hume's real API afterward) but has not yet been round-trip verified against Hume's actual API — no live response was available to check it against ahead of time. If the guess is wrong, this simply never activates and today's billing continues exactly as-is (safe, no regression) — confirm on first live test call after deploy by checking whether a 'hume_webhook_chat_ended' audit row appears for that session. BEFORE DEPLOY: (a) apply migration supabase/migrations/062_hume_webhook_chat_ended_event_type.sql in Supabase, (b) set a new secret HUME_WEBHOOK_SECRET in Vercel (confirmed absent from current Vercel env list — do not confuse with the existing, different HUME_SECRET_KEY). Not committed/pushed/deployed."
     }
   ]
 }
