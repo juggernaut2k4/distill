@@ -129,10 +129,23 @@ export interface ProvisionNativeConfigResult {
  * Hume has already accepted and is actively serving in production, and only
  * override the fields that must differ for native mode.
  *
- * Hume's `GET /v0/evi/configs/{id}` returns the config wrapped in a
- * `{id, name, evi_version, prompt, voice, language_model, tools,
- * event_messages, ...}` shape (no version-list wrapper) when fetched by
- * config id directly — matching what the existing debug route already reads.
+ * CORRECTION (found during HUME-NATIVE-01 live diagnostics on the sibling
+ * live-fallback call in session-details.ts, which uses this exact same URL
+ * and method): `GET /v0/evi/configs/{id}` does NOT return the flat config
+ * shape described above directly. It actually returns a paginated-list
+ * wrapper even when fetched by a single config id:
+ *
+ *   { page_number, page_size, total_pages, configs_page: [ {...config} ] }
+ *
+ * The flat `{id, name, evi_version, prompt, voice, language_model, tools,
+ * builtin_tools, event_messages, ...}` shape this comment originally
+ * described lives one level deeper, at `configs_page[0]`. The "no
+ * version-list wrapper" claim above and the debug route this comment cited
+ * as precedent (app/api/debug/hume-chat) were both never actually verified
+ * against the real response shape — the debug route has the identical bug,
+ * returning the raw wrapper body unmodified. `getExistingConfig` now
+ * unwraps `configs_page[0]` and throws if that array is empty (config id
+ * has zero versions — e.g. deleted).
  */
 async function getExistingConfig(apiKey: string, configId: string): Promise<Record<string, unknown>> {
   const res = await fetch(`${HUME_CONFIGS_URL}/${configId}`, {
@@ -146,7 +159,22 @@ async function getExistingConfig(apiKey: string, configId: string): Promise<Reco
     throw new Error(`Failed to fetch existing Hume Config ${configId} with status ${res.status}: ${errorBody}`)
   }
 
-  return (await res.json()) as Record<string, unknown>
+  const body = (await res.json()) as { configs_page?: Record<string, unknown>[] }
+  const config = body.configs_page?.[0]
+
+  if (!config) {
+    const errorBody = JSON.stringify(body).slice(0, 300)
+    console.error(
+      '[hume-native/config-provisioner] Base config fetch returned an empty configs_page:',
+      configId,
+      errorBody
+    )
+    throw new Error(
+      `Hume Config ${configId} returned an empty configs_page — config has no versions (deleted or invalid id)`
+    )
+  }
+
+  return config
 }
 
 /**

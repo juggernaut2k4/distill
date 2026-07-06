@@ -250,7 +250,29 @@ export async function getHumeSessionDetails(
     })
   }
 
-  const configSnapshot = (await configRes.json()) as Record<string, unknown>
+  // IMPORTANT: `GET /v0/evi/configs/{id}` does NOT return the flat config
+  // object directly — confirmed live, it returns a paginated-list wrapper:
+  // `{ page_number, page_size, total_pages, configs_page: [ {...config} ] }`,
+  // even when fetched by a single config id. The actual config (with
+  // `voice`, `builtin_tools`, `tools`, etc.) is one level deeper, inside
+  // `configs_page[0]`. Treating the raw body as the config directly (the
+  // prior bug here) silently produced a configSnapshot with every field
+  // undefined. `configs_page` can legitimately be empty if the config id
+  // points at a config with zero versions (e.g. deleted) — surfaced as the
+  // same `live_fetch_config_deleted` error as an explicit 404, since both
+  // mean "no usable config data exists for this id."
+  const configResponseBody = (await configRes.json()) as {
+    configs_page?: Record<string, unknown>[]
+  }
+
+  const configSnapshot = configResponseBody.configs_page?.[0]
+
+  if (!configSnapshot) {
+    throw new HumeSessionDetailsLookupError({
+      code: 'live_fetch_config_deleted',
+      message: `Config ${humeConfigId} returned an empty configs_page on Hume and no archive exists for session ${sessionId} — data is unavailable`,
+    })
+  }
 
   // The config fetch above already succeeded — that's the data callers most
   // often need (e.g. inspecting builtin_tools). A transcript fetch failure
