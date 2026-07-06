@@ -60,6 +60,7 @@ export async function POST(request: NextRequest) {
       session_title: sessionTitle,
       scheduled_at: scheduledAt.toISOString(),
       duration_mins: durationMins,
+      planned_duration_mins: durationMins,
       status: 'scheduled',
       meeting_url: meetingUrl,
     })

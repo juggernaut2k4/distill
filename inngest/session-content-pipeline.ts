@@ -142,7 +142,7 @@ export const sessionContentPipeline = inngest.createFunction(
       const [{ data: sessionRow }, { data: userRow }] = await Promise.all([
         supabase
           .from('sessions')
-          .select('id, session_title, topic_id, topics, session_plan, curriculum_session_id, sub_sessions, duration_mins')
+          .select('id, session_title, topic_id, topics, session_plan, curriculum_session_id, sub_sessions, duration_mins, planned_duration_mins')
           .eq('id', sessionId)
           .single(),
         supabase
@@ -162,7 +162,10 @@ export const sessionContentPipeline = inngest.createFunction(
     // Always key content by DB session UUID — each DB session owns its own scoped content.
     const topicId = sessionId
     const topicTitle = session.session_title ?? 'AI Strategy Session'
-    const sessionDurationMins: number | null = (session as unknown as { duration_mins?: number | null }).duration_mins ?? null
+    const sessionDurationMins: number | null =
+      (session as unknown as { planned_duration_mins?: number | null; duration_mins?: number | null }).planned_duration_mins
+      ?? (session as unknown as { duration_mins?: number | null }).duration_mins
+      ?? null
 
     // Priority 1: session_plan.sub_sessions (TERM-01 complete)
     const planSubtopics = (session.session_plan as { sub_sessions?: Array<{ title: string; skipped?: boolean }> } | null)

@@ -28,7 +28,7 @@ export const sessionReminder = inngest.createFunction(
       const supabase = createSupabaseAdminClient()
       const { data, error } = await supabase
         .from('sessions')
-        .select('id, user_id, session_index, session_title, scheduled_at, duration_mins')
+        .select('id, user_id, session_index, session_title, scheduled_at, duration_mins, planned_duration_mins')
         .eq('status', 'scheduled')
         .gte('scheduled_at', windowStart.toISOString())
         .lte('scheduled_at', windowEnd.toISOString())
@@ -68,7 +68,7 @@ export const sessionReminder = inngest.createFunction(
             sessionIndex: session.session_index as number,
             title: session.session_title as string,
             scheduledAt: session.scheduled_at as string,
-            estimatedMinutes: (session.duration_mins as number) ?? 30,
+            estimatedMinutes: (session.planned_duration_mins as number | null) ?? (session.duration_mins as number) ?? 30,
           }
 
           // Send email reminder

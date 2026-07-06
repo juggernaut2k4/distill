@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
 
   const { data: sessions, error: dbError } = await supabase
     .from('sessions')
-    .select('id, session_index, session_title, scheduled_at, duration_mins, topics')
+    .select('id, session_index, session_title, scheduled_at, duration_mins, planned_duration_mins, topics')
     .eq('user_id', userId!)
     .neq('status', 'cancelled')
     .order('scheduled_at', { ascending: true })
@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
       ? `Topics: ${(s.topics as string[]).join(', ')}`
       : 'AI coaching session with Clio',
     startAt: new Date(s.scheduled_at as string),
-    durationMinutes: (s.duration_mins as number) ?? 30,
+    durationMinutes: (s.planned_duration_mins as number | null) ?? (s.duration_mins as number) ?? 30,
     organizer: ORGANIZER_NAME,
     organizerEmail: ORGANIZER_EMAIL,
   }))

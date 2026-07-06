@@ -24,7 +24,7 @@ export const sessionAgendaEmail = inngest.createFunction(
       const supabase = createSupabaseAdminClient()
       const { data, error } = await supabase
         .from('sessions')
-        .select('id, user_id, session_index, session_title, scheduled_at, duration_mins, meeting_url, session_plan, meet_reminder_sent')
+        .select('id, user_id, session_index, session_title, scheduled_at, duration_mins, planned_duration_mins, meeting_url, session_plan, meet_reminder_sent')
         .eq('status', 'scheduled')
         .eq('meet_reminder_sent', false)
         .not('meeting_url', 'is', null)
@@ -63,7 +63,7 @@ export const sessionAgendaEmail = inngest.createFunction(
           sessionIndex: session.session_index as number,
           title: session.session_title as string,
           scheduledAt: session.scheduled_at as string,
-          estimatedMinutes: (session.duration_mins as number) ?? 30,
+          estimatedMinutes: (session.planned_duration_mins as number | null) ?? (session.duration_mins as number) ?? 30,
         }
 
         await sendSessionAgendaEmail(

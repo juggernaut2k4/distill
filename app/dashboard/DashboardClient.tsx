@@ -48,6 +48,7 @@ interface NextSession {
   status: string
   topics: string[] | null
   duration_mins: number
+  planned_duration_mins: number | null
 }
 
 interface User {
@@ -249,7 +250,7 @@ function NextSessionCard({ session }: { session: NextSession | null }) {
         </span>
         <span className="flex items-center gap-1">
           <Clock size={12} />
-          ~{session.duration_mins} min
+          ~{session.planned_duration_mins ?? session.duration_mins} min
         </span>
       </div>
 

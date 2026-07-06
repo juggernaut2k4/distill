@@ -35,6 +35,7 @@ interface Session {
   topics: string[] | null
   topic_id: string | null
   duration_mins: number
+  planned_duration_mins: number | null
   session_plan: SessionPlan | null
   deferred_questions: DeferredQuestion[] | null
   meeting_url: string | null
@@ -530,7 +531,7 @@ export default function SessionDetailClient({ session, minutesBalance }: Props) 
             <Clock size={16} className="text-[#06B6D4] flex-shrink-0" />
             <div>
               <p className="text-xs text-[#475569] mb-0.5">Duration</p>
-              <p className="text-sm font-semibold text-white">~{session.duration_mins} minutes</p>
+              <p className="text-sm font-semibold text-white">~{session.planned_duration_mins ?? session.duration_mins} minutes</p>
             </div>
           </div>
 

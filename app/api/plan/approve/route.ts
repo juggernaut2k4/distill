@@ -129,6 +129,7 @@ export async function POST(request: NextRequest) {
             curriculum_session_id: `v2-arc-${ps.session_index}`,
             sub_sessions:          ds.subtopics,
             duration_mins:         ds.duration_mins,
+            planned_duration_mins: ds.duration_mins,
             session_index:         globalOrder,
             status:                'draft',
           }).select('id').single()
@@ -178,6 +179,7 @@ export async function POST(request: NextRequest) {
             curriculum_session_id: cs.session_id,
             sub_sessions:          ds.subtopics,
             duration_mins:         ds.duration_mins,
+            planned_duration_mins: ds.duration_mins,
             session_index:         globalOrder,
             status:                'draft',
           }).select('id').single()

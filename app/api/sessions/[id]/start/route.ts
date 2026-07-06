@@ -28,7 +28,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   const [{ data: session }, { data: user }] = await Promise.all([
     supabase
       .from('sessions')
-      .select('id, status, duration_mins, curriculum_plan_id')
+      .select('id, status, duration_mins, planned_duration_mins, curriculum_plan_id')
       .eq('id', params.id)
       .eq('user_id', userId!)
       .single(),
@@ -41,6 +41,22 @@ export async function POST(request: NextRequest, { params }: Params) {
 
   if (!session) {
     return NextResponse.json({ error: 'Session not found' }, { status: 404 })
+  }
+
+  // SESSION-DURATION-01 (AC-5/AC-6/AC-9): a completed session can never be
+  // (re)started. This is checked first, before the plan-approval and
+  // minutes-balance checks, with no time-based leniency — a pure status
+  // comparison. This closes the root cause of the 170-minute overcharge
+  // incident (a completed session's stale speak_verified timestamp being
+  // paired with a fresh disconnected timestamp on rejoin).
+  if (session.status === 'completed') {
+    return NextResponse.json(
+      {
+        error: "This session has already been completed and can't be restarted.",
+        code: 'SESSION_ALREADY_COMPLETED',
+      },
+      { status: 409 }
+    )
   }
 
   // AUTOGEN-01 §11 Q5 / §3 Part C: /start requires curriculum_plan.is_approved = true.
@@ -77,7 +93,11 @@ export async function POST(request: NextRequest, { params }: Params) {
   // Timer runs for the planned session duration (not the full balance).
   // The server-side Inngest timer enforces this — it fires a warning at T-1min and
   // force-ends the session at T, regardless of client state.
-  const effectiveDurationMins = session.duration_mins
+  // SESSION-DURATION-01: always seed the timer from the immutable planned
+  // length, never from duration_mins alone, since duration_mins may already
+  // hold a prior billed value for a session that was previously force-ended
+  // and is now being legitimately restarted in a later cycle.
+  const effectiveDurationMins = session.planned_duration_mins ?? session.duration_mins
 
   const startedAt = new Date().toISOString()
   await supabase

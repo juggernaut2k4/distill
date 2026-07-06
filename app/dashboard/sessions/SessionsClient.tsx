@@ -15,6 +15,7 @@ interface Session {
   status: string
   topics: string[] | null
   duration_mins: number
+  planned_duration_mins: number | null
   curriculum_session_id: string | null
   meeting_url: string | null
   /** AUTOGEN-01 Part C: generation readiness — 'pending' | 'generating' | 'ready' | 'failed' */
@@ -174,7 +175,7 @@ function ReadyRow({ session, index, title }: { session: Session; index: number; 
           {/* Duration */}
           <div className="flex items-center gap-1 text-xs text-[#475569] flex-shrink-0">
             <Clock size={11} />
-            {session.duration_mins}m
+            {session.planned_duration_mins ?? session.duration_mins ?? 30}m
           </div>
 
           {/* Status badge */}
@@ -348,7 +349,7 @@ interface ArcGroup {
 
 function TopicGroupCard({ group, startIndex }: { group: TopicGroup; startIndex: number }) {
   const sessionCount = group.sessions.length
-  const totalMins = group.sessions.reduce((sum, s) => sum + s.duration_mins, 0)
+  const totalMins = group.sessions.reduce((sum, s) => sum + (s.planned_duration_mins ?? s.duration_mins ?? 30), 0)
   const completedCount = group.sessions.filter((s) => s.status === 'completed').length
 
   return (

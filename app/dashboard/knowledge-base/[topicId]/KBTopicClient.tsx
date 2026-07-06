@@ -142,6 +142,7 @@ interface SessionData {
   title: string | null
   sub_sessions: SessionSubtopic[] | null
   duration_mins: number | null
+  planned_duration_mins: number | null
 }
 
 interface Props { topicId: string }
@@ -351,7 +352,7 @@ export default function KBTopicClient({ topicId }: Props) {
           key_takeaways: (sessionSubtopics ?? [])
             .map((s) => s.title)
             .filter(Boolean),
-          so_what_preview: `${session?.duration_mins ?? 30}-minute session · ${sections.length} subtopic${sections.length !== 1 ? 's' : ''}`,
+          so_what_preview: `${session?.planned_duration_mins ?? session?.duration_mins ?? 30}-minute session · ${sections.length} subtopic${sections.length !== 1 ? 's' : ''}`,
         } as TopicHeroData,
         status: 'active',
       }

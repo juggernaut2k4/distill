@@ -67,7 +67,7 @@ export default async function DashboardPage() {
   // Fetch next upcoming session
   const { data: upcomingSessions } = await supabase
     .from('sessions')
-    .select('id, session_index, session_title, scheduled_at, status, topics, duration_mins')
+    .select('id, session_index, session_title, scheduled_at, status, topics, duration_mins, planned_duration_mins')
     .eq('user_id', userId)
     .gt('scheduled_at', new Date().toISOString())
     .not('status', 'eq', 'completed')

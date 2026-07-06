@@ -25,6 +25,7 @@ interface SessionRow {
   sub_sessions: SessionSubtopic[] | null
   status: string | null
   duration_mins: number | null
+  planned_duration_mins: number | null
 }
 
 interface ArcSession {
@@ -87,7 +88,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       .gt('expires_at', new Date().toISOString()),
     supabase
       .from('sessions')
-      .select('id, session_title, session_index, sub_sessions, status, curriculum_session_id, duration_mins')
+      .select('id, session_title, session_index, sub_sessions, status, curriculum_session_id, duration_mins, planned_duration_mins')
       .eq('id', params.topicId)
       .limit(1),
   ])
@@ -184,6 +185,7 @@ export async function GET(request: NextRequest, { params }: Params) {
         title: thisSession.session_title,
         sub_sessions: thisSession.sub_sessions,
         duration_mins: thisSession.duration_mins,
+        planned_duration_mins: thisSession.planned_duration_mins,
       }
     : null
 

@@ -252,6 +252,7 @@ export const sessionDesignerAuto = inngest.createFunction(
             curriculum_session_id: di.topicInput.session_id,
             sub_sessions:          ds.subtopics,
             duration_mins:         ds.duration_mins,
+            planned_duration_mins: ds.duration_mins,
             session_index:         globalOrder,
             status:                'draft',
           })

@@ -13,6 +13,7 @@ interface SessionRow {
   topic_id: string | null
   topics: string[] | null
   duration_mins: number
+  planned_duration_mins: number | null
   status: string
 }
 
@@ -146,7 +147,7 @@ export default function ScheduleSetupClient() {
         scheduledAt: dates[i] ?? new Date().toISOString(),
         // Duration is fixed at generation time from onboarding data — this screen
         // no longer collects or overrides it (AUTOGEN-01 Part B).
-        estimatedMinutes: s.duration_mins ?? 30,
+        estimatedMinutes: s.planned_duration_mins ?? s.duration_mins ?? 30,
       }))
 
       // 5. Schedule sessions

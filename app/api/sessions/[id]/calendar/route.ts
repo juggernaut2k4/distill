@@ -23,7 +23,7 @@ export async function GET(
 
   const { data: session, error: dbError } = await supabase
     .from('sessions')
-    .select('id, session_index, session_title, scheduled_at, duration_mins, topics, user_id')
+    .select('id, session_index, session_title, scheduled_at, duration_mins, planned_duration_mins, topics, user_id')
     .eq('id', params.id)
     .single()
 
@@ -48,7 +48,7 @@ export async function GET(
       ? `Topics: ${(session.topics as string[]).join(', ')}`
       : 'AI coaching session with Clio',
     startAt: new Date(session.scheduled_at as string),
-    durationMinutes: (session.duration_mins as number) ?? 30,
+    durationMinutes: (session.planned_duration_mins as number | null) ?? (session.duration_mins as number) ?? 30,
     organizer: ORGANIZER_NAME,
     organizerEmail: ORGANIZER_EMAIL,
   }

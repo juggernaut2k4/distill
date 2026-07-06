@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
     const [{ data: sessionData }, { data: userRow }, learningProfile, { data: walkthroughRow }] = await Promise.all([
       supabase
         .from('sessions')
-        .select('session_title, topic_id, session_plan, session_index, curriculum_session_id, duration_mins, sub_sessions, content_status, live_conductor_content')
+        .select('session_title, topic_id, session_plan, session_index, curriculum_session_id, duration_mins, planned_duration_mins, sub_sessions, content_status, live_conductor_content')
         .eq('id', sessionId)
         .single(),
       supabase
@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
     // Cache lookups always use sessionId (the DB UUID) — that is what the pipeline writes.
     const topicId = sessionData?.topic_id ?? sessionData?.curriculum_session_id ?? null
     const isCurriculumSession = !!sessionData?.curriculum_session_id
-    const sessionDurationMins = (sessionData?.duration_mins as number | null) ?? 15
+    const sessionDurationMins = (sessionData?.planned_duration_mins as number | null) ?? (sessionData?.duration_mins as number | null) ?? 15
     const sessionIndex = (sessionData?.session_index as number | null) ?? null
     const readySections = getAllReadySections(sessionData?.session_plan as SessionPlan | null)
     const userRole = userRow?.role ?? 'executive'
