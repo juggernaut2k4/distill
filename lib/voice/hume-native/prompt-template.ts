@@ -33,6 +33,21 @@ export const SESSION_CONTENT_PLACEHOLDER = '[SESSION CONTENT]'
  * to end the call itself via Hume's own built-in hang-up mechanism when
  * done — everything it needs is delivered here, upfront, once.
  */
+// GUARDRAIL — DO NOT MOVE OR PRECEDE THIS BLOCK:
+// The tone/style instructions immediately below ("speak naturally, warmly,
+// and with authority...") MUST remain within the first ~7,000 characters of
+// the final assembled prompt. Hume's own built-in voice-styling layer
+// (prosody/tone/pacing — separate from the Claude LLM that drives actual
+// content/behavior) silently ignores anything past that point for
+// voice-style purposes. Per Hume's docs (dev.hume.ai/docs/speech-to-speech-evi/
+// guides/prompting): "instructions affecting how EVI speaks... should be
+// placed near the beginning" of the prompt. This only affects HOW Clio
+// sounds, not what she says — but if this block drifts later in the
+// template, or a future edit inserts large content before it, Hume's voice
+// styling will quietly stop applying with no error. Do not add a new section
+// before this block. If you must, keep whatever precedes it under a few
+// hundred characters and re-verify against the check in
+// assembleHumeNativePrompt().
 export const HUME_NATIVE_PROMPT_TEMPLATE = `You are Clio, an AI business coach delivering a live, one-on-one coaching
 session to a senior executive over voice. This is a real-time conversation —
 speak naturally, warmly, and with authority, like a trusted advisor, never
@@ -114,6 +129,16 @@ export interface AssembleHumeNativePromptInput {
  * replaces [SESSION CONTENT] with the full session content string. Leaves no
  * leftover bracketed placeholder tags in the output.
  */
+/**
+ * Anchor string used only to locate the tone/style instructions inside the
+ * assembled prompt for the runtime position check below. Must stay in sync
+ * with the opening of HUME_NATIVE_PROMPT_TEMPLATE's tone/style sentence.
+ */
+const TONE_INSTRUCTION_ANCHOR = 'speak naturally, warmly, and with authority'
+
+/** See guardrail comment above HUME_NATIVE_PROMPT_TEMPLATE. */
+const HUME_VOICE_STYLING_CHAR_LIMIT = 7000
+
 export function assembleHumeNativePrompt(input: AssembleHumeNativePromptInput): string {
   const { profileContext, intentContext, sessionContent } = input
 
@@ -122,9 +147,32 @@ export function assembleHumeNativePrompt(input: AssembleHumeNativePromptInput): 
     .filter((s): s is string => !!s && s.length > 0)
     .join('\n\n')
 
-  return HUME_NATIVE_PROMPT_TEMPLATE
+  const assembled = HUME_NATIVE_PROMPT_TEMPLATE
     .split(CONTEXT_PLACEHOLDER).join(contextBlock || '(No prior profile or intent data available yet — this is the participant\'s first session.)')
     .split(SESSION_CONTENT_PLACEHOLDER).join(sessionContent ?? '')
+
+  // Lightweight runtime guardrail (not a hard failure): the tone/style
+  // instructions must land within Hume's ~7,000-char voice-styling read
+  // window in the FINAL assembled prompt, not just the static template. The
+  // anchor sits before both placeholders in the template, so profile/session
+  // content insertion can't move it — but this check catches future template
+  // edits that might. See guardrail comment above HUME_NATIVE_PROMPT_TEMPLATE.
+  const toneAnchorIndex = assembled.indexOf(TONE_INSTRUCTION_ANCHOR)
+  if (toneAnchorIndex === -1) {
+    console.warn(
+      '[hume-native/prompt-template] Tone/style instruction anchor not found in assembled prompt — ' +
+      'TONE_INSTRUCTION_ANCHOR may be out of sync with HUME_NATIVE_PROMPT_TEMPLATE.'
+    )
+  } else if (toneAnchorIndex > HUME_VOICE_STYLING_CHAR_LIMIT) {
+    console.warn(
+      `[hume-native/prompt-template] Tone/style instructions land at character ${toneAnchorIndex} of the ` +
+      `assembled prompt, past Hume's ~${HUME_VOICE_STYLING_CHAR_LIMIT}-char voice-styling read window. ` +
+      'Hume\'s built-in voice-styling layer will silently ignore these instructions. ' +
+      'See guardrail comment above HUME_NATIVE_PROMPT_TEMPLATE.'
+    )
+  }
+
+  return assembled
 }
 
 // ─── 4.2.1 — Intent context sub-block ─────────────────────────────────────────
