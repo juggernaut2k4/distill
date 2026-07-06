@@ -279,6 +279,46 @@ export class HumeAdapter implements VoiceSessionAdapter {
     return
   }
 
+  /**
+   * HUME-NATIVE-01 (Graceful Session End) — sends a one-time, near-end
+   * wrap-up nudge over the already-open Hume WebSocket, using the same
+   * `session_settings` message type and `this.ws.send(JSON.stringify({...}))`
+   * pattern already used once at connect-time above (lines ~78–81).
+   *
+   * Deliberately a SEPARATE method from `injectContext()`, not a new
+   * branch inside it: `injectContext()` is intentionally a permanent no-op
+   * for every Hume caller because `session_settings.system_prompt` is
+   * rejected with E0716 (WS close 1008) whenever a Custom-LLM config is
+   * active — which is the case for every existing Hume call site
+   * (keep-alive, show_visual split-mode, reconnect). HUME-NATIVE-01 sessions
+   * are the one exception: they run Hume's own native/supplemental LLM (not
+   * the Custom-LLM bridge), so a second `session_settings` send is accepted
+   * there. Only the new HUME-NATIVE-01 caller in WalkthroughClient.tsx's poll
+   * loop invokes this method — no existing call site is affected.
+   *
+   * Per the requirement doc (Section 4, State 4 / Section 8): callers are
+   * responsible for the single-retry-then-give-up policy and for checking
+   * `isOpen()` before calling this — this method itself just performs one
+   * send attempt and reports success/failure so the caller can decide.
+   *
+   * @returns true if the send was attempted without throwing and the socket
+   *   was OPEN; false otherwise (caller retries once, then gives up silently
+   *   per spec — never blocks or delays the session-timer.ts backstop).
+   */
+  sendWrapUpNudge(instructionText: string): boolean {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false
+    try {
+      this.ws.send(JSON.stringify({
+        type: 'session_settings',
+        system_prompt: instructionText,
+      }))
+      return true
+    } catch (err) {
+      console.warn('[HumeAdapter] sendWrapUpNudge failed:', err)
+      return false
+    }
+  }
+
   async endSession(): Promise<void> {
     this.intentionalClose = true
     this.stopMicCapture()

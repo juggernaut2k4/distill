@@ -104,17 +104,45 @@ export async function GET(
 /**
  * PATCH /api/walkthrough-state/[userId]
  * Clears pending_transcript after it has been sent to the ElevenLabs agent.
+ *
+ * HUME-NATIVE-01 (Graceful Session End) — additive: also accepts an optional
+ * `{ clear: 'hume_wrapup_nudge_pending' }` body to clear the new Hume-specific
+ * flag once the wrap-up nudge has been sent over the WebSocket (or once a
+ * retry has been attempted and given up on — the flag must be cleared either
+ * way, per the requirement doc, so a failed nudge is never silently re-sent
+ * forever on subsequent polls). Always clearing pending_transcript alongside
+ * it is a no-op for Hume-native sessions (that field is never set for them),
+ * so no branching is needed on which field(s) to touch.
  */
 export async function PATCH(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: { userId: string } }
 ) {
   const supabase = createSupabaseAdminClient()
+
+  let clearNudge = false
+  try {
+    const body = await request.json() as { clear?: string } | null
+    clearNudge = body?.clear === 'hume_wrapup_nudge_pending'
+  } catch {
+    // No/invalid JSON body — existing callers (pending_transcript clear) send
+    // no body at all. Not an error; just means "clear pending_transcript only".
+  }
+
   await supabase
     .from('walkthrough_state')
-    .update({ pending_transcript: null })
+    .update({
+      pending_transcript: null,
+      ...(clearNudge ? { hume_wrapup_nudge_pending: false } : {}),
+    })
     .eq('user_id', params.userId)
-  console.log('[walkthrough-state] PATCH cleared pending_transcript for', params.userId)
+
+  console.log(
+    '[walkthrough-state] PATCH cleared pending_transcript',
+    clearNudge ? '+ hume_wrapup_nudge_pending' : '',
+    'for',
+    params.userId
+  )
   return NextResponse.json({ ok: true })
 }
 

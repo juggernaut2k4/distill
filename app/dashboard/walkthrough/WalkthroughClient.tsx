@@ -43,6 +43,21 @@ const HUME_CONFIG_ID = process.env.NEXT_PUBLIC_HUME_CONFIG_ID ?? ''
 // not modified and requires no changes.
 const HUME_NATIVE_ENABLED = process.env.NEXT_PUBLIC_HUME_NATIVE_ENABLED === 'true'
 
+// HUME-NATIVE-01 (Graceful Session End) — the wrap-up nudge instruction sent
+// once, near the end of a Hume-native session, over the already-open
+// WebSocket (see HumeAdapter.sendWrapUpNudge). Matches rule 8 of
+// lib/voice/hume-native/prompt-template.ts (already shipped, unmodified):
+// Clio should generate a real, content-aware closing summary of the two most
+// important takeaways and say a natural goodbye, which Hume EVI's own
+// built-in end-of-conversation detection then turns into a hang-up.
+const HUME_WRAPUP_NUDGE_TEXT =
+  '[SYSTEM] The session is nearing its end. Naturally wrap up now: briefly ' +
+  'summarize the two most important takeaways from this session in your own ' +
+  'words, thank the participant, and say a clear, warm goodbye immediately ' +
+  'afterward. Do not ask a further question and do not wait for the ' +
+  'participant to speak first once you have delivered the closing summary ' +
+  'and farewell.'
+
 // How long (ms) of polling silence before sending a keep-alive context update.
 // Keep short — ElevenLabs closes the WebSocket after ~15s of inactivity.
 const KEEPALIVE_INTERVAL = 8_000
@@ -205,6 +220,10 @@ interface WalkthroughState {
   // active; otherwise always null/absent and never read.
   live_conductor_tab_index?: number | null
   live_conductor_visual?: import('@/lib/content/live-conductor-visual').LiveConductorVisualData | null
+  // HUME-NATIVE-01 (Graceful Session End) — set true by inngest/session-timer.ts's
+  // Hume-native branch ~2 minutes before the hard cutoff. Present/relevant only
+  // for Hume-native sessions (HUME_NATIVE_ENABLED); otherwise always false/absent.
+  hume_wrapup_nudge_pending?: boolean | null
 }
 
 /**
@@ -391,6 +410,13 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
   // elevenLabsConvRef: raw Conversation kept separately for sendUserMessage (ElevenLabs-specific)
   const adapterRef = useRef<VoiceSessionAdapter | null>(null)
   const elevenLabsConvRef = useRef<Conversation | null>(null)
+  // HUME-NATIVE-01 (Graceful Session End) — tracks whether a retry has
+  // already been attempted for the CURRENT nudge-pending flag, so the once
+  // per-poll-cycle retry policy (Section 8: "one immediate retry, then give
+  // up silently") doesn't re-retry on every subsequent 2s poll while the
+  // flag is still true (e.g. because the clear-PATCH itself is in flight or
+  // failed). Reset to false whenever the flag transitions back to false.
+  const humeWrapupNudgeRetriedRef = useRef(false)
   const lastSentTranscriptRef = useRef<string | null>(null)
   const lastActivityRef = useRef<number>(Date.now())
   // ─── Silence / no-response handling ─────────────────────────────────────
@@ -1199,6 +1225,58 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
         // at mount. Kept defensive in case a future authenticated-only variant of
         // this poll route legitimately includes it.
         if (data.audit_token !== undefined) auditTokenRef.current = data.audit_token ?? null
+
+        // HUME-NATIVE-01 (Graceful Session End) — relay the server-set
+        // hume_wrapup_nudge_pending flag to Clio over the already-open Hume
+        // WebSocket. Only ever relevant for Hume-native sessions: the flag is
+        // never written to true by session-timer.ts for any other session
+        // type, and the adapter check below additionally requires a
+        // HumeAdapter instance, so this is a no-op for ElevenLabs and Hume
+        // Custom-LLM/LIVE-01 sessions even if somehow polled.
+        if (!data.hume_wrapup_nudge_pending) {
+          // Flag is false/absent — reset the once-per-flag retry tracker so a
+          // future nudge (should not normally happen twice per session, but
+          // defensive) gets its own fresh single-retry attempt.
+          humeWrapupNudgeRetriedRef.current = false
+        } else if (HUME_NATIVE_ENABLED && adapterRef.current instanceof HumeAdapter) {
+          const humeAdapter = adapterRef.current
+          const clearNudgeFlag = () => {
+            fetch(`/api/walkthrough-state/${userId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ clear: 'hume_wrapup_nudge_pending' }),
+            }).catch(() => {})
+          }
+
+          if (humeAdapter.isOpen()) {
+            const sent = humeAdapter.sendWrapUpNudge(HUME_WRAPUP_NUDGE_TEXT)
+            if (sent) {
+              console.log('[Walkthrough/Hume] Wrap-up nudge sent')
+              humeWrapupNudgeRetriedRef.current = false
+              clearNudgeFlag()
+            } else if (!humeWrapupNudgeRetriedRef.current) {
+              // One immediate retry (Section 8 / Section 4, State 4).
+              humeWrapupNudgeRetriedRef.current = true
+              const retrySent = humeAdapter.sendWrapUpNudge(HUME_WRAPUP_NUDGE_TEXT)
+              console.log('[Walkthrough/Hume] Wrap-up nudge retry', retrySent ? 'succeeded' : 'failed — giving up silently')
+              clearNudgeFlag()
+            } else {
+              // Retry already attempted for this flag occurrence and also
+              // failed — give up silently, no further retries, no
+              // user-visible error. The flag stays true only if the clear
+              // call above also failed; the backstop fires regardless.
+              console.warn('[Walkthrough/Hume] Wrap-up nudge failed after retry — relying on session-timer backstop')
+            }
+          } else if (!humeWrapupNudgeRetriedRef.current) {
+            // Adapter not currently open (e.g. mid-reconnect) — treat as a
+            // failed send. One retry on the next poll cycle only, per spec;
+            // if still not open by the time the backstop's grace window
+            // elapses, the backstop fires regardless. Do NOT clear the flag
+            // here — it must persist so a reconnecting client still sees it.
+            humeWrapupNudgeRetriedRef.current = true
+            console.warn('[Walkthrough/Hume] Wrap-up nudge pending but adapter not open — will retry next poll only')
+          }
+        }
 
         // LIVE-01 — only reads/writes liveConductorRef (its own isolated state
         // object) and only when the toggle is on. When off, this block never
