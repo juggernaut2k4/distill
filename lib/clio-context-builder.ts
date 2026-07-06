@@ -101,7 +101,7 @@ export function buildSessionBrief(input: Omit<BuildDocsInput, 'topicContextDocs'
     `6. Use the reframe fallback only when the participant expresses confusion or asks you to explain differently.`,
     `7. Use the bridge to next section before calling show_visual for the next section.`,
     `8. For quick off-script questions: answer briefly from the TOPIC KNOWLEDGE BASE, then return to script.`,
-    `9. For complex or off-topic questions: call defer_question. Say "Great question — I've saved it for next time."`,
+    `9. For complex or off-topic questions: do NOT try to answer in depth. Say something close to "Great question — let's save that for next time so I can give it a proper answer," then return to the script. Do not call any tool for this.`,
     `10. After delivering the final bridge for the FINAL section (section ${sections.length}/${sections.length}): summarise what was covered in exactly 2 sentences, then immediately call end_session. Do NOT ask a follow-up question. Do NOT wait for the participant to respond first.`,
     `11. Teach with patience, not pace. After delivering TEACH, pause briefly before asking the verification question — give the participant a moment to absorb. If you sense uncertainty, slow down. The goal is understanding, not coverage speed.`,
   ].filter((l) => l !== '').join('\n')

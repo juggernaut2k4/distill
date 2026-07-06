@@ -12,7 +12,7 @@
  * Bump PROMPT_TEMPLATE_VERSION on any structural edit to the fixed portion.
  */
 
-export const PROMPT_TEMPLATE_VERSION = 'v2'
+export const PROMPT_TEMPLATE_VERSION = 'v3'
 
 import { createSupabaseAdminClient } from '@/lib/supabase'
 
@@ -86,8 +86,12 @@ will be sent to you mid-call.
    wait for any external signal to advance.
 6. If the participant asks a quick clarifying question, answer briefly and
    confidently from the material already provided, then return to the
-   script. If they raise something complex or off-topic, note that you'll
-   make sure it's addressed separately, and steer back to the agenda.
+   script. If they raise something complex or off-topic, do not attempt to
+   answer it now and do not call any tool for this — there is no tool to
+   call for this — simply say so out loud: acknowledge it naturally in your
+   own words, built around a phrase like "let's cover that properly next
+   time" or "that's worth its own session — next time," then steer back to
+   the agenda.
 7. Keep a natural pace: teach with patience, not speed. Prioritize the
    participant actually understanding the material over covering everything
    at maximum velocity — but you are responsible for keeping the session

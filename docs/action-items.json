@@ -1,0 +1,165 @@
+{
+  "_readme": "Persistent action-items tracker for Clio. One row per tracked issue/decision. 'status' is the current state; 'comment' holds ONLY the latest status/action note (no history needed — full history lives in the conversation transcript). Update this file the instant any item's status changes — do not batch. Add new items the moment they're raised, even if not yet investigated.",
+  "items": [
+    {
+      "id": "double-charge-risk",
+      "category": "Billing & session time",
+      "item": "Double-charge risk",
+      "description": "A call ending manually and automatically at the same time could deduct minutes twice.",
+      "status": "fixed",
+      "comment": "Closed via the block-on-rejoin-completed-session guard plus billing off Hume's own call duration as source of truth. Committed locally, not yet deployed."
+    },
+    {
+      "id": "session-length-field-overloaded",
+      "category": "Billing & session time",
+      "item": "Session length field is overloaded",
+      "description": "One field stored both the plan and the actual usage, overwriting the plan every time a call ends.",
+      "status": "fixed",
+      "comment": "Split into a separate planned-length field and actual-usage field. Migration applied. Historical sessions left as unknown, only new sessions affected."
+    },
+    {
+      "id": "finished-session-rejoinable",
+      "category": "Billing & session time",
+      "item": "A finished session can be rejoined",
+      "description": "Nothing stopped re-entering a call that already ended — the root enabler of the field-overload issue above.",
+      "status": "fixed",
+      "comment": "Added a check that blocks rejoining a session once it's marked completed."
+    },
+    {
+      "id": "test-call-ended-2-41",
+      "category": "Billing & session time",
+      "item": "Test call ended after only ~2:41",
+      "description": "A call ended from the user side, not by Clio deciding the session was done.",
+      "status": "backlog — discuss later",
+      "comment": "Moved to backlog per Arun's direction 2026-07-06 morning. Not actively worked until revisited."
+    },
+    {
+      "id": "missing-background-material",
+      "category": "Content & how Clio speaks",
+      "item": "Missing background material",
+      "description": "Every session showed a placeholder instead of real subject background.",
+      "status": "fixed",
+      "comment": "Real background content now generated and wired in before every session."
+    },
+    {
+      "id": "character-limit-warning",
+      "category": "Content & how Clio speaks",
+      "item": "Character-limit warning in Hume's UI",
+      "description": "A character-limit warning appeared in Hume's dashboard.",
+      "status": "resolved, safeguard added",
+      "comment": "Confirmed real limit, but only affects a voice-tone layer we don't rely on. Added a guardrail to stay under it regardless."
+    },
+    {
+      "id": "no-greeting-opening",
+      "category": "Content & how Clio speaks",
+      "item": "No proper greeting at session open",
+      "description": "Clio doesn't open the session herself — she reacts to the participant speaking first instead of greeting them by name.",
+      "status": "backlog — discuss later",
+      "comment": "Moved to backlog per Arun's direction 2026-07-06 morning. Confirmed still real (via transcript) but not actively worked until revisited."
+    },
+    {
+      "id": "graceful-ending-wrapup",
+      "category": "Content & how Clio speaks",
+      "item": "Abrupt call ending, no graceful wrap-up",
+      "description": "Calls ended abruptly with no summary or goodbye.",
+      "status": "fixed",
+      "comment": "Added a live wrap-up nudge near the end plus a permanent closing-behavior rule (summary then goodbye). Deployed."
+    },
+    {
+      "id": "web-search-missing",
+      "category": "Voice setup & configuration",
+      "item": "Web search tool sometimes missing",
+      "description": "The web search capability worked sometimes and silently disappeared other times.",
+      "status": "fixed",
+      "comment": "Root cause was a code bug reading tools dynamically from the wrong shape; fixed and confirmed present on a real live call."
+    },
+    {
+      "id": "third-capability-missing",
+      "category": "Voice setup & configuration",
+      "item": "A third capability is silently missing",
+      "description": "A third custom tool (likely a way to gracefully defer a question) exists on the account but never gets carried into new sessions.",
+      "status": "fixed, type-checked, tested, uncommitted locally — awaiting deploy",
+      "comment": "Shipped 2026-07-06 per DEFER-QUESTION-01. Two parallel builds occurred and were reconciled by hand into the correct final design: the Hume-native prompt (lib/voice/hume-native/prompt-template.ts, Rule 6) now tells Clio to verbally acknowledge deferring a question with no tool call, using natural phrasing anchored on 'next time'/'next session'/'cover that properly'. The old ElevenLabs-path prompt (lib/clio-context-builder.ts:104) was also updated similarly but is a separate, pre-existing path — untouched otherwise. inngest/session-quality-evaluator.ts now has TWO detectors: the original ElevenLabs one (detectDeferredQuestions, unchanged) and a new Hume-native one (detectHumeNativeDeferredQuestions, added), gated by session.hume_native_enabled so each session type only ever uses its own detector. Both write to the same existing sessions.deferred_questions column, same existing UI at SessionDetailClient.tsx, no migration needed. Verified myself directly: npx tsc --noEmit clean project-wide, 7 new unit tests passing, full suite 420/422 (2 pre-existing unrelated failures untouched). Not committed/pushed/deployed — needs a real live Hume-native session to fully confirm end-to-end against a real Recall.ai transcript."
+    },
+    {
+      "id": "settings-reported-oddly",
+      "category": "Voice setup & configuration",
+      "item": "Some settings reported back oddly",
+      "description": "One data point suggested a setting mismatch, but it came from an error response, not a real call.",
+      "status": "P1 — backlog, after Arun finishes testing",
+      "comment": "Not yet logged/investigated with a clear record. Needs a fresh check against a real call before trusting it. Marked P1 by Arun 2026-07-06 — investigate/build once he's done with his current testing pass."
+    },
+    {
+      "id": "overnight-backup-config-tool",
+      "category": "Backup & diagnostics",
+      "item": "Overnight backup / config-checking tool",
+      "description": "The nightly job that archives and cleans up session configs was broken because a database table it needed was never created.",
+      "status": "deployed to production, awaiting first real overnight run",
+      "comment": "Confirmed live in production (checked 2026-07-06 morning — current deployed build includes this fix and is several commits further ahead). Just hasn't had its first real overnight run since going live to fully confirm end to end."
+    },
+    {
+      "id": "quality-check-failed-call",
+      "category": "Backup & diagnostics",
+      "item": "Automated quality check flagged a call",
+      "description": "Our own quality system flagged that no proper coaching speech was detected on one test call.",
+      "status": "P1 — backlog, after Arun finishes testing",
+      "comment": "Still open. Needs a deeper look on its own. Marked P1 by Arun 2026-07-06 — investigate/build once he's done with his current testing pass."
+    },
+    {
+      "id": "unknown-session-names",
+      "category": "Older, unrelated",
+      "item": "\"Unknown session\" names in history",
+      "description": "A separate, pre-existing bug quietly stripping session names out of the learner's history.",
+      "status": "P1 — backlog, after Arun finishes testing",
+      "comment": "Confirmed unrelated to recent changes. Also confirmed it leaks into what Clio reads before a real call, not just a display issue. Marked P1 by Arun 2026-07-06 — investigate/build once he's done with his current testing pass."
+    },
+    {
+      "id": "hume-duration-billing-timing",
+      "category": "Fixed overnight (last test call)",
+      "item": "Verified-minute billing silently falling back",
+      "description": "Billing was asking Hume for the real call length too soon, before Hume finished recording it, and silently falling back to a less accurate method.",
+      "status": "fixed, tested, committed locally, awaiting review",
+      "comment": "Now waits, and tries once more, before falling back. Covered by a new automated test (6 scenarios, all passing). Not yet pushed or deployed."
+    },
+    {
+      "id": "screen-overview-summary-missing",
+      "category": "Fixed overnight (last test call)",
+      "item": "Screen stuck / missing Overview and Summary screens",
+      "description": "The shared screen got stuck on the opening title card for an entire call. Root cause: the Overview screen never existed in the live call's screen list at all, so every topic displayed one slot ahead of what was being said.",
+      "status": "fixed, verified, committed locally, awaiting review",
+      "comment": "Added real Overview and Summary screens into every place that builds a session's screen list (3 places found and aligned). Skipped topics correctly excluded from the summary. Type-checks clean, no regressions found."
+    },
+    {
+      "id": "contradictory-closing-instructions",
+      "category": "Fixed overnight (last test call)",
+      "item": "Contradictory closing instructions",
+      "description": "One instruction told Clio to ask \"any more questions?\" and wait; another said to skip that and call a tool that no longer exists.",
+      "status": "fixed",
+      "comment": "Removed the stale instruction so only the correct, newer closing behavior remains."
+    },
+    {
+      "id": "script-sounds-written",
+      "category": "Fixed overnight (last test call)",
+      "item": "Script sounded written, not spoken",
+      "description": "The material Clio was told to say read like a dense written article rather than natural spoken coaching.",
+      "status": "fixed (scoped)",
+      "comment": "Added explicit \"sound spoken, not written\" guidance to the content generator. Scoped instruction addition, not a full pipeline rewrite."
+    },
+    {
+      "id": "repeated-checkin-phrase",
+      "category": "Fixed overnight (last test call)",
+      "item": "Same check-in phrase repeated every section",
+      "description": "The fallback verification question repeated verbatim every section.",
+      "status": "fixed",
+      "comment": "Now rotates through 4 natural variants instead of repeating the same line."
+    },
+    {
+      "id": "retake-completed-session",
+      "category": "Session lifecycle",
+      "item": "Retake a completed session",
+      "description": "A completed session can't be rejoined (by design, to prevent double-charging). Arun wants a way for the user to take that session's material again as a brand-new attempt — new session, new call, new billing, same topic.",
+      "status": "built, type-checked, uncommitted locally — needs a migration applied before it works",
+      "comment": "A 'Retake this session' button now appears on completed sessions. Clicking it creates a brand-new session (own billing, fresh content, same topic) linked back to the original, which stays completely untouched. npx tsc --noEmit clean; CEO reviewed the actual diff. IMPORTANT: needs one new database migration (061_retaken_from_session_id.sql) applied in Supabase before this can work end-to-end — not yet run. Not committed/pushed/deployed."
+    }
+  ]
+}

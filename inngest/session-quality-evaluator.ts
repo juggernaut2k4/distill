@@ -53,6 +53,7 @@ interface SessionRow {
   ai_maturity: string | null
   active_plan_id: string | null
   created_at: string | null
+  hume_native_enabled: boolean | null
 }
 
 // ─── V1–V7 keyword classifier ──────────────────────────────────────────────────
@@ -145,6 +146,166 @@ const TRANSITION_PHRASES = [
   'now that we', 'this connects to', 'in our next', 'which leads us to',
   'building on this', 'this will help when we',
 ]
+
+// ─── DEFER-QUESTION-01: deferred-question detection ────────────────────────────
+// Clio is prompted (lib/clio-context-builder.ts, rule 9) to verbally acknowledge
+// deferring a complex/off-topic question rather than calling a tool. This is a
+// fixed phrase family we control (we wrote the prompt), so keyword matching is
+// sufficient — same no-LLM precedent as the rest of this file. Keep this list in
+// sync with the acknowledgment wording in lib/clio-context-builder.ts.
+const DEFERRAL_PHRASES = [
+  'save that for next time',
+  'save it for next time',
+  "let's save that",
+  'save this for next time',
+  'save that question for next time',
+]
+
+interface DetectedDeferredQuestion {
+  question: string
+  deferred_at: string
+}
+
+// ─── DEFER-QUESTION-01 (Hume-native): deferred-question detection ─────────────
+// Hume-native sessions use a different, more autonomous prompt (see
+// lib/voice/hume-native/prompt-template.ts, rule 6, PROMPT_TEMPLATE_VERSION
+// 'v3') that instructs Clio to acknowledge a deferral verbally — no tool call
+// — built around phrasing anchored on "next time" / "next session" / "cover
+// that properly". This is a different phrase family from the ElevenLabs-path
+// DEFERRAL_PHRASES above, so it needs its own keyword list and detector. Keep
+// this list in sync with the phrasing nudged by that prompt rule.
+const DEFERRAL_TRIGGER_PHRASES = [
+  'next time',
+  'next session',
+  'cover that properly',
+  'cover this properly',
+  "that's worth its own session",
+  'worth its own session',
+]
+
+interface DeferredQuestionEntry {
+  question: string
+  deferred_at: string
+  source: 'transcript-detected'
+}
+
+/** Dedup threshold for near-identical deferred questions within one batch of matches. */
+const DEFERRAL_DEDUP_SIMILARITY_THRESHOLD = 0.85
+
+/**
+ * Hume-native counterpart to detectDeferredQuestions() above. Scans Clio's
+ * utterances for DEFERRAL_TRIGGER_PHRASES (the Hume-native prompt's phrase
+ * family — distinct from the ElevenLabs-path DEFERRAL_PHRASES) and pairs each
+ * match with the immediately preceding user utterance, treated as the
+ * deferred question. Conservative: skips a match if there is no preceding
+ * user utterance rather than fabricating a question — same behavior as the
+ * ElevenLabs-path detector.
+ *
+ * Must only ever be invoked when session.hume_native_enabled === true; the
+ * ElevenLabs-path detectDeferredQuestions() remains the detector for every
+ * other session, preserving existing behavior for all pre-existing rows.
+ *
+ * Near-duplicate matches (paraphrased re-asks of essentially the same
+ * question) are collapsed: a new match is dropped if its question has a
+ * word-overlap similarity above DEFERRAL_DEDUP_SIMILARITY_THRESHOLD (0.85)
+ * with a question already accepted into this batch's results.
+ *
+ * Pure keyword/string matching — no LLM call, consistent with the rest of
+ * this file.
+ */
+export function detectHumeNativeDeferredQuestions(
+  utterances: RecallUtterance[],
+  clioSpeaker: string,
+  userSpeakers: string[],
+  sessionEndedAt: string,
+): DeferredQuestionEntry[] {
+  const results: DeferredQuestionEntry[] = []
+
+  for (let i = 0; i < utterances.length; i++) {
+    const u = utterances[i]
+    if (u.speaker !== clioSpeaker) continue
+
+    const text = utteranceText(u).toLowerCase()
+    const matchedPhrase = DEFERRAL_TRIGGER_PHRASES.find((p) => text.includes(p))
+    if (!matchedPhrase) continue
+
+    // Find the nearest preceding user utterance by transcript order.
+    let precedingUser: RecallUtterance | null = null
+    for (let j = i - 1; j >= 0; j--) {
+      if (userSpeakers.includes(utterances[j].speaker)) {
+        precedingUser = utterances[j]
+        break
+      }
+    }
+    if (!precedingUser) continue // skip on ambiguity — don't fabricate a question
+
+    const question = utteranceText(precedingUser).trim()
+    if (!question) continue
+
+    // Dedup: skip if a near-identical question is already in this batch's results.
+    const isNearDuplicate = results.some(
+      (r) => wordOverlapSimilarity(question, r.question) > DEFERRAL_DEDUP_SIMILARITY_THRESHOLD,
+    )
+    if (isNearDuplicate) continue
+
+    results.push({
+      question,
+      deferred_at: sessionEndedAt,
+      source: 'transcript-detected',
+    })
+  }
+
+  return results
+}
+
+/**
+ * Scans Clio's utterances for deferral-acknowledgment phrases and pairs each
+ * match with the immediately preceding user utterance (treated as the deferred
+ * question). Conservative: skips a match if no preceding user utterance exists,
+ * rather than fabricating a question (same "skip on ambiguity" behavior as the
+ * checkpoint-pairing logic below).
+ *
+ * `sessionEndedAt` is used as a single approximate timestamp for every match in
+ * a session — word-level absolute clock time isn't reconstructable from this
+ * batch job's inputs, and the UI only ever displays time-of-day granularity.
+ */
+export function detectDeferredQuestions(
+  utterances: RecallUtterance[],
+  clioSpeaker: string,
+  userSpeakers: string[],
+  sessionEndedAt: string,
+): DetectedDeferredQuestion[] {
+  const results: DetectedDeferredQuestion[] = []
+
+  for (let i = 0; i < utterances.length; i++) {
+    const u = utterances[i]
+    if (u.speaker !== clioSpeaker) continue
+
+    const text = utteranceText(u).toLowerCase()
+    const matchedPhrase = DEFERRAL_PHRASES.find((p) => text.includes(p))
+    if (!matchedPhrase) continue
+
+    // Find the nearest preceding user utterance by transcript order.
+    let precedingUser: RecallUtterance | null = null
+    for (let j = i - 1; j >= 0; j--) {
+      if (userSpeakers.includes(utterances[j].speaker)) {
+        precedingUser = utterances[j]
+        break
+      }
+    }
+    if (!precedingUser) continue // skip on ambiguity — don't fabricate a question
+
+    const question = utteranceText(precedingUser).trim()
+    if (!question) continue
+
+    results.push({
+      question,
+      deferred_at: sessionEndedAt,
+    })
+  }
+
+  return results
+}
 
 // ─── CURR-01: 7-Dimension session classification ──────────────────────────────
 
@@ -358,6 +519,7 @@ export const sessionQualityEvaluator = inngest.createFunction(
           topic_id,
           recall_bot_id,
           ended_at,
+          hume_native_enabled,
           users!inner (
             role,
             industry,
@@ -391,6 +553,10 @@ export const sessionQualityEvaluator = inngest.createFunction(
           ai_maturity: (user as { ai_maturity?: string | null })?.ai_maturity ?? null,
           active_plan_id: (user as { active_plan_id?: string | null })?.active_plan_id ?? null,
           created_at: (user as { created_at?: string | null })?.created_at ?? null,
+          // Defensive: older rows / pre-migration schemas may not have this column yet.
+          // Treat null/undefined as "not Hume-native" so existing sessions keep using
+          // the ElevenLabs-path detector below (no behavior change for existing rows).
+          hume_native_enabled: (row as { hume_native_enabled?: boolean | null }).hume_native_enabled ?? null,
         } satisfies SessionRow
       })
     })
@@ -492,6 +658,17 @@ async function evaluateSession(
   if (clioTextEmpty) {
     transcriptError = 'no_clio_speech_detected'
   }
+
+  // ── DEFER-QUESTION-01: Detect deferred-question moments ──────────────────
+  // Mutually exclusive per session, gated on hume_native_enabled: Hume-native
+  // sessions use the Hume-native-specific phrase family/detector; every other
+  // session (falsy/undefined flag — includes all pre-existing rows) keeps
+  // using the original ElevenLabs-path detector, unchanged.
+  const detectedDeferrals: Array<DetectedDeferredQuestion | DeferredQuestionEntry> = clioTextEmpty
+    ? []
+    : session.hume_native_enabled === true
+      ? detectHumeNativeDeferredQuestions(utterances, clioSpeaker, userSpeakers, session.ended_at)
+      : detectDeferredQuestions(utterances, clioSpeaker, userSpeakers, session.ended_at)
 
   // ── Step C: Extract checkpoint question/response pairs ────────────────────
   let pairs: CheckpointPair[] = []
@@ -701,6 +878,26 @@ async function evaluateSession(
     industry,
   )
 
+  // ── DEFER-QUESTION-01: Append detected deferrals to sessions.deferred_questions ──
+  // Fetch-then-append (never overwrite) so this stays compatible with any other
+  // writer of this column (e.g. the separate ElevenLabs walkthrough path).
+  let mergedDeferredQuestions: Array<DetectedDeferredQuestion | DeferredQuestionEntry> | null = null
+  if (detectedDeferrals.length > 0) {
+    const { data: existingSessionRow } = await supabase
+      .from('sessions')
+      .select('deferred_questions')
+      .eq('id', session.id)
+      .single()
+
+    const existingDeferrals: Array<DetectedDeferredQuestion | DeferredQuestionEntry> = Array.isArray(
+      (existingSessionRow as { deferred_questions?: unknown } | null)?.deferred_questions,
+    )
+      ? ((existingSessionRow as { deferred_questions: Array<DetectedDeferredQuestion | DeferredQuestionEntry> }).deferred_questions)
+      : []
+
+    mergedDeferredQuestions = [...existingDeferrals, ...detectedDeferrals]
+  }
+
   // ── Step I: Mark session as quality-evaluated ─────────────────────────────
   try {
     await supabase
@@ -712,6 +909,7 @@ async function evaluateSession(
           ? criteriaResults
           : [{ criterion: 0, result: 'fail' as const, evidence: transcriptError ?? 'no transcript' }],
         quality_dimension_result: dimensionResult,
+        ...(mergedDeferredQuestions ? { deferred_questions: mergedDeferredQuestions } : {}),
       })
       .eq('id', session.id)
   } catch (updateErr) {
@@ -726,6 +924,7 @@ async function evaluateSession(
         quality_criteria_results: criteriaResults.length > 0
           ? criteriaResults
           : [{ criterion: 0, result: 'fail' as const, evidence: transcriptError ?? 'no transcript' }],
+        ...(mergedDeferredQuestions ? { deferred_questions: mergedDeferredQuestions } : {}),
       })
       .eq('id', session.id)
   }

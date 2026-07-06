@@ -2,12 +2,14 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useUser } from '@clerk/nextjs'
-import { motion } from 'framer-motion'
+import { useRouter } from 'next/navigation'
+import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link'
 import {
   ArrowLeft, CalendarDays, Clock, Download, Tag, CheckCircle,
   Circle, XCircle, Loader, Video, StopCircle, ExternalLink, Sparkles, EyeOff, Eye,
   MessageSquare, BookmarkPlus, Copy, AlertTriangle, Timer, ChevronDown, ChevronRight,
+  RefreshCw,
 } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -101,11 +103,52 @@ function StatusDot({ status }: { status: string }) {
   return <div className="w-2.5 h-2.5 rounded-full border border-[#333333] flex-shrink-0" title="Not started" />
 }
 
+const RETAKE_ERROR_MESSAGES: Record<number, string> = {
+  401: 'Please sign in and try again.',
+  404: 'Session not found.',
+  409: "This session hasn't been completed yet.",
+  500: 'Something went wrong. Please try again.',
+}
+
 export default function SessionDetailClient({ session, minutesBalance }: Props) {
   const title = session.session_title ?? `Session ${session.session_index}`
   const status = STATUS_CONFIG[session.status] ?? STATUS_CONFIG.scheduled
   const topics = session.topics ?? []
   const { user } = useUser()
+  const router = useRouter()
+
+  // ── RETAKE-01: retake this completed session ──────────────────────────────
+  const [showRetakeModal, setShowRetakeModal] = useState(false)
+  const [isRetaking, setIsRetaking] = useState(false)
+  const [retakeError, setRetakeError] = useState<string | null>(null)
+
+  const handleConfirmRetake = useCallback(async () => {
+    setIsRetaking(true)
+    setRetakeError(null)
+    try {
+      const res = await fetch(`/api/sessions/${session.id}/retake`, { method: 'POST' })
+      const data = (await res.json()) as { newSessionId?: string; error?: string; code?: string }
+
+      if (!res.ok) {
+        const message =
+          res.status === 403 && data.code === 'PLAN_NOT_APPROVED'
+            ? 'Your learning plan needs to be approved first.'
+            : res.status === 403 && data.code === 'NO_MINUTES'
+            ? "You're out of session minutes. Add more to continue."
+            : RETAKE_ERROR_MESSAGES[res.status] ?? 'Something went wrong. Please try again.'
+        setRetakeError(message)
+        setIsRetaking(false)
+        return
+      }
+
+      if (data.newSessionId) {
+        router.push(`/dashboard/sessions/${data.newSessionId}`)
+      }
+    } catch {
+      setRetakeError('Something went wrong. Please try again.')
+      setIsRetaking(false)
+    }
+  }, [session.id, router])
 
   // Curriculum sessions (created via plan approval) use sub_sessions JSONB + topic_content_cache.
   // They do NOT use the old session_plan / generate-plan visual pipeline.
@@ -891,12 +934,82 @@ export default function SessionDetailClient({ session, minutesBalance }: Props) 
             </Button>
           </a>
         )}
+        {session.status === 'completed' && (
+          <Button
+            variant="secondary"
+            className="gap-2"
+            onClick={() => {
+              setRetakeError(null)
+              setShowRetakeModal(true)
+            }}
+          >
+            <RefreshCw size={15} />
+            Retake this session
+          </Button>
+        )}
         <Link href="/dashboard/sessions">
           <Button variant="ghost">
             View all sessions
           </Button>
         </Link>
       </motion.div>
+
+      {/* ── RETAKE CONFIRMATION MODAL ── */}
+      <AnimatePresence>
+        {showRetakeModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
+            onClick={() => !isRetaking && setShowRetakeModal(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 16, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 16, scale: 0.98 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-sm rounded-2xl border border-[#222222] bg-[#111111] p-6 space-y-4"
+            >
+              <h2 className="text-lg font-bold text-white">Start a new session on this topic?</h2>
+              <p className="text-sm text-[#94A3B8] leading-relaxed">
+                This will use your own session minutes.
+              </p>
+
+              {retakeError && (
+                <div className="flex items-start gap-2.5 py-2.5 px-3 rounded-lg bg-red-950/20 border border-red-800/30">
+                  <AlertTriangle size={13} className="text-[#EF4444] flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-[#EF4444]">{retakeError}</p>
+                </div>
+              )}
+
+              <div className="flex items-center gap-3 pt-1">
+                <Button
+                  variant="ghost"
+                  className="flex-1 justify-center"
+                  onClick={() => setShowRetakeModal(false)}
+                  disabled={isRetaking}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  className="flex-1 justify-center gap-2"
+                  onClick={handleConfirmRetake}
+                  disabled={isRetaking}
+                >
+                  {isRetaking ? (
+                    <Loader size={14} className="animate-spin" />
+                  ) : (
+                    <RefreshCw size={14} />
+                  )}
+                  Start new session
+                </Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── DEFERRED QUESTIONS ── */}
       {session.deferred_questions && session.deferred_questions.length > 0 && (
