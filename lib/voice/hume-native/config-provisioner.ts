@@ -48,14 +48,20 @@
  *     pre-created Hume Tools, which round-trips fine from GET — but built-in
  *     tools (`hang_up`, `web_search`) live in a wholly separate top-level
  *     field, `builtin_tools` (`posted_builtin_tool`, shape
- *     `{ name, fallback_content? }`), NOT inside `tools`. The base config
- *     carries BOTH `web_search` and `hang_up` in `builtin_tools` (confirmed
- *     via a live GET against the production config), but the prior fix only
- *     reconstructed `hang_up` — silently dropping `web_search` on every
- *     clone even though the base config has it enabled. Fixed by explicitly
- *     reconstructing `tools` as `{id, version}` refs for `advance_tab` and
- *     `show_visual`, and `builtin_tools` as BOTH `{ name: 'web_search' }`
- *     and `{ name: 'hang_up' }`.
+ *     `{ name, fallback_content? }`), NOT inside `tools`. Unlike `voice` and
+ *     `language_model` above, there is no GET/POST shape asymmetry for
+ *     `builtin_tools` — GET's per-entry shape (`{ name, fallback_content? }`)
+ *     already matches what POST expects exactly. So rather than hardcoding a
+ *     second static literal (which would silently drift again the next time
+ *     the base config's enabled builtin tools change — exactly how the prior
+ *     fix silently dropped `web_search` in the first place), `builtin_tools`
+ *     is dynamically reconstructed from `baseConfig.builtin_tools` (captured
+ *     before destructuring, already in scope from `getExistingConfig()` — no
+ *     extra API call needed), mapping each entry to `{ name, fallback_content? }`
+ *     to strip any GET-only sibling keys. `tools` (the user-defined
+ *     `advance_tab` / `show_visual` refs) is still explicitly reconstructed as
+ *     `{id, version}` pairs, since those are per-app fixed identifiers, not
+ *     values that should track whatever the base config happens to have.
  *   - `event_messages`: this is the newly-found asymmetry. Hume's GET
  *     response (`ReturnEventMessageSpecs`) includes a fourth key,
  *     `on_resume_chat`, alongside `on_new_chat`, `on_inactivity_timeout`,
@@ -217,10 +223,19 @@ export async function provisionNativeConfig(
       { id: '4f15c0c2-9af1-421c-8040-ad34b6345234', version: 1 }, // advance_tab
       { id: '65a3d139-2f7b-4e26-9fce-caeb7fa78e05', version: 1 }, // show_visual
     ],
-    builtin_tools: [
-      { name: 'web_search' },
-      { name: 'hang_up' },
-    ],
+    // Dynamically reconstructed from the base config's actual builtin_tools
+    // (captured in baseConfig before destructuring below) rather than a
+    // hardcoded literal — see module doc comment. Falls back to the single
+    // known-required `hang_up` tool only if the base config's field is ever
+    // missing/malformed, never producing an empty/undefined tools list.
+    builtin_tools: Array.isArray(baseConfig.builtin_tools)
+      ? (baseConfig.builtin_tools as Array<{ name: string; fallback_content?: string }>).map(
+          (tool) => ({
+            name: tool.name,
+            ...(tool.fallback_content ? { fallback_content: tool.fallback_content } : {}),
+          })
+        )
+      : [{ name: 'hang_up' }],
     // Reconstructed explicitly — GET's event_messages includes a fourth key,
     // on_resume_chat, that POST's PostedEventMessageSpecs schema does not
     // declare. Only the three POST-valid keys are sent, with the base

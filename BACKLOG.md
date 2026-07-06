@@ -377,7 +377,12 @@ SCR-01                                     ← enhancement layer, not yet built
 | ONB-01 Onboarding Bugs | N/A (bug fix) | N/A | ✅ Partial |
 | CURR-01 Content-First Session Architecture | ✅ Done | ✅ Done — `docs/specs/CURR-01-requirement-document.md` | ✅ Shipped 2026-06-26 |
 | SCR-01 Adaptive Script | ✅ Done | ❌ Needed | ❌ |
+| HUME-NATIVE-01 (Attendee+Hume-native-LLM voice pipeline) | ✅ Done | ✅ Done | ✅ Shipped 2026-07-05 |
+| HUME-NATIVE-01 Phase C (nightly config archive + cleanup) | ✅ Done | ✅ Done | ✅ Shipped 2026-07-05 |
+| CONTENT-POP-01 (live-conductor content population fix + self-heal) | ✅ Done | ✅ Done | ✅ Shipped 2026-07-05 |
+| HUME-NATIVE-01 config-lifecycle consolidation (permanent read/archive function, `web_search` fix, retire debug endpoint) | ✅ Done | ✅ Done — approved, not yet built | ❌ Paused (was about to build on top of `config-provisioner.ts` while it was mid-edit for other fixes — re-verify file state before building) |
+| **HUME-WEBHOOK-01** (Hume server-side "call ended + why" signal — safety net for silent client failures) | ✅ Done | ✅ Done — both narrow and broad scope drafted | ⏸️ **Deferred by Arun 2026-07-05** — low priority. Reasoning: existing safety nets (gap watchdog, session timer) already catch most disconnect scenarios; this only helps in the rare case where a user's browser dies so completely nothing else notices. Small effort but narrow real-world impact — revisit later, not urgent. |
 
 ---
 
-_BACKLOG.md v3.1 | Updated 2026-06-23 | CONTENT-01 BA spec added_
+_BACKLOG.md v3.2 | Updated 2026-07-05 | HUME-NATIVE-01 pipeline + Phase C + CONTENT-POP-01 shipped; config-lifecycle consolidation approved but paused; HUME-WEBHOOK-01 deferred_
