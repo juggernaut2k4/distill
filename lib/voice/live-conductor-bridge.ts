@@ -22,10 +22,33 @@
 
 import Anthropic from '@anthropic-ai/sdk'
 import { createSupabaseAdminClient } from '@/lib/supabase'
-import { CLIO_LIVE_CONDUCTOR_BEHAVIOR, LIVE_CONDUCTOR_VISUAL_ATTEMPT_TIMEOUT_MS } from '@/lib/content/live-conductor-prompt'
-import { formatTabContentForPrompt, type LiveConductorContent, type LiveConductorTab } from '@/lib/content/live-conductor-content'
+import {
+  CLIO_LIVE_CONDUCTOR_BEHAVIOR,
+  LIVE_CONDUCTOR_VISUAL_ATTEMPT_TIMEOUT_MS,
+  LIVE_CONDUCTOR_VISUAL_MAX_ATTEMPTS,
+} from '@/lib/content/live-conductor-prompt'
+import {
+  formatTabContentForPrompt,
+  buildLiveConductorTabs,
+  type LiveConductorContent,
+  type LiveConductorTab,
+} from '@/lib/content/live-conductor-content'
 import { generateLiveVisualWithTimeout, buildAgendaVisual, type LiveConductorVisualData } from '@/lib/content/live-conductor-visual'
 import type { UserContext } from '@/lib/content/session-content-generator'
+
+// ─── ONDEMAND-01 TOGGLE ────────────────────────────────────────────────────────
+
+/**
+ * ONDEMAND-01 — disposable, server-side-only test-mode toggle. Matches the
+ * boolean-string convention already used by NEXT_PUBLIC_LIVE_CONDUCTOR_ENABLED
+ * (this file, line ~39) and CLIO_CONTEXT_MODE (app/api/recall/bot/route.ts):
+ * `'true'` = on, anything else/unset = off. Never NEXT_PUBLIC_-prefixed — this
+ * must never reach the client. Read fresh on every call (no module-level
+ * caching) so a single request always reflects the current env state.
+ */
+function isOnDemandTestModeActive(): boolean {
+  return process.env.LIVE_CONDUCTOR_ONDEMAND_TEST === 'true'
+}
 
 // ─── TOGGLE ───────────────────────────────────────────────────────────────────
 
@@ -118,6 +141,16 @@ export const FORCE_AT_TURN = 8
  * case (several turns landing within the same second on tab 1) to one call.
  */
 const tab1GenerationInFlight = new Set<string>()
+
+/**
+ * ONDEMAND-01 — concurrency guard mirroring tab1GenerationInFlight above, but
+ * keyed by `${userId}:${targetTabIndex}` so a rapid double-fire of
+ * `advance_tab` for the SAME transition (model calls it twice before the
+ * first generation resolves) doesn't kick off duplicate on-demand content
+ * generation calls. Two genuinely different tabs (different index) still
+ * proceed independently — see Section 9 edge case in the requirement doc.
+ */
+const onDemandTabGenerationInFlight = new Set<string>()
 
 interface LiveConductorRow {
   live_conductor_content: LiveConductorContent | null
@@ -278,6 +311,109 @@ export function buildLiveConductorSystemPrompt(
   ].join('\n')
 }
 
+// ─── ONDEMAND-01: on-demand per-tab content generation ────────────────────────
+
+/**
+ * ONDEMAND-01 — retry-with-timeout wrapper for on-demand tab CONTENT
+ * generation, mirroring generateLiveVisualWithTimeout's existing retry-loop
+ * shape (lib/content/live-conductor-visual.ts) exactly: each attempt races
+ * buildLiveConductorTabs() against a per-attempt timeout; up to maxAttempts
+ * attempts; first success returns immediately; total failure resolves to
+ * null. Reuses the SAME constants as visual generation
+ * (LIVE_CONDUCTOR_VISUAL_ATTEMPT_TIMEOUT_MS / LIVE_CONDUCTOR_VISUAL_MAX_ATTEMPTS)
+ * per the requirement doc — no new timeout budget is invented.
+ */
+async function generateOnDemandTabWithTimeout(
+  sessionId: string,
+  topicId: string,
+  topicTitle: string,
+  subtopicTitle: string,
+  userId: string,
+  userContext: UserContext,
+  timeoutMs: number,
+  maxAttempts: number = LIVE_CONDUCTOR_VISUAL_MAX_ATTEMPTS
+): Promise<LiveConductorTab | null> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const result = await Promise.race([
+        buildLiveConductorTabs(sessionId, topicId, topicTitle, [subtopicTitle], userId, userContext)
+          .then((r) => r.tabs[0] ?? null),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
+      ])
+      if (result) {
+        return result
+      }
+      console.log(
+        `[live-conductor-bridge] on-demand: attempt ${attempt}/${maxAttempts} timed out or returned null for tab`,
+        subtopicTitle
+      )
+    } catch (err) {
+      // Defensive: buildLiveConductorTabs -> generateContentArticles already
+      // catches internally in mock/placeholder branches, but guard the race
+      // itself too so an unhandled rejection can never surface.
+      console.error(
+        `[live-conductor-bridge] on-demand: attempt ${attempt}/${maxAttempts} unexpected error for tab`,
+        subtopicTitle,
+        ':',
+        err
+      )
+    }
+  }
+
+  console.error(
+    `[live-conductor-bridge] on-demand: all ${maxAttempts} attempts failed for tab`,
+    subtopicTitle,
+    '— falling back to placeholder'
+  )
+  return null
+}
+
+/**
+ * ONDEMAND-01 — deterministic, non-LLM placeholder tab content, used only
+ * when on-demand generation fails after all retries. Mirrors the spirit of
+ * live-conductor-content.ts's buildFallbackBackground() non-LLM fallback:
+ * never empty, never blocks the session, entirely ephemeral (never
+ * persisted). Exact template per the requirement doc, Section 8.
+ */
+function buildOnDemandFallbackTab(
+  subtopicSlug: string,
+  subtopicTitle: string,
+  userContext: UserContext
+): LiveConductorTab {
+  const placeholderText =
+    `We're covering: ${subtopicTitle}. Let's talk through what this means for a ${userContext.role} in ${userContext.industry}.`
+  return {
+    subtopic_slug: subtopicSlug,
+    subtopic_title: subtopicTitle,
+    article: {
+      subtopic_title: subtopicTitle,
+      subtopic_slug: subtopicSlug,
+      sections: {
+        overview: placeholderText,
+        key_facts: [],
+        how_it_works: '',
+        enterprise_implications: '',
+        common_misconceptions: [],
+        decision_questions: [],
+        illustrative_example: '',
+        try_this: '',
+      },
+      role_relevance: placeholderText,
+      industry_angle: placeholderText,
+    },
+  }
+}
+
+/**
+ * ONDEMAND-01 — holding instruction appended to `resultText` ONLY on the
+ * on-demand test-mode path, so Clio keeps talking through the (potentially
+ * longer) content-generation window instead of going silent. Exact wording
+ * per the requirement doc, Section 8.
+ */
+const ONDEMAND_HOLDING_INSTRUCTION =
+  " The next topic's material is still being prepared — continue your closing thought on the previous topic " +
+  'for a few more seconds; do not go silent and do not tell the user you are waiting.'
+
 // ─── advance_tab HANDLING ─────────────────────────────────────────────────────
 
 /**
@@ -316,7 +452,116 @@ export async function handleAdvanceTab(
   }
 
   const newIndex = currentTabIndex + 1
-  const newTab = content.tabs[newIndex]
+  let newTab = content.tabs[newIndex]
+
+  // ── ONDEMAND-01 ──────────────────────────────────────────────────────────
+  // Disposable, server-side-only test mode (see requirement doc
+  // ONDEMAND-01-live-screen-generation-test-mode.md). Gated entirely behind
+  // isOnDemandTestModeActive() — when the env var is off/unset, none of this
+  // code executes and `newTab` stays exactly `content.tabs[newIndex]` as
+  // today. When the target tab's article body isn't populated yet (deferred
+  // generation), kick off live, in-the-background, non-blocking content
+  // generation, mirroring the existing generateLiveVisualWithTimeout pattern
+  // immediately below. This never persists to topic_content_cache or
+  // sessions.live_conductor_content — the generated content only ever
+  // updates the in-memory `newTab` used for this turn's resultText framing;
+  // the richer content itself is not awaited before returning (fire-and-
+  // forget), so it cannot be embedded synchronously in `newTab` for THIS
+  // response — Clio's natural transition speech covers the gap exactly as it
+  // does for visuals, and the current tab's title (already known from Layer 1
+  // planning) is enough to name the topic in resultText below.
+  let onDemandHolding = ''
+  if (isOnDemandTestModeActive()) {
+    const articleIsEmpty =
+      !newTab?.article ||
+      (!newTab.article.sections?.overview && !newTab.article.sections?.how_it_works)
+
+    if (articleIsEmpty) {
+      const guardKey = `${userId}:${newIndex}`
+      onDemandHolding = ONDEMAND_HOLDING_INSTRUCTION
+
+      if (!onDemandTabGenerationInFlight.has(guardKey)) {
+        onDemandTabGenerationInFlight.add(guardKey)
+        const subtopicSlug = newTab?.subtopic_slug ?? `tab-${newIndex + 1}`
+        const subtopicTitle = newTab?.subtopic_title ?? `Topic ${newIndex + 1}`
+
+        console.log(`[live-conductor-bridge] on-demand: generating tab ${newIndex + 1} live`)
+
+        void (async () => {
+          try {
+            // sessionId/topicId are only used as history-lookup/cache-key
+            // context by generateContentArticles — resolve them the same way
+            // getLiveConductorState does (walkthrough_state.session_id, or
+            // the user's most recent session as a fallback).
+            const { data: wsRow } = await supabase
+              .from('walkthrough_state')
+              .select('session_id')
+              .eq('user_id', userId)
+              .single()
+            let sessionIdForGen = (wsRow as { session_id?: string } | null)?.session_id ?? null
+            if (!sessionIdForGen) {
+              const { data: sessionRow } = await supabase
+                .from('sessions')
+                .select('id')
+                .eq('user_id', userId)
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .single()
+              sessionIdForGen = (sessionRow as { id?: string } | null)?.id ?? null
+            }
+
+            let topicIdForGen = ''
+            let topicTitleForGen = subtopicTitle
+            if (sessionIdForGen) {
+              const { data: sessionMeta } = await supabase
+                .from('sessions')
+                .select('topic_id, session_title')
+                .eq('id', sessionIdForGen)
+                .single()
+              topicIdForGen = (sessionMeta as { topic_id?: string } | null)?.topic_id ?? ''
+              topicTitleForGen = (sessionMeta as { session_title?: string } | null)?.session_title ?? subtopicTitle
+            }
+
+            const generated = sessionIdForGen
+              ? await generateOnDemandTabWithTimeout(
+                  sessionIdForGen,
+                  topicIdForGen,
+                  topicTitleForGen,
+                  subtopicTitle,
+                  userId,
+                  userContext,
+                  LIVE_CONDUCTOR_VISUAL_ATTEMPT_TIMEOUT_MS
+                )
+              : null
+
+            const resolvedTab =
+              generated ??
+              (() => {
+                console.error(
+                  '[live-conductor-bridge] on-demand generation failed for tab, using placeholder fallback:',
+                  subtopicTitle
+                )
+                return buildOnDemandFallbackTab(subtopicSlug, subtopicTitle, userContext)
+              })()
+
+            // Ephemeral only — mutate the in-memory tab entry that
+            // getLiveConductorState's caller already holds a reference to via
+            // `content`, so the NEXT turn's buildLiveConductorSystemPrompt
+            // call picks up the real (or placeholder) content. Never written
+            // to topic_content_cache or sessions.live_conductor_content.
+            content.tabs[newIndex] = resolvedTab
+          } catch (err) {
+            console.error('[live-conductor-bridge] on-demand generation chain failed:', err)
+            content.tabs[newIndex] = buildOnDemandFallbackTab(subtopicSlug, subtopicTitle, userContext)
+          } finally {
+            onDemandTabGenerationInFlight.delete(guardKey)
+          }
+        })()
+      }
+    }
+  }
+  newTab = content.tabs[newIndex]
+  // ── END ONDEMAND-01 ──────────────────────────────────────────────────────
 
   // Persist the new tab index immediately so a concurrent poll / reconnect
   // reads the right tab even before visual generation finishes. Also resets
@@ -354,13 +599,14 @@ export async function handleAdvanceTab(
     })
 
   return {
-    resultText: forced
-      ? `[System-forced advance — you spent too long on the previous tab.] Now on tab ${newIndex + 1} of ` +
-        `${content.tabs.length}: "${newTab.subtopic_title}". Briefly and naturally bridge from the previous ` +
-        `topic into this one, then begin teaching its content.`
-      : `Advanced to tab ${newIndex + 1} of ${content.tabs.length}: "${newTab.subtopic_title}". ` +
-        `Its visual is generating in the background — keep speaking naturally (your conclusion/segue for ` +
-        `the previous tab) until it's ready, then move into this tab's content.`,
+    resultText:
+      (forced
+        ? `[System-forced advance — you spent too long on the previous tab.] Now on tab ${newIndex + 1} of ` +
+          `${content.tabs.length}: "${newTab.subtopic_title}". Briefly and naturally bridge from the previous ` +
+          `topic into this one, then begin teaching its content.`
+        : `Advanced to tab ${newIndex + 1} of ${content.tabs.length}: "${newTab.subtopic_title}". ` +
+          `Its visual is generating in the background — keep speaking naturally (your conclusion/segue for ` +
+          `the previous tab) until it's ready, then move into this tab's content.`) + onDemandHolding,
     newTab,
     isLastTab: newIndex >= content.tabs.length - 1,
   }

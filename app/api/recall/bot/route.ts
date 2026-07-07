@@ -343,6 +343,58 @@ export async function POST(request: NextRequest) {
       console.log(`[recall/bot] CONTENT-POP-01: mapped ${freshSections.length} live-conductor tabs into freshSections/trainingScripts for session=${sessionId}`)
     }
 
+    // ── ONDEMAND-01: on-demand live screen generation test mode ─────────────
+    // Disposable, server-side-only test toggle (see requirement doc
+    // ONDEMAND-01-live-screen-generation-test-mode.md). Nested entirely inside
+    // `if (hasLiveConductorContent)` so it is a strict no-op whenever that
+    // guard is false, and it only overrides freshSections/trainingScripts —
+    // never the full-tab-mapping block above, which always runs first and is
+    // left completely untouched. When the env var is unset/anything other
+    // than 'true', this block does nothing and freshSections/trainingScripts
+    // retain exactly the values the CONTENT-POP-01 block above computed.
+    let onDemandTestModeActive = false
+    if (hasLiveConductorContent && process.env.LIVE_CONDUCTOR_ONDEMAND_TEST === 'true') {
+      onDemandTestModeActive = true
+      // Imported here (not hoisted to the top-level import block) so that
+      // lines 1-344 of this file remain byte-for-byte unchanged from the
+      // pre-ONDEMAND-01 version — see the requirement doc's Zero-Impact-
+      // When-Off Verification Plan, static check #2. buildOverviewTeachContent
+      // itself is reused completely unmodified.
+      const { buildOverviewTeachContent } = await import('@/lib/templates/session-bookends')
+      const tabs = liveConductorContent!.live_conductor_content!.tabs as LiveConductorTab[]
+      const agenda = tabs.map((tab) => ({
+        subtopic_title: tab.article?.subtopic_title ?? tab.subtopic_title ?? '',
+        skipped: skippedTopics.includes(tab.article?.subtopic_title ?? tab.subtopic_title ?? ''),
+      }))
+
+      const overviewSection: TemplateSection = {
+        id: 'session-overview',
+        type: 'SessionOverview',
+        meta: {
+          subtopicTitle: 'Session Overview',
+          sessionTitle,
+          userRole,
+          userIndustry,
+        },
+        data: {
+          session_title: sessionTitle,
+          agenda,
+          framing_line: "Let's dive in.",
+          script: {
+            teach: buildOverviewTeachContent(sessionTitle, agenda),
+            checkpoint: 'Does that agenda work for you, or is there something specific you want to make sure we get to?',
+            continue: "Perfect — let's dive into the first one.",
+          },
+        },
+        status: 'ready',
+      }
+
+      freshSections = [overviewSection]
+      trainingScripts = []
+
+      console.log(`[recall/bot] ONDEMAND-01: on-demand test mode active — writing Overview-only sections for session=${sessionId}`)
+    }
+
     // ── Guard: refuse to launch a curriculum session with no content ────────
     // A missing-sections launch silently degrades to on-the-fly generation —
     // invisible during the call and much harder to debug than a clear error now.
@@ -370,7 +422,13 @@ export async function POST(request: NextRequest) {
     // byte-for-byte the same Overview/Summary contract as
     // inngest/session-meeting-setup.ts. Real subtopics shift from 0..N-1 to
     // 1..N; Overview lands at 0, Summary at N+1.
-    const sectionsWithOverview: TemplateSection[] = freshSections.length > 0
+    // ONDEMAND-01: when on-demand test mode already built the final 1-element
+    // Overview-only sections array above, it must be used as-is — running it
+    // back through wrapSectionsWithBookends would treat the Overview section
+    // as if it were a real subtopic and wrap it in a second Overview/Summary.
+    const sectionsWithOverview: TemplateSection[] = onDemandTestModeActive
+      ? freshSections
+      : freshSections.length > 0
       ? wrapSectionsWithBookends(freshSections, sessionTitle, skippedTopics)
       : []
     // training_scripts stays real-subtopics-only (N-length, 0-indexed) — Overview

@@ -202,6 +202,14 @@
       "comment": "Went through full CEO -> BA -> approval -> build. Root cause for the false-ready bug: there were two separate places that could mark a session's content ready, and only one of them actually checked its work — the other could save 'ready' before its own double-check ran, and never corrected it if that check later failed. Fixed by making one single shared checkpoint that all of them must pass before ever saying ready. Also gave the Overview and Summary screens real content (built from the session's own real title/agenda/topics, not another AI pass) and told Clio to treat the Overview with the same care as any other topic. No historical/already-broken session repaired, by design — going forward only. Live in production — not yet observed on a real live call."
     },
     {
+      "id": "ondemand-live-screen-generation-toggle",
+      "category": "Testing tools",
+      "item": "Test toggle: skip pre-built content entirely, generate each screen live one at a time",
+      "description": "A new toggle so a session can start straight into the Overview with no pre-built content check at all, then generate each next topic's content live, only once the current one is done — instead of using anything pre-built.",
+      "status": "built, type-checked, uncommitted locally — off by default, confirmed no impact when off",
+      "comment": "Went through full CEO -> BA -> approval -> build, per Arun's explicit standing rule (no shortcuts for any code change, including test tooling). Confirmed the earlier real-time-visual toggle didn't actually touch the real live pipeline at all (wired into an old, unused fallback) -- this new one wires directly into the real one. Off by default = confirmed byte-for-byte identical to current behavior (verified directly, not assumed). On: skips all pre-built content lookup, shows Overview first, generates each next topic live on demand with a safe fallback if generation is slow/fails. Purely temporary in-memory for the test -- nothing gets saved/reused afterward. npx tsc --noEmit clean. Not committed/pushed/deployed."
+    },
+    {
       "id": "realtime-visual-test-toggle",
       "category": "Testing tools",
       "item": "Test toggle: real-time visualization vs pre-built KB content",
