@@ -80,12 +80,21 @@ interface BuildDocsInput {
   userIndustry?: string
   learnerProfile?: string | null        // Document 4 — from buildProfileContextForClio()
   sessionDurationMins?: number          // effective duration after minutes-balance cap
+  isOnDemandSingleSection?: boolean     // ONDEMAND-02: true only for live-conductor on-demand sessions
+                                         // (Overview-only at session start; remaining tabs generated live
+                                         // on advance_tab). Explicit boolean, set by the caller — never
+                                         // inferred from sections.length or title matching inside this
+                                         // function. Defaults to false/undefined for every existing caller.
 }
 
 // ─── DOCUMENT 1: SESSION BRIEF ────────────────────────────────────────────────
 
 export function buildSessionBrief(input: Omit<BuildDocsInput, 'topicContextDocs' | 'trainingScripts'>): string {
-  const { sessionTitle, sessionIndex, sections, skippedTopics = [], userRole, userIndustry, sessionDurationMins } = input
+  const {
+    sessionTitle, sessionIndex, sections, skippedTopics = [],
+    userRole, userIndustry, sessionDurationMins,
+    isOnDemandSingleSection = false,
+  } = input
   const sessionLabel = sessionIndex != null ? `Session ${sessionIndex}` : 'Session'
 
   const agendaLines = sections.map((s, i) => {
@@ -113,7 +122,9 @@ export function buildSessionBrief(input: Omit<BuildDocsInput, 'topicContextDocs'
     `OPENING SEQUENCE — do this first, before anything else:`,
     `Call show_visual({ section_index: 0 }) immediately when the session starts.`,
     `This shows the Session Overview. While it loads, say: "Let me pull up today's overview."`,
-    `Briefly walk through the agenda (read the section titles aloud), then proceed to Section 1.`,
+    isOnDemandSingleSection
+      ? `Briefly walk through the agenda (read the section titles aloud), then begin teaching this tab's content directly — there is only one section prepared at the start; each additional topic is generated live, one at a time, only when you call advance_tab.`
+      : `Briefly walk through the agenda (read the section titles aloud), then proceed to Section 1.`,
     `Do NOT begin any TEACH content until after the overview has been shown and the agenda read.`,
     `After the final bridge and 2-sentence summary, call show_visual({ section_index: ${sections.length + 1} }) to show the closing Summary screen, THEN call end_session.`,
     ``,
@@ -358,6 +369,7 @@ export function buildAllClioDocs(
     skippedTopics: input.skippedTopics,
     userRole: input.userRole,
     userIndustry: input.userIndustry,
+    isOnDemandSingleSection: input.isOnDemandSingleSection,
   })
 
   const topic_context = buildTopicContext(input.sections, input.topicContextDocs)

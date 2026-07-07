@@ -206,8 +206,8 @@
       "category": "Testing tools",
       "item": "Test toggle: skip pre-built content entirely, generate each screen live one at a time",
       "description": "A new toggle so a session can start straight into the Overview with no pre-built content check at all, then generate each next topic's content live, only once the current one is done — instead of using anything pre-built.",
-      "status": "built, type-checked, uncommitted locally — off by default, confirmed no impact when off",
-      "comment": "Went through full CEO -> BA -> approval -> build, per Arun's explicit standing rule (no shortcuts for any code change, including test tooling). Confirmed the earlier real-time-visual toggle didn't actually touch the real live pipeline at all (wired into an old, unused fallback) -- this new one wires directly into the real one. Off by default = confirmed byte-for-byte identical to current behavior (verified directly, not assumed). On: skips all pre-built content lookup, shows Overview first, generates each next topic live on demand with a safe fallback if generation is slow/fails. Purely temporary in-memory for the test -- nothing gets saved/reused afterward. npx tsc --noEmit clean. Not committed/pushed/deployed."
+      "status": "built, type-checked, uncommitted locally — real bug found and fixed after Arun's live test, awaiting deploy",
+      "comment": "Live test by Arun found this toggle got stuck after the Overview screen. Root cause: two real gaps, both fixed. (1) The 'generate next topic live' logic was only wired into an old, unused voice system -- Arun's actual calls use the newer one, so the request never reached it at all. Fixed by wiring it into the correct system's own tool-call handling, reusing the same generation logic (no duplication). (2) Clio's own instructions told her to move to a topic that, in this mode, doesn't actually exist yet -- a real contradiction in what she was told. Fixed by giving her accurate wording specifically for this mode, with zero change to any normal session. npx tsc --noEmit clean. Not committed/pushed/deployed."
     },
     {
       "id": "realtime-visual-test-toggle",

@@ -97,6 +97,19 @@ export async function POST(request: NextRequest) {
       ? buildProfileContextForClio(learningProfile, currentDomain)
       : null
 
+    // ONDEMAND-02: hoisted ahead of the "Build context docs" block below (the
+    // original ONDEMAND-01 computation of this same value at its point of use
+    // further down happens AFTER buildAllClioDocs() is called, too late to be
+    // passed into it) — computed here, side-effect-free, purely from
+    // sessionData already fetched above, so buildAllClioDocs() can receive
+    // isOnDemandSingleSection accurately. The later ONDEMAND-01 block's own
+    // onDemandTestModeActive assignment is unchanged and remains the source of
+    // truth for the rest of that block's logic.
+    const onDemandSingleSectionForBrief =
+      sessionData?.content_status === 'ready' &&
+      !!(sessionData?.live_conductor_content as { tabs?: unknown[] } | null)?.tabs?.length &&
+      process.env.LIVE_CONDUCTOR_ONDEMAND_TEST === 'true'
+
     console.log(`[recall/bot] "${sessionTitle}" — ${readySections.length} ready sections, topicId=${topicId}`)
     if (readySections.length === 0 && sessionData?.session_plan) {
       const plan = sessionData.session_plan as SessionPlan
@@ -253,6 +266,7 @@ export async function POST(request: NextRequest) {
         userIndustry,
         learnerProfile,
         sessionDurationMins,
+        isOnDemandSingleSection: onDemandSingleSectionForBrief,
       }, contextMode)
 
       console.log(

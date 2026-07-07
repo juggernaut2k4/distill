@@ -805,7 +805,7 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
               // happens server-side in the bridge route; this client only
               // acknowledges the call and later picks up the result via polling
               // (see applyLiveConductorPoll in the poll effect below).
-              advance_tab: createAdvanceTabToolHandler(),
+              advance_tab: createAdvanceTabToolHandler(userId),
             },
           })
 
@@ -999,7 +999,7 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
             // even when the toggle is off (server-side model prompt never
             // instructs calling this tool unless the live-conductor branch is
             // active, so it is simply never invoked in the default path).
-            advance_tab: createAdvanceTabToolHandler(),
+            advance_tab: createAdvanceTabToolHandler(userId),
           },
           onConnect: ({ conversationId }: { conversationId: string }) => {
             console.log('[Walkthrough] Agent connected, id:', conversationId)

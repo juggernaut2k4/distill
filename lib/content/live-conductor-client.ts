@@ -68,18 +68,40 @@ export function applyLiveConductorPoll(
 /**
  * Builds the `advance_tab` tool handler registered with the voice adapter
  * (HumeAdapter's `tools` config map — see lib/voice/hume-adapter.ts, which
- * dispatches to whatever handler map is passed in, provider-agnostic). This
- * handler's only job client-side is to acknowledge the call; the actual tab
- * index advance + visual generation happens server-side in
- * lib/voice/live-conductor-bridge.ts (handleAdvanceTab), and this client
- * polls walkthrough_state for the result via applyLiveConductorPoll above.
+ * dispatches to whatever handler map is passed in, provider-agnostic).
+ *
+ * ONDEMAND-02 — this handler now actually reaches server-side generation: it
+ * POSTs to /api/live-conductor/advance-tab with the session's userId, which
+ * resolves live-conductor state and calls the existing handleAdvanceTab()
+ * (lib/voice/live-conductor-bridge.ts) — the same logic already used by the
+ * ElevenLabs/Custom-LLM path. The route persists the new tab index + visual
+ * to walkthrough_state directly, and this client's poll loop picks up the
+ * result via applyLiveConductorPoll above; no client-side state mutation is
+ * needed here beyond returning the tool-call result string.
+ *
+ * Never throws — on any network failure or non-200 response, falls back to
+ * the same acknowledgement string the stub previously always returned, so a
+ * transport failure never crashes the live voice session.
  */
-export function createAdvanceTabToolHandler(): (params: Record<string, unknown>) => Promise<string> {
+export function createAdvanceTabToolHandler(
+  userId: string
+): (params: Record<string, unknown>) => Promise<string> {
   return async () => {
-    // No client-side state mutation needed here — the bridge route persists
-    // the new tab index + visual to walkthrough_state directly, and the next
-    // poll tick picks it up via applyLiveConductorPoll. Returning a result
-    // string is still required by the tool-call protocol.
-    return 'Acknowledged — advancing to next tab.'
+    try {
+      const res = await fetch('/api/live-conductor/advance-tab', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      })
+      if (!res.ok) {
+        console.error('[live-conductor-client] advance-tab route returned', res.status)
+        return 'Acknowledged — advancing to next tab.'
+      }
+      const data = (await res.json()) as { resultText?: string }
+      return data.resultText ?? 'Acknowledged — advancing to next tab.'
+    } catch (err) {
+      console.error('[live-conductor-client] advance-tab request failed:', err)
+      return 'Acknowledged — advancing to next tab.'
+    }
   }
 }
