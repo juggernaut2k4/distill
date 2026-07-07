@@ -176,6 +176,14 @@
       "description": "Today, billing waits ~3-7 seconds after a call ends and asks Hume for the call length (with one retry if Hume hasn't finalized it yet), only falling back to our own estimate if that fails. This adds a faster, more direct path: Hume can proactively tell us the second a call ends, so we don't have to wait and ask.",
       "status": "deployed, migration applied, secret set — needs 1 live test to confirm the webhook actually registers",
       "comment": "2026-07-06: CEO-agent code review completed. Confirmed correct: signature verified before trusting any data, stale-webhook-row protection reuses the proven cycle-scoping logic, and the existing wait-and-ask billing path is completely unchanged if this fast path doesn't fire — cannot make billing worse. Migration 062 applied, HUME_WEBHOOK_SECRET set in Vercel Production, code deployed. ONE OPEN ITEM: the exact field/shape for registering the webhook with Hume is a well-reasoned best guess, not yet round-trip confirmed against Hume's real API. Confirm on the next real test call by checking whether a 'hume_webhook_chat_ended' audit row appears for that session — if not, billing still works exactly as before, just without the speed-up yet."
+    },
+    {
+      "id": "recall-webhook-bypasses-billing",
+      "category": "Billing & session time",
+      "item": "A call ending via the meeting-recording tool's own detection skips billing entirely",
+      "description": "When the meeting-recording tool notices everyone left the call and marks the session done on its own, it never goes through the billing process at all — no minutes counted, no deduction, planned length left stale on screen. Found while investigating why a real ~2.4 minute test call showed 15 minutes and deducted nothing.",
+      "status": "root cause confirmed, fix identified, awaiting go-ahead",
+      "comment": "Pre-existing bug, not caused by anything built today (confirmed via git history — predates the current billing system entirely, just never got connected to it). Confirmed Arun was undercharged on a real test call (2.4 real minutes, 0 deducted). Fix: route this path through the same 'properly close out a call' function everything else already uses (already safe to call twice). Not yet applied — awaiting Arun's go-ahead since it's a billing-critical path."
     }
   ]
 }
