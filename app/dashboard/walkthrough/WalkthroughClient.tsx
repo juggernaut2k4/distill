@@ -71,6 +71,13 @@ const HUME_WRAPUP_NUDGE_TEXT =
 const KEEPALIVE_INTERVAL = 8_000
 const MAX_RECONNECT = 6
 
+// LIVE-06a — enforced minimum display time (ms) for any screen written via the
+// screenQueueRef serial chain (scroll_to / insert_section). Prevents a rapid
+// second show_visual call from overwriting the DB before the poll loop (every
+// 2000ms) has had a realistic chance to observe the first screen. See
+// requirement-docs/LIVE-06-screen-skip-and-stuck-error.md Section 4.
+const SCREEN_MIN_DISPLAY_MS = 1500
+
 // ─── Silence / no-response handling ───────────────────────────────────────
 // Two-stage escalation when NEITHER side has spoken for a while. This is a
 // simpler, safer v1 than "after Clio asks a question": detecting whether a
@@ -536,6 +543,10 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
   // On reconnects the stream is already warm, so we skip the wait.
   const [botViewReady, setBotViewReady] = useState(!botView)
   const stableConnectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // LIVE-06a — serial queue chain enforcing SCREEN_MIN_DISPLAY_MS between any
+  // two screen-state writes (scroll_to / insert_section). See constant above.
+  const screenQueueRef = useRef<Promise<void>>(Promise.resolve())
+  const lastScreenShownAtRef = useRef<number>(Date.now())
 
   // Connect to ElevenLabs agent on mount, with auto-reconnect on unexpected drops
   useEffect(() => {
@@ -635,6 +646,8 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
               stableConnectionTimerRef.current = setTimeout(() => {
                 reconnectAttemptsRef.current = 0
                 setRetryCount(0)
+                setConnectionError(null)   // LIVE-06b — clears the stuck "Unable to Connect" modal
+                setAgentError(null)        // LIVE-06b — clears the paired agent-error banner, if set
                 console.log('[Walkthrough/Hume] Connection stable for 30s — retry counter reset')
               }, 30_000)
               // AUTOGEN-01 Part D / Edge Case D2 — a successful (re)connect after
@@ -751,10 +764,28 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
                         try { adapterRef.current?.injectContext(formattedScript) } catch { /* noop */ }
                       }
 
-                      await fetch(`/api/walkthrough-state/${userId}`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ command: 'scroll_to', section_index: idx }),
+                      // LIVE-06a — queued through screenQueueRef so this write respects
+                      // SCREEN_MIN_DISPLAY_MS relative to the previous screen write, and
+                      // never blocks future queued writes even if this POST fails.
+                      // LIVE-06b — the queue assignment happens synchronously (so the next
+                      // call correctly chains onto it and rapid-fire transitions still get
+                      // spaced out), but we do NOT await it here before returning the
+                      // instruction text to Clio's LLM — the write runs in the background.
+                      screenQueueRef.current = screenQueueRef.current.then(async () => {
+                        const elapsed = Date.now() - lastScreenShownAtRef.current
+                        if (elapsed < SCREEN_MIN_DISPLAY_MS) {
+                          await new Promise((r) => setTimeout(r, SCREEN_MIN_DISPLAY_MS - elapsed))
+                        }
+                        try {
+                          await fetch(`/api/walkthrough-state/${userId}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ command: 'scroll_to', section_index: idx }),
+                          })
+                        } catch (e) {
+                          console.error('[Walkthrough/Hume] scroll_to write failed:', e)
+                        }
+                        lastScreenShownAtRef.current = Date.now()
                       })
 
                       const script = trainingScriptsRef.current[idx]
@@ -931,10 +962,28 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
                       }
                     }
 
-                    await fetch(`/api/walkthrough-state/${userId}`, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ command: 'scroll_to', section_index: idx }),
+                    // LIVE-06a — queued through screenQueueRef so this write respects
+                    // SCREEN_MIN_DISPLAY_MS relative to the previous screen write, and
+                    // never blocks future queued writes even if this POST fails.
+                    // LIVE-06b — the queue assignment happens synchronously (so the next
+                    // call correctly chains onto it and rapid-fire transitions still get
+                    // spaced out), but we do NOT await it here before returning the
+                    // instruction text to Clio's LLM — the write runs in the background.
+                    screenQueueRef.current = screenQueueRef.current.then(async () => {
+                      const elapsed = Date.now() - lastScreenShownAtRef.current
+                      if (elapsed < SCREEN_MIN_DISPLAY_MS) {
+                        await new Promise((r) => setTimeout(r, SCREEN_MIN_DISPLAY_MS - elapsed))
+                      }
+                      try {
+                        await fetch(`/api/walkthrough-state/${userId}`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ command: 'scroll_to', section_index: idx }),
+                        })
+                      } catch (e) {
+                        console.error('[Walkthrough] scroll_to write failed:', e)
+                      }
+                      lastScreenShownAtRef.current = Date.now()
                     })
 
                     // Look up the training script for this section and return it as an
@@ -1011,6 +1060,8 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
             stableConnectionTimerRef.current = setTimeout(() => {
               reconnectAttemptsRef.current = 0
               setRetryCount(0)
+              setConnectionError(null)   // LIVE-06b — clears the stuck "Unable to Connect" modal
+              setAgentError(null)        // LIVE-06b — clears the paired agent-error banner, if set
               console.log('[Walkthrough] Connection stable for 30s — retry counter reset')
             }, 30_000)
             // AUTOGEN-01 Part D / Edge Case D2 — a successful reconnect after
