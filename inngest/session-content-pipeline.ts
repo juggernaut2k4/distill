@@ -29,6 +29,11 @@ import type { TemplateSection, TemplateMeta, TabManifest, VisualizationTab } fro
 // "LIVE-01 BRANCH POINT").
 import { generateTopicBackground } from '@/lib/content/live-conductor-content'
 import type { LiveConductorContent } from '@/lib/content/live-conductor-content'
+import { getSessionDuration } from '@/lib/curriculum/session-designer'
+// CONTENT-02: single shared source of truth for "is this session's content
+// actually ready" — see lib/content/content-readiness.ts for the hard rule
+// that every content_status: 'ready' write must call this immediately before writing.
+import { verifyContentReadiness } from '@/lib/content/content-readiness'
 
 // LIVE-01 — toggle check, matching the NEXT_PUBLIC_TOPIC01_ENABLED convention.
 // Default false/unset — when off, none of the code below this check ever runs
@@ -147,13 +152,13 @@ export const sessionContentPipeline = inngest.createFunction(
           .single(),
         supabase
           .from('users')
-          .select('role, industry, ai_maturity, role_level')
+          .select('role, industry, ai_maturity, role_level, learning_goal')
           .eq('id', userId)
           .single(),
       ])
       return {
         session: sessionRow,
-        userProfile: userRow as { role?: string | null; industry?: string | null; ai_maturity?: string | null; role_level?: string | null } | null,
+        userProfile: userRow as { role?: string | null; industry?: string | null; ai_maturity?: string | null; role_level?: string | null; learning_goal?: string | null } | null,
       }
     })
 
@@ -162,10 +167,27 @@ export const sessionContentPipeline = inngest.createFunction(
     // Always key content by DB session UUID — each DB session owns its own scoped content.
     const topicId = sessionId
     const topicTitle = session.session_title ?? 'AI Strategy Session'
-    const sessionDurationMins: number | null =
+    // DUR-01: when both DB duration fields are missing, derive the correct duration
+    // from the session's user's learning_goal via the existing session-designer helper
+    // (reused, not modified — see docs/specs/DUR-01-requirement-document.md §11 Q4)
+    // instead of silently defaulting the word-budget to a bare hardcoded 30. Only if
+    // learning_goal is ALSO missing do we fall through to the hardcoded floor.
+    const rawDurationMins =
       (session as unknown as { planned_duration_mins?: number | null; duration_mins?: number | null }).planned_duration_mins
       ?? (session as unknown as { duration_mins?: number | null }).duration_mins
       ?? null
+
+    const sessionDurationMins: number = rawDurationMins
+      ?? (userProfile?.learning_goal
+            ? getSessionDuration(userProfile.learning_goal)
+            // Absolute last resort: both duration_mins/planned_duration_mins AND the
+            // user's learning_goal are missing. Should not occur for any session
+            // created after the AUTOGEN-01 generation pipeline went live; kept as a
+            // hard floor so content generation never throws on fully-null duration
+            // input. Deliberately 30 (this pipeline's pre-existing historical
+            // default), not getSessionDuration's own internal 15-minute default, to
+            // minimize behavior change for the rare rows that hit this branch.
+            : 30)
 
     // Priority 1: session_plan.sub_sessions (TERM-01 complete)
     const planSubtopics = (session.session_plan as { sub_sessions?: Array<{ title: string; skipped?: boolean }> } | null)
@@ -232,6 +254,16 @@ export const sessionContentPipeline = inngest.createFunction(
             article,
           })),
           generated_at: new Date().toISOString(),
+        }
+
+        // CONTENT-02 call site 2 — see lib/content/content-readiness.ts.
+        // Verify the just-generated content before writing content_status:
+        // 'ready', and throw (not silently return) if it isn't, matching Step
+        // H's existing throw-on-failure behavior for the standard path.
+        const readiness = await verifyContentReadiness(supabase, sessionId, liveConductorContent)
+        if (!readiness.ready) {
+          console.error('[session-content-pipeline][LIVE-01] Content readiness check failed:', readiness.reason)
+          throw new Error(`live_conductor_content failed readiness check for session ${sessionId}: ${readiness.reason}`)
         }
 
         const { error: sessionUpdateError } = await supabase
@@ -308,28 +340,29 @@ export const sessionContentPipeline = inngest.createFunction(
           isLast,
           i,
           articles.length,
-          sessionDurationMins ?? 30
+          sessionDurationMins
         )
 
         // Step D.5: Adapt script to session duration if duration_mins is set.
         // adaptScriptToDuration handles BOTH compression (short session) and expansion
         // (long session). With the 2-minute canonical TEACH, expansion is the common case
         // for 30-min sessions with 3 subtopics (~10 min/subtopic vs 2-min canonical).
-        const scriptAndViz = sessionDurationMins
-          ? {
-              ...rawScriptAndViz,
-              segments: (await adaptScriptToDuration(
-                {
-                  subtopic_title: article.subtopic_title,
-                  subtopic_slug: article.subtopic_slug,
-                  segments: rawScriptAndViz.segments,
-                  total_duration_seconds: rawScriptAndViz.total_duration_seconds,
-                },
-                sessionDurationMins,
-                articles.length
-              )).segments,
-            }
-          : rawScriptAndViz
+        // DUR-01: sessionDurationMins is now always a resolved number (never null),
+        // so adaptScriptToDuration always runs — it is no longer possible to silently
+        // skip this step due to a null duration.
+        const scriptAndViz = {
+          ...rawScriptAndViz,
+          segments: (await adaptScriptToDuration(
+            {
+              subtopic_title: article.subtopic_title,
+              subtopic_slug: article.subtopic_slug,
+              segments: rawScriptAndViz.segments,
+              total_duration_seconds: rawScriptAndViz.total_duration_seconds,
+            },
+            sessionDurationMins,
+            articles.length
+          )).segments,
+        }
 
         // Step E: Select template type.
         // KB-VIZ-01: position 'first' (TopicHero) is now reserved for the synthetic
@@ -443,25 +476,18 @@ export const sessionContentPipeline = inngest.createFunction(
 
     // ── Step H: Guard + mark session ready ────────────────────────────────────
     await step.run('mark-session-ready', async () => {
-      // Guard: verify the DB actually has rows for this topic before marking ready.
-      // This prevents silent-failure loops where all upserts fail but the session
-      // gets marked ready with 0 content, triggering stale-ready recovery → repeat.
-      const { count, error: countError } = await supabase
-        .from('topic_content_cache')
-        .select('id', { count: 'exact', head: true })
-        .eq('topic_id', topicId)
+      // CONTENT-02 call site 1 — see lib/content/content-readiness.ts. Refactored
+      // to call the shared helper instead of inlining the count query, so there
+      // is exactly one implementation of "what counts as ready" in the codebase.
+      // No behavior change for this call site.
+      const readiness = await verifyContentReadiness(supabase, topicId)
 
-      if (countError) {
-        console.error('[session-content-pipeline] count check failed for topic:', topicId, countError.message)
-        throw new Error(`Cache count check failed for topic ${topicId}: ${countError.message}`)
+      if (!readiness.ready) {
+        console.error('[session-content-pipeline] readiness check failed for topic:', topicId, readiness.reason)
+        throw new Error(readiness.reason ?? `topic_content_cache has 0 rows for topic ${topicId} — not marking ready`)
       }
 
-      if (!count || count === 0) {
-        console.error('[session-content-pipeline] topic_content_cache has 0 rows for topic:', topicId, '— not marking ready')
-        throw new Error(`topic_content_cache has 0 rows for topic ${topicId} — not marking ready`)
-      }
-
-      console.log(`[session-content-pipeline] verified ${count} cache row(s) for topic ${topicId} — marking session ready`)
+      console.log(`[session-content-pipeline] verified ${readiness.topicContentCacheRows} cache row(s) for topic ${topicId} — marking session ready`)
 
       await supabase
         .from('sessions')

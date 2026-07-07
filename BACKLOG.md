@@ -388,7 +388,8 @@ SCR-01                                     ← enhancement layer, not yet built
 ## Future considerations
 
 - **HUME-SPEAK-01 Q3**: no client-side fallback/timeout nudge added if Hume-native still opens silently after the Option A fix — deferred, low priority, per Arun's judgment call 2026-07-06.
+- **RECALL-WEBHOOK-BILLING-GAP** (P1, billing): when the meeting-recording tool (Recall.ai) detects a call ended on its own — its own `bot.call_ended`/`status.call_ended` webhook, in `app/api/recall/webhook/route.ts` — it marks the session `completed` directly, without ever running the actual billing finalization (`forceEndSession()`). Result: no `disconnected` audit event, no minutes deducted, stale planned duration left showing on screen. Confirmed pre-existing (predates all of 2026-07-06's changes), and confirmed to have undercharged a real test call by 2-3 minutes. Fix identified (route this path through `forceEndSession()`, already safe to call twice) but explicitly deferred by Arun on 2026-07-06/07 — "we will come to this billing question later." Not yet built. Also open: whether to manually correct Arun's balance for the undercharged test call, or leave it.
 
 ---
 
-_BACKLOG.md v3.3 | Updated 2026-07-06 | HUME-SPEAK-01 (Clio not speaking first, Hume-native) shipped: Option A mode-branch + first-name threading_
+_BACKLOG.md v3.4 | Updated 2026-07-07 | Added RECALL-WEBHOOK-BILLING-GAP (deferred per Arun)_

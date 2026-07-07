@@ -12,6 +12,10 @@ import type { TemplateSection } from '@/lib/templates/types'
 import { generateLiveConductorContent, formatTabContentForPrompt } from '@/lib/content/live-conductor-content'
 import type { LiveConductorTab } from '@/lib/content/live-conductor-content'
 import type { UserContext } from '@/lib/content/session-content-generator'
+// CONTENT-02: single shared source of truth for "is this session's content
+// actually ready" — see lib/content/content-readiness.ts for the hard rule
+// that every content_status: 'ready' write must call this immediately before writing.
+import { verifyContentReadiness } from '@/lib/content/content-readiness'
 
 export const dynamic = 'force-dynamic'
 
@@ -247,21 +251,11 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Session content unavailable — on-demand generation failed' }, { status: 502 })
       }
 
-      // Persist, mirroring session-content-pipeline.ts's exact write shape.
-      const { error: sessionWriteErr } = await supabase
-        .from('sessions')
-        .update({
-          live_conductor_content: healed,
-          content_status: 'ready',
-        })
-        .eq('id', sessionId)
-      if (sessionWriteErr) {
-        console.error('[hume-native/provision-config] CONTENT-POP-01: failed to persist self-healed live_conductor_content:', sessionWriteErr.message)
-      }
-
       // Re-run Part A's mapping logic inline so provisioning proceeds with the
       // freshly-generated data in this same request — no second round-trip to
-      // walkthrough_state is required.
+      // walkthrough_state is required. Moved BEFORE the sessions write (CONTENT-02):
+      // rebuild sections/trainingScripts first, verify readiness against `healed`,
+      // and only then write content_status: 'ready' — never write-then-check.
       const tabs = healed.tabs as LiveConductorTab[]
       sections = tabs.map((tab) => {
         const a = tab.article
@@ -323,6 +317,34 @@ export async function POST(request: NextRequest) {
       if (isSuspiciouslyEmpty(sections, trainingScripts, topicTitleForContent, recheckContent)) {
         console.error('[hume-native/provision-config] CONTENT-POP-01: on-demand generation completed but content is STILL empty for session', sessionId, '— blocking call')
         return NextResponse.json({ error: 'Session content unavailable — on-demand generation failed' }, { status: 502 })
+      }
+
+      // CONTENT-02 call site 3 — see lib/content/content-readiness.ts. This is
+      // the confirmed root cause fix: verification now runs BEFORE the
+      // sessions write, not after. If not ready, content_status is NEVER
+      // touched — no write happens at all, so there is nothing to roll back.
+      const readiness = await verifyContentReadiness(supabase, sessionId, healed)
+      if (!readiness.ready) {
+        console.error(
+          '[hume-native/provision-config] CONTENT-POP-01: readiness check failed for session',
+          sessionId,
+          '—',
+          readiness.reason
+        )
+        return NextResponse.json({ error: 'Session content unavailable — on-demand generation failed' }, { status: 502 })
+      }
+
+      // Only reached if readiness.ready — persist together, mirroring
+      // session-content-pipeline.ts's exact write shape.
+      const { error: sessionWriteErr } = await supabase
+        .from('sessions')
+        .update({
+          live_conductor_content: healed,
+          content_status: 'ready',
+        })
+        .eq('id', sessionId)
+      if (sessionWriteErr) {
+        console.error('[hume-native/provision-config] CONTENT-POP-01: failed to persist self-healed live_conductor_content:', sessionWriteErr.message)
       }
 
       console.log(

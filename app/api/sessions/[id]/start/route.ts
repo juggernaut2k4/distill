@@ -78,9 +78,16 @@ export async function POST(request: NextRequest, { params }: Params) {
     )
   }
 
-  if (minutesBalance < session.duration_mins) {
+  // DUR-01: compute the resolved duration once, before either usage below, so the
+  // minutes-balance check and the timer-seed value can never disagree.
+  // SESSION-DURATION-01: always seed from the immutable planned length, never from
+  // duration_mins alone, since duration_mins may already hold a prior billed value for
+  // a session that was previously force-ended and is now being legitimately restarted.
+  const effectiveDurationMins = session.planned_duration_mins ?? session.duration_mins
+
+  if (minutesBalance < effectiveDurationMins) {
     return NextResponse.json(
-      { error: `Insufficient minutes. This session requires ${session.duration_mins} minutes but you have ${minutesBalance} remaining.` },
+      { error: `Insufficient minutes. This session requires ${effectiveDurationMins} minutes but you have ${minutesBalance} remaining.` },
       { status: 403 }
     )
   }
@@ -88,11 +95,6 @@ export async function POST(request: NextRequest, { params }: Params) {
   // Timer runs for the planned session duration (not the full balance).
   // The server-side Inngest timer enforces this — it fires a warning at T-1min and
   // force-ends the session at T, regardless of client state.
-  // SESSION-DURATION-01: always seed the timer from the immutable planned
-  // length, never from duration_mins alone, since duration_mins may already
-  // hold a prior billed value for a session that was previously force-ended
-  // and is now being legitimately restarted in a later cycle.
-  const effectiveDurationMins = session.planned_duration_mins ?? session.duration_mins
 
   const startedAt = new Date().toISOString()
   await supabase

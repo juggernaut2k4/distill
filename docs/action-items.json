@@ -54,8 +54,8 @@
       "category": "Content & how Clio speaks",
       "item": "No proper greeting at session open",
       "description": "Clio doesn't open the session herself — she reacts to the participant speaking first instead of greeting them by name.",
-      "status": "fixed, deployed",
-      "comment": "Real root cause found: a leftover technical message (built for the old voice system, meant to beat Hume's own greeting) was still firing on every call and blocking Clio's own greeting from ever happening. Fixed by skipping that message specifically for the new voice system — nothing else changed, old system fully untouched and verified. Also added the signed-up user's first name into what Clio knows, so her self-generated opening naturally uses it. Greeting other meeting participants stayed out of scope, per Arun's call. Live in production — ready to test."
+      "status": "fixed, deployed, confirmed working",
+      "comment": "Confirmed by Arun on a real live call 2026-07-07: Clio now opens the conversation herself and greets him by name. Root cause was a leftover technical message from the old voice system blocking her own greeting; fixed by skipping it specifically for the new system, with the signed-up user's first name threaded in. Closed."
     },
     {
       "id": "graceful-ending-wrapup",
@@ -182,8 +182,32 @@
       "category": "Billing & session time",
       "item": "A call ending via the meeting-recording tool's own detection skips billing entirely",
       "description": "When the meeting-recording tool notices everyone left the call and marks the session done on its own, it never goes through the billing process at all — no minutes counted, no deduction, planned length left stale on screen. Found while investigating why a real ~2.4 minute test call showed 15 minutes and deducted nothing.",
-      "status": "root cause confirmed, fix identified, awaiting go-ahead",
-      "comment": "Pre-existing bug, not caused by anything built today (confirmed via git history — predates the current billing system entirely, just never got connected to it). Confirmed Arun was undercharged on a real test call (2.4 real minutes, 0 deducted). Fix: route this path through the same 'properly close out a call' function everything else already uses (already safe to call twice). Not yet applied — awaiting Arun's go-ahead since it's a billing-critical path."
+      "status": "backlog — deferred, discuss later",
+      "comment": "Pre-existing bug, not caused by anything built recently (confirmed via git history — predates the current billing system entirely, just never got connected to it). Confirmed Arun was undercharged on a real test call (2.4 real minutes, 0 deducted). Fix identified: route this path through the same 'properly close out a call' function everything else already uses (already safe to call twice). Deferred by Arun 2026-07-07 — 'we will come to this billing question later.' Also logged in BACKLOG.md (RECALL-WEBHOOK-BILLING-GAP). Not built. Whether to correct Arun's balance for the undercharged call is also still open."
+    },
+    {
+      "id": "duration-fallback-logic-fix",
+      "category": "Content & session lifecycle",
+      "item": "Session length: fix fallback logic going forward (no historical repair)",
+      "description": "Some places in the code checked a session's length without preferring the user's originally chosen plan length, and content generation silently assumed 30 minutes when that value was missing instead of using the user's real preference.",
+      "status": "built, type-checked, uncommitted locally",
+      "comment": "Went through full CEO -> BA -> approval -> build. Fixed 4 spots: the single-session lookup, the pre-call balance check, the scheduling lookup, and content generation's silent 30-min fallback (now uses the user's real chosen preference first, 30 only as an absolute last resort). Confirmed the core logic that decides how many sessions a topic needs was untouched and was already correct. No historical session data touched or repaired, by explicit design. npx tsc --noEmit clean. Not committed/pushed/deployed."
+    },
+    {
+      "id": "overview-screen-content-and-readiness-guard",
+      "category": "Content & how Clio speaks",
+      "item": "Overview screen skipped instantly + content silently marked ready when it wasn't",
+      "description": "The Overview screen had no real prepared content and no instruction telling Clio to slow down there, so she moved on almost instantly. Separately, one specific new topic's content was never actually generated, but the system still reported it as ready, so Clio taught from her own general knowledge instead of the real prepared material.",
+      "status": "built, type-checked, uncommitted locally",
+      "comment": "Went through full CEO -> BA -> approval -> build. Root cause for the false-ready bug: there were two separate places that could mark a session's content ready, and only one of them actually checked its work — the other could save 'ready' before its own double-check ran, and never corrected it if that check later failed. Fixed by making one single shared checkpoint that all of them must pass before ever saying ready. Also gave the Overview and Summary screens real content (built from the session's own real title/agenda/topics, not another AI pass) and told Clio to treat the Overview with the same care as any other topic. No historical/already-broken session repaired, by design — going forward only. npx tsc --noEmit clean. Not committed/pushed/deployed."
+    },
+    {
+      "id": "realtime-visual-test-toggle",
+      "category": "Testing tools",
+      "item": "Test toggle: real-time visualization vs pre-built KB content",
+      "description": "Arun wants to A/B test the original real-time visualization generator (built before the KB/pre-built-content pipeline existed) against the current approach, during a real live Hume-native call. A simple on/off toggle for this.",
+      "status": "built, type-checked, uncommitted locally — awaiting final CEO re-verification before Arun tests",
+      "comment": "Went through full CEO -> BA spec -> approval -> build process per Arun's explicit instruction (no shortcuts, even for small/test tooling). Off by default = zero behavior change anywhere. On: the live call skips pre-built content and generates the visualization live instead. Verified via direct code search (not assumption) that this touches nothing outside the one toggle and its two call sites. npx tsc --noEmit clean. Explicitly disposable/test-only, not a permanent feature. Not committed/pushed/deployed — needs to be enabled (env var) before Arun can actually test it live."
     }
   ]
 }

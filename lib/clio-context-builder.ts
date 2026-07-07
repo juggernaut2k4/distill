@@ -38,9 +38,34 @@ interface SectionMeta {
   sessionTitle?: string
 }
 
+// CONTENT-02: minimal shape of the `script` field session-bookends.ts
+// populates on SessionOverview/SessionSummary sections' `data`. Optional and
+// additive — every other section type's `data` shape is untouched.
+interface BookendScript {
+  teach: string
+  checkpoint: string
+  continue: string
+}
+
 interface Section {
   id: string
+  type?: string
   meta: SectionMeta
+  // Structurally permissive on purpose: callers pass TemplateSection[] (a
+  // discriminated union whose `data` shape varies per section type). Only
+  // SessionOverview/SessionSummary sections are expected to carry `script`
+  // here; every other section type's `data` is read only via the `unknown`
+  // cast in getBookendScript() below, never assumed to have this shape.
+  data?: unknown
+}
+
+// CONTENT-02: safely read `data.script` off a section without widening the
+// exported `Section` type's `data` field beyond `unknown` — avoids type
+// conflicts with the many concrete `data` shapes TemplateSection's
+// discriminated union already defines in lib/templates/types.ts.
+function getBookendScript(section: Section): BookendScript | null {
+  const data = section.data as { script?: BookendScript } | undefined
+  return data?.script ?? null
 }
 
 interface BuildDocsInput {
@@ -161,18 +186,28 @@ export function buildSessionScript(
   const totalSections = sections.length
 
   const scriptBlocks = sections.map((section, i) => {
-    const script = trainingScripts[i] ?? null
     const title = section.meta.subtopicTitle
+
+    // CONTENT-02: SessionOverview/SessionSummary carry their own real, pure-
+    // template spoken content on section.data.script (built by
+    // buildOverviewTeachContent/buildSummaryTeachContent in
+    // lib/templates/session-bookends.ts) instead of a TrainingScript entry —
+    // read from there, not from trainingScripts[i], for these two types only.
+    // No other section type's handling changes below this branch.
+    const isBookend = section.type === 'SessionOverview' || section.type === 'SessionSummary'
+    const bookendScript = isBookend ? getBookendScript(section) : null
+
+    const script = trainingScripts[i] ?? null
 
     const get = (type: TrainingSegment['type']) =>
       script?.segments.find((s) => s.type === type)?.content ?? null
 
-    const teach = get('TEACH')
+    const teach = bookendScript ? bookendScript.teach : get('TEACH')
     const checkpointSegment = script?.segments.find((s) => s.type === 'CHECKPOINT') ?? null
-    const checkpoint = checkpointSegment?.content ?? null
-    const checkpointVariants = checkpointSegment?.variants ?? null
-    const probe = get('PROBE')
-    const cont = get('CONTINUE')
+    const checkpoint = bookendScript ? bookendScript.checkpoint : (checkpointSegment?.content ?? null)
+    const checkpointVariants = bookendScript ? null : (checkpointSegment?.variants ?? null)
+    const probe = bookendScript ? null : get('PROBE')
+    const cont = bookendScript ? bookendScript.continue : get('CONTINUE')
 
     const variantBlock = checkpointVariants
       ? [

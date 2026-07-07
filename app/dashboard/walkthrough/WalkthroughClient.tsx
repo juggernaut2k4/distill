@@ -43,6 +43,14 @@ const HUME_CONFIG_ID = process.env.NEXT_PUBLIC_HUME_CONFIG_ID ?? ''
 // not modified and requires no changes.
 const HUME_NATIVE_ENABLED = process.env.NEXT_PUBLIC_HUME_NATIVE_ENABLED === 'true'
 
+// TEST TOGGLE — when true, show_visual skips the pre-built KB tab lookup
+// entirely and always calls /api/generate-visual to build the visualization
+// live, on the spot, via generateVisualSpec(). Purely for A/B testing the
+// original real-time-generation path against the current pre-built-content
+// path under today's Hume-native architecture. Default off — leaves the
+// normal pre-built-content flow completely untouched.
+const REALTIME_VISUAL_TEST_MODE = process.env.NEXT_PUBLIC_REALTIME_VISUAL_TEST === 'true'
+
 // HUME-NATIVE-01 (Graceful Session End) — the wrap-up nudge instruction sent
 // once, near the end of a Hume-native session, over the already-open
 // WebSocket (see HumeAdapter.sendWrapUpNudge). Matches rule 8 of
@@ -721,7 +729,7 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
                 console.log('[Walkthrough/Hume] show_visual — section_index:', section_index)
                 try {
                   const sections = sectionsRef.current
-                  if (sections.length > 0) {
+                  if (sections.length > 0 && !REALTIME_VISUAL_TEST_MODE) {
                     let idx: number
                     if (typeof section_index === 'number') {
                       idx = section_index
@@ -776,7 +784,7 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
                   const res = await fetch('/api/generate-visual', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId, topicId: fallbackTopicId, topicTitle: fallbackTopicTitle }),
+                    body: JSON.stringify({ userId, topicId: fallbackTopicId, topicTitle: fallbackTopicTitle, realtimeTest: REALTIME_VISUAL_TEST_MODE }),
                   })
                   const data = await res.json() as { ok: boolean }
                   return data.ok ? 'Visual is now showing on screen.' : 'Visual could not be loaded.'
@@ -965,7 +973,7 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
                 const res = await fetch('/api/generate-visual', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ userId, topicId: fallbackTopicId, topicTitle: fallbackTopicTitle }),
+                  body: JSON.stringify({ userId, topicId: fallbackTopicId, topicTitle: fallbackTopicTitle, realtimeTest: REALTIME_VISUAL_TEST_MODE }),
                 })
                 const data = await res.json() as { ok: boolean }
                 return data.ok ? 'Visual is now showing on screen.' : 'Visual could not be loaded.'

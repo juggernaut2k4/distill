@@ -45,12 +45,12 @@ export async function POST(request: NextRequest) {
   // Skip sessions that are completed or active (protected).
   const { data: existingSessions } = await supabase
     .from('sessions')
-    .select('id, session_index, session_title, scheduled_at, duration_mins, status')
+    .select('id, session_index, session_title, scheduled_at, duration_mins, planned_duration_mins, status')
     .eq('user_id', userId!)
     .order('session_index', { ascending: true })
 
-  const existingByIndex = new Map<number, { id: string; session_title: string; duration_mins: number; status: string }>(
-    (existingSessions ?? []).map((s: { id: string; session_index: number; session_title: string; duration_mins: number; status: string }) => [s.session_index, s])
+  const existingByIndex = new Map<number, { id: string; session_title: string; duration_mins: number; planned_duration_mins: number | null; status: string }>(
+    (existingSessions ?? []).map((s: { id: string; session_index: number; session_title: string; duration_mins: number; planned_duration_mins: number | null; status: string }) => [s.session_index, s])
   )
 
   let updatedCount = 0

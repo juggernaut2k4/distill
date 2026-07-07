@@ -348,12 +348,20 @@ export interface SessionOverviewData {
   session_title: string
   agenda: Array<{ subtopic_title: string; skipped: boolean }>
   framing_line: string   // fixed literal string — never LLM-generated
+  // CONTENT-02: real spoken content for this bookend, built by pure
+  // deterministic string templating (buildOverviewTeachContent) — no LLM call.
+  // Read by buildSessionScript() instead of trainingScripts[i] for this section type.
+  script?: { teach: string; checkpoint: string; continue: string }
 }
 
 export interface SessionSummaryData {
   session_title: string
   covered_subtopics: string[]   // excludes skipped subtopics entirely
   closing_line: string          // fixed literal string — never LLM-generated
+  // CONTENT-02: real spoken content for this bookend, built by pure
+  // deterministic string templating (buildSummaryTeachContent) — no LLM call.
+  // Read by buildSessionScript() instead of trainingScripts[i] for this section type.
+  script?: { teach: string; checkpoint: string; continue: string }
 }
 
 // ─── VISUALIZATION TAB MANIFEST ───────────────────────────────────────────────

@@ -8,6 +8,7 @@ const Body = z.object({
   userId: z.string().min(1),
   topicId: z.string().min(1).max(80),
   topicTitle: z.string().min(1).max(120),
+  realtimeTest: z.boolean().optional(),
 })
 
 /**
@@ -26,53 +27,55 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Invalid body' }, { status: 400 })
   }
 
-  const { userId, topicId, topicTitle } = body
+  const { userId, topicId, topicTitle, realtimeTest } = body
   const supabase = createSupabaseAdminClient()
 
-  // Check if there's a pre-generated visual spec in the session plan — instant render
-  const { data: walkthroughState } = await supabase
-    .from('walkthrough_state')
-    .select('session_id')
-    .eq('user_id', userId)
-    .single()
-
-  if (walkthroughState?.session_id) {
-    const { data: sessionRow } = await supabase
-      .from('sessions')
-      .select('session_plan')
-      .eq('id', walkthroughState.session_id)
+  if (!realtimeTest) {
+    // Check if there's a pre-generated visual spec in the session plan — instant render
+    const { data: walkthroughState } = await supabase
+      .from('walkthrough_state')
+      .select('session_id')
+      .eq('user_id', userId)
       .single()
 
-    const preGeneratedSection = findPreGeneratedSection(
-      sessionRow?.session_plan as SessionPlan | null,
-      topicTitle
-    )
-
-    if (preGeneratedSection) {
-      console.log('[generate-visual] Pre-generated section found for:', topicTitle, '— using scroll_to')
-      // Find the section index in walkthrough_state.sections to scroll to it
-      const { data: wsData } = await supabase
-        .from('walkthrough_state')
-        .select('sections, current_section_index')
-        .eq('user_id', userId)
+    if (walkthroughState?.session_id) {
+      const { data: sessionRow } = await supabase
+        .from('sessions')
+        .select('session_plan')
+        .eq('id', walkthroughState.session_id)
         .single()
 
-      const sections = Array.isArray(wsData?.sections) ? wsData.sections : []
-      const sectionIdx = sections.findIndex(
-        (s: { meta?: { subtopicTitle?: string } }) =>
-          s.meta?.subtopicTitle?.toLowerCase().includes(topicTitle.toLowerCase().slice(0, 20))
+      const preGeneratedSection = findPreGeneratedSection(
+        sessionRow?.session_plan as SessionPlan | null,
+        topicTitle
       )
 
-      if (sectionIdx >= 0) {
-        await supabase
+      if (preGeneratedSection) {
+        console.log('[generate-visual] Pre-generated section found for:', topicTitle, '— using scroll_to')
+        // Find the section index in walkthrough_state.sections to scroll to it
+        const { data: wsData } = await supabase
           .from('walkthrough_state')
-          .update({ current_section_index: sectionIdx })
+          .select('sections, current_section_index')
           .eq('user_id', userId)
-        return NextResponse.json({ ok: true, source: 'template-scroll' })
-      }
+          .single()
 
-      // Fallback: update visual_spec with a placeholder if section lookup fails
-      return NextResponse.json({ ok: true, source: 'pre-generated-no-scroll' })
+        const sections = Array.isArray(wsData?.sections) ? wsData.sections : []
+        const sectionIdx = sections.findIndex(
+          (s: { meta?: { subtopicTitle?: string } }) =>
+            s.meta?.subtopicTitle?.toLowerCase().includes(topicTitle.toLowerCase().slice(0, 20))
+        )
+
+        if (sectionIdx >= 0) {
+          await supabase
+            .from('walkthrough_state')
+            .update({ current_section_index: sectionIdx })
+            .eq('user_id', userId)
+          return NextResponse.json({ ok: true, source: 'template-scroll' })
+        }
+
+        // Fallback: update visual_spec with a placeholder if section lookup fails
+        return NextResponse.json({ ok: true, source: 'pre-generated-no-scroll' })
+      }
     }
   }
 
