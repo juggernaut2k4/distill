@@ -54,17 +54,24 @@ const REALTIME_VISUAL_TEST_MODE = process.env.NEXT_PUBLIC_REALTIME_VISUAL_TEST =
 // HUME-NATIVE-01 (Graceful Session End) — the wrap-up nudge instruction sent
 // once, near the end of a Hume-native session, over the already-open
 // WebSocket (see HumeAdapter.sendWrapUpNudge). Matches rule 8 of
-// lib/voice/hume-native/prompt-template.ts (already shipped, unmodified):
-// Clio should generate a real, content-aware closing summary of the two most
-// important takeaways and say a natural goodbye, which Hume EVI's own
-// built-in end-of-conversation detection then turns into a hang-up.
+// lib/voice/hume-native/prompt-template.ts (SESSION-END-01, v5): Clio should
+// generate a real, content-aware closing summary of the two most important
+// takeaways, confirm there is nothing further before wrapping up, then say a
+// natural goodbye and explicitly call the end_session tool in that same turn
+// — the call does not end automatically.
 const HUME_WRAPUP_NUDGE_TEXT =
   '[SYSTEM] The session is nearing its end. Naturally wrap up now: briefly ' +
   'summarize the two most important takeaways from this session in your own ' +
-  'words, thank the participant, and say a clear, warm goodbye immediately ' +
-  'afterward. Do not ask a further question and do not wait for the ' +
-  'participant to speak first once you have delivered the closing summary ' +
-  'and farewell.'
+  'words, then ask a direct closing question confirming there is nothing ' +
+  'further to discuss (e.g. "Is there anything else on your mind before we ' +
+  'wrap up?") and wait for a response. If the participant raises something ' +
+  'new, address it naturally, then ask that closing question again, ' +
+  'repeating until their response indicates nothing further. Once they ' +
+  'confirm there is nothing further, thank them and say a clear, warm ' +
+  'goodbye, and immediately after the goodbye, in that same turn, call the ' +
+  'end_session tool. Do not wait for the participant to speak first once ' +
+  'you have delivered the farewell — end_session is the only way the call ' +
+  'ends, it does not end automatically just because you said goodbye.'
 
 // How long (ms) of polling silence before sending a keep-alive context update.
 // Keep short — ElevenLabs closes the WebSocket after ~15s of inactivity.
@@ -451,6 +458,13 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
   const pendingTranscriptRef = useRef<string | null>(null)
   const sendTranscriptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const sessionEndedRef = useRef(false)
+  // SESSION-END-01 — pending fallback teardown timer, armed only when a
+  // FAREWELL_PHRASES match occurs on the final section (demoted,
+  // non-authoritative resilience net — see isFarewellMessage call sites
+  // below). Cleared by the real end_session tool-call handlers the moment a
+  // genuine tool call arrives, so the fallback never fires a duplicate
+  // teardown once the authoritative signal has already landed.
+  const farewellFallbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Counts AI utterances so farewell detection can skip the very first one
   // (Clio's opening greeting) — see isFarewellMessage above.
   const aiMessageCountRef = useRef(0)
@@ -724,13 +738,28 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
                 }
                 // Farewell detection — skip the first AI message (opening
                 // greeting) and use word-boundary matching (see isFarewellMessage).
+                // SESSION-END-01: demoted to a gated, non-authoritative fallback —
+                // a phrase match only arms the 8s teardown timer when Clio is on
+                // the final section, and only if the real end_session tool call
+                // hasn't already ended the session. Outside the final section, a
+                // match is a no-op (this is the actual false-positive fix).
                 const isFirstAiMessage = aiMessageCountRef.current === 0
                 aiMessageCountRef.current += 1
                 if (isFarewellMessage(text, isFirstAiMessage)) {
-                  console.log('[Walkthrough/Hume] Farewell detected in agent speech — marking session ended')
-                  sessionEndedRef.current = true
-                  setSessionComplete(true)
-                  endCallOnServer(userId, auditTokenRef.current)
+                  const isFinalSection = currentSectionIndexRef.current === sectionsRef.current.length - 1
+                  if (isFinalSection && !sessionEndedRef.current && !farewellFallbackTimeoutRef.current) {
+                    console.log('[Walkthrough/Hume] Farewell phrase detected on final section — arming 8s fallback teardown timer')
+                    farewellFallbackTimeoutRef.current = setTimeout(() => {
+                      farewellFallbackTimeoutRef.current = null
+                      if (sessionEndedRef.current) return
+                      console.warn('[Walkthrough/Hume] Farewell fallback timer elapsed with no end_session tool call — tearing down via demoted fallback')
+                      sessionEndedRef.current = true
+                      setSessionComplete(true)
+                      endCallOnServer(userId, auditTokenRef.current)
+                    }, 8000)
+                  } else if (!isFinalSection) {
+                    console.log('[Walkthrough/Hume] Farewell phrase detected outside final section — ignored, no timer armed')
+                  }
                 }
               }
             },
@@ -825,6 +854,13 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
               },
               end_session: async () => {
                 console.log('[Walkthrough/Hume] end_session called')
+                // SESSION-END-01: clear any pending farewell-fallback timer first —
+                // the real tool call is the authoritative signal; the fallback must
+                // never also fire and cause a duplicate teardown.
+                if (farewellFallbackTimeoutRef.current) {
+                  clearTimeout(farewellFallbackTimeoutRef.current)
+                  farewellFallbackTimeoutRef.current = null
+                }
                 sessionEndedRef.current = true
                 setSessionComplete(true)
                 endCallOnServer(userId, auditTokenRef.current)
@@ -901,6 +937,13 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
           clientTools: {
             end_session: async () => {
               console.log('[Walkthrough] Agent called end_session — session closing')
+              // SESSION-END-01: clear any pending farewell-fallback timer first —
+              // the real tool call is the authoritative signal; the fallback must
+              // never also fire and cause a duplicate teardown.
+              if (farewellFallbackTimeoutRef.current) {
+                clearTimeout(farewellFallbackTimeoutRef.current)
+                farewellFallbackTimeoutRef.current = null
+              }
               sessionEndedRef.current = true
               setSessionComplete(true)
               endCallOnServer(userId, auditTokenRef.current)
@@ -1151,13 +1194,28 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
               // ── Farewell detection ─────────────────────────────────────────
               // Skip the first AI message (opening greeting) and use
               // word-boundary matching (see isFarewellMessage above).
+              // SESSION-END-01: demoted to a gated, non-authoritative fallback —
+              // a phrase match only arms the 8s teardown timer when Clio is on
+              // the final section, and only if the real end_session tool call
+              // hasn't already ended the session (already reliably firing for
+              // this ElevenLabs path today — this gating is inert insurance).
               const isFirstAiMessage = aiMessageCountRef.current === 0
               aiMessageCountRef.current += 1
               if (isFarewellMessage(message, isFirstAiMessage)) {
-                console.log('[Walkthrough] Farewell detected in agent speech — marking session ended')
-                sessionEndedRef.current = true
-                setSessionComplete(true)
-                endCallOnServer(userId, auditTokenRef.current)
+                const isFinalSection = currentSectionIndexRef.current === sectionsRef.current.length - 1
+                if (isFinalSection && !sessionEndedRef.current && !farewellFallbackTimeoutRef.current) {
+                  console.log('[Walkthrough] Farewell phrase detected on final section — arming 8s fallback teardown timer')
+                  farewellFallbackTimeoutRef.current = setTimeout(() => {
+                    farewellFallbackTimeoutRef.current = null
+                    if (sessionEndedRef.current) return
+                    console.warn('[Walkthrough] Farewell fallback timer elapsed with no end_session tool call — tearing down via demoted fallback')
+                    sessionEndedRef.current = true
+                    setSessionComplete(true)
+                    endCallOnServer(userId, auditTokenRef.current)
+                  }, 8000)
+                } else if (!isFinalSection) {
+                  console.log('[Walkthrough] Farewell phrase detected outside final section — ignored, no timer armed')
+                }
               }
             }
           },
@@ -1249,6 +1307,10 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
     return () => {
       cancelled = true
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current)
+      // SESSION-END-01: clear any pending farewell-fallback timer on unmount,
+      // same pattern as reconnectTimerRef above — prevents the demoted
+      // fallback from firing a teardown call after this component is gone.
+      if (farewellFallbackTimeoutRef.current) clearTimeout(farewellFallbackTimeoutRef.current)
       adapterRef.current?.endSession().catch(() => {})
       adapterRef.current = null
       elevenLabsConvRef.current = null

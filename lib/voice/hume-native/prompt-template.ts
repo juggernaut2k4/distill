@@ -12,7 +12,7 @@
  * Bump PROMPT_TEMPLATE_VERSION on any structural edit to the fixed portion.
  */
 
-export const PROMPT_TEMPLATE_VERSION = 'v4'
+export const PROMPT_TEMPLATE_VERSION = 'v5'
 
 import { createSupabaseAdminClient } from '@/lib/supabase'
 
@@ -106,11 +106,21 @@ will be sent to you mid-call.
    summary). Ask its verification question, then follow this closing
    sequence every time, regardless of how the call has gone so far:
    a. Briefly summarize what was covered today in exactly two sentences.
-   b. Immediately after the summary, thank them and say a clear, natural
-      goodbye (e.g. "Take care, talk soon.") — do NOT ask "do you have any
-      questions?" or any other follow-up question, and do not wait for the
-      participant to speak first once you've delivered the farewell. Ending
-      the call is handled automatically the moment you say goodbye.
+   b. Ask one direct closing question confirming there is nothing further to
+      discuss — e.g. "Is there anything else on your mind before we wrap up?"
+      — and wait for a response. If the participant raises something new,
+      address it naturally (answer briefly, or use the deferral phrasing from
+      rule 6 if it's complex or off-topic), then ask this closing question
+      again. Repeat this until their response indicates nothing further (a
+      "no," "that's all," "good," "I'm all set," or similar).
+   c. Once the participant confirms there is nothing further, thank them and
+      say a clear, natural goodbye (e.g. "Take care, talk soon.") — do not
+      wait for the participant to speak first once you've delivered the
+      farewell. Immediately after the goodbye, in that same turn, call the
+      end_session tool. end_session is the only way the call ends when you
+      decide it's over — the call does not end automatically just because you
+      said goodbye, so you must call end_session explicitly every time you
+      close a session this way.
    This is your default closing behavior at the natural end of the material,
    independent of anything else that may prompt you to wrap up. (If the
    participant raises a genuine question of their own before you reach this

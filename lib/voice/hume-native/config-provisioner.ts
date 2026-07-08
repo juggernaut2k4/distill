@@ -293,20 +293,37 @@ export async function provisionNativeConfig(
       : [
           { id: '4f15c0c2-9af1-421c-8040-ad34b6345234', version: 1 }, // advance_tab
           { id: '65a3d139-2f7b-4e26-9fce-caeb7fa78e05', version: 1 }, // show_visual
+          // TODO(SESSION-END-01): paste the real {id, version} returned by the
+          // one-time `POST /v0/evi/tools` registration described in
+          // docs/session-end-01-hume-setup.md once it has been run — this
+          // fallback array is only ever used if baseConfig.tools is malformed,
+          // but should still carry end_session once it exists so a malformed
+          // base-config response doesn't silently regress this feature too.
+          // { id: 'REPLACE_WITH_END_SESSION_TOOL_ID', version: 1 }, // end_session
         ],
     // Dynamically reconstructed from the base config's actual builtin_tools
     // (captured in baseConfig before destructuring below) rather than a
     // hardcoded literal — see module doc comment. Falls back to the single
     // known-required `hang_up` tool only if the base config's field is ever
     // missing/malformed, never producing an empty/undefined tools list.
-    builtin_tools: Array.isArray(baseConfig.builtin_tools)
+    //
+    // SESSION-END-01: `hang_up` is unconditionally filtered out of the final
+    // array regardless of source (base config or hardcoded fallback). If
+    // Hume's native LLM retained access to `hang_up`, it would have a
+    // second, code-invisible way to end the call that closes the WebSocket
+    // directly (HumeAdapter's generic onclose handler — indistinguishable
+    // from an ordinary network drop) instead of going through the
+    // structurally distinguishable `end_session` tool-call path. See spec
+    // Section 11a for the full distinguishability analysis.
+    builtin_tools: (Array.isArray(baseConfig.builtin_tools)
       ? (baseConfig.builtin_tools as Array<{ name: string; fallback_content?: string }>).map(
           (tool) => ({
             name: tool.name,
             ...(tool.fallback_content ? { fallback_content: tool.fallback_content } : {}),
           })
         )
-      : [{ name: 'hang_up' }],
+      : [{ name: 'hang_up' }]
+    ).filter((tool) => tool.name !== 'hang_up'),
     // Reconstructed explicitly — GET's event_messages includes a fourth key,
     // on_resume_chat, that POST's PostedEventMessageSpecs schema does not
     // declare. Only the three POST-valid keys are sent, with the base
