@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { clerkClient } from '@clerk/nextjs/server'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { getUserLearningProfile, buildProfileContextForClio } from '@/lib/learning/user-profile'
-import { buildTopicContext, buildSessionScript } from '@/lib/clio-context-builder'
+import { buildTopicContext, buildSessionScript, buildSessionSummary } from '@/lib/clio-context-builder'
 import {
   assembleHumeNativePrompt,
   buildIntentContextForHumeNative,
@@ -48,6 +48,17 @@ export const maxDuration = 120
  * logged or returned in the response.
  */
 export async function POST(request: NextRequest) {
+  // SESSCTX-01: server-only toggle for summary-driven session context. Strict
+  // equality — anything other than the exact string 'true' (unset, 'false',
+  // typos) resolves to OFF, the current, unchanged full-script behavior. This
+  // is a deliberate fail-safe default so a misconfigured/missing env var can
+  // never accidentally activate the newer, less-tested mode. Read once here;
+  // the pre-check (~148) and recheck (~311) completeness-gate call sites
+  // below intentionally do NOT read this flag — they always call the
+  // unmodified buildSessionScript() regardless of its value (see the real
+  // assembly call site below for rationale).
+  const summaryModeEnabled = process.env.HUME_NATIVE_SUMMARY_MODE === 'true'
+
   let userId: string | undefined
   try {
     const body = await request.json() as { userId?: string }
@@ -373,10 +384,23 @@ export async function POST(request: NextRequest) {
     return tab ? formatTabContentForPrompt(tab) : null
   })
 
+  // SESSCTX-01: the only toggle-aware call site. Everything else in this
+  // step (heading, buildTopicContext call, join logic, downstream
+  // assembleHumeNativePrompt call) is identical regardless of the flag — only
+  // the session-script vs. session-summary text format changes. The
+  // pre-check/recheck completeness gates above intentionally stay
+  // unconditional on buildSessionScript(): they exist purely to detect
+  // genuinely-empty content, and buildSessionScript()'s output is a strict
+  // superset in verbosity of buildSessionSummary()'s, making it the more
+  // conservative (harder to false-positive) of the two detectors — using it
+  // unconditionally means this toggle can never weaken that existing
+  // defensive gate.
   const sessionContent = [
     topicTitleForContent ? `# ${topicTitleForContent}` : '',
     buildTopicContext(sections, topicContextDocs),
-    buildSessionScript(sections, trainingScripts),
+    summaryModeEnabled
+      ? buildSessionSummary(sections, trainingScripts)
+      : buildSessionScript(sections, trainingScripts),
   ].filter(Boolean).join('\n\n---\n\n')
 
   // HUME-SPEAK-01 / Q2 (2026-07-06): the primary user's first name, sourced

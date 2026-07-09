@@ -272,6 +272,153 @@ export function buildSessionScript(
   ].join('\n')
 }
 
+// ─── DOCUMENT 3 (SUMMARY MODE): SESSION SUMMARY ───────────────────────────────
+// SESSCTX-01 — sibling to buildSessionScript(), used only by the Hume-native
+// path (app/api/hume-native/provision-config/route.ts) when
+// HUME_NATIVE_SUMMARY_MODE=true. Replaces the literal TEACH paragraph,
+// checkpoint question, and 7 V1-V7 response variants with a compact "what to
+// cover" line plus fixed improvisation instructions, so Clio teaches live
+// from the TOPIC KNOWLEDGE BASE instead of reading a pre-written script.
+//
+// Deliberately does NOT modify or wrap buildSessionScript() — it must keep
+// producing byte-identical output for its existing ElevenLabs/Hume-Custom-LLM/
+// admin-QA callers (buildAllClioDocs() and, through it,
+// app/api/admin/qa-session-context/route.ts, app/api/recall/bot/route.ts,
+// inngest/session-meeting-setup.ts). Bookend handling is intentionally
+// duplicated (not extracted into a shared helper) rather than refactoring
+// buildSessionScript()'s body, using the same existing getBookendScript()/
+// checkpointFallback() utilities buildSessionScript() already relies on.
+
+const NO_PREPARED_SCRIPT_SUMMARY_FALLBACK =
+  '(No prepared script — explain the key concepts for this topic from the Topic Knowledge Base above, in plain language.)'
+
+const WHAT_TO_COVER_WORD_CAP = 40
+const WHAT_TO_COVER_CHAR_CAP = 260
+
+/**
+ * Extracts a compact "what to cover" line from a TEACH segment's content:
+ * the first complete sentence(s) up to a ~40-word / ~260-character cap, cut
+ * at the last sentence boundary within the cap. Never truncates mid-sentence
+ * (a sentence that alone exceeds the cap is still returned whole rather than
+ * cut), and never pads content shorter than the cap.
+ */
+function extractWhatToCover(teachContent: string | null): string {
+  if (!teachContent || teachContent.trim().length === 0) {
+    return NO_PREPARED_SCRIPT_SUMMARY_FALLBACK
+  }
+
+  const trimmed = teachContent.trim().replace(/\s+/g, ' ')
+
+  // Split into sentences, keeping trailing punctuation with each one. Falls
+  // back to treating the whole string as one "sentence" if no terminal
+  // punctuation is found at all.
+  const sentences =
+    trimmed.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g)?.map((s) => s.trim()).filter(Boolean) ?? [trimmed]
+
+  let result = ''
+  for (const sentence of sentences) {
+    const candidate = result ? `${result} ${sentence}` : sentence
+    const candidateWordCount = candidate.split(/\s+/).filter(Boolean).length
+    const exceedsCap = candidateWordCount > WHAT_TO_COVER_WORD_CAP || candidate.length > WHAT_TO_COVER_CHAR_CAP
+
+    // Adding this sentence would exceed the cap and we already have at least
+    // one full sentence banked — stop here, never cut mid-sentence.
+    if (result && exceedsCap) break
+
+    result = candidate
+
+    if (candidateWordCount >= WHAT_TO_COVER_WORD_CAP || candidate.length >= WHAT_TO_COVER_CHAR_CAP) break
+  }
+
+  return result || trimmed
+}
+
+export function buildSessionSummary(
+  sections: Section[],
+  trainingScripts: (TrainingScript | null)[]
+): string {
+  const totalSections = sections.length
+
+  const summaryBlocks = sections.map((section, i) => {
+    const title = section.meta.subtopicTitle
+    const isBookend = section.type === 'SessionOverview' || section.type === 'SessionSummary'
+    const isLast = i === totalSections - 1
+
+    const header = `--- SECTION ${i + 1}/${totalSections}: "${title}" --- [call show_visual({ section_index: ${i + 1} })]`
+
+    if (isBookend) {
+      // Bookend sections (Session Overview / Session Summary) always keep
+      // their full, unabridged script in both modes — existing prompt rules
+      // 1 and 8 (lib/voice/hume-native/prompt-template.ts, unchanged, out of
+      // scope) require this content be delivered "in full". Same fallback
+      // values buildSessionScript() uses for this same condition.
+      const bookendScript = getBookendScript(section)
+      const teach = bookendScript?.teach
+        ?? `(No script — explain the key concepts from the knowledge base in plain language.)`
+      const checkpoint = bookendScript?.checkpoint ?? checkpointFallback(i)
+      const cont = bookendScript?.continue
+        ?? (isLast ? `That wraps up today's session.` : `Good. Let's move to the next section.`)
+
+      return [
+        header,
+        ``,
+        `[STAGE DIRECTION — DO NOT SAY] Deliver teaching content after show_visual({ section_index: ${i + 1} }):`,
+        teach,
+        ``,
+        `[STAGE DIRECTION — DO NOT SAY] Verification question — ask after TEACH:`,
+        checkpoint,
+        ``,
+        `[STAGE DIRECTION — DO NOT SAY] Reframe fallback — use if participant seems uncertain:`,
+        `Let me try a different angle.`,
+        ``,
+        isLast
+          ? `[STAGE DIRECTION — DO NOT SAY] Final bridge — say this after verification response, then summarise 2 sentences, then call end_session immediately:`
+          : `[STAGE DIRECTION — DO NOT SAY] Bridge to next section:`,
+        cont,
+      ].join('\n')
+    }
+
+    // Non-bookend section: compact "what to cover" line plus fixed
+    // improvisation instructions in place of the literal checkpoint question
+    // and the 7 V1-V7 response variants.
+    const script = trainingScripts[i] ?? null
+    const teachSegment = script?.segments.find((s) => s.type === 'TEACH')?.content ?? null
+    const whatToCover = extractWhatToCover(teachSegment)
+
+    return [
+      header,
+      ``,
+      `[STAGE DIRECTION — DO NOT SAY] What to cover — teach this live, in your own words, drawing on the TOPIC KNOWLEDGE BASE above. This is not a script:`,
+      whatToCover,
+      ``,
+      `[STAGE DIRECTION — DO NOT SAY] Verification — after teaching, ask a question that checks whether this landed, in your own words. There is no fixed question and no fixed response bank here — listen and respond naturally, per Behavioral Rule 4:`,
+      `(Improvise a question specific to what you just taught and this executive's context.)`,
+      ``,
+      `[STAGE DIRECTION — DO NOT SAY] If they seem uncertain, try a different angle in your own words — no fixed fallback line.`,
+      ``,
+      isLast
+        ? `[STAGE DIRECTION — DO NOT SAY] Final bridge — transition naturally in your own words, then summarise what was covered in exactly 2 sentences, then call end_session immediately.`
+        : `[STAGE DIRECTION — DO NOT SAY] Bridge to next section — transition naturally in your own words once the verification exchange is done.`,
+    ].join('\n')
+  })
+
+  return [
+    `=== SESSION SUMMARY ===`,
+    `This is a compact summary to teach live from — not a script. Speak naturally,`,
+    `substantively drawing on the TOPIC KNOWLEDGE BASE above for depth and accuracy.`,
+    `Do not read the "what to cover" line aloud verbatim — use it to guide what you`,
+    `teach in your own words.`,
+    ``,
+    `SCREEN CONTROL:`,
+    `- Call show_visual FIRST, then speak. Visual and voice must always be in sync.`,
+    `- Always pass section_index (0-based integer) — each section header above shows the exact value to use.`,
+    `- While the visual loads (1–2 sec), say: "Let me pull that up — [one-sentence teaser]. There we go."`,
+    `- If screen loads instantly: skip the bridge and go straight to teaching.`,
+    ``,
+    ...summaryBlocks,
+  ].join('\n')
+}
+
 // ─── SINGLE-SECTION SCRIPT FORMATTER (used by split-mode injection) ───────────
 
 /**
