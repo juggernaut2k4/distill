@@ -197,14 +197,23 @@ describe('RTV-03 observe-only enforcement — WalkthroughClient.tsx integration 
     expect(clientSrc).not.toMatch(/currentSectionIndexRef\.current\s*=\s*rtvStateRef/)
   })
 
-  it('the RTV-03 tracker check never writes to sectionsRef, trainingScriptsRef, or currentSectionIndexRef', () => {
-    // Isolate the RTV-03 block itself (between its start comment and the
-    // closing of the enclosing if(source === 'ai') block) and assert no
-    // display-ref writes appear inside it.
+  it('the RTV-03 tracker check itself never writes to sectionsRef, trainingScriptsRef, or currentSectionIndexRef', () => {
+    // Isolate RTV-03's OWN, unmodified block — from its start comment up to
+    // (but not including) RTV-05's new, additive, explicitly-gated logic that
+    // was inserted immediately after it (see requirement-docs/
+    // RTV-05-prefetch-and-dual-trigger-display.md Section 4.1: "RTV-03's
+    // tracker-hit block continues to run unconditionally ... this phase only
+    // ever ADDS logic inside that block, gated"). RTV-03's own three-line
+    // observe-only guarantee (no display-ref writes, no walkthrough-state
+    // call, no screenQueueRef reference) still holds for its own code —
+    // this test scopes to exactly that, not to the RTV-05 addition that now
+    // sits right after it (that addition's own writes are covered, and
+    // required, by tests/unit/rtv05-display-gate.test.ts instead).
     const startMarker = '// RTV-03 — observe-only position tracker.'
     const startIdx = clientSrc.indexOf(startMarker)
     expect(startIdx).toBeGreaterThan(-1)
-    const endIdx = clientSrc.indexOf('tools: {', startIdx)
+    const rtv05MarkerIdx = clientSrc.indexOf('// RTV-05 (Section 4.3/4.4/4.5)', startIdx)
+    const endIdx = rtv05MarkerIdx > -1 ? rtv05MarkerIdx : clientSrc.indexOf('tools: {', startIdx)
     expect(endIdx).toBeGreaterThan(startIdx)
     const block = clientSrc.slice(startIdx, endIdx)
 

@@ -159,7 +159,19 @@ type InsertSectionCommand = {
   section: TemplateSection
 }
 
-type SectionCommand = ScrollToCommand | InsertSectionCommand
+// RTV-05 (Section 6.3) — new third command, following the identical
+// fetch-then-write-back shape already used by insert_section above. Replaces
+// only one section's `data` field in place, preserving id/type/meta/status,
+// and never touches current_section_index. Used by the new
+// POST /api/rtv05/prefetch-section route to write freshly live-generated
+// content into this one session's own walkthrough_state row.
+type UpdateSectionDataCommand = {
+  command: 'update_section_data'
+  section_index: number
+  data: TemplateSection['data']
+}
+
+type SectionCommand = ScrollToCommand | InsertSectionCommand | UpdateSectionDataCommand
 
 /**
  * POST /api/walkthrough-state/[userId]
@@ -172,6 +184,15 @@ type SectionCommand = ScrollToCommand | InsertSectionCommand
  *   { command: 'insert_section', after_index: number, section: TemplateSection }
  *     — Inserts a new TemplateSection into the sections array at after_index + 1.
  *       Useful for question-answer sections inserted mid-session.
+ *
+ *   { command: 'update_section_data', section_index: number, data: TemplateSection['data'] }
+ *     — RTV-05 (Section 6.3): overwrites only sections[section_index].data in
+ *       place, preserving id/type/meta/status unchanged. Never touches
+ *       current_section_index. Used by /api/rtv05/prefetch-section to write
+ *       freshly live-generated content for one topic ahead of its display.
+ *       Refuses to touch a SessionOverview/SessionSummary bookend even if
+ *       called incorrectly (defense in depth — bookends are never
+ *       overwritten, Section 4.6).
  */
 export async function POST(
   request: NextRequest,
@@ -246,6 +267,59 @@ export async function POST(
 
     console.log('[walkthrough-state] POST insert_section after index', after_index, 'for', params.userId)
     return NextResponse.json({ ok: true, inserted_at: insertAt, total_sections: updatedSections.length })
+  }
+
+  if (body.command === 'update_section_data') {
+    const { section_index, data } = body
+    if (typeof section_index !== 'number' || section_index < 0) {
+      return NextResponse.json({ error: 'section_index must be a non-negative number' }, { status: 400 })
+    }
+    if (data === undefined || data === null || typeof data !== 'object') {
+      return NextResponse.json({ error: 'data must be a TemplateSection[\'data\'] object' }, { status: 400 })
+    }
+
+    // Fetch current sections array — same fetch-then-write-back shape as
+    // insert_section above (Section 6.3).
+    const { data: current } = await supabase
+      .from('walkthrough_state')
+      .select('sections')
+      .eq('user_id', params.userId)
+      .single()
+
+    const existingSections: TemplateSection[] = Array.isArray(current?.sections)
+      ? (current.sections as TemplateSection[])
+      : []
+
+    if (section_index >= existingSections.length) {
+      return NextResponse.json({ error: 'section_index out of bounds' }, { status: 400 })
+    }
+
+    const target = existingSections[section_index]
+
+    // Defense in depth (Section 6.3) — bookends are never overwritten even
+    // if this route were ever called incorrectly, regardless of caller.
+    if (target.type === 'SessionOverview' || target.type === 'SessionSummary') {
+      console.warn('[walkthrough-state] POST update_section_data refused — target is a bookend:', target.type, 'for', params.userId)
+      return NextResponse.json({ error: 'Cannot overwrite a bookend section' }, { status: 400 })
+    }
+
+    // Replace only this element's data field, preserving id/type/meta/status.
+    const updatedSections = existingSections.map((section, idx) =>
+      idx === section_index ? { ...section, data } as TemplateSection : section
+    )
+
+    const { error } = await supabase
+      .from('walkthrough_state')
+      .update({ sections: updatedSections })
+      .eq('user_id', params.userId)
+
+    if (error) {
+      console.error('[walkthrough-state] POST update_section_data error:', error)
+      return NextResponse.json({ error: 'Database update failed' }, { status: 500 })
+    }
+
+    console.log('[walkthrough-state] POST update_section_data for section', section_index, 'for', params.userId)
+    return NextResponse.json({ ok: true, section_index })
   }
 
   return NextResponse.json({ error: 'Unknown command' }, { status: 400 })

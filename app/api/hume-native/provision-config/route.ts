@@ -13,6 +13,16 @@ import { generateLiveConductorContent, formatTabContentForPrompt } from '@/lib/c
 import type { LiveConductorTab } from '@/lib/content/live-conductor-content'
 import type { UserContext } from '@/lib/content/session-content-generator'
 import type { SessionMarkers } from '@/lib/content/session-markers'
+import type { TemplateName } from '@/lib/templates/types'
+// RTV-05 (Section 4.2) — the exact, unmodified RTV-04 gate this phase's own
+// session-level approval check reuses verbatim. Fails closed on a missing
+// row or any status !== 'approved' (see the function's own doc comment).
+import { isTemplateApprovedForProduction } from '@/lib/templates/approval'
+// RTV-05 (Section 4.2) — the session-level display-authority gate itself.
+// Factored into its own module (see that file's doc comment) so it is
+// directly unit-testable — Next.js route files may only export recognized
+// HTTP method handlers/config, so this can't be exported from this file.
+import { computeRtv05DisplayGate } from '@/lib/content/rtv05-display-gate'
 // CONTENT-02: single shared source of truth for "is this session's content
 // actually ready" — see lib/content/content-readiness.ts for the hard rule
 // that every content_status: 'ready' write must call this immediately before writing.
@@ -79,7 +89,7 @@ export async function POST(request: NextRequest) {
   // not `walkthrough_state` — so we need the current active session row.
   const { data: sessionRow, error: sessionErr } = await supabase
     .from('sessions')
-    .select('id, live_conductor_content, session_markers, rtv_eligible')
+    .select('id, live_conductor_content, session_markers, rtv_eligible, rtv05_display_active')
     .eq('user_id', userId)
     .eq('status', 'active')
     .order('scheduled_at', { ascending: false })
@@ -490,6 +500,33 @@ export async function POST(request: NextRequest) {
       }
     : {}
 
+  // RTV-05 (Section 4.2) — the session-level display-authority gate.
+  // Delegated to computeRtv05DisplayGate() below (defined at module scope,
+  // exported) — same logic, factored into a named function purely so this
+  // phase's single highest-risk decision is directly unit-testable (Section
+  // 4.3 point 2 / tests/unit/rtv05-display-gate.test.ts) rather than only
+  // exercisable by invoking the full route handler.
+  const { isFirstConnect: isFirstConnectForRtv05, displayActive: rtv05DisplayActive } =
+    await computeRtv05DisplayGate({
+      rtv05EnvToggleOn: process.env.NEXT_PUBLIC_RTV_DISPLAY_SWITCH_ENABLED === 'true',
+      rtv03Active,
+      persistedRtv05DisplayActive: (sessionRow as { rtv05_display_active?: boolean | null }).rtv05_display_active ?? null,
+      nonBookendTypes: Array.from(
+        new Set(
+          sections
+            .map((s) => s.type)
+            .filter((t): t is TemplateName => t !== 'SessionOverview' && t !== 'SessionSummary')
+        )
+      ),
+      checkApproval: isTemplateApprovedForProduction,
+    })
+
+  // Section 6.3 — additive response field, present only when `rtv03` is also
+  // present (rtv05DisplayActive can only ever be true when rtv03Active is
+  // true, per the gate above, so this also keeps the response shape minimal
+  // for every session that never activates RTV-03 at all).
+  const rtv05ResponseField = rtv03Active ? { rtv05: { displayActive: rtv05DisplayActive } } : {}
+
   // Persist configId + hume_native_enabled on the session row. This is the
   // per-session record of whether native mode ran, independent of the global
   // toggle's live value at query time (per BA spec 4.5, acceptance test 11).
@@ -503,6 +540,10 @@ export async function POST(request: NextRequest) {
       hume_native_config_id: configId,
       hume_native_enabled: true,
       rtv03_tracking_enabled: rtv03Active,
+      // RTV-05 (Section 4.2) — written ONLY on first connect (never
+      // rewritten on a reconnect for the same session, per the gate's
+      // session-lifetime-invariance guarantee above).
+      ...(isFirstConnectForRtv05 ? { rtv05_display_active: rtv05DisplayActive } : {}),
     })
     .eq('id', sessionId)
 
@@ -511,7 +552,12 @@ export async function POST(request: NextRequest) {
     // Non-fatal to the caller — the configId is still valid and usable this
     // call; a missed persist just means a future re-provision won't be
     // avoided. Do not fail the request over this.
+    // RTV-05 (Section 8) — if this write fails, the in-memory
+    // rtv05DisplayActive computed above is still returned and used for THIS
+    // connect's client session; only a future reconnect's "reuse persisted
+    // value" step would be affected, and it would simply recompute fresh
+    // instead of failing open or closed incorrectly.
   }
 
-  return NextResponse.json({ configId, ...rtv03ResponseField })
+  return NextResponse.json({ configId, ...rtv03ResponseField, ...rtv05ResponseField })
 }

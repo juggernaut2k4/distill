@@ -102,6 +102,23 @@ const MAX_RECONNECT = 6
 // requirement-docs/LIVE-06-screen-skip-and-stuck-error.md Section 4.
 const SCREEN_MIN_DISPLAY_MS = 1500
 
+// RTV-05 — display-switch toggle (Section 3). Default OFF: unset, 'false',
+// '1', any typo all resolve to OFF, the established fail-safe pattern in this
+// file (HUME_NATIVE_ENABLED, RELAY_PREFLIGHT_GATE_ENABLED, above). This is a
+// defense-in-depth, belt-and-suspenders client-side check alongside the
+// server-computed `rtv05.displayActive` gate (Section 4.2) — the true source
+// of truth is the server's frozen, session-lifetime decision, seeded once
+// into rtv05DisplayActiveRef below and never reassigned (Section 4.3's proof).
+const RTV_DISPLAY_SWITCH_ENV_ENABLED = process.env.NEXT_PUBLIC_RTV_DISPLAY_SWITCH_ENABLED === 'true'
+
+// RTV-05 (Section 4.5) — defensive ceiling on how long the display step waits
+// for a prior pre-fetch to resolve before proceeding anyway with whatever is
+// already in sections[targetIdx].data. By the time display fires, pre-fetch
+// has typically already had a full topic's teaching duration to complete —
+// this bound only matters in the rare case of an unusually fast transition.
+// Never blocks the screen indefinitely (the higher-priority guarantee).
+const RTV05_DISPLAY_WAIT_MS = 15_000
+
 // ─── Silence / no-response handling ───────────────────────────────────────
 // Two-stage escalation when NEITHER side has spoken for a while. This is a
 // simpler, safer v1 than "after Clio asks a question": detecting whether a
@@ -562,6 +579,25 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
   const rtvStateRef = useRef<number>(0)
   const rtvTopicsRef = useRef<SessionMarkerEntry[]>([])
 
+  // RTV-05 — the single boolean gate at the heart of the anti-LIVE-06 proof
+  // (Section 4.3). Seeded false, assigned exactly once — in the
+  // provision-config response handler inside connect()'s Hume-native branch,
+  // from the server's frozen, session-lifetime-invariant `rtv05.displayActive`
+  // field (Section 4.2) — and NEVER reassigned anywhere else for the life of
+  // this component instance. show_visual's existing scroll_to write is
+  // gated on `if (!rtv05DisplayActiveRef.current)`; the tracker-hit block's
+  // new pre-fetch/display logic is gated on the exact logical negation,
+  // `if (rtv05DisplayActiveRef.current)` — the same read of the same
+  // never-mutated variable, so the two writers can never both be eligible at
+  // once (Section 4.3's proof).
+  const rtv05DisplayActiveRef = useRef<boolean>(false)
+  // RTV-05 (Section 6.4) — staging map for in-flight/completed pre-fetch
+  // promises, keyed by section_index. Populated by the pre-fetch step
+  // (Section 4.4), read by the display step (Section 4.5). Purely in-memory
+  // for the life of the component, same as every other RTV-03/05 ref — never
+  // persisted to localStorage/sessionStorage/walkthrough_state.
+  const rtv05StagedContentRef = useRef<Map<number, Promise<{ ok: boolean }>>>(new Map())
+
   // Track container dimensions
   useEffect(() => {
     const el = containerRef.current
@@ -690,9 +726,10 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
               const errBody = await provisionRes.text().catch(() => '')
               throw new Error(`Hume native Config provisioning failed (${provisionRes.status}): ${errBody.slice(0, 200)}`)
             }
-            const { configId, rtv03 } = await provisionRes.json() as {
+            const { configId, rtv03, rtv05 } = await provisionRes.json() as {
               configId: string
               rtv03?: { sessionId: string; topics: SessionMarkerEntry[] }
+              rtv05?: { displayActive: boolean }
             }
             humeConfigId = configId
             // RTV-03 — the tracker is only ever instantiated when this
@@ -702,7 +739,68 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
             if (rtv03 && Array.isArray(rtv03.topics) && rtv03.topics.length > 0) {
               rtvTopicsRef.current = rtv03.topics
             }
+            // RTV-05 (Section 4.2/4.3/6.4) — assigned exactly once, here, from
+            // the server's frozen, session-lifetime-invariant decision. Never
+            // reassigned anywhere else in this file for the life of this
+            // component instance — this single read is the entire basis of
+            // Section 4.3's anti-LIVE-06 proof. Defaults false if the `rtv05`
+            // field is absent (server gate not satisfied, or this session
+            // pre-dates RTV-05) — byte-identical to today's behavior.
+            //
+            // RTV_DISPLAY_SWITCH_ENV_ENABLED (Section 3) is ANDed in here as
+            // the client-side belt-and-suspenders check, defense-in-depth
+            // alongside the server-computed flag: both this build's env var
+            // AND the server's gate must agree before the new code paths are
+            // ever live for this component instance.
+            rtv05DisplayActiveRef.current = RTV_DISPLAY_SWITCH_ENV_ENABLED && rtv05?.displayActive === true
           }
+
+          // RTV-05 (Section 4.4) — pre-fetch trigger. Fire-and-forget: the
+          // returned promise is stored in rtv05StagedContentRef, keyed by
+          // section_index, and is only ever awaited later by the display step
+          // (Section 4.5) — never blocks its caller (the bootstrap call site
+          // just below, or the tracker-hit block inside onMessage further
+          // down). A no-op whenever rtv05DisplayActiveRef.current is false
+          // (Section 4.3's OFF-state proof — this whole function is then
+          // dead code, never fetching anything).
+          const triggerRtv05Prefetch = (targetIdx: number) => {
+            if (!rtv05DisplayActiveRef.current) return
+            const sections = sectionsRef.current
+            // Section 4.4 step 1 — skip out-of-bounds or bookend targets;
+            // bookends are never live-generated (Section 4.6).
+            if (targetIdx < 0 || targetIdx >= sections.length) return
+            const targetType = sections[targetIdx].type
+            if (targetType === 'SessionOverview' || targetType === 'SessionSummary') return
+            // Section 4.4 step 2 — pre-fetch fires at most once per section
+            // per session.
+            if (rtv05StagedContentRef.current.has(targetIdx)) return
+
+            const promise = fetch('/api/rtv05/prefetch-section', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ userId, sectionIndex: targetIdx }),
+            })
+              .then(async (res) => {
+                if (!res.ok) return { ok: false }
+                return (await res.json()) as { ok: boolean }
+              })
+              .catch((err) => {
+                console.warn('[Walkthrough/Hume] RTV-05 prefetch request failed for section', targetIdx, ':', err)
+                return { ok: false }
+              })
+
+            rtv05StagedContentRef.current.set(targetIdx, promise)
+          }
+
+          // RTV-05 (Section 4.4, bootstrap case) — there is no tracker hit
+          // that "enters state 0" (state 0 is seeded, never detected — RTV-03
+          // Section 4a). Pre-fetch for section_index = 1 (the first real
+          // topic) is kicked off once, immediately, at tracker
+          // initialization — the same point rtvTopicsRef.current is set
+          // above — gated on rtv05DisplayActiveRef.current already being
+          // assigned (just above). This gives the full duration of the
+          // Overview bookend as lead time.
+          triggerRtv05Prefetch(1)
 
           const hume = await HumeAdapter.create({
             accessToken,
@@ -863,6 +961,62 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
                       writeAuditEvent(userId, 'rtv03_state_advance', auditTokenRef.current, 'hume', stateAdvance)
                       writeAuditEvent(userId, 'rtv03_quick_summary_cue', auditTokenRef.current, 'hume', quickSummaryCue)
                       writeAuditEvent(userId, 'rtv03_next_topic_cue', auditTokenRef.current, 'hume', nextTopicCue)
+
+                      // RTV-05 (Section 4.3/4.4/4.5) — new logic, fully inert
+                      // unless this session's frozen gate passed. Gated on the
+                      // exact logical negation of show_visual's own scroll_to
+                      // guard below (`if (!rtv05DisplayActiveRef.current)`) —
+                      // the single-boolean proof (Section 4.3) that exactly one
+                      // writer can ever be eligible at a time.
+                      if (rtv05DisplayActiveRef.current) {
+                        const targetIdx = hit.toState
+
+                        // (a) DISPLAY step for targetIdx — the sole
+                        // authoritative screen writer this session (Section 4.5).
+                        ;(async () => {
+                          const staged = rtv05StagedContentRef.current.get(targetIdx)
+                          if (staged) {
+                            // Bounded wait — never blocks the screen indefinitely
+                            // (Section 4.5 step 2/3). If the bound elapses or the
+                            // promise resolves { ok: false }, proceed anyway using
+                            // whatever is already in sections[targetIdx].data.
+                            await Promise.race([
+                              staged,
+                              new Promise((resolve) => setTimeout(resolve, RTV05_DISPLAY_WAIT_MS)),
+                            ]).catch(() => { /* treated identically to a late/failed pre-fetch below */ })
+                          }
+                          // No promise exists (e.g. a gap_jump skipped this
+                          // index's own predecessor hit, Section 9), or the wait
+                          // above elapsed/failed — proceed regardless. The
+                          // in-flight/completed pre-fetch (if any) has already
+                          // written sections[targetIdx].data via
+                          // update_section_data by the time this fires in the
+                          // normal case; if not, the poll loop simply renders
+                          // whatever plan-time content is already there.
+                          screenQueueRef.current = screenQueueRef.current.then(async () => {
+                            const elapsed = Date.now() - lastScreenShownAtRef.current
+                            if (elapsed < SCREEN_MIN_DISPLAY_MS) {
+                              await new Promise((r) => setTimeout(r, SCREEN_MIN_DISPLAY_MS - elapsed))
+                            }
+                            try {
+                              await fetch(`/api/walkthrough-state/${userId}`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ command: 'scroll_to', section_index: targetIdx }),
+                              })
+                            } catch (e) {
+                              console.error('[Walkthrough/Hume] RTV-05 tracker-driven scroll_to write failed:', e)
+                            }
+                            lastScreenShownAtRef.current = Date.now()
+                          })
+                        })().catch((err) => {
+                          console.error('[Walkthrough/Hume] RTV-05 display step failed (non-fatal):', err)
+                        })
+
+                        // (b) PRE-FETCH step for targetIdx + 1 — fire-and-forget,
+                        // never blocks (a) above (Section 4.4).
+                        triggerRtv05Prefetch(targetIdx + 1)
+                      }
                     }
                   }
                 } catch (err) {
@@ -907,22 +1061,39 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
                       // call correctly chains onto it and rapid-fire transitions still get
                       // spaced out), but we do NOT await it here before returning the
                       // instruction text to Clio's LLM — the write runs in the background.
-                      screenQueueRef.current = screenQueueRef.current.then(async () => {
-                        const elapsed = Date.now() - lastScreenShownAtRef.current
-                        if (elapsed < SCREEN_MIN_DISPLAY_MS) {
-                          await new Promise((r) => setTimeout(r, SCREEN_MIN_DISPLAY_MS - elapsed))
-                        }
-                        try {
-                          await fetch(`/api/walkthrough-state/${userId}`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ command: 'scroll_to', section_index: idx }),
-                          })
-                        } catch (e) {
-                          console.error('[Walkthrough/Hume] scroll_to write failed:', e)
-                        }
-                        lastScreenShownAtRef.current = Date.now()
-                      })
+                      //
+                      // RTV-05 (Section 4.3) — this specific write is the ONLY
+                      // thing this phase ever conditionally suppresses in this
+                      // handler. Everything else above (idx resolution,
+                      // split-context injection) and below (the returned
+                      // TEACH-script instruction text) is unmodified and always
+                      // runs, in every toggle state. Gated on the exact logical
+                      // negation of the tracker-hit block's new display-step
+                      // guard (`if (rtv05DisplayActiveRef.current)` above) — the
+                      // single-boolean proof (Section 4.3) that exactly one
+                      // writer can ever be eligible at a time. When this flag is
+                      // true, the tracker is sole authority for this session and
+                      // this write is intentionally skipped — show_visual still
+                      // "fires" in every other sense (the instruction text below
+                      // is still returned to Clio's LLM).
+                      if (!rtv05DisplayActiveRef.current) {
+                        screenQueueRef.current = screenQueueRef.current.then(async () => {
+                          const elapsed = Date.now() - lastScreenShownAtRef.current
+                          if (elapsed < SCREEN_MIN_DISPLAY_MS) {
+                            await new Promise((r) => setTimeout(r, SCREEN_MIN_DISPLAY_MS - elapsed))
+                          }
+                          try {
+                            await fetch(`/api/walkthrough-state/${userId}`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ command: 'scroll_to', section_index: idx }),
+                            })
+                          } catch (e) {
+                            console.error('[Walkthrough/Hume] scroll_to write failed:', e)
+                          }
+                          lastScreenShownAtRef.current = Date.now()
+                        })
+                      }
 
                       const script = trainingScriptsRef.current[idx]
                       if (script) {
