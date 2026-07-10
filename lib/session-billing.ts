@@ -89,6 +89,14 @@ export type BillingAuditEventType =
   // signed chat_ended event arrives and resolves to a known session. Read
   // back by finalizeHumeNativeBilling()'s webhook fast-path below.
   | 'hume_webhook_chat_ended'
+  // RTV-03 (additive) — observe-only position-tracker audit events, written
+  // client-side via /api/sessions/audit-event. Never read by any billing
+  // computation in this file (computeBilledMinutes() only ever filters by its
+  // own known event_type strings above) — zero risk of billing interference.
+  // See requirement-docs/RTV-03-live-position-tracking.md Section 6.2.
+  | 'rtv03_state_advance'
+  | 'rtv03_quick_summary_cue'
+  | 'rtv03_next_topic_cue'
 
 export type VoiceProvider = 'elevenlabs' | 'hume'
 

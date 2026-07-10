@@ -12,6 +12,7 @@ import type { TemplateSection } from '@/lib/templates/types'
 import { generateLiveConductorContent, formatTabContentForPrompt } from '@/lib/content/live-conductor-content'
 import type { LiveConductorTab } from '@/lib/content/live-conductor-content'
 import type { UserContext } from '@/lib/content/session-content-generator'
+import type { SessionMarkers } from '@/lib/content/session-markers'
 // CONTENT-02: single shared source of truth for "is this session's content
 // actually ready" — see lib/content/content-readiness.ts for the hard rule
 // that every content_status: 'ready' write must call this immediately before writing.
@@ -78,7 +79,7 @@ export async function POST(request: NextRequest) {
   // not `walkthrough_state` — so we need the current active session row.
   const { data: sessionRow, error: sessionErr } = await supabase
     .from('sessions')
-    .select('id, live_conductor_content')
+    .select('id, live_conductor_content, session_markers, rtv_eligible')
     .eq('user_id', userId)
     .eq('status', 'active')
     .order('scheduled_at', { ascending: false })
@@ -90,6 +91,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'No active session found for this user' }, { status: 404 })
   }
   const sessionId = sessionRow.id as string
+
+  // RTV-03 — read once here, alongside the existing session_markers/rtv_eligible
+  // read above (no new query). Reflects any change the CONTENT-POP-01 self-heal
+  // path below makes to rtv_eligible for THIS request (see the reassignment at
+  // that write site) so a self-healed session's rtv03 gating is never stale —
+  // provision-config's cannot read `session_markers`/`rtv_eligible` error case
+  // (Section 8) is handled by the initial query's own error branch above, which
+  // already 404s the whole request before this variable is ever read.
+  let rtvEligibleForThisRequest = (sessionRow as { rtv_eligible?: boolean | null }).rtv_eligible === true
 
   // Real per-subtopic content, sourced the same way the old CLM path
   // (lib/voice/live-conductor-bridge.ts) builds its knowledge base: each
@@ -358,6 +368,13 @@ export async function POST(request: NextRequest) {
       // engages for this session and today's safe show_visual-driven display
       // is used. See requirement doc Section 4.3.
       const rtvMarkerGenerationEnabled = process.env.RTV_MARKER_GENERATION_ENABLED === 'true'
+      if (rtvMarkerGenerationEnabled) {
+        // RTV-03 — mirror the DB write below: this request's in-memory
+        // eligibility must reflect the same rtv_eligible=false this self-heal
+        // path is about to persist, so RTV-03 never activates against
+        // self-healed content that never ran the marker-generation pipeline.
+        rtvEligibleForThisRequest = false
+      }
       const { error: sessionWriteErr } = await supabase
         .from('sessions')
         .update({
@@ -456,14 +473,36 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to provision Hume native Config' }, { status: 502 })
   }
 
+  // RTV-03 — activation gate (Section 3): all three of the toggle, summary
+  // mode, and this session's rtv_eligible flag must hold. HUME_NATIVE_ENABLED
+  // is implicit (this route only ever runs when it's already true, per the
+  // existing HUME-NATIVE-01 branch in WalkthroughClient.tsx). Reading a
+  // NEXT_PUBLIC_-prefixed var server-side is safe and already this codebase's
+  // convention — these are plain process.env reads, not client-bundle-restricted.
+  const rtvTrackingEnabled = process.env.NEXT_PUBLIC_RTV_TRACKING_ENABLED === 'true'
+  const rtv03Active = rtvTrackingEnabled && summaryModeEnabled && rtvEligibleForThisRequest
+  const rtv03ResponseField = rtv03Active
+    ? {
+        rtv03: {
+          sessionId,
+          topics: ((sessionRow as { session_markers?: SessionMarkers | null }).session_markers?.topics ?? []),
+        },
+      }
+    : {}
+
   // Persist configId + hume_native_enabled on the session row. This is the
   // per-session record of whether native mode ran, independent of the global
   // toggle's live value at query time (per BA spec 4.5, acceptance test 11).
+  // RTV-03 (additive): also persist rtv03_tracking_enabled so a historical
+  // session's record is independent of today's env var value (Section 6.2) —
+  // same rationale as hume_native_enabled being persisted per-session rather
+  // than re-derived from the live env var later.
   const { error: updateErr } = await supabase
     .from('sessions')
     .update({
       hume_native_config_id: configId,
       hume_native_enabled: true,
+      rtv03_tracking_enabled: rtv03Active,
     })
     .eq('id', sessionId)
 
@@ -474,5 +513,5 @@ export async function POST(request: NextRequest) {
     // avoided. Do not fail the request over this.
   }
 
-  return NextResponse.json({ configId })
+  return NextResponse.json({ configId, ...rtv03ResponseField })
 }

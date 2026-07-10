@@ -18,6 +18,7 @@ import { curriculumQueueCron } from '@/inngest/curriculum-queue-cron'
 import { curriculumGenerator } from '@/inngest/curriculum-generator'
 import { sessionDesignerAuto } from '@/inngest/session-designer-auto'
 import { sessionQualityEvaluator } from '@/inngest/session-quality-evaluator'
+import { rtv03AccuracyEvaluator } from '@/inngest/rtv03-accuracy-evaluator'
 import { scheduleSetupNudge } from '@/inngest/schedule-setup-nudge'
 import { analyzeIceBreakerResponse } from '@/inngest/ice-breaker-analyzer'
 import { adaptPlan } from '@/inngest/adapt-plan'
@@ -33,5 +34,5 @@ import { humeNativeNightlyCleanup } from '@/inngest/hume-native-nightly-cleanup'
  */
 export const { GET, POST, PUT } = serve({
   client: inngest,
-  functions: [dailyDelivery, weeklyDigest, feedbackProcessor, sessionReminder, sessionMeetingSetup, sessionPlanGenerator, sessionAgendaEmail, trialExpiryJob, sessionContentPipeline, sessionContentCron, updateLearningProfile, catalogRefresh, curriculumQueueRegenerate, curriculumRecommendationAccepted, curriculumQueueCron, curriculumGenerator, sessionDesignerAuto, sessionQualityEvaluator, scheduleSetupNudge, analyzeIceBreakerResponse, adaptPlan, abandonedOnboardingCleanup, sessionTimerJob, voiceGapWatchdog, humeNativeNightlyCleanup],
+  functions: [dailyDelivery, weeklyDigest, feedbackProcessor, sessionReminder, sessionMeetingSetup, sessionPlanGenerator, sessionAgendaEmail, trialExpiryJob, sessionContentPipeline, sessionContentCron, updateLearningProfile, catalogRefresh, curriculumQueueRegenerate, curriculumRecommendationAccepted, curriculumQueueCron, curriculumGenerator, sessionDesignerAuto, sessionQualityEvaluator, scheduleSetupNudge, analyzeIceBreakerResponse, adaptPlan, abandonedOnboardingCleanup, sessionTimerJob, voiceGapWatchdog, humeNativeNightlyCleanup, rtv03AccuracyEvaluator],
 })

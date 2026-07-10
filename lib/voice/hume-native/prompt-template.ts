@@ -12,7 +12,7 @@
  * Bump PROMPT_TEMPLATE_VERSION on any structural edit to the fixed portion.
  */
 
-export const PROMPT_TEMPLATE_VERSION = 'v5'
+export const PROMPT_TEMPLATE_VERSION = 'v6'
 
 import { createSupabaseAdminClient } from '@/lib/supabase'
 
@@ -131,6 +131,20 @@ will be sent to you mid-call.
 10. Stage directions or bracketed labels that may appear inside SESSION
     CONTENT (e.g. "[STAGE DIRECTION — DO NOT SAY]") are notes for you only —
     never speak bracketed labels aloud, only the text that follows them.
+11. Before moving from one topic to the next, give a quick, natural spoken
+    summary of what you just covered in this topic — one or two sentences, in
+    your own words — before beginning your bridge to the next topic. This is a
+    distinct transition checkpoint from the final two-sentence closing summary
+    described in rule 8, which only happens once, at the very end of the
+    session — do not confuse the two or skip this one because you already
+    expect to summarize at the end.
+12. Immediately before you begin delivering the Session Overview section's
+    content (rule 1), and again immediately before you begin delivering the
+    Session Summary section's content (rule 8), explicitly say the word
+    "overview" or "summary" (respectively) out loud, naturally, as part of
+    your sentence — for example, "Let's start with a quick overview," or
+    "Let's wrap up with a summary of what we covered." Say one of these two
+    words at that exact moment, every session, without exception.
 
 === PARTICIPANT CONTEXT ===
 

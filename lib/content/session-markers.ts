@@ -38,6 +38,8 @@ import Anthropic from '@anthropic-ai/sdk'
 import { extractWhatToCover } from '@/lib/clio-context-builder'
 import { sendAdminAlert } from '@/lib/delivery/email'
 import type { LiveConductorTab } from '@/lib/content/live-conductor-content'
+import { tokenize } from '@/lib/content/tokenize'
+export { tokenize, RTV02_STOPWORDS } from '@/lib/content/tokenize'
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 
@@ -78,59 +80,11 @@ const isPlaceholder =
 const anthropic = isPlaceholder ? null : new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 const MODEL = 'claude-sonnet-4-6'
 
-// ─── TOKENIZER (deterministic, reviewable) ───────────────────────────────────
-
-/**
- * Curated stoplist: articles, prepositions, pronouns, auxiliaries,
- * conjunctions, and session-generic words that appear across nearly every
- * topic (so they would never survive check 3 anyway, but dropping them here
- * keeps candidate pools small and the LLM prompt focused). Reviewable by QA —
- * this is the single source of truth for excluded generic terms.
- */
-export const RTV02_STOPWORDS = new Set<string>([
-  // articles
-  'a', 'an', 'the',
-  // prepositions
-  'of', 'in', 'on', 'at', 'to', 'for', 'with', 'by', 'from', 'into', 'onto',
-  'over', 'under', 'about', 'across', 'after', 'before', 'between', 'during',
-  'through', 'without', 'within', 'against', 'among', 'around', 'up', 'out', 'off',
-  // pronouns / determiners
-  'it', 'its', 'they', 'their', 'them', 'this', 'that', 'these', 'those',
-  'you', 'your', 'we', 'our', 'he', 'she', 'his', 'her', 'i', 'my', 'who', 'which', 'what',
-  // auxiliaries / common verbs
-  'is', 'are', 'was', 'were', 'be', 'been', 'being', 'has', 'have', 'had',
-  'do', 'does', 'did', 'can', 'could', 'will', 'would', 'should', 'may', 'might', 'must', 'shall',
-  // conjunctions / connectives
-  'and', 'or', 'but', 'so', 'as', 'if', 'because', 'than', 'then', 'not', 'no',
-  // curated session-generic terms — appear across nearly every topic in an
-  // AI-coaching session, so they are never safe single-hit markers
-  'ai', 'model', 'models', 'use', 'using', 'used', 'data', 'system', 'systems',
-  'executive', 'executives', 'business', 'team', 'teams', 'work', 'working',
-  'help', 'helps', 'need', 'needs', 'way', 'ways', 'one', 'two', 'three',
-  'also', 'more', 'most', 'like', 'just', 'get', 'gets', 'new', 'today', 'now',
-  'when', 'where', 'why', 'how', 'all', 'any', 'some', 'each', 'every', 'other',
-  'make', 'makes', 'making', 'take', 'takes', 'taking', 'give', 'gives', 'giving',
-  'session', 'topic', 'topics', 'thing', 'things', 'know', 'knowing', 'understand',
-])
-
-/**
- * Deterministic tokenizer: lowercase + Unicode NFKC normalize, split on
- * whitespace/punctuation EXCEPT internal hyphens/underscores/dots between
- * alphanumerics (so `top_p`, `server-sent`, `gpt-4`, `claude-sonnet-4-6`
- * survive as single tokens). Drops pure-number tokens, tokens shorter than 2
- * chars, and stopwords.
- */
-export function tokenize(text: string | null | undefined): string[] {
-  if (!text) return []
-  const normalized = text.normalize('NFKC').toLowerCase()
-  const raw = normalized.match(/[a-z0-9]+(?:[._-][a-z0-9]+)*/g) ?? []
-  return raw.filter((tok) => {
-    if (tok.length < 2) return false
-    if (/^[0-9]+$/.test(tok)) return false
-    if (RTV02_STOPWORDS.has(tok)) return false
-    return true
-  })
-}
+// ─── TOKENIZER ────────────────────────────────────────────────────────────────
+// Moved to lib/content/tokenize.ts (a dependency-free module — see the import
+// and re-export at the top of this file) so RTV-03 can import tokenize()
+// client-side without pulling this file's server-only imports (Anthropic SDK,
+// Resend) into the browser bundle.
 
 // ─── PER-TOPIC SOURCE BUILDING ────────────────────────────────────────────────
 

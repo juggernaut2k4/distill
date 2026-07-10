@@ -39,6 +39,11 @@ const ClientWritableEventType = z.enum([
   'speak_verified',
   'gap_start',
   'gap_end',
+  // RTV-03 (additive) — observe-only tracker audit events. See
+  // requirement-docs/RTV-03-live-position-tracking.md Section 6.2/6.3.
+  'rtv03_state_advance',
+  'rtv03_quick_summary_cue',
+  'rtv03_next_topic_cue',
 ])
 
 const BodySchema = z.object({
@@ -46,6 +51,10 @@ const BodySchema = z.object({
   eventType: ClientWritableEventType,
   provider: z.enum(['elevenlabs', 'hume']).optional(),
   token: z.string().min(1),
+  // RTV-03 (additive, optional) — existing event types never send this and
+  // default to {} exactly as they do today; only the new rtv03_* event types
+  // populate it.
+  metadata: z.record(z.unknown()).optional(),
 })
 
 export async function POST(request: NextRequest) {
@@ -64,7 +73,7 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const { userId, eventType, provider, token } = parsed.data
+  const { userId, eventType, provider, token, metadata } = parsed.data
 
   const supabase = createSupabaseAdminClient()
   const { data: wsRow } = await supabase
@@ -95,6 +104,7 @@ export async function POST(request: NextRequest) {
     userId,
     eventType,
     voiceProvider: provider ?? null,
+    metadata: metadata ?? {},
     occurredAt,
   })
 

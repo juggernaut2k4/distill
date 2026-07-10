@@ -390,6 +390,99 @@ function utteranceText(u: RecallUtterance): string {
   return u.words.map((w) => w.text).join(' ')
 }
 
+// ─── Reusable transcript fetch + speaker identification ────────────────────────
+// RTV-03's accuracy-report step (inngest/rtv03-accuracy-evaluator.ts) reuses
+// these two exported functions verbatim rather than duplicating the Recall.ai
+// fetch or the Clio-speaker heuristic — see requirement-docs/
+// RTV-03-live-position-tracking.md Section 6.1.
+
+export interface RecallTranscriptResult {
+  utterances: RecallUtterance[]
+  transcriptError: string | null
+}
+
+/**
+ * Fetches the Recall.ai transcript for a session's bot. Exact extraction of
+ * this file's original Step B logic (no behavior change) — a 404 re-throws so
+ * the caller's Inngest step retries; any other failure is captured as a
+ * transcriptError string rather than thrown.
+ */
+export async function fetchRecallTranscript(
+  sessionIdForLogging: string,
+  recallBotId: string | null,
+  recallApiKey: string,
+): Promise<RecallTranscriptResult> {
+  let utterances: RecallUtterance[] = []
+  let transcriptError: string | null = null
+
+  if (!recallBotId) {
+    console.warn(`[quality-evaluator] Session ${sessionIdForLogging} has no recall_bot_id — empty transcript`)
+    transcriptError = 'no_recall_bot_id'
+  } else if (!recallApiKey || recallApiKey.startsWith('PLACEHOLDER_')) {
+    console.warn(`[quality-evaluator] RECALL_API_KEY not set — skipping transcript for session ${sessionIdForLogging}`)
+    transcriptError = 'recall_api_key_missing'
+  } else {
+    try {
+      const resp = await fetch(
+        `https://api.recall.ai/api/v1/bot/${recallBotId}/transcript`,
+        { headers: { Authorization: `Token ${recallApiKey}` } },
+      )
+
+      if (!resp.ok) {
+        if (resp.status === 404) {
+          // Transcript not yet available — throw so Inngest retries this step
+          throw new Error(`Transcript not yet available for bot ${recallBotId} (HTTP 404)`)
+        }
+        console.error(`[quality-evaluator] Recall API error ${resp.status} for session ${sessionIdForLogging}`)
+        transcriptError = `recall_api_error_${resp.status}`
+      } else {
+        const body = await resp.json() as RecallUtterance[]
+        if (Array.isArray(body) && body.length > 0) {
+          utterances = body
+        } else {
+          transcriptError = 'transcript_empty'
+        }
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      // Re-throw 404 cases so Inngest retries. After 3 retries it marks as error.
+      if (msg.includes('HTTP 404')) throw err
+      console.error(`[quality-evaluator] Transcript fetch threw for session ${sessionIdForLogging}:`, msg)
+      transcriptError = 'transcript_fetch_error'
+    }
+  }
+
+  return { utterances, transcriptError }
+}
+
+export interface ClioSpeakerIdentification {
+  clioSpeaker: string
+  userSpeakers: string[]
+  clioUtterances: RecallUtterance[]
+  userUtterances: RecallUtterance[]
+}
+
+/**
+ * Identifies which speaker label is Clio vs. the participant(s). Clio tends to
+ * be more verbose — the more verbose speaker (by total word count) is treated
+ * as Clio. Exact extraction of this file's original heuristic (no behavior
+ * change).
+ */
+export function identifyClioSpeaker(utterances: RecallUtterance[]): ClioSpeakerIdentification {
+  const speakerWordCount: Record<string, number> = {}
+  for (const u of utterances) {
+    speakerWordCount[u.speaker] = (speakerWordCount[u.speaker] ?? 0) + u.words.length
+  }
+  const speakers = Object.entries(speakerWordCount).sort((a, b) => b[1] - a[1])
+  const clioSpeaker = speakers[0]?.[0] ?? 'host'
+  const userSpeakers = speakers.slice(1).map(([s]) => s)
+
+  const clioUtterances = utterances.filter((u) => u.speaker === clioSpeaker)
+  const userUtterances = utterances.filter((u) => userSpeakers.includes(u.speaker))
+
+  return { clioSpeaker, userSpeakers, clioUtterances, userUtterances }
+}
+
 // ─── 6 quality criteria evaluator ─────────────────────────────────────────────
 
 function evaluateQualityCriteria(
@@ -588,45 +681,15 @@ async function evaluateSession(
   const industry = session.industry ?? 'business'
 
   // ── Step B: Fetch Recall.ai transcript ─────────────────────────────────────
-  let utterances: RecallUtterance[] = []
-  let transcriptError: string | null = null
-
-  if (!session.recall_bot_id) {
-    console.warn(`[quality-evaluator] Session ${session.id} has no recall_bot_id — empty transcript`)
-    transcriptError = 'no_recall_bot_id'
-  } else if (!recallApiKey || recallApiKey.startsWith('PLACEHOLDER_')) {
-    console.warn(`[quality-evaluator] RECALL_API_KEY not set — skipping transcript for session ${session.id}`)
-    transcriptError = 'recall_api_key_missing'
-  } else {
-    try {
-      const resp = await fetch(
-        `https://api.recall.ai/api/v1/bot/${session.recall_bot_id}/transcript`,
-        { headers: { Authorization: `Token ${recallApiKey}` } },
-      )
-
-      if (!resp.ok) {
-        if (resp.status === 404) {
-          // Transcript not yet available — throw so Inngest retries this step
-          throw new Error(`Transcript not yet available for bot ${session.recall_bot_id} (HTTP 404)`)
-        }
-        console.error(`[quality-evaluator] Recall API error ${resp.status} for session ${session.id}`)
-        transcriptError = `recall_api_error_${resp.status}`
-      } else {
-        const body = await resp.json() as RecallUtterance[]
-        if (Array.isArray(body) && body.length > 0) {
-          utterances = body
-        } else {
-          transcriptError = 'transcript_empty'
-        }
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      // Re-throw 404 cases so Inngest retries. After 3 retries it marks as error.
-      if (msg.includes('HTTP 404')) throw err
-      console.error(`[quality-evaluator] Transcript fetch threw for session ${session.id}:`, msg)
-      transcriptError = 'transcript_fetch_error'
-    }
-  }
+  // RTV-03 (2026-07-10): extracted to fetchRecallTranscript() so the new
+  // sibling accuracy-evaluator reuses this exact logic rather than
+  // duplicating it — pure extraction, no behavior change here.
+  const { utterances, transcriptError: fetchedTranscriptError } = await fetchRecallTranscript(
+    session.id,
+    session.recall_bot_id,
+    recallApiKey,
+  )
+  let transcriptError = fetchedTranscriptError
 
   // If transcript completely unavailable after retries, mark and move on
   if (transcriptError === 'transcript_unavailable') {
@@ -638,18 +701,9 @@ async function evaluateSession(
   }
 
   // ── Identify Clio vs user speaker labels ──────────────────────────────────
-  // Clio tends to be more verbose. Compute total words per speaker; the more
-  // verbose speaker is treated as Clio.
-  const speakerWordCount: Record<string, number> = {}
-  for (const u of utterances) {
-    speakerWordCount[u.speaker] = (speakerWordCount[u.speaker] ?? 0) + u.words.length
-  }
-  const speakers = Object.entries(speakerWordCount).sort((a, b) => b[1] - a[1])
-  const clioSpeaker = speakers[0]?.[0] ?? 'host'
-  const userSpeakers = speakers.slice(1).map(([s]) => s)
-
-  const clioUtterances = utterances.filter((u) => u.speaker === clioSpeaker)
-  const userUtterances = utterances.filter((u) => userSpeakers.includes(u.speaker))
+  // RTV-03 (2026-07-10): extracted to identifyClioSpeaker() — pure extraction,
+  // no behavior change here.
+  const { clioSpeaker, userSpeakers, clioUtterances, userUtterances } = identifyClioSpeaker(utterances)
 
   // Full Clio transcript text (concatenated)
   const clioText = clioUtterances.map(utteranceText).join(' ')

@@ -22,6 +22,13 @@ import {
   type LiveConductorClientState,
 } from '@/lib/content/live-conductor-client'
 import LiveConductorVisual from '@/components/live-conductor/LiveConductorVisual'
+// RTV-03 — new, isolated observe-only tracker module (mirrors the LIVE-01
+// isolation convention above). Structurally cannot touch display state: see
+// lib/content/rtv03-tracker.ts's file-level doc comment for the grep-checkable
+// guarantee. Only ever invoked from inside the Hume-native onMessage handler
+// below, after the existing NAV/farewell logic runs, unchanged.
+import { checkRtv03Transition, buildRtv03AuditMetadata } from '@/lib/content/rtv03-tracker'
+import type { SessionMarkerEntry } from '@/lib/content/session-markers'
 
 const AGENT_ID = process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID ?? 'agent_0701krp1ta48fswrff17ctb0520m'
 
@@ -126,18 +133,28 @@ const MAX_PROMPT_CHARS = 12_000
 // token is missing (e.g. state hasn't loaded yet), we still attempt the call —
 // the server rejects it with 401 and logs are non-fatal to the live session,
 // same as any other audit-event failure.
-type BillingAuditEventType = 'voice_connect_attempt' | 'speak_verified' | 'gap_start' | 'gap_end'
+// RTV-03 (additive) — three new observe-only tracker event types. See
+// requirement-docs/RTV-03-live-position-tracking.md Section 6.2.
+type BillingAuditEventType =
+  | 'voice_connect_attempt'
+  | 'speak_verified'
+  | 'gap_start'
+  | 'gap_end'
+  | 'rtv03_state_advance'
+  | 'rtv03_quick_summary_cue'
+  | 'rtv03_next_topic_cue'
 
 function writeAuditEvent(
   userId: string,
   eventType: BillingAuditEventType,
   token: string | null,
-  provider?: 'elevenlabs' | 'hume'
+  provider?: 'elevenlabs' | 'hume',
+  metadata?: Record<string, unknown>
 ): void {
   fetch('/api/sessions/audit-event', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ userId, eventType, provider, token }),
+    body: JSON.stringify({ userId, eventType, provider, token, metadata }),
   }).catch((err) => console.error(`[Walkthrough] Failed to write audit event "${eventType}":`, err))
 }
 
@@ -531,6 +548,20 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
   const liveConductorRef = useRef<LiveConductorClientState>(createLiveConductorClientState())
   const [liveConductorVisual, setLiveConductorVisual] = useState<LiveConductorClientState['visual']>(null)
 
+  // RTV-03 — own, isolated refs for the observe-only position tracker (Section
+  // 4/6.4). Deliberately separate objects from currentSectionIndexRef/
+  // sectionsRef — the tracker only ever READS its own rtvTopicsRef (populated
+  // once from provision-config's response), never the display-side refs, and
+  // the display side never reads these. This separation IS the observe-only
+  // enforcement mechanism (Section 4b), mirroring liveConductorRef above.
+  // rtvStateRef seeds to 0 (Session Overview) — not derived from any spoken
+  // word (Section 4a). rtvTopicsRef stays empty ([]) unless provision-config's
+  // response included an `rtv03` field, which is how the tracker knows whether
+  // it was even instantiated for this session (see the Hume-native connect
+  // branch below).
+  const rtvStateRef = useRef<number>(0)
+  const rtvTopicsRef = useRef<SessionMarkerEntry[]>([])
+
   // Track container dimensions
   useEffect(() => {
     const el = containerRef.current
@@ -659,8 +690,18 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
               const errBody = await provisionRes.text().catch(() => '')
               throw new Error(`Hume native Config provisioning failed (${provisionRes.status}): ${errBody.slice(0, 200)}`)
             }
-            const { configId } = await provisionRes.json() as { configId: string }
+            const { configId, rtv03 } = await provisionRes.json() as {
+              configId: string
+              rtv03?: { sessionId: string; topics: SessionMarkerEntry[] }
+            }
             humeConfigId = configId
+            // RTV-03 — the tracker is only ever instantiated when this
+            // additive field is present (Section 3/4 step 2). rtvStateRef is
+            // already seeded to 0 from its useRef initializer above; only
+            // rtvTopicsRef needs populating here.
+            if (rtv03 && Array.isArray(rtv03.topics) && rtv03.topics.length > 0) {
+              rtvTopicsRef.current = rtv03.topics
+            }
           }
 
           const hume = await HumeAdapter.create({
@@ -805,6 +846,27 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
                   } else if (!isFinalSection) {
                     console.log('[Walkthrough/Hume] Farewell phrase detected outside final section — ignored, no timer armed')
                   }
+                }
+                // RTV-03 — observe-only position tracker. Runs AFTER the
+                // existing NAV/farewell logic above, unchanged. Only active
+                // when rtvTopicsRef was populated at connect time (Section 3's
+                // four activating conditions). Wrapped in its own try/catch
+                // per Section 8: a tracker failure must never throw uncaught
+                // inside onMessage, since this handler also runs NAV/farewell
+                // logic for every session, tracker on or off.
+                try {
+                  if (rtvTopicsRef.current.length > 0) {
+                    const hit = checkRtv03Transition(rtvStateRef.current, rtvTopicsRef.current, text)
+                    if (hit) {
+                      rtvStateRef.current = hit.toState
+                      const { stateAdvance, quickSummaryCue, nextTopicCue } = buildRtv03AuditMetadata(hit)
+                      writeAuditEvent(userId, 'rtv03_state_advance', auditTokenRef.current, 'hume', stateAdvance)
+                      writeAuditEvent(userId, 'rtv03_quick_summary_cue', auditTokenRef.current, 'hume', quickSummaryCue)
+                      writeAuditEvent(userId, 'rtv03_next_topic_cue', auditTokenRef.current, 'hume', nextTopicCue)
+                    }
+                  }
+                } catch (err) {
+                  console.error('[Walkthrough/Hume] RTV-03 tracker check failed (non-fatal, tracker stops advancing):', err)
                 }
               }
             },
