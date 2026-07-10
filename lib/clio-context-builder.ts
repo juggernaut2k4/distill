@@ -302,7 +302,7 @@ const WHAT_TO_COVER_CHAR_CAP = 260
  * (a sentence that alone exceeds the cap is still returned whole rather than
  * cut), and never pads content shorter than the cap.
  */
-function extractWhatToCover(teachContent: string | null): string {
+export function extractWhatToCover(teachContent: string | null): string {
   if (!teachContent || teachContent.trim().length === 0) {
     return NO_PREPARED_SCRIPT_SUMMARY_FALLBACK
   }

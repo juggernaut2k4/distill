@@ -347,11 +347,23 @@ export async function POST(request: NextRequest) {
 
       // Only reached if readiness.ready — persist together, mirroring
       // session-content-pipeline.ts's exact write shape.
+      //
+      // RTV-02 (NEW, additive): when marker generation is enabled, this
+      // self-heal path deliberately does NOT run the marker algorithm
+      // synchronously here — its LLM calls (and bounded rework loop) cannot
+      // safely fit this route's latency-critical connect budget. Instead we
+      // record the deferral explicitly: rtv_eligible=false, at the same write
+      // that persists the self-healed content, so RTV-05's display authority
+      // (default OFF, additionally gated on rtv_eligible===true) never
+      // engages for this session and today's safe show_visual-driven display
+      // is used. See requirement doc Section 4.3.
+      const rtvMarkerGenerationEnabled = process.env.RTV_MARKER_GENERATION_ENABLED === 'true'
       const { error: sessionWriteErr } = await supabase
         .from('sessions')
         .update({
           live_conductor_content: healed,
           content_status: 'ready',
+          ...(rtvMarkerGenerationEnabled ? { rtv_eligible: false } : {}),
         })
         .eq('id', sessionId)
       if (sessionWriteErr) {

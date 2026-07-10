@@ -30,6 +30,10 @@ import type { TemplateSection, TemplateMeta, TabManifest, VisualizationTab } fro
 import { generateTopicBackground } from '@/lib/content/live-conductor-content'
 import type { LiveConductorContent } from '@/lib/content/live-conductor-content'
 import { getSessionDuration } from '@/lib/curriculum/session-designer'
+// RTV-02 — new, isolated marker-generation step (see
+// lib/content/session-markers.ts). Additive: gated on RTV_MARKER_GENERATION_ENABLED,
+// runs after live_conductor_content is stored, never touches any existing field.
+import { generateSessionMarkers } from '@/lib/content/session-markers'
 // CONTENT-02: single shared source of truth for "is this session's content
 // actually ready" — see lib/content/content-readiness.ts for the hard rule
 // that every content_status: 'ready' write must call this immediately before writing.
@@ -40,6 +44,13 @@ import { verifyContentReadiness } from '@/lib/content/content-readiness'
 // and Steps D-I execute completely unchanged, exactly as they did before this
 // feature existed.
 const LIVE_CONDUCTOR_ENABLED = process.env.NEXT_PUBLIC_LIVE_CONDUCTOR_ENABLED === 'true'
+
+// RTV-02 — new, isolated toggle for marker generation. Default false/unset —
+// when off, the marker step below is never entered and this file's behavior
+// is byte-for-byte identical to before this feature existed. Any value other
+// than the exact string 'true' resolves to OFF (strict equality, no truthy
+// coercion of '1'/'TRUE'/etc — see requirement doc Section 3).
+const RTV_MARKER_GENERATION_ENABLED = process.env.RTV_MARKER_GENERATION_ENABLED === 'true'
 
 // ─── ROLE LEVEL INFERENCE ─────────────────────────────────────────────────────
 
@@ -243,10 +254,14 @@ export const sessionContentPipeline = inngest.createFunction(
     // When false (default): execution falls through to the unmodified Steps D-I
     // below, byte-for-byte as they existed before this feature.
     if (LIVE_CONDUCTOR_ENABLED) {
-      await step.run('live-conductor-generate-and-store', async () => {
+      // Capture the generated content so the new RTV-02 marker step below can
+      // read its tabs without re-deriving anything. Returning it from
+      // step.run is additive — the value was previously discarded — and does
+      // not change what this step itself computes or writes.
+      const liveConductorContent = await step.run('live-conductor-generate-and-store', async () => {
         const topicBackground = await generateTopicBackground(topicTitle, articles, userContext)
 
-        const liveConductorContent: LiveConductorContent = {
+        const content: LiveConductorContent = {
           topic_background: topicBackground,
           tabs: articles.map((article) => ({
             subtopic_slug: article.subtopic_slug,
@@ -260,7 +275,7 @@ export const sessionContentPipeline = inngest.createFunction(
         // Verify the just-generated content before writing content_status:
         // 'ready', and throw (not silently return) if it isn't, matching Step
         // H's existing throw-on-failure behavior for the standard path.
-        const readiness = await verifyContentReadiness(supabase, sessionId, liveConductorContent)
+        const readiness = await verifyContentReadiness(supabase, sessionId, content)
         if (!readiness.ready) {
           console.error('[session-content-pipeline][LIVE-01] Content readiness check failed:', readiness.reason)
           throw new Error(`live_conductor_content failed readiness check for session ${sessionId}: ${readiness.reason}`)
@@ -269,7 +284,7 @@ export const sessionContentPipeline = inngest.createFunction(
         const { error: sessionUpdateError } = await supabase
           .from('sessions')
           .update({
-            live_conductor_content: liveConductorContent,
+            live_conductor_content: content,
             content_status: 'ready',
           })
           .eq('id', sessionId)
@@ -295,7 +310,64 @@ export const sessionContentPipeline = inngest.createFunction(
         }
 
         console.log(`[session-content-pipeline][LIVE-01] Stored live_conductor_content for session ${sessionId} — ${articles.length} tab(s), background ${topicBackground.length} chars`)
+
+        return content
       })
+
+      // ── RTV-02 (NEW, additive) ────────────────────────────────────────────
+      // Golden-word marker generation for this session's tabs. Gated on
+      // RTV_MARKER_GENERATION_ENABLED — when unset/not exactly 'true', this
+      // entire block is never entered and behavior is byte-identical to
+      // before this feature existed. Runs in its own step.run so an Inngest
+      // retry of the marker step never re-runs content generation. Any error
+      // is caught INSIDE this step (never re-thrown) and converted to
+      // rtv_eligible=false + an admin alert — a marker failure must never
+      // fail the parent pipeline or roll back content_status: 'ready'.
+      if (RTV_MARKER_GENERATION_ENABLED) {
+        await step.run('rtv-generate-markers', async () => {
+          try {
+            const sessionMarkers = await generateSessionMarkers(sessionId, liveConductorContent.tabs)
+
+            const { error: markerWriteError } = await supabase
+              .from('sessions')
+              .update({
+                session_markers: sessionMarkers,
+                rtv_eligible: sessionMarkers.rtv_eligible,
+              })
+              .eq('id', sessionId)
+
+            if (markerWriteError) {
+              // Non-fatal — mirrors the walkthrough_state write above. Content
+              // (content_status: 'ready') is already committed; a missed
+              // marker write just leaves rtv_eligible NULL, the safe default.
+              console.warn('[session-content-pipeline][RTV-02] Failed to write session_markers:', markerWriteError.message)
+            } else {
+              console.log(`[session-content-pipeline][RTV-02] Stored markers for session ${sessionId} — rtv_eligible=${sessionMarkers.rtv_eligible}`)
+            }
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err)
+            console.error('[session-content-pipeline][RTV-02] generateSessionMarkers failed (non-fatal to parent pipeline):', message)
+
+            const { error: fallbackWriteError } = await supabase
+              .from('sessions')
+              .update({ rtv_eligible: false })
+              .eq('id', sessionId)
+            if (fallbackWriteError) {
+              console.warn('[session-content-pipeline][RTV-02] Failed to write fallback rtv_eligible=false:', fallbackWriteError.message)
+            }
+
+            try {
+              await sendAdminAlert({
+                subject: `RTV-02: marker generation failed for session ${sessionId}`,
+                body: `generateSessionMarkers threw unexpectedly for session ${sessionId}.\n\nError: ${message}`,
+                context: { sessionId },
+              })
+            } catch (alertErr) {
+              console.error('[session-content-pipeline][RTV-02] Failed to send admin alert:', alertErr)
+            }
+          }
+        })
+      }
 
       return { sessionId, subtopicsProcessed: articles.length, liveConductor: true }
     }
