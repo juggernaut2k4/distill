@@ -251,24 +251,32 @@ export const CONTAINER_BUDGETS: Partial<Record<TemplateName, FieldBudget[]>> = {
   ],
   // RTV-04 — the 2 new templates, budgets copied verbatim from the requirement
   // document Section 4.2 (not invented).
+  //
+  // skipMinFloor is set on the short category/name/label fields below — a
+  // single common word ("Sales", "Low", "Piloting") is a legitimate value for
+  // these, not a sign of truncated or lazy generation, and the 40%-of-max
+  // floor would otherwise trigger unnecessary expand-retries (and possibly a
+  // mock-data fallback) on perfectly correct content. The floor stays active
+  // on title/context/so_what and the other descriptive/prose fields, where an
+  // unexpectedly short value is a real quality signal worth catching.
   Heatmap: [
     { path: 'title', maxWords: 8 },
     { path: 'context', maxWords: 15 },
     { path: 'row_label', maxWords: 4 },
     { path: 'column_label', maxWords: 4 },
-    { path: 'rows[]', maxWords: 4 },
-    { path: 'columns[]', maxWords: 4 },
-    { path: 'cells[].label', maxWords: 3 },
-    { path: 'legend_low', maxWords: 3 },
-    { path: 'legend_high', maxWords: 3 },
+    { path: 'rows[]', maxWords: 4, skipMinFloor: true },
+    { path: 'columns[]', maxWords: 4, skipMinFloor: true },
+    { path: 'cells[].label', maxWords: 3, skipMinFloor: true },
+    { path: 'legend_low', maxWords: 3, skipMinFloor: true },
+    { path: 'legend_high', maxWords: 3, skipMinFloor: true },
     { path: 'so_what', maxWords: 30 },
   ],
   Overlay: [
     { path: 'title', maxWords: 8 },
     { path: 'context', maxWords: 15 },
     { path: 'base_label', maxWords: 6 },
-    { path: 'zones[].zone_label', maxWords: 3 },
-    { path: 'zones[].callout_label', maxWords: 4 },
+    { path: 'zones[].zone_label', maxWords: 3, skipMinFloor: true },
+    { path: 'zones[].callout_label', maxWords: 4, skipMinFloor: true },
     { path: 'zones[].callout_detail', maxWords: 14 },
     { path: 'so_what', maxWords: 30 },
   ],
