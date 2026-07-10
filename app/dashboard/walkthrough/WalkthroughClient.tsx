@@ -43,6 +43,16 @@ const HUME_CONFIG_ID = process.env.NEXT_PUBLIC_HUME_CONFIG_ID ?? ''
 // not modified and requires no changes.
 const HUME_NATIVE_ENABLED = process.env.NEXT_PUBLIC_HUME_NATIVE_ENABLED === 'true'
 
+// RTV-01 — fail-closed live-transcript relay pre-flight gate. Default OFF
+// (strict `=== 'true'` so unset/false/typo all resolve to OFF, same fail-safe
+// pattern as HUME_NATIVE_ENABLED above). When ON, a fresh Hume-native connect
+// arms a bounded timeout that must see Clio's first non-empty transcribed
+// utterance before billing (`speak_verified`) is allowed to write — see the
+// gate logic inside connect()'s Hume branch below and
+// requirement-docs/RTV-01-relay-preflight-gate.md Section 4a.
+const RELAY_PREFLIGHT_GATE_ENABLED = process.env.NEXT_PUBLIC_RELAY_PREFLIGHT_GATE_ENABLED === 'true'
+const RELAY_CONFIRM_TIMEOUT_MS = 20000
+
 // TEST TOGGLE — when true, show_visual skips the pre-built KB tab lookup
 // entirely and always calls /api/generate-visual to build the visualization
 // live, on the spot, via generateVisualSpec(). Purely for A/B testing the
@@ -496,6 +506,23 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
   // after billing had already started, not yet reconnected).
   const gapOpenRef = useRef(false)
 
+  // RTV-01 — relay pre-flight gate state (only ever armed when
+  // RELAY_PREFLIGHT_GATE_ENABLED is true, on a fresh Hume-native connect; see
+  // Section 3/4a of the requirement doc). All four are no-ops when the toggle
+  // is off — connect() never touches them in that case.
+  // relayConfirmTimeoutRef: the armed 20s timeout; cleared on RC, on block, or
+  // on unmount — same lifecycle as reconnectTimerRef/farewellFallbackTimeoutRef.
+  const relayConfirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // relayConfirmedRef: RC latch — true the instant the first non-empty
+  // `onMessage(text, 'ai')` arrives for this connect attempt.
+  const relayConfirmedRef = useRef(false)
+  // speakVerifiedPendingRef: set by the (toggle-ON) deferred onSpeakVerified
+  // callback instead of writing the audit event immediately; consumed by the
+  // RC handler, which writes speak_verified only once relay is confirmed.
+  const speakVerifiedPendingRef = useRef(false)
+  // relayBlocked: drives the new "Session Rescheduled" overlay (Section 5).
+  const [relayBlocked, setRelayBlocked] = useState(false)
+
   // LIVE-01 — own, isolated state for the toggle-gated live conductor path.
   // Deliberately a separate ref object (not merged into sectionsRef /
   // trainingScriptsRef / any of the above) so the two paths never share
@@ -720,6 +747,24 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
                 lastEitherSpokeRef.current = Date.now()
                 checkinSentAtRef.current = null
               }
+              // RTV-01 — relay-confirmed (RC): the first non-empty transcribed
+              // Clio utterance since this connect attempt began. Only ever
+              // meaningful when the gate was armed for this connect (Section 4a);
+              // a no-op otherwise (relayGateActiveForThisConnect false → the
+              // `if` below is simply never true because relayConfirmTimeoutRef
+              // was never set and speakVerifiedPendingRef was never set true).
+              if (source === 'ai' && text.trim().length > 0 && relayGateActiveForThisConnect && !relayConfirmedRef.current && !sessionEndedRef.current) {
+                relayConfirmedRef.current = true
+                if (relayConfirmTimeoutRef.current) {
+                  clearTimeout(relayConfirmTimeoutRef.current)
+                  relayConfirmTimeoutRef.current = null
+                }
+                // Billing starts here — strictly AFTER relay confirmation.
+                if (speakVerifiedPendingRef.current && !speakVerifiedWrittenRef.current) {
+                  speakVerifiedWrittenRef.current = true
+                  writeAuditEvent(userId, 'speak_verified', auditTokenRef.current, 'hume')
+                }
+              }
               if (source === 'ai') {
                 // NAV command processing — same logic as ElevenLabs path
                 const { navCommand } = parseNavCommand(text)
@@ -881,15 +926,60 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
           adapterRef.current = hume
           lastActivityRef.current = Date.now()
 
+          // RTV-01 — is the relay pre-flight gate active for THIS connect
+          // attempt? All conditions computed once, here, so a mid-session
+          // reconnect or a connect after billing has already started never
+          // re-arms it (AC-8), and non-native Hume (LIVE-01 Custom-LLM)
+          // sessions are never affected even if the toggle is ON (AC-10).
+          const relayGateActiveForThisConnect =
+            RELAY_PREFLIGHT_GATE_ENABLED &&
+            HUME_NATIVE_ENABLED &&
+            !isReconnect &&
+            !isMidSession &&
+            !speakVerifiedWrittenRef.current
+
+          if (relayGateActiveForThisConnect) {
+            relayConfirmedRef.current = false
+            speakVerifiedPendingRef.current = false
+            if (relayConfirmTimeoutRef.current) clearTimeout(relayConfirmTimeoutRef.current)
+            relayConfirmTimeoutRef.current = setTimeout(() => {
+              relayConfirmTimeoutRef.current = null
+              // Guard against the race where RC already fired first — same
+              // no-op-if-already-resolved pattern as the existing
+              // farewellFallbackTimeoutRef callback below.
+              if (relayConfirmedRef.current || sessionEndedRef.current) return
+              console.warn('[Walkthrough/Hume] RTV-01: relay-confirm timeout elapsed with no transcript — blocking session and rescheduling')
+              // Set this FIRST so onDisconnect's auto-reconnect logic does not
+              // attempt to reconnect this dead session (Section 4, State 4).
+              sessionEndedRef.current = true
+              adapterRef.current?.endSession().catch(() => {})
+              // Fire-and-forget teardown+reschedule — same shape as endCallOnServer.
+              fetch('/api/sessions/relay-blocked', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId, token: auditTokenRef.current }),
+              }).catch((err) => console.error('[Walkthrough/Hume] RTV-01: relay-blocked call failed:', err))
+              setRelayBlocked(true)
+            }, RELAY_CONFIRM_TIMEOUT_MS)
+          }
+
           // AUTOGEN-01 Part D / AC-D1 — billing starts here, and only here: once
           // BOTH onConnect (chat_metadata) and the first assistant_message/speaking
           // event have occurred (enforced inside HumeAdapter). Written at most once
           // per session lifetime regardless of reconnects.
+          // RTV-01 — when the relay gate is active for this connect, this no
+          // longer writes immediately: it only marks billing as pending, and the
+          // actual write happens in the onMessage('ai') handler below, strictly
+          // after relay-confirmation (Section 4a). When the gate is not active,
+          // this is byte-for-byte today's behavior (AC-7).
           hume.onSpeakVerified(() => {
-            if (!speakVerifiedWrittenRef.current) {
-              speakVerifiedWrittenRef.current = true
-              writeAuditEvent(userId, 'speak_verified', auditTokenRef.current, 'hume')
+            if (speakVerifiedWrittenRef.current) return
+            if (relayGateActiveForThisConnect) {
+              speakVerifiedPendingRef.current = true
+              return
             }
+            speakVerifiedWrittenRef.current = true
+            writeAuditEvent(userId, 'speak_verified', auditTokenRef.current, 'hume')
           })
 
           if (botView) {
@@ -1311,6 +1401,9 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
       // same pattern as reconnectTimerRef above — prevents the demoted
       // fallback from firing a teardown call after this component is gone.
       if (farewellFallbackTimeoutRef.current) clearTimeout(farewellFallbackTimeoutRef.current)
+      // RTV-01: clear any pending relay-confirm timeout on unmount — same
+      // pattern as the two timers above.
+      if (relayConfirmTimeoutRef.current) clearTimeout(relayConfirmTimeoutRef.current)
       adapterRef.current?.endSession().catch(() => {})
       adapterRef.current = null
       elevenLabsConvRef.current = null
@@ -1725,8 +1818,40 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
         </motion.div>
       )}
 
+      {/* RTV-01 — "Session Rescheduled" overlay. Distinct from, and takes
+          precedence over, the "Unable to Connect" modal below (Section 5):
+          calm/amber tone, no raw error text, no retry action — fail-closed,
+          we do not invite the user to hammer a dead relay. */}
+      {relayBlocked && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="fixed inset-0 z-40 flex items-center justify-center bg-[#080808]/90"
+        >
+          <div className="bg-[#111111] border border-[#333333] rounded-xl p-8 max-w-md mx-4 space-y-4 text-center">
+            <div className="text-4xl text-[#F59E0B]">◷</div>
+            <h2 className="text-white text-xl font-semibold">We&apos;ve rescheduled this session</h2>
+            <p className="text-[#94A3B8] text-sm leading-relaxed">
+              We couldn&apos;t establish a stable live connection to your coach just now, so we&apos;ve
+              stopped here rather than run a degraded session.
+            </p>
+            <p className="text-[#94A3B8] text-sm leading-relaxed">
+              Our team has been notified and is looking into it. This session has been returned
+              to your schedule — you can start it again in a moment, and you have not been
+              charged any minutes for this attempt.
+            </p>
+            <button
+              onClick={() => { window.location.href = '/dashboard/sessions' }}
+              className="w-full py-2.5 rounded-lg border border-[#333333] text-[#94A3B8] text-sm font-medium hover:text-white hover:border-[#555555] transition-colors"
+            >
+              Return to my sessions
+            </button>
+          </div>
+        </motion.div>
+      )}
+
       {/* Permanent connection error overlay */}
-      {connectionError && !sessionComplete && (
+      {connectionError && !sessionComplete && !relayBlocked && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
