@@ -6,7 +6,7 @@
  * sessions on the same topic skip Claude entirely and serve from the database.
  */
 
-import { selectTemplate } from './templates/selector'
+import { selectApprovedTemplate } from './templates/selector'
 import { generateTemplateData } from './templates/generator'
 import { getCachedSection, setCachedSection } from './topic-cache'
 import type { TemplateSection, TemplateMeta } from './templates/types'
@@ -51,7 +51,7 @@ async function generateSubtopicSection(
       return { ...sub, template_section: cached, visual_status: 'ready' }
     }
 
-    const templateType = selectTemplate(sub.title, position)
+    const templateType = await selectApprovedTemplate(sub.title, position)
     const meta: TemplateMeta = {
       subtopicTitle: sub.title,
       sessionTitle,

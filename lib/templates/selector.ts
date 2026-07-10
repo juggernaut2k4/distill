@@ -12,6 +12,14 @@
  */
 
 import type { TemplateName } from './types'
+import { isTemplateApprovedForProduction } from './approval'
+
+// RTV-04 Req #15 — templates that require Arun's explicit sign-off (Gate B)
+// before they may ever be selected for a real, live session. Checked in
+// selectApprovedTemplate() below; the plain selectTemplate() stays pure/sync
+// and unaware of approval state, so existing pure callers/tests are
+// unaffected.
+const APPROVAL_GATED_TEMPLATES = new Set<TemplateName>(['Heatmap', 'Overlay'])
 
 // All valid template names — used to validate templateHint before trusting it.
 const VALID_TEMPLATE_NAMES = new Set<string>([
@@ -20,6 +28,10 @@ const VALID_TEMPLATE_NAMES = new Set<string>([
   'QuoteCallout', 'KeyTakeaway', 'QuestionAnswer', 'ActionPlan', 'Funnel', 'Flowchart',
   'Hierarchy', 'ChevronProcess', 'NarrativeCard', 'DefinitionTriptych', 'HorizontalDecision',
   'AnswerSpotlight',
+  // RTV-04: two genuinely new template types (Heatmap, Overlay). Added here with
+  // identical priority order to every existing type — templateHint (LLM,
+  // first-priority) takes precedence, narrow keyword-regex is the fallback below.
+  'Heatmap', 'Overlay',
 ])
 
 /**
@@ -121,8 +133,44 @@ export function selectTemplate(
     return 'ChevronProcess'
   }
 
+  // RTV-04: Heatmap — graduated intensity across a small grid (narrow, so it
+  // never shadows the existing TwoByTwoMatrix/ComparisonTable keyword rules above).
+  if (/heat ?map|maturity grid|intensity (grid|map)/.test(t)) {
+    return 'Heatmap'
+  }
+
+  // RTV-04: Overlay — one whole thing broken into a few labeled zones/parts.
+  if (/overlay|zones? of|where (does|do|.+) fit(s)? (in|into)/.test(t)) {
+    return 'Overlay'
+  }
+
   // Default
   return 'DefinitionTriptych'
+}
+
+/**
+ * RTV-04 Req #15 — the gated entry point real session pipelines must call
+ * instead of selectTemplate() directly. Identical selection logic, except:
+ * if the result is an approval-gated template (Heatmap, Overlay) that has not
+ * been approved in template_library yet, falls back to 'DefinitionTriptych'
+ * — the same default a pre-RTV-04 build would have produced for that topic,
+ * since these two branches did not exist before RTV-04 and a templateHint of
+ * 'Heatmap'/'Overlay' would previously have been rejected as invalid.
+ *
+ * This is what actually enforces "no live generative drawing" for unapproved
+ * templates — isTemplateApprovedForProduction() alone is inert until a call
+ * site checks it, and this is that call site.
+ */
+export async function selectApprovedTemplate(
+  subtopicTitle: string,
+  position: 'first' | 'middle' | 'last',
+  templateHint?: string
+): Promise<TemplateName> {
+  const selected = selectTemplate(subtopicTitle, position, templateHint)
+  if (!APPROVAL_GATED_TEMPLATES.has(selected)) return selected
+
+  const approved = await isTemplateApprovedForProduction(selected)
+  return approved ? selected : 'DefinitionTriptych'
 }
 
 /**

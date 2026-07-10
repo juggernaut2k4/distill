@@ -18,7 +18,7 @@ import { generateContentArticles } from '@/lib/content/session-content-generator
 import { generateScriptAndVisualization, adaptScriptToDuration } from '@/lib/content/script-generator'
 import { generateSessionContentOutline } from '@/lib/content/session-content-generator'
 import { generateTrainingScript } from '@/lib/content/script-generator'
-import { selectTemplate } from '@/lib/templates/selector'
+import { selectApprovedTemplate } from '@/lib/templates/selector'
 import { generateTemplateData } from '@/lib/templates/generator'
 import { sendAdminAlert } from '@/lib/delivery/email'
 import { runAutomatedQA } from '@/lib/kb-qa-agent'
@@ -440,7 +440,7 @@ export const sessionContentPipeline = inngest.createFunction(
         // KB-VIZ-01: position 'first' (TopicHero) is now reserved for the synthetic
         // SessionOverview card injected by the KB UI. Real subtopics are always 'middle'
         // or 'last', which enables comparison-topic detection in selector.ts.
-        const templateType = selectTemplate(subtopicTitle, isLast ? 'last' : 'middle')
+        const templateType = await selectApprovedTemplate(subtopicTitle, isLast ? 'last' : 'middle')
 
         // Step F: Generate template data — always regenerated in sync with Step D script.
         // getCachedSection is NOT called here: the cache is the DESTINATION (Step G), not the

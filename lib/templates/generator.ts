@@ -7,6 +7,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { createSupabaseAdminClient } from '../supabase'
 import type { TemplateName, TemplateSection } from './types'
+import { applyBudgetTruncation } from './containerBudgets'
 
 // ─── CLIENT ───────────────────────────────────────────────────────────────────
 
@@ -17,6 +18,11 @@ const isPlaceholder =
 const anthropic = isPlaceholder ? null : new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 const MODEL = 'claude-sonnet-4-6'
+
+// RTV-04 Layer 1 structural enforcement (truncate-over-max, retry-then-mock
+// under-min) applies only to templates explicitly scoped for it. Adding a
+// pre-existing template here is a live behavior change and needs sign-off.
+const RTV04_VALIDATED_TEMPLATES = new Set<TemplateName>(['Heatmap', 'Overlay'])
 
 // ─── APPROVED RULES CACHE ─────────────────────────────────────────────────────
 // Fetched once from DB and reused for 5 minutes to avoid a Supabase round-trip
@@ -337,6 +343,38 @@ function getSchemaForTemplate(type: TemplateName): string {
   "analogy": string | null,
   "example": string | null,
   "important_nuance": string | null,
+  "so_what": string
+}`,
+    // RTV-04: Heatmap and Overlay — see docs/specs (RTV-04 requirement document)
+    // Section 4.2 for the full container layout and hard caps these schemas map to.
+    Heatmap: `{
+  "title": string,                    // max 8 words
+  "context": string,                  // max 15 words
+  "row_label": string,                // max 4 words
+  "column_label": string,             // max 4 words
+  "rows": string[],                   // max 6, each max 4 words
+  "columns": string[],                // max 4, each max 4 words
+  "cells": [
+    { "row": string, "column": string, "intensity": 0|1|2|3|4, "label": string|null }
+  ],                                  // exactly rows.length x columns.length entries
+  "legend_low": string,               // max 3 words
+  "legend_high": string,              // max 3 words
+  "so_what": string
+}`,
+    Overlay: `{
+  "title": string,                    // max 8 words
+  "context": string,                  // max 15 words
+  "base_label": string,               // max 6 words
+  "zones": [
+    {
+      "id": string,
+      "zone_label": string,           // max 3 words
+      "position": "top-left"|"top-center"|"top-right"|"mid-left"|"mid-center"|"mid-right"|"bottom-left"|"bottom-center"|"bottom-right",
+      "callout_label": string,        // max 4 words
+      "callout_detail": string,       // max 14 words
+      "color": "purple"|"cyan"|"amber"|"green"
+    }
+  ],                                  // max 4 zones, no two zones share a position
   "so_what": string
 }`,
     // SCREEN-01: SessionOverview/SessionSummary are never LLM-generated — they
@@ -876,6 +914,52 @@ export function getMockData(type: TemplateName, subtopicTitle: string): Template
       },
       so_what: 'As a CEO, you own the governance layer even if you don\'t touch the model layer. Most AI failures happen because leadership disengages after the model is deployed.',
     },
+    // RTV-04: Heatmap and Overlay mock data — this is the exact frozen
+    // sample_data used both as the ANTHROPIC_API_KEY-placeholder mock and as
+    // the template_library seed row's sample_data shown to Arun for approval
+    // (docs/specs RTV-04 requirement document Section 4.2). Do not edit
+    // without updating the seed accordingly.
+    Heatmap: {
+      title: 'Where AI Maturity Actually Stands',
+      context: 'Self-assessed maturity across your top functions, this quarter.',
+      row_label: 'Business Function',
+      column_label: 'Maturity Stage',
+      rows: ['Sales', 'Operations', 'Finance', 'Customer Support'],
+      columns: ['Piloting', 'Scaling', 'Embedded', 'Optimizing'],
+      cells: [
+        { row: 'Sales', column: 'Piloting', intensity: 2, label: null },
+        { row: 'Sales', column: 'Scaling', intensity: 1, label: null },
+        { row: 'Sales', column: 'Embedded', intensity: 0, label: null },
+        { row: 'Sales', column: 'Optimizing', intensity: 0, label: null },
+        { row: 'Operations', column: 'Piloting', intensity: 1, label: null },
+        { row: 'Operations', column: 'Scaling', intensity: 3, label: 'Led by ops' },
+        { row: 'Operations', column: 'Embedded', intensity: 2, label: null },
+        { row: 'Operations', column: 'Optimizing', intensity: 0, label: null },
+        { row: 'Finance', column: 'Piloting', intensity: 4, label: 'Highest heat' },
+        { row: 'Finance', column: 'Scaling', intensity: 1, label: null },
+        { row: 'Finance', column: 'Embedded', intensity: 0, label: null },
+        { row: 'Finance', column: 'Optimizing', intensity: 0, label: null },
+        { row: 'Customer Support', column: 'Piloting', intensity: 1, label: null },
+        { row: 'Customer Support', column: 'Scaling', intensity: 2, label: null },
+        { row: 'Customer Support', column: 'Embedded', intensity: 1, label: null },
+        { row: 'Customer Support', column: 'Optimizing', intensity: 0, label: null },
+      ],
+      legend_low: 'Not started',
+      legend_high: 'Fully scaled',
+      so_what: "As a CEO, Finance is piloting the fastest but nobody has scaled yet — that's your prioritization gap.",
+    },
+    Overlay: {
+      title: 'Where AI Fits In Your Stack',
+      context: 'Four places AI touches your existing systems today.',
+      base_label: 'Your Technology Stack',
+      zones: [
+        { id: 'data', zone_label: 'Data Layer', position: 'top-left', callout_label: 'Feeds Everything', callout_detail: 'Every AI output is only as good as the data layer beneath it.', color: 'cyan' },
+        { id: 'model', zone_label: 'Model Layer', position: 'top-right', callout_label: 'The Reasoning Engine', callout_detail: 'Where the actual AI decision-making happens — usually a vendor API.', color: 'purple' },
+        { id: 'app', zone_label: 'Application Layer', position: 'bottom-left', callout_label: 'What Employees Touch', callout_detail: 'Copilots and chat tools your team interacts with daily.', color: 'green' },
+        { id: 'gov', zone_label: 'Governance Layer', position: 'bottom-right', callout_label: 'Your Real Job', callout_detail: 'Risk, audit, and accountability — this is what a CEO actually owns.', color: 'amber' },
+      ],
+      so_what: "As a CEO, you don't own the model layer — you own the governance layer, and most failures start there.",
+    },
     // SCREEN-01: never LLM-generated and never selected by selectTemplate() —
     // real Overview/Summary data is built by lib/templates/session-bookends.ts.
     // These entries exist only to keep this Record<TemplateName, ...> map
@@ -1033,7 +1117,9 @@ ChevronProcess — stage "name": max 3 words | "description": max 15 words | "ke
 NarrativeCard — "challenge"/"approach"/"impact": max 20 words each | metric "value": max 5 chars | metric "label": max 4 words | max 3 metrics | "lesson": max 15 words
 DefinitionTriptych — "what_it_is": max 30 words | "real_example.what": max 20 words | "real_example.result": max 12 words | "common_myth": max 20 words
 HorizontalDecision — node "label": max 6 words | node "detail": max 8 words or null | "branch_outcome": max 10 words or null | max 4 nodes
-AnswerSpotlight — "direct_answer": max 35 words | "analogy": max 25 words or null | "example": max 25 words or null | "important_nuance": max 20 words or null${rulesBlock}
+AnswerSpotlight — "direct_answer": max 35 words | "analogy": max 25 words or null | "example": max 25 words or null | "important_nuance": max 20 words or null
+Heatmap — "row_label"/"column_label": max 4 words | each "rows"/"columns" item: max 4 words | max 6 rows, 4 columns | cell "label": max 3 words or null | "legend_low"/"legend_high": max 3 words
+Overlay — "base_label": max 6 words | zone "zone_label": max 3 words | "callout_label": max 4 words | "callout_detail": max 14 words | max 4 zones${rulesBlock}
 
 Template: ${templateType}
 Required JSON schema (data fields only):
@@ -1072,9 +1158,83 @@ Generate the template data JSON for this subtopic.`
 
     const rawText = response.content[0].type === 'text' ? response.content[0].text : '{}'
     const cleaned = rawText.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim()
-    return JSON.parse(cleaned) as TemplateSection['data']
+    const parsed = JSON.parse(cleaned) as TemplateSection['data']
+
+    // RTV-04 Section 4.1, Layer 1 — structural enforcement. Scoped to the 2
+    // new RTV-04 templates only. The 23 pre-existing templates keep their
+    // exact prior behavior (LLM output returned as-is) — extending the
+    // under-floor retry-then-mock-fallback to them is a live behavior change
+    // to content already shipping to real users and needs its own explicit
+    // sign-off before it applies there, per this project's additive-only
+    // convention. containerBudgets.ts already has entries for all 25
+    // templates on file for whenever that extension is approved.
+    if (RTV04_VALIDATED_TEMPLATES.has(templateType)) {
+      return await validateTemplateData(templateType, parsed, subtopicTitle)
+    }
+    return parsed
   } catch (err) {
     console.error('[TEMPLATE-GENERATOR] Failed, falling back to mock:', templateType, err)
+    return getMockData(templateType, subtopicTitle)
+  }
+}
+
+/**
+ * RTV-04 Section 4.1, Layer 1 — validates and repairs a freshly-generated
+ * TemplateSection's data against its container budgets:
+ *   - Over-max fields are truncated at the last complete sentence <= maxChars
+ *     (never mid-word) — deterministic, via containerBudgets.ts.
+ *   - Under-min fields (below the 40%-of-max floor) trigger exactly ONE
+ *     regeneration retry with an explicit "expand this field" instruction. If
+ *     still under-floor after the retry (or the API key is a placeholder),
+ *     falls back to the template's own hand-written mock data — never
+ *     renders a field known to violate the floor.
+ *
+ * Exported for direct unit testing of the retry-then-fallback behavior.
+ */
+export async function validateTemplateData(
+  templateType: TemplateName,
+  data: TemplateSection['data'],
+  subtopicTitle: string
+): Promise<TemplateSection['data']> {
+  const firstPass = applyBudgetTruncation(templateType, data)
+  if (firstPass.underMinPaths.length === 0) {
+    return firstPass.data
+  }
+
+  if (isPlaceholder || !anthropic) {
+    // No LLM available to retry with — fall back immediately.
+    console.log('[TEMPLATE-GENERATOR] Under-floor fields with no LLM to retry, falling back to mock:', templateType, firstPass.underMinPaths)
+    return getMockData(templateType, subtopicTitle)
+  }
+
+  try {
+    const expandPrompt = `The following JSON was generated for a "${templateType}" template but these fields are too short (below the minimum content floor): ${firstPass.underMinPaths.join(', ')}.
+
+Expand ONLY those fields with more complete, substantive content — keep every other field exactly as-is. Stay within the same word-count maximums already used to produce this JSON. Return ONLY the complete, corrected JSON object — no markdown, no explanation.
+
+Current JSON:
+${JSON.stringify(firstPass.data, null, 2)}`
+
+    const response = await anthropic.messages.create({
+      model: MODEL,
+      max_tokens: 1500,
+      system: 'You are expanding under-length fields in structured JSON content for an executive AI coaching platform. Return ONLY valid JSON.',
+      messages: [{ role: 'user', content: expandPrompt }],
+    })
+
+    const rawText = response.content[0].type === 'text' ? response.content[0].text : '{}'
+    const cleaned = rawText.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim()
+    const retried = JSON.parse(cleaned) as TemplateSection['data']
+
+    const secondPass = applyBudgetTruncation(templateType, retried)
+    if (secondPass.underMinPaths.length === 0) {
+      return secondPass.data
+    }
+
+    console.log('[TEMPLATE-GENERATOR] Still under-floor after retry, falling back to mock:', templateType, secondPass.underMinPaths)
+    return getMockData(templateType, subtopicTitle)
+  } catch (err) {
+    console.error('[TEMPLATE-GENERATOR] Expansion retry failed, falling back to mock:', templateType, err)
     return getMockData(templateType, subtopicTitle)
   }
 }

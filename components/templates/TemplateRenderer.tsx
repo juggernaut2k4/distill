@@ -27,6 +27,8 @@ import AnswerSpotlight from './renderers/AnswerSpotlight'
 import HorizontalTree from './renderers/HorizontalTree'
 import SessionOverview from './renderers/SessionOverview'
 import SessionSummary from './renderers/SessionSummary'
+import Heatmap from './renderers/Heatmap'
+import Overlay from './renderers/Overlay'
 
 export interface TemplateRendererProps {
   section: TemplateSection
@@ -82,6 +84,10 @@ export default function TemplateRenderer({ section, isActive, onReady }: Templat
       return <HorizontalDecision data={section.data} isActive={isActive} onReady={onReady} />
     case 'AnswerSpotlight':
       return <AnswerSpotlight data={section.data} isActive={isActive} onReady={onReady} />
+    case 'Heatmap':
+      return <Heatmap data={section.data} isActive={isActive} onReady={onReady} />
+    case 'Overlay':
+      return <Overlay data={section.data} isActive={isActive} onReady={onReady} />
     case 'SessionOverview':
       return <SessionOverview data={section.data} isActive={isActive} onReady={onReady} />
     case 'SessionSummary':

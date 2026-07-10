@@ -339,6 +339,52 @@ export interface AnswerSpotlightData {
   so_what: string
 }
 
+// ─── RTV-04 NEW TEMPLATE DATA TYPES ────────────────────────────────────────────
+// Heatmap and Overlay — see docs/specs (RTV-04 requirement document) Section 4.2
+// for the full container layout, hard caps, and color-ramp spec. Both are new
+// entries added to TemplateName/TemplateSection; both seed into template_library
+// at status='pending_review' — neither is wired into selectTemplate()'s live
+// output priority beyond being a valid, recognized name (RTV-04 is additive only,
+// no live behavior change).
+
+export interface HeatmapData {
+  title: string                  // max 8 words
+  context: string                 // max 15 words
+  row_label: string                // axis label, max 4 words
+  column_label: string             // axis label, max 4 words
+  rows: string[]                    // max 6, each max 4 words
+  columns: string[]                 // max 4, each max 4 words
+  cells: Array<{
+    row: string                     // must exactly match one of `rows`
+    column: string                  // must exactly match one of `columns`
+    intensity: 0 | 1 | 2 | 3 | 4     // fixed 5-point scale
+    label?: string | null           // optional, max 3 words
+  }>                                 // exactly rows.length x columns.length entries
+  legend_low: string                // max 3 words, e.g. "Not started"
+  legend_high: string               // max 3 words, e.g. "Fully scaled"
+  so_what: string                   // max 30 words, "As a [role],"
+}
+
+export type OverlayZonePosition =
+  | 'top-left' | 'top-center' | 'top-right'
+  | 'mid-left' | 'mid-center' | 'mid-right'
+  | 'bottom-left' | 'bottom-center' | 'bottom-right'
+
+export interface OverlayData {
+  title: string                     // max 8 words
+  context: string                    // max 15 words
+  base_label: string                  // max 6 words — the name of the whole thing being broken down
+  zones: Array<{
+    id: string
+    zone_label: string                 // max 3 words — shown on the base shape itself
+    position: OverlayZonePosition       // one of the 9 fixed grid slots, no two zones share a slot
+    callout_label: string              // max 4 words — shown in the docked callout card
+    callout_detail: string             // max 14 words
+    color: 'purple' | 'cyan' | 'amber' | 'green'   // maps only to the fixed accent tokens
+  }>                                    // max 4 zones
+  so_what: string                      // max 30 words
+}
+
 // ─── SCREEN-01: SESSION OVERVIEW / SUMMARY DATA TYPES ────────────────────────
 // These are reserved structural entries in `sections` (index 0 and index N+1)
 // — never passed through selectTemplate(), constructed directly at the point
@@ -409,6 +455,8 @@ export type TemplateName =
   | 'DefinitionTriptych'
   | 'HorizontalDecision'
   | 'AnswerSpotlight'
+  | 'Heatmap'
+  | 'Overlay'
   | 'SessionOverview'
   | 'SessionSummary'
 
@@ -438,5 +486,7 @@ export type TemplateSection =
   | { id: string; type: 'DefinitionTriptych'; data: DefinitionTriptychData; meta: TemplateMeta; status: SectionStatus }
   | { id: string; type: 'HorizontalDecision'; data: HorizontalDecisionData; meta: TemplateMeta; status: SectionStatus }
   | { id: string; type: 'AnswerSpotlight'; data: AnswerSpotlightData; meta: TemplateMeta; status: SectionStatus }
+  | { id: string; type: 'Heatmap'; data: HeatmapData; meta: TemplateMeta; status: SectionStatus }
+  | { id: string; type: 'Overlay'; data: OverlayData; meta: TemplateMeta; status: SectionStatus }
   | { id: string; type: 'SessionOverview'; data: SessionOverviewData; meta: TemplateMeta; status: SectionStatus }
   | { id: string; type: 'SessionSummary'; data: SessionSummaryData; meta: TemplateMeta; status: SectionStatus }
