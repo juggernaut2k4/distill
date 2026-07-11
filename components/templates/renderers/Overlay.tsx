@@ -2,8 +2,31 @@
 
 import { motion } from 'framer-motion'
 import type { OverlayData, OverlayZonePosition } from '@/lib/templates/types'
+import type { StyleOverrides } from '@/lib/templates/styleOverrideSlots'
 
-interface OverlayProps { data: OverlayData; isActive: boolean; onReady?: () => void }
+interface OverlayProps {
+  data: OverlayData
+  isActive: boolean
+  onReady?: () => void
+  /**
+   * TMPL-01 (requirement doc Section 4.1/6) — automated-fix-loop style
+   * overrides, applied via inline `style={{ }}`.
+   *
+   * Unlike Heatmap, the 4 zone-color slots here (`zone-color-purple/cyan/
+   * amber/green`) require no "layer inline style on top of a Tailwind class"
+   * trick — every color usage below already resolves through the `COLOR_HEX`
+   * lookup into a plain inline `style` attribute (no Tailwind color class is
+   * ever used for zone colors), so overriding is a simple substitution in
+   * that same lookup.
+   *
+   * `callout-width`/`callout-height` (px, overrides the hardcoded
+   * `w-[220px] h-[96px]` callout card) and `panel-border-width` (px,
+   * overrides the hardcoded `border-2` base panel) DO need the inline-style-
+   * over-Tailwind-class pattern, since those are plain Tailwind arbitrary-
+   * value classes today.
+   */
+  styleOverrides?: StyleOverrides
+}
 
 type OverlayZone = OverlayData['zones'][number]
 
@@ -45,12 +68,30 @@ const PANEL_H = 420
 const CELL_W = PANEL_W / 3
 const CELL_H = PANEL_H / 3
 
-function CalloutCard({ zone }: { zone: OverlayZone }) {
-  const hex = COLOR_HEX[zone.color] ?? COLOR_HEX.purple
+/**
+ * TMPL-01 — resolves a zone's display color, preferring the fix loop's
+ * `zone-color-<color>` override (if present and valid) over the fixed
+ * COLOR_HEX lookup. This is the ONLY change needed to apply the color slots
+ * — every call site below already flows through this single function.
+ */
+function resolveZoneColor(color: OverlayZone['color'], styleOverrides?: StyleOverrides): string {
+  const override = styleOverrides?.[`zone-color-${color}`]
+  if (typeof override === 'string') return override
+  return COLOR_HEX[color] ?? COLOR_HEX.purple
+}
+
+function CalloutCard({ zone, styleOverrides }: { zone: OverlayZone; styleOverrides?: StyleOverrides }) {
+  const hex = resolveZoneColor(zone.color, styleOverrides)
+  const calloutWidthOverride = typeof styleOverrides?.['callout-width'] === 'number' ? styleOverrides['callout-width'] : undefined
+  const calloutHeightOverride = typeof styleOverrides?.['callout-height'] === 'number' ? styleOverrides['callout-height'] : undefined
   return (
     <div
       className="w-[220px] h-[96px] rounded-xl border bg-[#111111] p-3 flex flex-col justify-center overflow-hidden shrink-0"
-      style={{ borderColor: `${hex}80` }}
+      style={{
+        borderColor: `${hex}80`,
+        ...(calloutWidthOverride !== undefined ? { width: calloutWidthOverride } : {}),
+        ...(calloutHeightOverride !== undefined ? { height: calloutHeightOverride } : {}),
+      }}
     >
       <div className="flex items-center gap-1.5 mb-1">
         <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: hex }} />
@@ -61,8 +102,8 @@ function CalloutCard({ zone }: { zone: OverlayZone }) {
   )
 }
 
-function Marker({ zone }: { zone: OverlayZone }) {
-  const hex = COLOR_HEX[zone.color] ?? COLOR_HEX.purple
+function Marker({ zone, styleOverrides }: { zone: OverlayZone; styleOverrides?: StyleOverrides }) {
+  const hex = resolveZoneColor(zone.color, styleOverrides)
   const slot = SLOT_GRID[zone.position]
   return (
     <div
@@ -90,8 +131,10 @@ function Connector({ side, color }: { side: 'top' | 'bottom' | 'left' | 'right';
  * CSS-drawn rounded rectangle (never an image/screenshot); zones sit in fixed
  * 3x3 grid slots, not free-form coordinates (Section 4.2).
  */
-export default function Overlay({ data, isActive, onReady }: OverlayProps) {
+export default function Overlay({ data, isActive, onReady, styleOverrides }: OverlayProps) {
   const zones = data.zones.slice(0, MAX_ZONES)
+  const panelBorderWidthOverride =
+    typeof styleOverrides?.['panel-border-width'] === 'number' ? styleOverrides['panel-border-width'] : undefined
 
   const topZones = zones.filter((z) => dockSide(z.position) === 'top')
   const bottomZones = zones.filter((z) => dockSide(z.position) === 'bottom')
@@ -120,8 +163,8 @@ export default function Overlay({ data, isActive, onReady }: OverlayProps) {
               <div className="flex gap-6 justify-center">
                 {topZones.map((z) => (
                   <div key={z.id} className="flex flex-col items-center">
-                    <CalloutCard zone={z} />
-                    <Connector side="top" color={COLOR_HEX[z.color] ?? COLOR_HEX.purple} />
+                    <CalloutCard zone={z} styleOverrides={styleOverrides} />
+                    <Connector side="top" color={resolveZoneColor(z.color, styleOverrides)} />
                   </div>
                 ))}
               </div>
@@ -132,30 +175,39 @@ export default function Overlay({ data, isActive, onReady }: OverlayProps) {
                 <div className="flex gap-3">
                   {leftZones.map((z) => (
                     <div key={z.id} className="flex items-center gap-0">
-                      <CalloutCard zone={z} />
-                      <Connector side="left" color={COLOR_HEX[z.color] ?? COLOR_HEX.purple} />
+                      <CalloutCard zone={z} styleOverrides={styleOverrides} />
+                      <Connector side="left" color={resolveZoneColor(z.color, styleOverrides)} />
                     </div>
                   ))}
                 </div>
               )}
 
-              {/* Fixed 700x420 base panel — plain CSS rectangle, never an image */}
+              {/* Fixed 700x420 base panel — plain CSS rectangle, never an image.
+                  `border-2` is a Tailwind arbitrary-value class (border-width
+                  only; Tailwind preflight already sets border-style: solid
+                  globally) — the panel-border-width override targets the same
+                  `borderWidth` CSS property via inline style, which wins over
+                  the class per normal CSS specificity rules. */}
               <div
                 className="relative rounded-2xl border-2 border-[#333333] bg-[#111111] shrink-0 overflow-hidden"
-                style={{ width: PANEL_W, height: PANEL_H }}
+                style={{
+                  width: PANEL_W,
+                  height: PANEL_H,
+                  ...(panelBorderWidthOverride !== undefined ? { borderWidth: panelBorderWidthOverride } : {}),
+                }}
               >
                 <div className="absolute inset-0 flex items-center justify-center">
                   <span className="text-2xl font-bold text-white text-center line-clamp-2 px-6">{data.base_label}</span>
                 </div>
-                {zones.map((z) => <Marker key={z.id} zone={z} />)}
+                {zones.map((z) => <Marker key={z.id} zone={z} styleOverrides={styleOverrides} />)}
               </div>
 
               {rightZones.length > 0 && (
                 <div className="flex gap-3">
                   {rightZones.map((z) => (
                     <div key={z.id} className="flex items-center gap-0">
-                      <Connector side="right" color={COLOR_HEX[z.color] ?? COLOR_HEX.purple} />
-                      <CalloutCard zone={z} />
+                      <Connector side="right" color={resolveZoneColor(z.color, styleOverrides)} />
+                      <CalloutCard zone={z} styleOverrides={styleOverrides} />
                     </div>
                   ))}
                 </div>
@@ -166,8 +218,8 @@ export default function Overlay({ data, isActive, onReady }: OverlayProps) {
               <div className="flex gap-6 justify-center">
                 {bottomZones.map((z) => (
                   <div key={z.id} className="flex flex-col items-center">
-                    <Connector side="bottom" color={COLOR_HEX[z.color] ?? COLOR_HEX.purple} />
-                    <CalloutCard zone={z} />
+                    <Connector side="bottom" color={resolveZoneColor(z.color, styleOverrides)} />
+                    <CalloutCard zone={z} styleOverrides={styleOverrides} />
                   </div>
                 ))}
               </div>

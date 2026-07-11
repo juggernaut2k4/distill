@@ -26,6 +26,7 @@ import { abandonedOnboardingCleanup } from '@/inngest/abandoned-onboarding-clean
 import { sessionTimerJob } from '@/inngest/session-timer'
 import { voiceGapWatchdog } from '@/inngest/voice-gap-watchdog'
 import { humeNativeNightlyCleanup } from '@/inngest/hume-native-nightly-cleanup'
+import { templateFixGenerator } from '@/inngest/template-fix-generator'
 
 /**
  * POST /api/inngest
@@ -34,5 +35,5 @@ import { humeNativeNightlyCleanup } from '@/inngest/hume-native-nightly-cleanup'
  */
 export const { GET, POST, PUT } = serve({
   client: inngest,
-  functions: [dailyDelivery, weeklyDigest, feedbackProcessor, sessionReminder, sessionMeetingSetup, sessionPlanGenerator, sessionAgendaEmail, trialExpiryJob, sessionContentPipeline, sessionContentCron, updateLearningProfile, catalogRefresh, curriculumQueueRegenerate, curriculumRecommendationAccepted, curriculumQueueCron, curriculumGenerator, sessionDesignerAuto, sessionQualityEvaluator, scheduleSetupNudge, analyzeIceBreakerResponse, adaptPlan, abandonedOnboardingCleanup, sessionTimerJob, voiceGapWatchdog, humeNativeNightlyCleanup, rtv03AccuracyEvaluator],
+  functions: [dailyDelivery, weeklyDigest, feedbackProcessor, sessionReminder, sessionMeetingSetup, sessionPlanGenerator, sessionAgendaEmail, trialExpiryJob, sessionContentPipeline, sessionContentCron, updateLearningProfile, catalogRefresh, curriculumQueueRegenerate, curriculumRecommendationAccepted, curriculumQueueCron, curriculumGenerator, sessionDesignerAuto, sessionQualityEvaluator, scheduleSetupNudge, analyzeIceBreakerResponse, adaptPlan, abandonedOnboardingCleanup, sessionTimerJob, voiceGapWatchdog, humeNativeNightlyCleanup, rtv03AccuracyEvaluator, templateFixGenerator],
 })

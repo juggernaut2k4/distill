@@ -2,8 +2,28 @@
 
 import { motion } from 'framer-motion'
 import type { HeatmapData } from '@/lib/templates/types'
+import type { StyleOverrides } from '@/lib/templates/styleOverrideSlots'
 
-interface HeatmapProps { data: HeatmapData; isActive: boolean; onReady?: () => void }
+interface HeatmapProps {
+  data: HeatmapData
+  isActive: boolean
+  onReady?: () => void
+  /**
+   * TMPL-01 (requirement doc Section 4.1/6) — automated-fix-loop style
+   * overrides, applied via inline `style={{ }}` layered on top of the
+   * existing Tailwind-driven classes below, never as dynamic Tailwind class
+   * strings (Tailwind compiles class names statically at build time, so a
+   * class name built from a runtime DB value would never exist in the
+   * compiled CSS and would silently do nothing).
+   *
+   * Slots consumed here: `intensity-0`..`intensity-4` (color, overrides the
+   * background this intensity level currently gets from INTENSITY_STYLES),
+   * `cell-size` (px, overrides the hardcoded `w-[64px] h-[64px]` grid-cell
+   * sizing), `cell-gap` (px, overrides the hardcoded `m-0.5` inter-cell
+   * margin).
+   */
+  styleOverrides?: StyleOverrides
+}
 
 // RTV-04 Section 4.2 — fixed 5-point cyan -> amber -> red intensity ramp.
 // Only accent colors already in CLAUDE.md are used; no new color introduced.
@@ -28,7 +48,7 @@ const MAX_COLUMNS = 4
  * grid, not ReactFlow — a heatmap has no edges/relationships to draw, only a
  * regular grid (Section 4.2).
  */
-export default function Heatmap({ data, isActive, onReady }: HeatmapProps) {
+export default function Heatmap({ data, isActive, onReady, styleOverrides }: HeatmapProps) {
   const rows = data.rows.slice(0, MAX_ROWS)
   const columns = data.columns.slice(0, MAX_COLUMNS)
 
@@ -36,6 +56,22 @@ export default function Heatmap({ data, isActive, onReady }: HeatmapProps) {
   for (const cell of data.cells) {
     cellLookup.set(`${cell.row}|||${cell.column}`, { intensity: cell.intensity, label: cell.label })
   }
+
+  // TMPL-01 — resolve the 3 slot types this template participates in. All
+  // three are optional; when absent, the original hardcoded Tailwind values
+  // apply unchanged (no style prop is added at all).
+  const cellSizeOverride =
+    typeof styleOverrides?.['cell-size'] === 'number' ? styleOverrides['cell-size'] : undefined
+  const cellGapOverride =
+    typeof styleOverrides?.['cell-gap'] === 'number' ? styleOverrides['cell-gap'] : undefined
+
+  function intensityColorOverride(intensity: number): string | undefined {
+    const value = styleOverrides?.[`intensity-${intensity}`]
+    return typeof value === 'string' ? value : undefined
+  }
+
+  const cellSizeStyle = cellSizeOverride !== undefined ? { width: cellSizeOverride, height: cellSizeOverride } : {}
+  const cellGapStyle = cellGapOverride !== undefined ? { margin: cellGapOverride } : {}
 
   return (
     <div className="relative h-full w-full flex flex-col bg-[#080808] px-8 md:px-16 py-12">
@@ -74,10 +110,16 @@ export default function Heatmap({ data, isActive, onReady }: HeatmapProps) {
                 {columns.map((col) => {
                   const cell = cellLookup.get(`${row}|||${col}`)
                   const intensity = cell?.intensity ?? 0
+                  const intensityOverride = intensityColorOverride(intensity)
                   return (
                     <div
                       key={col}
                       className={`w-[64px] h-[64px] shrink-0 rounded-lg m-0.5 flex items-center justify-center overflow-hidden ${INTENSITY_STYLES[intensity] ?? INTENSITY_STYLES[0]}`}
+                      style={{
+                        ...cellSizeStyle,
+                        ...cellGapStyle,
+                        ...(intensityOverride !== undefined ? { backgroundColor: intensityOverride } : {}),
+                      }}
                     >
                       {cell?.label && (
                         <span className="text-[10px] text-white text-center line-clamp-1 px-1">{cell.label}</span>
@@ -93,9 +135,16 @@ export default function Heatmap({ data, isActive, onReady }: HeatmapProps) {
           <div className="h-[40px] shrink-0 mt-4 flex items-center gap-3 overflow-hidden">
             <span className="text-xs text-[#475569] shrink-0 line-clamp-1">{data.legend_low}</span>
             <div className="flex gap-1">
-              {LEGEND_SWATCHES.map((i) => (
-                <div key={i} className={`w-5 h-5 rounded ${INTENSITY_STYLES[i]}`} />
-              ))}
+              {LEGEND_SWATCHES.map((i) => {
+                const override = intensityColorOverride(i)
+                return (
+                  <div
+                    key={i}
+                    className={`w-5 h-5 rounded ${INTENSITY_STYLES[i]}`}
+                    style={override !== undefined ? { backgroundColor: override } : undefined}
+                  />
+                )
+              })}
             </div>
             <span className="text-xs text-[#475569] shrink-0 line-clamp-1">{data.legend_high}</span>
           </div>

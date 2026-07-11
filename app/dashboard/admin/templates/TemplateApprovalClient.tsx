@@ -2,10 +2,14 @@
 
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Clock, CheckCircle2, XCircle, ArrowLeft, Loader2, FileText, Sparkles } from 'lucide-react'
+import {
+  Clock, CheckCircle2, XCircle, ArrowLeft, Loader2, FileText, Sparkles, AlertTriangle,
+} from 'lucide-react'
 import Link from 'next/link'
 import TemplateRenderer from '@/components/templates/TemplateRenderer'
 import type { TemplateSection, TemplateMeta } from '@/lib/templates/types'
+import type { StyleOverrides } from '@/lib/templates/styleOverrideSlots'
+import { getFixStatusDisplay, hasFixHistory, type FixState } from './fixStatus'
 
 interface TemplateLibraryRow {
   template_name: string
@@ -17,7 +21,19 @@ interface TemplateLibraryRow {
   review_notes: string | null
   reviewed_by: string | null
   reviewed_at: string | null
+  // TMPL-01 (requirement doc Section 6) — added by migration 067. Always
+  // present on every row (fix_state defaults to 'none', style_overrides to
+  // '{}') even for the 25 templates that never participate in the fix loop.
+  fix_state: FixState
+  style_overrides: StyleOverrides
+  fix_changes_summary: string | null
+  fix_failure_reason: string | null
+  fix_attempt_count: number
+  fix_cycle_id: string | null
+  fix_last_activity_at: string | null
 }
+
+const FIX_STATUS_ICONS = { check: CheckCircle2, clock: Clock, x: XCircle, loader: Loader2, alert: AlertTriangle } as const
 
 type StatusKey = 'pending_review' | 'approved' | 'changes_requested'
 
@@ -217,6 +233,12 @@ export default function TemplateApprovalClient() {
             const isConfirming = confirmingId === row.template_name
             const disabledForNonApprover = !viewerIsApprover || isActioning
 
+            // TMPL-01 (Section 4.2) — the per-card status "bulb."
+            const fixDisplay = getFixStatusDisplay(row.status, row.fix_state)
+            const FixIcon = FIX_STATUS_ICONS[fixDisplay.icon]
+            const showFixHistoryLink = hasFixHistory(row)
+            const fixInFlightOrFailed = row.fix_state === 'generating' || row.fix_state === 'failed'
+
             return (
               <motion.div
                 key={row.template_name}
@@ -229,6 +251,13 @@ export default function TemplateApprovalClient() {
                 <div className="p-5">
                   <div className="flex items-start justify-between gap-3 mb-2 flex-wrap">
                     <div className="flex items-center gap-2 flex-wrap">
+                      {/* TMPL-01 Section 4.2 — glanceable status dot, doesn't require reading text */}
+                      <span
+                        className="w-2.5 h-2.5 rounded-full shrink-0"
+                        style={{ backgroundColor: fixDisplay.color }}
+                        title={fixDisplay.label}
+                        aria-label={fixDisplay.label}
+                      />
                       <h3 className="text-white text-lg font-bold">{row.display_name}</h3>
                       {row.provenance === 'new' && (
                         <span className="text-xs font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#10B981]/20 text-[#10B981] border border-[#10B981]/30">
@@ -259,13 +288,35 @@ export default function TemplateApprovalClient() {
                     {TEMPLATE_DESCRIPTIONS[row.template_name] ?? FALLBACK_DESCRIPTION}
                   </p>
 
+                  {/* TMPL-01 Section 4.2 — "Generating fix…" / "Fix failed — needs attention." label line */}
+                  {(row.fix_state === 'generating' || row.fix_state === 'failed') && (
+                    <div className="flex items-center gap-1.5 mb-3" style={{ color: fixDisplay.color }}>
+                      <FixIcon className={`w-3.5 h-3.5 ${row.fix_state === 'generating' ? 'animate-spin' : ''}`} />
+                      <span className="text-xs font-semibold">{fixDisplay.label}</span>
+                    </div>
+                  )}
+
                   {row.review_notes && (
                     <p className="text-[#94A3B8] text-xs italic mb-4">&ldquo;{row.review_notes}&rdquo;</p>
                   )}
 
+                  {/* TMPL-01 acceptance criteria — fix_changes_summary visible on the Pending Review card */}
+                  {row.status === 'pending_review' && row.fix_changes_summary && (
+                    <div className="mb-4 rounded-lg border border-[#7C3AED]/30 bg-[#7C3AED]/10 px-3 py-2">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-[#A855F7] mb-1">
+                        Automated fix applied
+                      </p>
+                      <p className="text-sm text-[#94A3B8]">{row.fix_changes_summary}</p>
+                    </div>
+                  )}
+
                   {/* Live-rendered preview — the real TemplateRenderer with frozen sample data */}
                   <div className="rounded-xl border border-[#222222] overflow-hidden mb-4 bg-[#080808]" style={{ height: 520 }}>
-                    <TemplateRenderer section={buildPreviewSection(row)} isActive />
+                    <TemplateRenderer
+                      section={buildPreviewSection(row)}
+                      isActive
+                      styleOverrides={row.style_overrides}
+                    />
                   </div>
 
                   {/* Actions */}
@@ -335,6 +386,19 @@ export default function TemplateApprovalClient() {
                       {isActioning && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                       Move back to Pending Review
                     </button>
+                  )}
+
+                  {/* TMPL-01 Section 4.3 — entry point to the Fix Progress view. Only
+                      shown once this template has at least one fix cycle; visually
+                      emphasized while a fix is generating/failed. */}
+                  {showFixHistoryLink && (
+                    <Link
+                      href={`/dashboard/admin/templates/${row.template_name}/progress`}
+                      className="inline-block text-xs mt-3 transition-colors hover:underline"
+                      style={{ color: fixInFlightOrFailed ? fixDisplay.color : '#475569' }}
+                    >
+                      View fix progress →
+                    </Link>
                   )}
                 </div>
               </motion.div>

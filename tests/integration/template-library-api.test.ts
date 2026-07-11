@@ -13,9 +13,15 @@ import { NextRequest } from 'next/server'
 let mockUserId: string | null = 'user-1'
 let mockUserEmail: string | null = 'approver@example.com'
 let capturedUpdatePayload: Record<string, unknown> | null = null
+let mockCurrentFixState = 'none'
+let capturedFixLogInsert: Record<string, unknown> | null = null
 
 vi.mock('@clerk/nextjs/server', () => ({
   auth: vi.fn(() => ({ userId: mockUserId })),
+}))
+
+vi.mock('@/inngest/client', () => ({
+  inngest: { send: vi.fn(() => Promise.resolve()) },
 }))
 
 vi.mock('@/lib/supabase', () => ({
@@ -34,6 +40,12 @@ vi.mock('@/lib/supabase', () => ({
       }
       if (table === 'template_library') {
         return {
+          // TMPL-01 — used only by the pre-approve fix_state guard check.
+          select: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              maybeSingle: vi.fn(() => Promise.resolve({ data: { fix_state: mockCurrentFixState }, error: null })),
+            })),
+          })),
           update: vi.fn((payload: Record<string, unknown>) => {
             capturedUpdatePayload = payload
             return {
@@ -48,12 +60,21 @@ vi.mock('@/lib/supabase', () => ({
           }),
         }
       }
+      if (table === 'template_fix_log') {
+        return {
+          insert: vi.fn((row: Record<string, unknown>) => {
+            capturedFixLogInsert = row
+            return Promise.resolve({ data: null, error: null })
+          }),
+        }
+      }
       return { select: vi.fn(() => ({ data: null, error: null })) }
     }),
   })),
 }))
 
 import { PATCH } from '@/app/api/templates/library/[templateName]/route'
+import { inngest } from '@/inngest/client'
 
 function makeRequest(body: unknown) {
   return new NextRequest('http://localhost:3000/api/templates/library/Heatmap', {
@@ -70,6 +91,9 @@ describe('PATCH /api/templates/library/[templateName]', () => {
     mockUserId = 'user-1'
     mockUserEmail = 'approver@example.com'
     capturedUpdatePayload = null
+    mockCurrentFixState = 'none'
+    capturedFixLogInsert = null
+    vi.mocked(inngest.send).mockClear()
     process.env.TEMPLATE_LIBRARY_APPROVER_EMAIL = 'approver@example.com'
   })
 
@@ -148,5 +172,79 @@ describe('PATCH /api/templates/library/[templateName]', () => {
     expect(capturedUpdatePayload?.reviewed_by).toBeNull()
     expect(capturedUpdatePayload?.reviewed_at).toBeNull()
     expect(capturedUpdatePayload?.review_notes).toBeNull()
+  })
+
+  it('reset_to_pending also resets fix_state to none (TMPL-01 Section 6)', async () => {
+    await PATCH(makeRequest({ action: 'reset_to_pending' }), { params: { templateName: 'Overlay' } })
+    expect(capturedUpdatePayload?.fix_state).toBe('none')
+  })
+
+  // ─── TMPL-01: automated feedback -> LLM fix -> re-review loop ───────────────
+
+  describe('TMPL-01 — automated fix loop extension', () => {
+    it('request_changes on Heatmap sets fix_state=generating, resets attempt count, assigns a fix_cycle_id, logs feedback_received, and fires clio/template.fix_requested', async () => {
+      const res = await PATCH(makeRequest({ action: 'request_changes', notes: 'Cells feel too dense.' }), {
+        params: { templateName: 'Heatmap' },
+      })
+      expect(res.status).toBe(200)
+
+      expect(capturedUpdatePayload?.status).toBe('changes_requested')
+      expect(capturedUpdatePayload?.fix_state).toBe('generating')
+      expect(capturedUpdatePayload?.fix_attempt_count).toBe(0)
+      expect(capturedUpdatePayload?.fix_changes_summary).toBeNull()
+      expect(capturedUpdatePayload?.fix_failure_reason).toBeNull()
+      expect(typeof capturedUpdatePayload?.fix_cycle_id).toBe('string')
+      expect((capturedUpdatePayload?.fix_cycle_id as string).length).toBeGreaterThan(0)
+
+      expect(capturedFixLogInsert?.event_type).toBe('feedback_received')
+      expect(capturedFixLogInsert?.template_name).toBe('Heatmap')
+      expect(capturedFixLogInsert?.fix_cycle_id).toBe(capturedUpdatePayload?.fix_cycle_id)
+
+      expect(inngest.send).toHaveBeenCalledTimes(1)
+      expect(inngest.send).toHaveBeenCalledWith({
+        name: 'clio/template.fix_requested',
+        data: {
+          templateName: 'Heatmap',
+          notes: 'Cells feel too dense.',
+          fixCycleId: capturedUpdatePayload?.fix_cycle_id,
+        },
+      })
+    })
+
+    it('request_changes on a non-fix-loop template (e.g. CaseStudy) behaves exactly as RTV-04 built it — no fix_state, no log row, no event (Section 9)', async () => {
+      await PATCH(makeRequest({ action: 'request_changes', notes: 'Too generic.' }), {
+        params: { templateName: 'CaseStudy' },
+      })
+
+      expect(capturedUpdatePayload?.status).toBe('changes_requested')
+      expect(capturedUpdatePayload?.fix_state).toBeUndefined()
+      expect(capturedUpdatePayload?.fix_cycle_id).toBeUndefined()
+      expect(capturedFixLogInsert).toBeNull()
+      expect(inngest.send).not.toHaveBeenCalled()
+    })
+
+    it('rejects approve with 400 and makes no status-changing update when fix_state is "generating" (Section 4.2/7 — server-side guard, not just a hidden button)', async () => {
+      mockCurrentFixState = 'generating'
+      const res = await PATCH(makeRequest({ action: 'approve' }), { params: { templateName: 'Heatmap' } })
+      const json = await res.json()
+
+      expect(res.status).toBe(400)
+      expect(json.error).toMatch(/automated fix/i)
+      expect(capturedUpdatePayload).toBeNull()
+    })
+
+    it('rejects approve with 400 when fix_state is "failed"', async () => {
+      mockCurrentFixState = 'failed'
+      const res = await PATCH(makeRequest({ action: 'approve' }), { params: { templateName: 'Overlay' } })
+      expect(res.status).toBe(400)
+      expect(capturedUpdatePayload).toBeNull()
+    })
+
+    it('allows approve when fix_state is "none"', async () => {
+      mockCurrentFixState = 'none'
+      const res = await PATCH(makeRequest({ action: 'approve' }), { params: { templateName: 'Heatmap' } })
+      expect(res.status).toBe(200)
+      expect(capturedUpdatePayload?.status).toBe('approved')
+    })
   })
 })

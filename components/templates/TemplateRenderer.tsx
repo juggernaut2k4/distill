@@ -29,14 +29,26 @@ import SessionOverview from './renderers/SessionOverview'
 import SessionSummary from './renderers/SessionSummary'
 import Heatmap from './renderers/Heatmap'
 import Overlay from './renderers/Overlay'
+import type { StyleOverrides } from '@/lib/templates/styleOverrideSlots'
 
 export interface TemplateRendererProps {
   section: TemplateSection
   isActive: boolean
   onReady?: () => void
+  /**
+   * TMPL-01 (requirement doc Section 6) — the row's currently-applied
+   * style_overrides, read at render time. Only ever populated by the one
+   * caller that shows the fix loop's output (the admin Template Library
+   * preview) and only ever consumed by Heatmap/Overlay — every other
+   * renderer ignores this prop entirely, matching the fix loop's scoping to
+   * those 2 templates only (Section 4.1/12). Optional and untouched by every
+   * existing call site (SessionStack, KBSessionPreview), so this is additive,
+   * not a behavior change for live sessions.
+   */
+  styleOverrides?: StyleOverrides
 }
 
-export default function TemplateRenderer({ section, isActive, onReady }: TemplateRendererProps) {
+export default function TemplateRenderer({ section, isActive, onReady, styleOverrides }: TemplateRendererProps) {
   switch (section.type) {
     case 'TopicHero':
       return <TopicHero data={section.data} isActive={isActive} onReady={onReady} />
@@ -85,9 +97,9 @@ export default function TemplateRenderer({ section, isActive, onReady }: Templat
     case 'AnswerSpotlight':
       return <AnswerSpotlight data={section.data} isActive={isActive} onReady={onReady} />
     case 'Heatmap':
-      return <Heatmap data={section.data} isActive={isActive} onReady={onReady} />
+      return <Heatmap data={section.data} isActive={isActive} onReady={onReady} styleOverrides={styleOverrides} />
     case 'Overlay':
-      return <Overlay data={section.data} isActive={isActive} onReady={onReady} />
+      return <Overlay data={section.data} isActive={isActive} onReady={onReady} styleOverrides={styleOverrides} />
     case 'SessionOverview':
       return <SessionOverview data={section.data} isActive={isActive} onReady={onReady} />
     case 'SessionSummary':
