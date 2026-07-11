@@ -15,7 +15,7 @@ function TermNode({ data }: NodeProps) {
       <div className="text-xs font-semibold text-[#A855F7] mb-2 tracking-widest uppercase">{d.category}</div>
       <div className="text-white font-extrabold text-2xl mb-2">{d.term}</div>
       <div className="text-[#06B6D4] text-sm font-medium mb-2">{d.one_line}</div>
-      <div className="text-[#94A3B8] text-xs leading-relaxed">{d.plain_english}</div>
+      <div className="text-[#94A3B8] text-sm leading-relaxed">{d.plain_english}</div>
     </div>
   )
 }
@@ -28,7 +28,7 @@ function ExampleNode({ data }: NodeProps) {
       <Handle type="source" position={Position.Bottom} style={{ background: '#10B981', border: 'none' }} />
       <div className="text-xs font-semibold text-[#10B981] mb-2 tracking-wide uppercase">Real-World Example</div>
       <div className="text-white font-semibold text-sm mb-1">{d.company}</div>
-      <p className="text-[#94A3B8] text-xs leading-relaxed mb-3">{d.what_they_did}</p>
+      <p className="text-[#94A3B8] text-sm leading-relaxed mb-3">{d.what_they_did}</p>
       <div className="inline-flex items-center gap-1.5 rounded-full bg-[#10B981]/10 border border-[#10B981]/30 px-3 py-1 text-xs font-medium text-[#10B981]">
         ✓ {d.result}
       </div>
@@ -42,7 +42,7 @@ function MythNode({ data }: NodeProps) {
     <div className="rounded-xl border border-[#F59E0B]/40 bg-[#F59E0B]/5 p-5 min-w-[260px] max-w-[340px]">
       <Handle type="target" position={Position.Top} style={{ background: '#F59E0B', border: 'none' }} />
       <div className="text-xs font-semibold text-[#F59E0B] mb-2 tracking-wide uppercase">Common Myth</div>
-      <p className="text-[#94A3B8] text-xs leading-relaxed">{d.common_misconception}</p>
+      <p className="text-[#94A3B8] text-sm leading-relaxed">{d.common_misconception}</p>
     </div>
   )
 }
@@ -54,9 +54,9 @@ interface ConceptDefinitionProps { data: ConceptDefinitionData; isActive: boolea
 export default function ConceptDefinition({ data, isActive, onReady }: ConceptDefinitionProps) {
   const { rawNodes, rawEdges } = useMemo<{ rawNodes: Node[]; rawEdges: Edge[] }>(() => {
     const nodes: Node[] = [
-      { id: 'term', type: 'term', position: { x: 0, y: 0 }, data: { term: data.term, category: data.category, one_line: data.one_line, plain_english: data.plain_english }, width: 360, height: 160, draggable: false },
-      { id: 'example', type: 'example', position: { x: 0, y: 0 }, data: { company: data.real_world_example.company, what_they_did: data.real_world_example.what_they_did, result: data.real_world_example.result }, width: 300, height: 130, draggable: false },
-      { id: 'myth', type: 'myth', position: { x: 0, y: 0 }, data: { common_misconception: data.common_misconception }, width: 300, height: 100, draggable: false },
+      { id: 'term', type: 'term', position: { x: 0, y: 0 }, data: { term: data.term, category: data.category, one_line: data.one_line, plain_english: data.plain_english }, width: 360, height: 185, draggable: false },
+      { id: 'example', type: 'example', position: { x: 0, y: 0 }, data: { company: data.real_world_example.company, what_they_did: data.real_world_example.what_they_did, result: data.real_world_example.result }, width: 300, height: 150, draggable: false },
+      { id: 'myth', type: 'myth', position: { x: 0, y: 0 }, data: { common_misconception: data.common_misconception }, width: 300, height: 115, draggable: false },
     ]
     const edges: Edge[] = [
       { id: 'e1', source: 'term', target: 'example', markerEnd: { type: MarkerType.ArrowClosed, color: '#10B981' }, style: { stroke: '#10B98160', strokeWidth: 2 } },
@@ -71,21 +71,21 @@ export default function ConceptDefinition({ data, isActive, onReady }: ConceptDe
   const onInit = useCallback(() => { if (isActive) onReady?.() }, [isActive, onReady])
 
   return (
-    <div className="h-full w-full flex flex-col bg-[#080808] px-8 md:px-16 py-12">
+    <div className="relative h-full w-full flex flex-col bg-[#080808] px-8 md:px-16 py-12">
       <motion.div className="flex-1 flex flex-col pb-20" initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ duration: 0.5 }} onAnimationComplete={() => { if (isActive) onReady?.() }}>
         <div className="mb-6">
           <h2 className="text-3xl font-bold text-white mb-1">{data.term}</h2>
           <p className="text-[#94A3B8] text-sm">{data.category}</p>
         </div>
         <div className="flex-1 rounded-2xl overflow-hidden border border-[#1a1a1a]">
-          <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} nodeTypes={nodeTypes} onInit={onInit} fitView fitViewOptions={{ padding: 0.2 }} nodesDraggable={false} nodesConnectable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }} style={{ width: '100%', height: '100%' }}>
+          <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} nodeTypes={nodeTypes} onInit={onInit} fitView fitViewOptions={{ padding: 0.2 }} minZoom={0.85} nodesDraggable={false} nodesConnectable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }} style={{ width: '100%', height: '100%' }}>
             <Background color="#1a1a1a" variant={BackgroundVariant.Dots} gap={20} />
           </ReactFlow>
         </div>
       </motion.div>
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ delay: 0.6, duration: 0.4 }} className="absolute bottom-0 left-0 right-0 bg-[#7C3AED]/20 border-t border-[#7C3AED]/30 px-8 py-4 flex items-center gap-3">
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ delay: 0.6, duration: 0.4 }} className="absolute bottom-0 left-0 right-0 h-[72px] bg-[#7C3AED]/20 border-t border-[#7C3AED]/30 px-8 py-4 flex items-center gap-3 overflow-hidden">
         <span className="text-sm font-semibold text-[#A855F7] shrink-0">So what?</span>
-        <span className="text-sm text-white">{data.so_what}</span>
+        <span className="text-sm text-white line-clamp-2">{data.so_what}</span>
       </motion.div>
     </div>
   )

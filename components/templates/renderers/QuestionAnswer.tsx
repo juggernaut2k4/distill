@@ -37,7 +37,7 @@ function AnalogyNode({ data }: NodeProps) {
       <Handle type="target" position={Position.Top} style={{ background: '#06B6D4', border: 'none' }} />
       <Handle type="source" position={Position.Bottom} style={{ background: '#06B6D4', border: 'none' }} />
       <div className="text-xs font-semibold text-[#06B6D4] mb-2 tracking-wide uppercase">Think of it like this</div>
-      <p className="text-[#94A3B8] text-xs leading-relaxed">{d.analogy}</p>
+      <p className="text-[#94A3B8] text-sm leading-relaxed">{d.analogy}</p>
     </div>
   )
 }
@@ -49,7 +49,7 @@ function ExampleNode({ data }: NodeProps) {
       <Handle type="target" position={Position.Top} style={{ background: '#F59E0B', border: 'none' }} />
       <Handle type="source" position={Position.Bottom} style={{ background: '#F59E0B', border: 'none' }} />
       <div className="text-xs font-semibold text-[#F59E0B] mb-2 tracking-wide uppercase">For example</div>
-      <p className="text-[#94A3B8] text-xs leading-relaxed">{d.example}</p>
+      <p className="text-[#94A3B8] text-sm leading-relaxed">{d.example}</p>
     </div>
   )
 }
@@ -61,7 +61,7 @@ function NuanceNode({ data }: NodeProps) {
       <Handle type="target" position={Position.Top} style={{ background: '#A855F7', border: 'none' }} />
       <Handle type="source" position={Position.Bottom} style={{ background: '#A855F7', border: 'none' }} />
       <div className="text-xs font-semibold text-[#A855F7] mb-2 tracking-wide uppercase">Important Nuance</div>
-      <p className="text-[#94A3B8] text-xs leading-relaxed">{d.important_nuance}</p>
+      <p className="text-[#94A3B8] text-sm leading-relaxed">{d.important_nuance}</p>
     </div>
   )
 }
@@ -87,9 +87,9 @@ export default function QuestionAnswer({ data, isActive, onReady }: QuestionAnsw
       { id: 'question', type: 'question', nodeData: { question: data.question }, h: 100 },
       { id: 'answer', type: 'answer', nodeData: { direct_answer: data.direct_answer }, h: 100 },
     ]
-    if (data.analogy) chain.push({ id: 'analogy', type: 'analogy', nodeData: { analogy: data.analogy }, h: 90 })
-    if (data.example) chain.push({ id: 'example', type: 'example', nodeData: { example: data.example }, h: 90 })
-    if (data.important_nuance) chain.push({ id: 'nuance', type: 'nuance', nodeData: { important_nuance: data.important_nuance }, h: 90 })
+    if (data.analogy) chain.push({ id: 'analogy', type: 'analogy', nodeData: { analogy: data.analogy }, h: 105 })
+    if (data.example) chain.push({ id: 'example', type: 'example', nodeData: { example: data.example }, h: 105 })
+    if (data.important_nuance) chain.push({ id: 'nuance', type: 'nuance', nodeData: { important_nuance: data.important_nuance }, h: 105 })
     chain.push({ id: 'returning', type: 'returning', nodeData: { returning_to: data.returning_to }, h: 70 })
 
     const nodes: Node[] = chain.map((item) => ({
@@ -121,21 +121,21 @@ export default function QuestionAnswer({ data, isActive, onReady }: QuestionAnsw
   const onInit = useCallback(() => { if (isActive) onReady?.() }, [isActive, onReady])
 
   return (
-    <div className="h-full w-full flex flex-col bg-[#080808] px-8 md:px-16 py-12">
+    <div className="relative h-full w-full flex flex-col bg-[#080808] px-8 md:px-16 py-12">
       <motion.div className="flex-1 flex flex-col pb-20" initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ duration: 0.5 }} onAnimationComplete={() => { if (isActive) onReady?.() }}>
         <div className="mb-6">
           <h2 className="text-3xl font-bold text-white mb-1">Q&A</h2>
           <p className="text-[#94A3B8] text-sm truncate max-w-xl">&ldquo;{data.question}&rdquo;</p>
         </div>
         <div className="flex-1 rounded-2xl overflow-hidden border border-[#1a1a1a]">
-          <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} nodeTypes={nodeTypes} onInit={onInit} fitView fitViewOptions={{ padding: 0.15 }} nodesDraggable={false} nodesConnectable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }} style={{ width: '100%', height: '100%' }}>
+          <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} nodeTypes={nodeTypes} onInit={onInit} fitView fitViewOptions={{ padding: 0.15 }} minZoom={0.85} nodesDraggable={false} nodesConnectable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }} style={{ width: '100%', height: '100%' }}>
             <Background color="#1a1a1a" variant={BackgroundVariant.Dots} gap={20} />
           </ReactFlow>
         </div>
       </motion.div>
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ delay: 0.6, duration: 0.4 }} className="absolute bottom-0 left-0 right-0 bg-[#7C3AED]/20 border-t border-[#7C3AED]/30 px-8 py-4 flex items-center gap-3">
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ delay: 0.6, duration: 0.4 }} className="absolute bottom-0 left-0 right-0 h-[72px] bg-[#7C3AED]/20 border-t border-[#7C3AED]/30 px-8 py-4 flex items-center gap-3 overflow-hidden">
         <span className="text-sm font-semibold text-[#A855F7] shrink-0">So what?</span>
-        <span className="text-sm text-white">{data.so_what}</span>
+        <span className="text-sm text-white line-clamp-2">{data.so_what}</span>
       </motion.div>
     </div>
   )

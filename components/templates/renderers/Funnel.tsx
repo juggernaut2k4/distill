@@ -21,15 +21,15 @@ function FunnelStageNode({ data }: NodeProps) {
         </div>
         <h3 className="text-white font-bold text-sm">{d.name}</h3>
       </div>
-      <p className="text-[#94A3B8] text-xs leading-relaxed mb-3">{d.description}</p>
+      <p className="text-[#94A3B8] text-sm leading-relaxed mb-3">{d.description}</p>
       <div className="grid grid-cols-2 gap-2">
         <div className="rounded-lg bg-[#EF4444]/10 border border-[#EF4444]/20 p-2">
           <p className="text-xs font-semibold text-[#EF4444] mb-0.5">Filtered out</p>
-          <p className="text-xs text-[#94A3B8]">{d.what_gets_filtered_out}</p>
+          <p className="text-sm text-[#94A3B8]">{d.what_gets_filtered_out}</p>
         </div>
         <div className="rounded-lg bg-[#10B981]/10 border border-[#10B981]/20 p-2">
           <p className="text-xs font-semibold text-[#10B981] mb-0.5">Criteria</p>
-          <p className="text-xs text-[#94A3B8]">{d.decision_criteria}</p>
+          <p className="text-sm text-[#94A3B8]">{d.decision_criteria}</p>
         </div>
       </div>
     </div>
@@ -62,7 +62,7 @@ export default function Funnel({ data, isActive, onReady }: FunnelProps) {
         id: `stage${i}`, type: 'funnelStage',
         position: { x: -160, y: i * ySpacing },
         data: { ...s, color: STAGE_COLORS[i % STAGE_COLORS.length], stageIndex: i, totalStages: data.stages.length },
-        width: 500, height: 180, draggable: false,
+        width: 500, height: 205, draggable: false,
       })
       if (i > 0) edges.push({ id: `e${i}`, source: `stage${i - 1}`, target: `stage${i}`, style: { stroke: STAGE_COLORS[i % STAGE_COLORS.length] + '60', strokeWidth: 2 }, animated: true })
     })
@@ -78,21 +78,21 @@ export default function Funnel({ data, isActive, onReady }: FunnelProps) {
   const onInit = useCallback(() => { if (isActive) onReady?.() }, [isActive, onReady])
 
   return (
-    <div className="h-full w-full flex flex-col bg-[#080808] px-8 md:px-16 py-12">
+    <div className="relative h-full w-full flex flex-col bg-[#080808] px-8 md:px-16 py-12">
       <motion.div className="flex-1 flex flex-col pb-20" initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ duration: 0.5 }} onAnimationComplete={() => { if (isActive) onReady?.() }}>
         <div className="mb-6">
           <h2 className="text-3xl font-bold text-white mb-1">{data.title}</h2>
           <p className="text-[#94A3B8] text-sm">{data.context}</p>
         </div>
         <div className="flex-1 rounded-2xl overflow-hidden border border-[#1a1a1a]">
-          <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} nodeTypes={nodeTypes} onInit={onInit} fitView fitViewOptions={{ padding: 0.1 }} nodesDraggable={false} nodesConnectable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }} style={{ width: '100%', height: '100%' }}>
+          <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} nodeTypes={nodeTypes} onInit={onInit} fitView fitViewOptions={{ padding: 0.1 }} minZoom={0.85} nodesDraggable={false} nodesConnectable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }} style={{ width: '100%', height: '100%' }}>
             <Background color="#1a1a1a" variant={BackgroundVariant.Dots} gap={20} />
           </ReactFlow>
         </div>
       </motion.div>
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ delay: 0.6, duration: 0.4 }} className="absolute bottom-0 left-0 right-0 bg-[#7C3AED]/20 border-t border-[#7C3AED]/30 px-8 py-4 flex items-center gap-3">
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ delay: 0.6, duration: 0.4 }} className="absolute bottom-0 left-0 right-0 h-[72px] bg-[#7C3AED]/20 border-t border-[#7C3AED]/30 px-8 py-4 flex items-center gap-3 overflow-hidden">
         <span className="text-sm font-semibold text-[#A855F7] shrink-0">So what?</span>
-        <span className="text-sm text-white">{data.so_what}</span>
+        <span className="text-sm text-white line-clamp-2">{data.so_what}</span>
       </motion.div>
     </div>
   )

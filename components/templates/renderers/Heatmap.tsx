@@ -95,7 +95,7 @@ export default function Heatmap({ data, isActive, onReady, styleOverrides }: Hea
             <div className="flex">
               {columns.map((col) => (
                 <div key={col} className="w-[64px] h-[56px] shrink-0 flex items-end justify-center pb-2 overflow-hidden">
-                  <span className="text-xs text-[#94A3B8] text-center leading-tight line-clamp-2">{col}</span>
+                  <span className="text-sm text-[#94A3B8] text-center leading-tight line-clamp-2">{col}</span>
                 </div>
               ))}
             </div>
@@ -104,7 +104,7 @@ export default function Heatmap({ data, isActive, onReady, styleOverrides }: Hea
           {rows.map((row) => (
             <div key={row} className="flex items-center">
               <div className="w-[140px] h-[64px] shrink-0 flex items-center justify-end pr-3 overflow-hidden">
-                <span className="text-xs text-[#94A3B8] text-right line-clamp-2">{row}</span>
+                <span className="text-sm text-[#94A3B8] text-right line-clamp-2">{row}</span>
               </div>
               <div className="flex">
                 {columns.map((col) => {
@@ -122,7 +122,7 @@ export default function Heatmap({ data, isActive, onReady, styleOverrides }: Hea
                       }}
                     >
                       {cell?.label && (
-                        <span className="text-[10px] text-white text-center line-clamp-1 px-1">{cell.label}</span>
+                        <span className="text-xs text-white text-center line-clamp-1 px-1">{cell.label}</span>
                       )}
                     </div>
                   )

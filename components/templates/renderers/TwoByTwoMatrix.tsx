@@ -24,7 +24,7 @@ function QuadrantNode({ data }: NodeProps) {
         <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: style.dot }} />
         <span className="text-white font-bold text-sm">{d.name}</span>
       </div>
-      <p className="text-[#94A3B8] text-xs leading-relaxed mb-3">{d.description}</p>
+      <p className="text-[#94A3B8] text-sm leading-relaxed mb-3">{d.description}</p>
       {d.examples.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {d.examples.slice(0, 3).map((ex, i) => (
@@ -52,16 +52,16 @@ interface TwoByTwoProps { data: TwoByTwoMatrixData; isActive: boolean; onReady?:
 export default function TwoByTwoMatrix({ data, isActive, onReady }: TwoByTwoProps) {
   const POSITIONS: Record<string, { x: number; y: number }> = {
     'top-left': { x: 0, y: 0 }, 'top-right': { x: 300, y: 0 },
-    'bottom-left': { x: 0, y: 240 }, 'bottom-right': { x: 300, y: 240 },
+    'bottom-left': { x: 0, y: 260 }, 'bottom-right': { x: 300, y: 260 },
   }
 
   const initialNodes: Node[] = useMemo(() => [
     ...data.quadrants.map((q) => ({
-      id: q.position, type: 'quadrant', position: POSITIONS[q.position] ?? { x: 0, y: 0 }, data: q, width: 260, height: 200, draggable: false,
+      id: q.position, type: 'quadrant', position: POSITIONS[q.position] ?? { x: 0, y: 0 }, data: q, width: 260, height: 225, draggable: false,
     })),
-    { id: 'x-low', type: 'axisLabel', position: { x: -20, y: 460 }, data: { label: data.x_axis.low_label }, draggable: false },
-    { id: 'x-high', type: 'axisLabel', position: { x: 380, y: 460 }, data: { label: data.x_axis.high_label }, draggable: false },
-    { id: 'x-label', type: 'axisLabel', position: { x: 180, y: 500 }, data: { label: data.x_axis.label }, draggable: false },
+    { id: 'x-low', type: 'axisLabel', position: { x: -20, y: 505 }, data: { label: data.x_axis.low_label }, draggable: false },
+    { id: 'x-high', type: 'axisLabel', position: { x: 380, y: 505 }, data: { label: data.x_axis.high_label }, draggable: false },
+    { id: 'x-label', type: 'axisLabel', position: { x: 180, y: 545 }, data: { label: data.x_axis.label }, draggable: false },
     { id: 'y-low', type: 'axisLabel', position: { x: -180, y: 380 }, data: { label: data.y_axis.low_label, isVertical: true }, draggable: false },
     { id: 'y-high', type: 'axisLabel', position: { x: -180, y: 40 }, data: { label: data.y_axis.high_label, isVertical: true }, draggable: false },
   ], [data])
@@ -71,14 +71,14 @@ export default function TwoByTwoMatrix({ data, isActive, onReady }: TwoByTwoProp
   const onInit = useCallback(() => { if (isActive) onReady?.() }, [isActive, onReady])
 
   return (
-    <div className="h-full w-full flex flex-col bg-[#080808] px-8 md:px-16 py-12">
+    <div className="relative h-full w-full flex flex-col bg-[#080808] px-8 md:px-16 py-12">
       <motion.div className="flex-1 flex flex-col pb-20" initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ duration: 0.5 }} onAnimationComplete={() => { if (isActive) onReady?.() }}>
         <div className="mb-6">
           <h2 className="text-3xl font-bold text-white mb-1">{data.title}</h2>
           <p className="text-[#94A3B8] text-sm">{data.context}</p>
         </div>
         <div className="flex-1 rounded-2xl overflow-hidden border border-[#1a1a1a]">
-          <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} nodeTypes={nodeTypes} onInit={onInit} fitView fitViewOptions={{ padding: 0.12 }} nodesDraggable={false} nodesConnectable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }} style={{ width: '100%', height: '100%' }}>
+          <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} nodeTypes={nodeTypes} onInit={onInit} fitView fitViewOptions={{ padding: 0.12 }} minZoom={0.85} nodesDraggable={false} nodesConnectable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }} style={{ width: '100%', height: '100%' }}>
             <Background color="#1a1a1a" variant={BackgroundVariant.Dots} gap={20} />
           </ReactFlow>
         </div>
@@ -89,9 +89,9 @@ export default function TwoByTwoMatrix({ data, isActive, onReady }: TwoByTwoProp
           </div>
         )}
       </motion.div>
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ delay: 0.6, duration: 0.4 }} className="absolute bottom-0 left-0 right-0 bg-[#7C3AED]/20 border-t border-[#7C3AED]/30 px-8 py-4 flex items-center gap-3">
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ delay: 0.6, duration: 0.4 }} className="absolute bottom-0 left-0 right-0 h-[72px] bg-[#7C3AED]/20 border-t border-[#7C3AED]/30 px-8 py-4 flex items-center gap-3 overflow-hidden">
         <span className="text-sm font-semibold text-[#A855F7] shrink-0">So what?</span>
-        <span className="text-sm text-white">{data.so_what}</span>
+        <span className="text-sm text-white line-clamp-2">{data.so_what}</span>
       </motion.div>
     </div>
   )

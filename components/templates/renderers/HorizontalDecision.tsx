@@ -61,7 +61,7 @@ export default function HorizontalDecision({ data, isActive, onReady }: Horizont
                         className="absolute inset-0 border-2 border-[#7C3AED] bg-[#7C3AED]/20"
                         style={{ transform: 'rotate(45deg)', borderRadius: '6px' }}
                       />
-                      <span className="relative z-10 text-white font-semibold text-xs text-center px-3 leading-snug">
+                      <span className="relative z-10 text-white font-semibold text-sm text-center px-3 leading-snug">
                         {node.label}
                       </span>
                     </div>
@@ -75,7 +75,7 @@ export default function HorizontalDecision({ data, isActive, onReady }: Horizont
                     <div className={`px-4 py-3 rounded-xl border-2 ${NODE_BG[node.type]} min-w-[120px] text-center`}>
                       <span className={`text-sm ${NODE_TEXT[node.type]}`}>{node.label}</span>
                       {node.detail && (
-                        <p className="text-[#94A3B8] text-xs mt-1 leading-snug">{node.detail}</p>
+                        <p className="text-[#94A3B8] text-base mt-1 leading-snug">{node.detail}</p>
                       )}
                     </div>
                   )}
@@ -91,7 +91,7 @@ export default function HorizontalDecision({ data, isActive, onReady }: Horizont
                       )}
                       {/* Branch outcome box */}
                       <div className="rounded-lg border border-[#EF4444]/40 bg-[#EF4444]/5 px-4 py-2 min-w-[110px] text-center">
-                        <span className="text-[#EF4444] text-xs leading-snug">{node.branch_outcome}</span>
+                        <span className="text-[#EF4444] text-sm leading-snug">{node.branch_outcome}</span>
                       </div>
                     </div>
                   )}

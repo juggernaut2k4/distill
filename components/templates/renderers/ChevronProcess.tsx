@@ -49,8 +49,8 @@ export default function ChevronProcess({ data, isActive, onReady }: ChevronProce
               transition={{ delay: 0.1 + i * 0.1, duration: 0.4 }}
             >
               <p className="font-bold text-sm leading-tight mb-2">{stage.name}</p>
-              <p className="text-white/80 text-xs leading-relaxed line-clamp-3">{stage.description}</p>
-              <p className="text-white/60 text-xs mt-2 italic line-clamp-2">{stage.key_action}</p>
+              <p className="text-white/80 text-base leading-relaxed line-clamp-3">{stage.description}</p>
+              <p className="text-white/60 text-sm mt-2 italic line-clamp-2">{stage.key_action}</p>
             </motion.div>
           )
         })}
@@ -72,7 +72,7 @@ export default function ChevronProcess({ data, isActive, onReady }: ChevronProce
               <span className="shrink-0 w-6 h-6 rounded-full bg-white/20 flex items-center justify-center text-xs font-bold">{i + 1}</span>
               <div className="flex-1 min-w-0">
                 <p className="font-bold text-sm leading-tight mb-1">{stage.name}</p>
-                <p className="text-white/80 text-xs leading-relaxed">{stage.description}</p>
+                <p className="text-white/80 text-base leading-relaxed">{stage.description}</p>
               </div>
             </motion.div>
           )

@@ -33,9 +33,9 @@ function ComponentNode({ data }: NodeProps) {
         )}
         <span className="text-white font-semibold text-sm leading-tight">{d.name}</span>
       </div>
-      <p className="text-[#94A3B8] text-xs leading-relaxed mb-2">{d.description}</p>
+      <p className="text-[#94A3B8] text-sm leading-relaxed mb-2">{d.description}</p>
       <div className="rounded-lg bg-[#0d0d0d] border border-[#222] p-2">
-        <p className="text-xs italic text-[#475569]">&ldquo;{d.executive_question}&rdquo;</p>
+        <p className="text-sm italic text-[#475569]">&ldquo;{d.executive_question}&rdquo;</p>
       </div>
     </div>
   )
@@ -58,7 +58,7 @@ export default function FrameworkCard({ data, isActive, onReady }: FrameworkProp
     components.forEach((c, i) => {
       const col = i % cols
       const row = Math.floor(i / cols)
-      nodes.push({ id: `c${i}`, type: 'component', position: { x: startX + col * spacingX, y: 180 + row * 220 }, data: { ...c, color: COMPONENT_COLORS[i % COMPONENT_COLORS.length] }, width: 220, height: 185, draggable: false })
+      nodes.push({ id: `c${i}`, type: 'component', position: { x: startX + col * spacingX, y: 180 + row * 245 }, data: { ...c, color: COMPONENT_COLORS[i % COMPONENT_COLORS.length] }, width: 220, height: 215, draggable: false })
       edges.push({ id: `e${i}`, source: 'header', target: `c${i}`, style: { stroke: COMPONENT_COLORS[i % COMPONENT_COLORS.length] + '60', strokeWidth: 2 }, animated: false })
     })
     return { initialNodes: nodes, initialEdges: edges }
@@ -69,10 +69,10 @@ export default function FrameworkCard({ data, isActive, onReady }: FrameworkProp
   const onInit = useCallback(() => { if (isActive) onReady?.() }, [isActive, onReady])
 
   return (
-    <div className="h-full w-full flex flex-col bg-[#080808] px-8 md:px-16 py-12">
+    <div className="relative h-full w-full flex flex-col bg-[#080808] px-8 md:px-16 py-12">
       <motion.div className="flex-1 flex flex-col pb-20" initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ duration: 0.5 }} onAnimationComplete={() => { if (isActive) onReady?.() }}>
         <div className="flex-1 rounded-2xl overflow-hidden border border-[#1a1a1a]">
-          <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} nodeTypes={nodeTypes} onInit={onInit} fitView fitViewOptions={{ padding: 0.12 }} nodesDraggable={false} nodesConnectable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }} style={{ width: '100%', height: '100%' }}>
+          <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} nodeTypes={nodeTypes} onInit={onInit} fitView fitViewOptions={{ padding: 0.12 }} minZoom={0.85} nodesDraggable={false} nodesConnectable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }} style={{ width: '100%', height: '100%' }}>
             <Background color="#1a1a1a" variant={BackgroundVariant.Dots} gap={22} />
           </ReactFlow>
         </div>
@@ -87,9 +87,9 @@ export default function FrameworkCard({ data, isActive, onReady }: FrameworkProp
           </div>
         </div>
       </motion.div>
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ delay: 0.6, duration: 0.4 }} className="absolute bottom-0 left-0 right-0 bg-[#7C3AED]/20 border-t border-[#7C3AED]/30 px-8 py-4 flex items-center gap-3">
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ delay: 0.6, duration: 0.4 }} className="absolute bottom-0 left-0 right-0 h-[72px] bg-[#7C3AED]/20 border-t border-[#7C3AED]/30 px-8 py-4 flex items-center gap-3 overflow-hidden">
         <span className="text-sm font-semibold text-[#A855F7] shrink-0">So what?</span>
-        <span className="text-sm text-white">{data.so_what}</span>
+        <span className="text-sm text-white line-clamp-2">{data.so_what}</span>
       </motion.div>
     </div>
   )

@@ -7,7 +7,7 @@ import type { KeyTakeawayData } from '@/lib/templates/types'
 import '@xyflow/react/dist/style.css'
 
 const INSIGHT_W = 260
-const INSIGHT_H = 140
+const INSIGHT_H = 160
 const GAP = 20
 
 function TopicCenterNode({ data }: NodeProps) {
@@ -29,9 +29,9 @@ function InsightNode({ data }: NodeProps) {
   return (
     <div className="rounded-xl border border-[#222222] bg-[#111111] p-4 min-w-[240px] max-w-[260px]">
       <Handle type="target" position={Position.Top} style={{ background: '#7C3AED', border: 'none' }} />
-      <p className="text-white font-semibold text-xs leading-snug mb-2">{d.insight}</p>
+      <p className="text-white font-semibold text-sm leading-snug mb-2">{d.insight}</p>
       <div className="h-px bg-[#222222] mb-2" />
-      <p className="text-[#94A3B8] text-xs leading-relaxed">{d.implication}</p>
+      <p className="text-[#94A3B8] text-sm leading-relaxed">{d.implication}</p>
     </div>
   )
 }
@@ -43,7 +43,7 @@ function ActionNode({ data }: NodeProps) {
       <Handle type="target" position={Position.Top} style={{ background: '#F59E0B', border: 'none' }} />
       <Handle type="source" position={Position.Bottom} style={{ background: '#F59E0B', border: 'none' }} />
       <div className="text-xs font-semibold text-[#F59E0B] mb-2 tracking-wide uppercase">⚡ Action For You</div>
-      <p className="text-white text-xs">{d.action_for_you}</p>
+      <p className="text-white text-sm">{d.action_for_you}</p>
     </div>
   )
 }
@@ -105,7 +105,7 @@ export default function KeyTakeaway({ data, isActive, onReady }: KeyTakeawayProp
       position: { x: centerX, y: actionY },
       data: { action_for_you: data.action_for_you },
       width: 340,
-      height: 96,
+      height: 110,
       draggable: false,
     }
 
@@ -149,7 +149,7 @@ export default function KeyTakeaway({ data, isActive, onReady }: KeyTakeawayProp
           <p className="text-[#94A3B8] text-sm">Key takeaways from this session</p>
         </div>
         <div className="flex-1 rounded-2xl overflow-hidden border border-[#1a1a1a]">
-          <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} nodeTypes={nodeTypes} onInit={onInit} fitView fitViewOptions={{ padding: 0.15 }} nodesDraggable={false} nodesConnectable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }} style={{ width: '100%', height: '100%' }}>
+          <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} nodeTypes={nodeTypes} onInit={onInit} fitView fitViewOptions={{ padding: 0.15 }} minZoom={0.85} nodesDraggable={false} nodesConnectable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }} style={{ width: '100%', height: '100%' }}>
             <Background color="#1a1a1a" variant={BackgroundVariant.Dots} gap={20} />
           </ReactFlow>
         </div>

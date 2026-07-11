@@ -9,9 +9,9 @@ import '@xyflow/react/dist/style.css'
 const CRIT_W = 180
 const OPT_W = 200
 const COL_GAP = 16
-const ROW_H = 80
+const ROW_H = 92
 const ROW_GAP = 12
-const HEADER_H = 106
+const HEADER_H = 122
 
 function CriterionNode({ data }: NodeProps) {
   const d = data as { label: string; description?: string }
@@ -19,7 +19,7 @@ function CriterionNode({ data }: NodeProps) {
     <div className="rounded-lg border border-[#333333] bg-[#1A1A1A] p-3 min-w-[160px] max-w-[180px]">
       <Handle type="source" position={Position.Right} style={{ background: '#475569', border: 'none' }} />
       <div className="text-white font-medium text-xs">{d.label}</div>
-      {d.description && <div className="text-[#475569] text-xs mt-0.5 leading-tight">{d.description}</div>}
+      {d.description && <div className="text-[#475569] text-sm mt-0.5 leading-tight">{d.description}</div>}
     </div>
   )
 }
@@ -30,7 +30,7 @@ function OptionHeaderNode({ data }: NodeProps) {
     <div className="rounded-xl border-2 border-[#7C3AED]/60 bg-[#7C3AED]/10 p-3 text-center min-w-[180px] max-w-[200px]">
       <Handle type="source" position={Position.Bottom} style={{ background: '#7C3AED', border: 'none' }} />
       <div className="text-white font-bold text-sm">{d.name}</div>
-      <div className="text-[#94A3B8] text-xs mt-0.5">{d.tagline}</div>
+      <div className="text-[#94A3B8] text-sm mt-0.5">{d.tagline}</div>
       <div className="text-[#06B6D4] text-xs mt-1">Best for: {d.best_for}</div>
     </div>
   )
@@ -42,7 +42,7 @@ function ValueNode({ data }: NodeProps) {
     <div className={`rounded-lg border p-3 text-center min-w-[180px] max-w-[200px] ${d.isWinner ? 'border-[#10B981]/60 bg-[#10B981]/10' : 'border-[#222222] bg-[#111111]'}`}>
       <Handle type="target" position={Position.Top} style={{ background: d.isWinner ? '#10B981' : '#475569', border: 'none' }} />
       <Handle type="target" position={Position.Left} style={{ background: d.isWinner ? '#10B981' : '#475569', border: 'none' }} />
-      <div className={`text-xs leading-snug flex items-center justify-center gap-1 ${d.isWinner ? 'text-[#10B981] font-medium' : 'text-[#94A3B8]'}`}>
+      <div className={`text-sm leading-snug flex items-center justify-center gap-1 ${d.isWinner ? 'text-[#10B981] font-medium' : 'text-[#94A3B8]'}`}>
         {d.isWinner && <span>✓</span>}
         {d.value}
       </div>
@@ -151,21 +151,21 @@ export default function ComparisonTable({ data, isActive, onReady }: ComparisonT
   const onInit = useCallback(() => { if (isActive) onReady?.() }, [isActive, onReady])
 
   return (
-    <div className="h-full w-full flex flex-col bg-[#080808] px-8 md:px-16 py-12">
+    <div className="relative h-full w-full flex flex-col bg-[#080808] px-8 md:px-16 py-12">
       <motion.div className="flex-1 flex flex-col pb-20" initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ duration: 0.5 }} onAnimationComplete={() => { if (isActive) onReady?.() }}>
         <div className="mb-6">
           <h2 className="text-3xl font-bold text-white mb-1">{data.title}</h2>
           <p className="text-[#94A3B8] text-sm">{data.context}</p>
         </div>
         <div className="flex-1 rounded-2xl overflow-hidden border border-[#1a1a1a]">
-          <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} nodeTypes={nodeTypes} onInit={onInit} fitView fitViewOptions={{ padding: 0.12 }} nodesDraggable={false} nodesConnectable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }} style={{ width: '100%', height: '100%' }}>
+          <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} nodeTypes={nodeTypes} onInit={onInit} fitView fitViewOptions={{ padding: 0.12 }} minZoom={0.85} nodesDraggable={false} nodesConnectable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }} style={{ width: '100%', height: '100%' }}>
             <Background color="#1a1a1a" variant={BackgroundVariant.Dots} gap={20} />
           </ReactFlow>
         </div>
       </motion.div>
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ delay: 0.6, duration: 0.4 }} className="absolute bottom-0 left-0 right-0 bg-[#7C3AED]/20 border-t border-[#7C3AED]/30 px-8 py-4 flex items-center gap-3">
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ delay: 0.6, duration: 0.4 }} className="absolute bottom-0 left-0 right-0 h-[72px] bg-[#7C3AED]/20 border-t border-[#7C3AED]/30 px-8 py-4 flex items-center gap-3 overflow-hidden">
         <span className="text-sm font-semibold text-[#A855F7] shrink-0">So what?</span>
-        <span className="text-sm text-white">{data.so_what}</span>
+        <span className="text-sm text-white line-clamp-2">{data.so_what}</span>
       </motion.div>
     </div>
   )

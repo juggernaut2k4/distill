@@ -8,7 +8,7 @@ import '@xyflow/react/dist/style.css'
 
 const COL_W = 300
 const COL_GAP = 120
-const ROW_H = 100
+const ROW_H = 115
 const ROW_GAP = 20
 const CENTER_X = (COL_W * 2 + COL_GAP) / 2
 
@@ -21,7 +21,7 @@ function TopicNode({ data }: NodeProps) {
       <Handle type="source" position={Position.Bottom} style={{ background: '#7C3AED', border: 'none' }} />
       <div className="text-xs font-semibold text-[#A855F7] mb-1 tracking-widest uppercase">Evaluating</div>
       <div className="text-white font-bold text-base">{d.topic}</div>
-      <div className="text-[#94A3B8] text-xs mt-1">{d.context}</div>
+      <div className="text-[#94A3B8] text-sm mt-1">{d.context}</div>
     </div>
   )
 }
@@ -32,8 +32,8 @@ function ProNode({ data }: NodeProps) {
     <div className="rounded-lg border-l-2 border-[#10B981] bg-[#111111] border-y border-r border-[#222222] p-4 min-w-[240px] max-w-[300px]">
       <Handle type="target" position={Position.Right} style={{ background: '#10B981', border: 'none' }} />
       <div className="text-[#10B981] font-semibold text-xs mb-1">✓ {d.title}</div>
-      <p className="text-[#94A3B8] text-xs leading-relaxed">{d.description}</p>
-      {d.evidence && <p className="text-[#475569] text-xs mt-1 italic">{d.evidence}</p>}
+      <p className="text-[#94A3B8] text-sm leading-relaxed">{d.description}</p>
+      {d.evidence && <p className="text-[#475569] text-sm mt-1 italic">{d.evidence}</p>}
     </div>
   )
 }
@@ -44,8 +44,8 @@ function ConNode({ data }: NodeProps) {
     <div className="rounded-lg border-l-2 border-[#EF4444] bg-[#111111] border-y border-r border-[#222222] p-4 min-w-[240px] max-w-[300px]">
       <Handle type="target" position={Position.Left} style={{ background: '#EF4444', border: 'none' }} />
       <div className="text-[#EF4444] font-semibold text-xs mb-1">✗ {d.title}</div>
-      <p className="text-[#94A3B8] text-xs leading-relaxed">{d.description}</p>
-      {d.mitigation && <p className="text-[#06B6D4] text-xs mt-1">Mitigate: {d.mitigation}</p>}
+      <p className="text-[#94A3B8] text-sm leading-relaxed">{d.description}</p>
+      {d.mitigation && <p className="text-[#06B6D4] text-sm mt-1">Mitigate: {d.mitigation}</p>}
     </div>
   )
 }
@@ -67,7 +67,7 @@ interface ProsConsProps { data: ProsConsData; isActive: boolean; onReady?: () =>
 
 export default function ProsCons({ data, isActive, onReady }: ProsConsProps) {
   const { nodes: initialNodes, edges: initialEdges } = useMemo<{ nodes: Node[]; edges: Edge[] }>(() => {
-    const topicH = 90
+    const topicH = 100
     const topicY = 0
 
     const proCount = data.pros.length
@@ -86,7 +86,7 @@ export default function ProsCons({ data, isActive, onReady }: ProsConsProps) {
       position: { x: prosX, y: sidesStartY + i * (ROW_H + ROW_GAP) },
       data: pro,
       width: COL_W,
-      height: pro.evidence ? 110 : ROW_H,
+      height: pro.evidence ? 130 : ROW_H,
       draggable: false,
     }))
 
@@ -96,7 +96,7 @@ export default function ProsCons({ data, isActive, onReady }: ProsConsProps) {
       position: { x: consX, y: sidesStartY + i * (ROW_H + ROW_GAP) },
       data: con,
       width: COL_W,
-      height: con.mitigation ? 110 : ROW_H,
+      height: con.mitigation ? 130 : ROW_H,
       draggable: false,
     }))
 
@@ -157,7 +157,7 @@ export default function ProsCons({ data, isActive, onReady }: ProsConsProps) {
   const onInit = useCallback(() => { if (isActive) onReady?.() }, [isActive, onReady])
 
   return (
-    <div className="h-full w-full flex flex-col bg-[#080808] px-8 md:px-16 py-12">
+    <div className="relative h-full w-full flex flex-col bg-[#080808] px-8 md:px-16 py-12">
       <motion.div className="flex-1 flex flex-col pb-20" initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ duration: 0.5 }} onAnimationComplete={() => { if (isActive) onReady?.() }}>
         <div className="mb-4 flex flex-wrap items-start gap-3">
           <div className="flex-1 min-w-0">
@@ -174,14 +174,14 @@ export default function ProsCons({ data, isActive, onReady }: ProsConsProps) {
           </div>
         </div>
         <div className="flex-1 rounded-2xl overflow-hidden border border-[#1a1a1a]">
-          <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} nodeTypes={nodeTypes} onInit={onInit} fitView fitViewOptions={{ padding: 0.15 }} nodesDraggable={false} nodesConnectable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }} style={{ width: '100%', height: '100%' }}>
+          <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} nodeTypes={nodeTypes} onInit={onInit} fitView fitViewOptions={{ padding: 0.15 }} minZoom={0.85} nodesDraggable={false} nodesConnectable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }} style={{ width: '100%', height: '100%' }}>
             <Background color="#1a1a1a" variant={BackgroundVariant.Dots} gap={20} />
           </ReactFlow>
         </div>
       </motion.div>
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ delay: 0.6, duration: 0.4 }} className="absolute bottom-0 left-0 right-0 bg-[#7C3AED]/20 border-t border-[#7C3AED]/30 px-8 py-4 flex items-center gap-3">
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ delay: 0.6, duration: 0.4 }} className="absolute bottom-0 left-0 right-0 h-[72px] bg-[#7C3AED]/20 border-t border-[#7C3AED]/30 px-8 py-4 flex items-center gap-3 overflow-hidden">
         <span className="text-sm font-semibold text-[#A855F7] shrink-0">So what?</span>
-        <span className="text-sm text-white">{data.so_what}</span>
+        <span className="text-sm text-white line-clamp-2">{data.so_what}</span>
       </motion.div>
     </div>
   )

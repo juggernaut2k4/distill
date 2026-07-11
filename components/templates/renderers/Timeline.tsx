@@ -19,7 +19,7 @@ function TimelineNode({ data }: NodeProps) {
       <Handle type="target" position={Position.Left} style={{ background: color, border: 'none' }} />
       <div className="text-xs font-bold uppercase tracking-widest mb-1" style={{ color }}>{d.year}</div>
       <div className="text-white font-semibold text-sm mb-1 leading-tight">{d.title}</div>
-      <div className="text-[#94A3B8] text-xs leading-relaxed line-clamp-3">{d.description}</div>
+      <div className="text-[#94A3B8] text-sm leading-relaxed line-clamp-3">{d.description}</div>
       <Handle type="source" position={Position.Right} style={{ background: color, border: 'none' }} />
     </div>
   )
@@ -40,7 +40,7 @@ export default function Timeline({ data, isActive, onReady }: TimelineProps) {
     data: e,
     draggable: false,
     width: 220,
-    height: 110,
+    height: 130,
   }))
   }, [data.events])
 
@@ -62,7 +62,7 @@ export default function Timeline({ data, isActive, onReady }: TimelineProps) {
   const onInit = useCallback(() => { if (isActive) onReady?.() }, [isActive, onReady])
 
   return (
-    <div className="h-full w-full flex flex-col bg-[#080808] px-8 md:px-16 py-12">
+    <div className="relative h-full w-full flex flex-col bg-[#080808] px-8 md:px-16 py-12">
       <motion.div
         className="flex-1 flex flex-col pb-20"
         initial={{ opacity: 0, y: 20 }}
@@ -84,6 +84,7 @@ export default function Timeline({ data, isActive, onReady }: TimelineProps) {
             onInit={onInit}
             fitView
             fitViewOptions={{ padding: 0.2 }}
+            minZoom={0.85}
             nodesDraggable={false}
             nodesConnectable={false}
             elementsSelectable={false}
@@ -102,10 +103,10 @@ export default function Timeline({ data, isActive, onReady }: TimelineProps) {
         initial={{ opacity: 0, y: 20 }}
         animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
         transition={{ delay: 0.6, duration: 0.4 }}
-        className="absolute bottom-0 left-0 right-0 bg-[#7C3AED]/20 border-t border-[#7C3AED]/30 px-8 py-4 flex items-center gap-3"
+        className="absolute bottom-0 left-0 right-0 h-[72px] bg-[#7C3AED]/20 border-t border-[#7C3AED]/30 px-8 py-4 flex items-center gap-3 overflow-hidden"
       >
         <span className="text-sm font-semibold text-[#A855F7] shrink-0">So what?</span>
-        <span className="text-sm text-white">{data.so_what}</span>
+        <span className="text-sm text-white line-clamp-2">{data.so_what}</span>
       </motion.div>
     </div>
   )

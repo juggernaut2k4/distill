@@ -28,7 +28,7 @@ function ChallengeNode({ data }: NodeProps) {
       <Handle type="target" position={Position.Top} style={{ background: '#EF4444', border: 'none' }} />
       <Handle type="source" position={Position.Bottom} style={{ background: '#EF4444', border: 'none' }} />
       <div className="text-xs font-semibold text-[#EF4444] mb-2 tracking-wide uppercase">The Challenge</div>
-      <p className="text-[#94A3B8] text-xs leading-relaxed italic">&ldquo;{d.challenge}&rdquo;</p>
+      <p className="text-[#94A3B8] text-sm leading-relaxed italic">&ldquo;{d.challenge}&rdquo;</p>
     </div>
   )
 }
@@ -40,7 +40,7 @@ function SolutionNode({ data }: NodeProps) {
       <Handle type="target" position={Position.Top} style={{ background: '#7C3AED', border: 'none' }} />
       <Handle type="source" position={Position.Bottom} style={{ background: '#7C3AED', border: 'none' }} />
       <div className="text-xs font-semibold text-[#A855F7] mb-2 tracking-wide uppercase">The AI Solution</div>
-      <p className="text-[#94A3B8] text-xs leading-relaxed">{d.ai_solution}</p>
+      <p className="text-[#94A3B8] text-sm leading-relaxed">{d.ai_solution}</p>
     </div>
   )
 }
@@ -71,11 +71,11 @@ function LessonNode({ data }: NodeProps) {
     <div className="rounded-xl border border-[#10B981]/40 bg-[#10B981]/5 p-4 min-w-[260px] max-w-[340px]">
       <Handle type="target" position={Position.Top} style={{ background: '#10B981', border: 'none' }} />
       <div className="text-xs font-semibold text-[#10B981] mb-2 tracking-wide uppercase">Key Lesson</div>
-      <p className="text-[#94A3B8] text-xs leading-relaxed">{d.what_they_got_right}</p>
+      <p className="text-[#94A3B8] text-sm leading-relaxed">{d.what_they_got_right}</p>
       {d.what_they_got_wrong && (
         <div className="mt-2 pt-2 border-t border-[#10B981]/20">
           <div className="text-xs font-semibold text-[#F59E0B] mb-1">What They Learned</div>
-          <p className="text-[#94A3B8] text-xs">{d.what_they_got_wrong}</p>
+          <p className="text-[#94A3B8] text-sm">{d.what_they_got_wrong}</p>
         </div>
       )}
     </div>
@@ -90,10 +90,10 @@ export default function CaseStudy({ data, isActive, onReady }: CaseStudyProps) {
   const { rawNodes, rawEdges } = useMemo<{ rawNodes: Node[]; rawEdges: Edge[] }>(() => {
     const nodes: Node[] = [
       { id: 'company', type: 'company', position: { x: 0, y: 0 }, data: { company: data.company, industry: data.industry, company_size: data.company_size }, width: 320, height: 100, draggable: false },
-      { id: 'challenge', type: 'challenge', position: { x: 0, y: 0 }, data: { challenge: data.challenge }, width: 300, height: 100, draggable: false },
-      { id: 'solution', type: 'solution', position: { x: 0, y: 0 }, data: { ai_solution: data.ai_solution }, width: 300, height: 100, draggable: false },
+      { id: 'challenge', type: 'challenge', position: { x: 0, y: 0 }, data: { challenge: data.challenge }, width: 300, height: 115, draggable: false },
+      { id: 'solution', type: 'solution', position: { x: 0, y: 0 }, data: { ai_solution: data.ai_solution }, width: 300, height: 115, draggable: false },
       { id: 'results', type: 'results', position: { x: 0, y: 0 }, data: { results: data.results }, width: 340, height: 110, draggable: false },
-      { id: 'lesson', type: 'lesson', position: { x: 0, y: 0 }, data: { what_they_got_right: data.what_they_got_right, what_they_got_wrong: data.what_they_got_wrong }, width: 300, height: data.what_they_got_wrong ? 140 : 100, draggable: false },
+      { id: 'lesson', type: 'lesson', position: { x: 0, y: 0 }, data: { what_they_got_right: data.what_they_got_right, what_they_got_wrong: data.what_they_got_wrong }, width: 300, height: data.what_they_got_wrong ? 160 : 115, draggable: false },
     ]
     const edgePairs = [['company', 'challenge', '#EF4444'], ['challenge', 'solution', '#7C3AED'], ['solution', 'results', '#06B6D4'], ['results', 'lesson', '#10B981']]
     const edges: Edge[] = edgePairs.map(([src, tgt, color], i) => ({
@@ -113,7 +113,7 @@ export default function CaseStudy({ data, isActive, onReady }: CaseStudyProps) {
   const onInit = useCallback(() => { if (isActive) onReady?.() }, [isActive, onReady])
 
   return (
-    <div className="h-full w-full flex flex-col bg-[#080808] px-8 md:px-16 py-12">
+    <div className="relative h-full w-full flex flex-col bg-[#080808] px-8 md:px-16 py-12">
       <motion.div className="flex-1 flex flex-col pb-20" initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ duration: 0.5 }} onAnimationComplete={() => { if (isActive) onReady?.() }}>
         <div className="mb-4 flex items-center gap-3">
           <div>
@@ -130,14 +130,14 @@ export default function CaseStudy({ data, isActive, onReady }: CaseStudyProps) {
           </div>
         </div>
         <div className="flex-1 rounded-2xl overflow-hidden border border-[#1a1a1a]">
-          <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} nodeTypes={nodeTypes} onInit={onInit} fitView fitViewOptions={{ padding: 0.15 }} nodesDraggable={false} nodesConnectable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }} style={{ width: '100%', height: '100%' }}>
+          <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} nodeTypes={nodeTypes} onInit={onInit} fitView fitViewOptions={{ padding: 0.15 }} minZoom={0.85} nodesDraggable={false} nodesConnectable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }} style={{ width: '100%', height: '100%' }}>
             <Background color="#1a1a1a" variant={BackgroundVariant.Dots} gap={20} />
           </ReactFlow>
         </div>
       </motion.div>
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ delay: 0.6, duration: 0.4 }} className="absolute bottom-0 left-0 right-0 bg-[#7C3AED]/20 border-t border-[#7C3AED]/30 px-8 py-4 flex items-center gap-3">
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ delay: 0.6, duration: 0.4 }} className="absolute bottom-0 left-0 right-0 h-[72px] bg-[#7C3AED]/20 border-t border-[#7C3AED]/30 px-8 py-4 flex items-center gap-3 overflow-hidden">
         <span className="text-sm font-semibold text-[#A855F7] shrink-0">So what?</span>
-        <span className="text-sm text-white">{data.so_what_for_you}</span>
+        <span className="text-sm text-white line-clamp-2">{data.so_what_for_you}</span>
       </motion.div>
     </div>
   )

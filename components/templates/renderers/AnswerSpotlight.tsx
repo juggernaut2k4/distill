@@ -72,7 +72,7 @@ export default function AnswerSpotlight({ data, isActive, onReady }: AnswerSpotl
               <p className={`text-xs font-semibold uppercase tracking-widest ${card.labelColor} mb-3`}>
                 {card.label}
               </p>
-              <p className="text-[#94A3B8] text-sm leading-relaxed flex-1">{card.text}</p>
+              <p className="text-[#94A3B8] text-base leading-relaxed flex-1">{card.text}</p>
             </motion.div>
           ))}
         </div>

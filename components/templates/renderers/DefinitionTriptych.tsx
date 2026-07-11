@@ -8,7 +8,7 @@ interface DefinitionTriptychProps { data: DefinitionTriptychData; isActive: bool
 export default function DefinitionTriptych({ data, isActive, onReady }: DefinitionTriptychProps) {
   return (
     <motion.div
-      className="relative h-full w-full flex flex-col bg-[#080808] px-8 md:px-16 py-12 pb-20"
+      className="relative h-full w-full flex flex-col bg-[#080808] px-8 md:px-16 py-12 pb-20 overflow-y-auto"
       initial={{ opacity: 0, y: 20 }}
       animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
       transition={{ duration: 0.5 }}
@@ -25,7 +25,7 @@ export default function DefinitionTriptych({ data, isActive, onReady }: Definiti
       </div>
 
       {/* 3 panels */}
-      <div className="grid grid-cols-3 gap-5 flex-1 min-h-0">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5 flex-1 min-h-0">
 
         {/* Panel 1 — What It Is */}
         <motion.div
@@ -39,7 +39,7 @@ export default function DefinitionTriptych({ data, isActive, onReady }: Definiti
             <p className="text-xs font-semibold uppercase tracking-widest text-[#A855F7]">What It Is</p>
           </div>
           <p className="text-white font-bold text-base mb-3">{data.term}</p>
-          <p className="text-[#94A3B8] text-sm leading-relaxed flex-1">{data.what_it_is}</p>
+          <p className="text-[#94A3B8] text-base leading-relaxed flex-1">{data.what_it_is}</p>
         </motion.div>
 
         {/* Panel 2 — Real Example */}
@@ -54,9 +54,9 @@ export default function DefinitionTriptych({ data, isActive, onReady }: Definiti
             <p className="text-xs font-semibold uppercase tracking-widest text-[#06B6D4]">Real Example</p>
           </div>
           <p className="text-white font-bold text-sm mb-2">{data.real_example.company}</p>
-          <p className="text-[#94A3B8] text-sm leading-relaxed mb-3 flex-1">{data.real_example.what}</p>
+          <p className="text-[#94A3B8] text-base leading-relaxed mb-3 flex-1">{data.real_example.what}</p>
           <div className="rounded-lg border border-[#10B981]/30 bg-[#10B981]/5 px-3 py-2">
-            <p className="text-[#10B981] text-xs leading-snug">{data.real_example.result}</p>
+            <p className="text-[#10B981] text-sm leading-snug">{data.real_example.result}</p>
           </div>
         </motion.div>
 
@@ -71,7 +71,7 @@ export default function DefinitionTriptych({ data, isActive, onReady }: Definiti
             <span className="text-2xl">⚠️</span>
             <p className="text-xs font-semibold uppercase tracking-widest text-[#F59E0B]">Common Myth</p>
           </div>
-          <p className="text-[#94A3B8] text-sm leading-relaxed flex-1">{data.common_myth}</p>
+          <p className="text-[#94A3B8] text-base leading-relaxed flex-1">{data.common_myth}</p>
         </motion.div>
       </div>
 

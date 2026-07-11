@@ -20,9 +20,9 @@ function StepNode({ data }: NodeProps) {
             <span className="text-white font-semibold text-sm">{d.title}</span>
             {d.time_estimate && <span className="text-xs text-[#475569]">{d.time_estimate}</span>}
           </div>
-          <p className="text-[#94A3B8] text-xs leading-relaxed">{d.description}</p>
+          <p className="text-[#94A3B8] text-sm leading-relaxed">{d.description}</p>
           {d.what_to_watch_for && (
-            <div className="mt-2 text-xs text-[#F59E0B] bg-[#F59E0B]/10 rounded px-2 py-1">
+            <div className="mt-2 text-sm text-[#F59E0B] bg-[#F59E0B]/10 rounded px-2 py-1">
               ⚠ {d.what_to_watch_for}
             </div>
           )}
@@ -58,7 +58,7 @@ export default function StepFlow({ data, isActive, onReady }: StepFlowProps) {
         position: { x: 0, y: 0 },
         data: step,
         width: 300,
-        height: step.what_to_watch_for ? 150 : 120,
+        height: step.what_to_watch_for ? 172 : 138,
         draggable: false,
       })),
       { id: 'outcome', type: 'outcome', position: { x: 0, y: 0 }, data: { outcome: data.outcome }, width: 300, height: 92, draggable: false },
@@ -90,21 +90,21 @@ export default function StepFlow({ data, isActive, onReady }: StepFlowProps) {
   const onInit = useCallback(() => { if (isActive) onReady?.() }, [isActive, onReady])
 
   return (
-    <div className="h-full w-full flex flex-col bg-[#080808] px-8 md:px-16 py-12">
+    <div className="relative h-full w-full flex flex-col bg-[#080808] px-8 md:px-16 py-12">
       <motion.div className="flex-1 flex flex-col pb-20" initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ duration: 0.5 }} onAnimationComplete={() => { if (isActive) onReady?.() }}>
         <div className="mb-6">
           <h2 className="text-3xl font-bold text-white mb-1">{data.title}</h2>
           <p className="text-[#94A3B8] text-sm">{data.context}</p>
         </div>
         <div className="flex-1 rounded-2xl overflow-hidden border border-[#1a1a1a]">
-          <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} nodeTypes={nodeTypes} onInit={onInit} fitView fitViewOptions={{ padding: 0.15 }} nodesDraggable={false} nodesConnectable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }} style={{ width: '100%', height: '100%' }}>
+          <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} nodeTypes={nodeTypes} onInit={onInit} fitView fitViewOptions={{ padding: 0.15 }} minZoom={0.85} nodesDraggable={false} nodesConnectable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }} style={{ width: '100%', height: '100%' }}>
             <Background color="#1a1a1a" variant={BackgroundVariant.Dots} gap={20} />
           </ReactFlow>
         </div>
       </motion.div>
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ delay: 0.6, duration: 0.4 }} className="absolute bottom-0 left-0 right-0 bg-[#7C3AED]/20 border-t border-[#7C3AED]/30 px-8 py-4 flex items-center gap-3">
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ delay: 0.6, duration: 0.4 }} className="absolute bottom-0 left-0 right-0 h-[72px] bg-[#7C3AED]/20 border-t border-[#7C3AED]/30 px-8 py-4 flex items-center gap-3 overflow-hidden">
         <span className="text-sm font-semibold text-[#A855F7] shrink-0">So what?</span>
-        <span className="text-sm text-white">{data.so_what}</span>
+        <span className="text-sm text-white line-clamp-2">{data.so_what}</span>
       </motion.div>
     </div>
   )

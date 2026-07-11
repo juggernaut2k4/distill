@@ -20,8 +20,8 @@ function NodeBox({ label, detail, color, delay, isActive }: {
       animate={isActive ? { opacity: 1, x: 0 } : { opacity: 0, x: -12 }}
       transition={{ delay, duration: 0.35 }}
     >
-      <p className="text-white font-semibold text-xs leading-snug">{label}</p>
-      {detail && <p className="text-[#94A3B8] text-xs mt-1 leading-tight">{detail}</p>}
+      <p className="text-white font-semibold text-sm leading-snug">{label}</p>
+      {detail && <p className="text-[#94A3B8] text-sm mt-1 leading-tight">{detail}</p>}
     </motion.div>
   )
 }

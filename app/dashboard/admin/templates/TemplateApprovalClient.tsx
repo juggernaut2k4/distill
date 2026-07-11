@@ -311,7 +311,7 @@ export default function TemplateApprovalClient() {
                   )}
 
                   {/* Live-rendered preview — the real TemplateRenderer with frozen sample data */}
-                  <div className="rounded-xl border border-[#222222] overflow-hidden mb-4 bg-[#080808]" style={{ height: 520 }}>
+                  <div className="relative rounded-xl border border-[#222222] overflow-hidden mb-4 bg-[#080808]" style={{ height: 520 }}>
                     <TemplateRenderer
                       section={buildPreviewSection(row)}
                       isActive

@@ -97,7 +97,7 @@ function CalloutCard({ zone, styleOverrides }: { zone: OverlayZone; styleOverrid
         <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: hex }} />
         <span className="text-sm font-semibold line-clamp-1" style={{ color: hex }}>{zone.callout_label}</span>
       </div>
-      <p className="text-xs text-[#94A3B8] line-clamp-3">{zone.callout_detail}</p>
+      <p className="text-sm text-[#94A3B8] line-clamp-3">{zone.callout_detail}</p>
     </div>
   )
 }
