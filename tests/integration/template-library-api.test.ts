@@ -14,6 +14,7 @@ let mockUserId: string | null = 'user-1'
 let mockUserEmail: string | null = 'approver@example.com'
 let capturedUpdatePayload: Record<string, unknown> | null = null
 let mockCurrentFixState = 'none'
+let mockCurrentStatus = 'approved'
 let capturedFixLogInsert: Record<string, unknown> | null = null
 
 vi.mock('@clerk/nextjs/server', () => ({
@@ -40,10 +41,19 @@ vi.mock('@/lib/supabase', () => ({
       }
       if (table === 'template_library') {
         return {
-          // TMPL-01 — used only by the pre-approve fix_state guard check.
+          // TMPL-01 — used by the pre-approve fix_state guard check.
+          // TMPL-03 — the same select/eq/maybeSingle chain is reused by the
+          // pre-reopen status guard check (route.ts only ever reads one
+          // column per call in real life, but the mock returns both fields
+          // unconditionally since it doesn't inspect the select() argument).
           select: vi.fn(() => ({
             eq: vi.fn(() => ({
-              maybeSingle: vi.fn(() => Promise.resolve({ data: { fix_state: mockCurrentFixState }, error: null })),
+              maybeSingle: vi.fn(() =>
+                Promise.resolve({
+                  data: { fix_state: mockCurrentFixState, status: mockCurrentStatus },
+                  error: null,
+                })
+              ),
             })),
           })),
           update: vi.fn((payload: Record<string, unknown>) => {
@@ -92,6 +102,7 @@ describe('PATCH /api/templates/library/[templateName]', () => {
     mockUserEmail = 'approver@example.com'
     capturedUpdatePayload = null
     mockCurrentFixState = 'none'
+    mockCurrentStatus = 'approved'
     capturedFixLogInsert = null
     vi.mocked(inngest.send).mockClear()
     process.env.TEMPLATE_LIBRARY_APPROVER_EMAIL = 'approver@example.com'
@@ -245,6 +256,80 @@ describe('PATCH /api/templates/library/[templateName]', () => {
       const res = await PATCH(makeRequest({ action: 'approve' }), { params: { templateName: 'Heatmap' } })
       expect(res.status).toBe(200)
       expect(capturedUpdatePayload?.status).toBe('approved')
+    })
+  })
+
+  // ─── TMPL-03: reopen an already-approved template for additional feedback ──
+
+  describe('TMPL-03 — reopen_for_review', () => {
+    it('succeeds when the current status is approved, moving it back to pending_review and clearing review/fix-summary metadata', async () => {
+      mockCurrentStatus = 'approved'
+      const res = await PATCH(makeRequest({ action: 'reopen_for_review' }), {
+        params: { templateName: 'Heatmap' },
+      })
+      const json = await res.json()
+
+      expect(res.status).toBe(200)
+      expect(capturedUpdatePayload?.status).toBe('pending_review')
+      expect(capturedUpdatePayload?.reviewed_by).toBeNull()
+      expect(capturedUpdatePayload?.reviewed_at).toBeNull()
+      expect(capturedUpdatePayload?.review_notes).toBeNull()
+      expect(capturedUpdatePayload?.fix_state).toBe('none')
+      expect(capturedUpdatePayload?.fix_changes_summary).toBeNull()
+      expect(capturedUpdatePayload?.fix_failure_reason).toBeNull()
+      expect(json.template.status).toBe('pending_review')
+    })
+
+    it.each(['pending_review', 'changes_requested'])(
+      'returns 400 and makes no column changes when the current status is %s (not approved)',
+      async (currentStatus) => {
+        mockCurrentStatus = currentStatus
+        const res = await PATCH(makeRequest({ action: 'reopen_for_review' }), {
+          params: { templateName: 'Heatmap' },
+        })
+        const json = await res.json()
+
+        expect(res.status).toBe(400)
+        expect(json.error).toMatch(/not currently approved/i)
+        expect(capturedUpdatePayload).toBeNull()
+      }
+    )
+
+    it('the update payload never includes style_overrides, sample_data, container_spec, fix_cycle_id, or fix_attempt_count', async () => {
+      mockCurrentStatus = 'approved'
+      await PATCH(makeRequest({ action: 'reopen_for_review' }), { params: { templateName: 'Heatmap' } })
+
+      expect(capturedUpdatePayload).not.toBeNull()
+      expect(Object.prototype.hasOwnProperty.call(capturedUpdatePayload, 'style_overrides')).toBe(false)
+      expect(Object.prototype.hasOwnProperty.call(capturedUpdatePayload, 'sample_data')).toBe(false)
+      expect(Object.prototype.hasOwnProperty.call(capturedUpdatePayload, 'container_spec')).toBe(false)
+      expect(Object.prototype.hasOwnProperty.call(capturedUpdatePayload, 'fix_cycle_id')).toBe(false)
+      expect(Object.prototype.hasOwnProperty.call(capturedUpdatePayload, 'fix_attempt_count')).toBe(false)
+    })
+
+    it("returns 403 and makes no DB write when the caller is not the configured approver, and status remains approved", async () => {
+      mockUserEmail = 'someone-else@example.com'
+      mockCurrentStatus = 'approved'
+      const res = await PATCH(makeRequest({ action: 'reopen_for_review' }), {
+        params: { templateName: 'Heatmap' },
+      })
+      const json = await res.json()
+
+      expect(res.status).toBe(403)
+      expect(json.error).toMatch(/configured approver/i)
+      expect(capturedUpdatePayload).toBeNull()
+    })
+
+    it('returns 403 for EVERYONE, including a matching email, when TEMPLATE_LIBRARY_APPROVER_EMAIL is unset (fail closed)', async () => {
+      delete process.env.TEMPLATE_LIBRARY_APPROVER_EMAIL
+      mockUserEmail = 'approver@example.com' // would otherwise match
+      mockCurrentStatus = 'approved'
+      const res = await PATCH(makeRequest({ action: 'reopen_for_review' }), {
+        params: { templateName: 'Heatmap' },
+      })
+
+      expect(res.status).toBe(403)
+      expect(capturedUpdatePayload).toBeNull()
     })
   })
 })

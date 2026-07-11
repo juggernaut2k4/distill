@@ -10,7 +10,7 @@ import { inngest } from '@/inngest/client'
 interface Params { params: { templateName: string } }
 
 const Body = z.object({
-  action: z.enum(['approve', 'request_changes', 'reset_to_pending']),
+  action: z.enum(['approve', 'request_changes', 'reset_to_pending', 'reopen_for_review']),
   notes: z.string().max(2000).optional(),
 })
 
@@ -18,6 +18,7 @@ const STATUS_MAP: Record<z.infer<typeof Body>['action'], string> = {
   approve: 'approved',
   request_changes: 'changes_requested',
   reset_to_pending: 'pending_review',
+  reopen_for_review: 'pending_review',
 }
 
 /**
@@ -89,6 +90,25 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     }
   }
 
+  // TMPL-03 (Section 6) — reopen_for_review defines its own status precondition:
+  // only accepted when the row's current status is 'approved'. This is a new
+  // action's own contract, not a retrofit onto approve/request_changes/
+  // reset_to_pending, whose existing (unguarded) behavior is untouched.
+  if (action === 'reopen_for_review') {
+    const { data: current } = await supabase
+      .from('template_library')
+      .select('status')
+      .eq('template_name', templateName)
+      .maybeSingle()
+
+    if (!current || current.status !== 'approved') {
+      return NextResponse.json(
+        { error: 'Cannot reopen — template is not currently approved.' },
+        { status: 400 }
+      )
+    }
+  }
+
   let updatePayload: Record<string, unknown>
   let newFixCycleId: string | null = null
 
@@ -100,6 +120,24 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       reviewed_at: null,
       review_notes: null,
       fix_state: 'none',
+      updated_at: new Date().toISOString(),
+    }
+  } else if (action === 'reopen_for_review') {
+    // TMPL-03 (Section 6) — clears review metadata and stale fix history text
+    // so the reopened card is indistinguishable from a first-time review, but
+    // deliberately leaves style_overrides/sample_data/container_spec/
+    // fix_cycle_id/fix_attempt_count completely untouched: style_overrides is
+    // the durable record of the template's approved visual state and must
+    // survive reopening (TMPL-01 Section 9 — incremental refinement starts
+    // from the previous cycle's applied style_overrides, not from scratch).
+    updatePayload = {
+      status,
+      reviewed_by: null,
+      reviewed_at: null,
+      review_notes: null,
+      fix_state: 'none', // defensive — already 'none' by construction on any approved row
+      fix_changes_summary: null, // clears stale "Automated fix applied" banner text only
+      fix_failure_reason: null, // defensive — already null when fix_state is 'none'
       updated_at: new Date().toISOString(),
     }
   } else {

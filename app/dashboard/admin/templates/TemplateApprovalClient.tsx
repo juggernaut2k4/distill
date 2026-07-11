@@ -145,6 +145,14 @@ export default function TemplateApprovalClient() {
     await patchTemplate(templateName, { action: 'reset_to_pending' })
   }
 
+  // TMPL-03 (Section 4.1) — single-click action, no confirmation dialog, no
+  // notes field, matching resetToPending exactly. Arun's actual feedback is
+  // left one step later via the existing, unmodified "Request changes" button
+  // once the card reappears in the Pending Review tab (Section 6b).
+  async function reopenForReview(templateName: string) {
+    await patchTemplate(templateName, { action: 'reopen_for_review' })
+  }
+
   const filtered = rows.filter((r) => r.status === activeTab)
   const counts: Record<StatusKey, number> = {
     pending_review: rows.filter((r) => r.status === 'pending_review').length,
@@ -385,6 +393,20 @@ export default function TemplateApprovalClient() {
                     >
                       {isActioning && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                       Move back to Pending Review
+                    </button>
+                  )}
+
+                  {/* TMPL-03 (Section 4.1) — single-click, no confirmation, no notes
+                      field, matching "Move back to Pending Review" exactly. */}
+                  {row.status === 'approved' && (
+                    <button
+                      onClick={() => reopenForReview(row.template_name)}
+                      disabled={disabledForNonApprover}
+                      title={!viewerIsApprover ? 'Only the configured approver can reopen templates' : undefined}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-transparent border border-[#333333] hover:border-[#7C3AED] disabled:opacity-40 disabled:cursor-not-allowed text-[#94A3B8] hover:text-white text-sm font-medium rounded-lg transition-colors"
+                    >
+                      {isActioning && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                      Reopen for review
                     </button>
                   )}
 
