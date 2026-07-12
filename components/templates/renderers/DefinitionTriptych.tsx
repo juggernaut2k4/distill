@@ -21,7 +21,7 @@ export default function DefinitionTriptych({ data, isActive, onReady }: Definiti
             {data.category}
           </span>
         </div>
-        <h2 className="text-4xl font-extrabold text-white tracking-tight">{data.term}</h2>
+        <h2 className="text-3xl font-bold text-white tracking-tight">{data.term}</h2>
       </div>
 
       {/* 3 panels */}
