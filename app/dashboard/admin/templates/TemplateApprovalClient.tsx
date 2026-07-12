@@ -9,6 +9,7 @@ import Link from 'next/link'
 import TemplateRenderer from '@/components/templates/TemplateRenderer'
 import type { TemplateSection, TemplateMeta } from '@/lib/templates/types'
 import type { StyleOverrides } from '@/lib/templates/styleOverrideSlots'
+import { isHeaderToggleTemplate } from '@/lib/templates/headerToggleTemplates'
 import { getFixStatusDisplay, hasFixHistory, type FixState } from './fixStatus'
 
 interface TemplateLibraryRow {
@@ -31,6 +32,10 @@ interface TemplateLibraryRow {
   fix_attempt_count: number
   fix_cycle_id: string | null
   fix_last_activity_at: string | null
+  // TMPL-07 (requirement doc Section 6) — added by migration 068. Always
+  // present on every row (defaults to false) even for the 20 templates that
+  // never render the header-toggle control.
+  header_enabled: boolean
 }
 
 const FIX_STATUS_ICONS = { check: CheckCircle2, clock: Clock, x: XCircle, loader: Loader2, alert: AlertTriangle } as const
@@ -151,6 +156,12 @@ export default function TemplateApprovalClient() {
   // once the card reappears in the Pending Review tab (Section 6b).
   async function reopenForReview(templateName: string) {
     await patchTemplate(templateName, { action: 'reopen_for_review' })
+  }
+
+  // TMPL-07 (Section 4.1) — single-click action, no confirmation dialog, no
+  // notes field, matching reopen_for_review/resetToPending exactly.
+  async function toggleHeader(templateName: string, nextHeaderEnabled: boolean) {
+    await patchTemplate(templateName, { action: 'toggle_header', headerEnabled: nextHeaderEnabled })
   }
 
   const filtered = rows.filter((r) => r.status === activeTab)
@@ -324,6 +335,7 @@ export default function TemplateApprovalClient() {
                       section={buildPreviewSection(row)}
                       isActive
                       styleOverrides={row.style_overrides}
+                      headerEnabled={row.header_enabled}
                     />
                   </div>
 
@@ -421,6 +433,32 @@ export default function TemplateApprovalClient() {
                     >
                       View fix progress →
                     </Link>
+                  )}
+
+                  {/* TMPL-07 (Section 4.1) — per-template title/subtitle header
+                      review toggle, rendered only for the 7 flagged
+                      template_names. Visible to any authenticated user but
+                      disabled unless viewerIsApprover, matching every other
+                      action button in this file. */}
+                  {isHeaderToggleTemplate(row.template_name) && (
+                    <div className="flex items-center gap-3 mt-4 pt-4 border-t border-[#222222]">
+                      <span
+                        className="w-2.5 h-2.5 rounded-full shrink-0"
+                        style={{ backgroundColor: row.header_enabled ? '#10B981' : '#475569' }}
+                      />
+                      <span className="text-xs text-[#94A3B8]">
+                        Title/subtitle header: {row.header_enabled ? 'On' : 'Off'}
+                      </span>
+                      <button
+                        onClick={() => toggleHeader(row.template_name, !row.header_enabled)}
+                        disabled={disabledForNonApprover}
+                        title={!viewerIsApprover ? 'Only the configured approver can change template approval status.' : undefined}
+                        className="flex items-center gap-1.5 px-4 py-2 bg-transparent border border-[#333333] hover:border-[#7C3AED] disabled:opacity-40 disabled:cursor-not-allowed text-[#94A3B8] hover:text-white text-sm font-medium rounded-lg transition-colors ml-auto"
+                      >
+                        {isActioning && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                        {row.header_enabled ? 'Hide title/subtitle' : 'Show title/subtitle'}
+                      </button>
+                    </div>
                   )}
                 </div>
               </motion.div>

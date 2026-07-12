@@ -7,6 +7,7 @@ interface GenericTemplateProps {
   section: TemplateSection
   isActive: boolean
   onReady?: () => void
+  headerEnabled?: boolean
 }
 
 /**
@@ -14,9 +15,14 @@ interface GenericTemplateProps {
  * TwoByTwoMatrix, FrameworkCard, StatCallout, QuoteCallout, ActionPlan).
  * Renders template type, a professional data preview, and the so_what.
  */
-export default function GenericTemplate({ section, isActive, onReady }: GenericTemplateProps) {
+export default function GenericTemplate({ section, isActive, onReady, headerEnabled }: GenericTemplateProps) {
   // Extract so_what or so_what_for_you from data
   const data = section.data as unknown as Record<string, unknown>
+  // TMPL-07 (Section 4.4, item 3) — QuoteCallout's optional `attribution`
+  // field, reused as the subtitle. Optional on QuoteCalloutData, so when
+  // headerEnabled is true but attribution is absent on a given section's
+  // data, no subtitle line renders (title-only for that render).
+  const attribution = data.attribution as string | undefined
   const soWhat =
     (data.so_what as string | undefined) ??
     (data.so_what_for_you as string | undefined) ??
@@ -57,6 +63,9 @@ export default function GenericTemplate({ section, isActive, onReady }: GenericT
           </div>
           <h2 className="text-3xl font-bold text-white">{section.meta.subtopicTitle}</h2>
         </div>
+        {headerEnabled && attribution && (
+          <p className="text-[#94A3B8] text-sm mt-1">— {attribution}</p>
+        )}
 
         {/* Data grid preview */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">

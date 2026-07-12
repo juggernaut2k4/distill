@@ -1,11 +1,20 @@
 'use client'
 
 import { motion } from 'framer-motion'
-import type { AnswerSpotlightData } from '@/lib/templates/types'
+import type { AnswerSpotlightData, TemplateMeta } from '@/lib/templates/types'
 
-interface AnswerSpotlightProps { data: AnswerSpotlightData; isActive: boolean; onReady?: () => void }
+interface AnswerSpotlightProps {
+  data: AnswerSpotlightData
+  isActive: boolean
+  onReady?: () => void
+  headerEnabled?: boolean
+  // TMPL-07 (Section 4.5) — this renderer currently only receives `data`, not
+  // the full `section`, so `meta` must be threaded in separately to reach
+  // `meta.subtopicTitle` for the new title-only header.
+  meta?: TemplateMeta
+}
 
-export default function AnswerSpotlight({ data, isActive, onReady }: AnswerSpotlightProps) {
+export default function AnswerSpotlight({ data, isActive, onReady, headerEnabled, meta }: AnswerSpotlightProps) {
   // Build context cards — only render non-null fields
   const contextCards: Array<{ label: string; text: string; border: string; labelColor: string }> = []
 
@@ -42,6 +51,7 @@ export default function AnswerSpotlight({ data, isActive, onReady }: AnswerSpotl
       transition={{ duration: 0.5 }}
       onAnimationComplete={() => { if (isActive) onReady?.() }}
     >
+      {headerEnabled && <h2 className="text-3xl font-bold text-white mb-4">{meta?.subtopicTitle}</h2>}
       {/* Top: question + direct answer */}
       <motion.div
         className="mb-8"

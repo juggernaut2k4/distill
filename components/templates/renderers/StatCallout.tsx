@@ -3,7 +3,7 @@
 import { useCallback, useMemo } from 'react'
 import { ReactFlow, Background, useNodesState, useEdgesState, type Node, type Edge, type NodeProps, Handle, Position, BackgroundVariant } from '@xyflow/react'
 import { motion } from 'framer-motion'
-import type { StatCalloutData } from '@/lib/templates/types'
+import type { StatCalloutData, TemplateMeta } from '@/lib/templates/types'
 import '@xyflow/react/dist/style.css'
 
 function HeroStatNode({ data }: NodeProps) {
@@ -44,9 +44,20 @@ function WhyNode({ data }: NodeProps) {
 const STAT_COLORS = ['#06B6D4', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6']
 const nodeTypes = { heroStat: HeroStatNode, supportStat: SupportStatNode, why: WhyNode }
 
-interface StatCalloutProps { data: StatCalloutData; isActive: boolean; onReady?: () => void }
+interface StatCalloutProps {
+  data: StatCalloutData
+  isActive: boolean
+  onReady?: () => void
+  headerEnabled?: boolean
+  // TMPL-07 (Section 4.5) — this renderer currently only receives `data`, not
+  // the full `section`, so `meta` must be threaded in separately to reach
+  // `meta.subtopicTitle` for the new title (StatCalloutData has no title-shaped
+  // field at all, so this is the one template using the universal
+  // TemplateMeta.subtopicTitle fallback).
+  meta?: TemplateMeta
+}
 
-export default function StatCallout({ data, isActive, onReady }: StatCalloutProps) {
+export default function StatCallout({ data, isActive, onReady, headerEnabled, meta }: StatCalloutProps) {
   const { initialNodes, initialEdges } = useMemo(() => {
     const nodes: Node[] = []
     const edges: Edge[] = []
@@ -75,6 +86,12 @@ export default function StatCallout({ data, isActive, onReady }: StatCalloutProp
   return (
     <div className="relative h-full w-full flex flex-col bg-[#080808] px-8 md:px-16 py-12">
       <motion.div className="flex-1 flex flex-col pb-20" initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ duration: 0.5 }} onAnimationComplete={() => { if (isActive) onReady?.() }}>
+        {headerEnabled && (
+          <div className="mb-4">
+            <h2 className="text-3xl font-bold text-white">{meta?.subtopicTitle}</h2>
+            <p className="text-[#94A3B8] text-sm mt-1">{data.context}</p>
+          </div>
+        )}
         <div className="flex-1 rounded-2xl overflow-hidden border border-[#1a1a1a]">
           <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} nodeTypes={nodeTypes} onInit={onInit} fitView fitViewOptions={{ padding: 0.15 }} minZoom={0.85} nodesDraggable={false} nodesConnectable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }} style={{ width: '100%', height: '100%' }}>
             <Background color="#1a1a1a" variant={BackgroundVariant.Dots} gap={20} />

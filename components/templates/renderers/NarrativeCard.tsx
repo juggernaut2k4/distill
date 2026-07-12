@@ -3,9 +3,9 @@
 import { motion } from 'framer-motion'
 import type { NarrativeCardData } from '@/lib/templates/types'
 
-interface NarrativeCardProps { data: NarrativeCardData; isActive: boolean; onReady?: () => void }
+interface NarrativeCardProps { data: NarrativeCardData; isActive: boolean; onReady?: () => void; headerEnabled?: boolean }
 
-export default function NarrativeCard({ data, isActive, onReady }: NarrativeCardProps) {
+export default function NarrativeCard({ data, isActive, onReady, headerEnabled }: NarrativeCardProps) {
   // Cap metrics at 3
   const metrics = data.metrics.slice(0, 3)
 
@@ -24,6 +24,7 @@ export default function NarrativeCard({ data, isActive, onReady }: NarrativeCard
           {data.industry}
         </span>
       </div>
+      {headerEnabled && <p className="text-[#94A3B8] text-sm mt-1">{data.industry}</p>}
 
       {/* Main 3-column row */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 flex-1 min-h-0">

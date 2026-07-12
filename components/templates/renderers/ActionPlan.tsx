@@ -47,7 +47,15 @@ function QuestionNode({ data }: NodeProps) {
 
 const nodeTypes = { takeaway: TakeawayNode, action: ActionNode, question: QuestionNode }
 
-interface ActionPlanProps { data: ActionPlanData; isActive: boolean; onReady?: () => void }
+// TMPL-07 (requirement doc Section 4.4, item 2) — `headerEnabled` is accepted
+// for interface consistency with the other 6 header-toggle templates (so the
+// audit-trail/status-transition behavior in the PATCH route works identically
+// for all 7), but ActionPlanData has no remaining short, subtitle-shaped
+// field: the title already renders unconditionally today, and there is
+// nothing to add. This is a documented, intentional no-op — flipping the
+// toggle persists state and transitions status but produces no visible
+// render change here.
+interface ActionPlanProps { data: ActionPlanData; isActive: boolean; onReady?: () => void; headerEnabled?: boolean }
 
 export default function ActionPlan({ data, isActive, onReady }: ActionPlanProps) {
   const { initialNodes, initialEdges } = useMemo(() => {

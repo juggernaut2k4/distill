@@ -5,13 +5,15 @@ import { requireSessionAuth } from '@/lib/session-auth'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { isConfiguredApprover } from '@/lib/templates/approval'
 import { isFixLoopTemplate } from '@/lib/templates/styleOverrideSlots'
+import { isHeaderToggleTemplate } from '@/lib/templates/headerToggleTemplates'
 import { inngest } from '@/inngest/client'
 
 interface Params { params: { templateName: string } }
 
 const Body = z.object({
-  action: z.enum(['approve', 'request_changes', 'reset_to_pending', 'reopen_for_review']),
+  action: z.enum(['approve', 'request_changes', 'reset_to_pending', 'reopen_for_review', 'toggle_header']),
   notes: z.string().max(2000).optional(),
+  headerEnabled: z.boolean().optional(),
 })
 
 const STATUS_MAP: Record<z.infer<typeof Body>['action'], string> = {
@@ -19,6 +21,7 @@ const STATUS_MAP: Record<z.infer<typeof Body>['action'], string> = {
   request_changes: 'changes_requested',
   reset_to_pending: 'pending_review',
   reopen_for_review: 'pending_review',
+  toggle_header: 'pending_review',
 }
 
 /**
@@ -65,7 +68,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
   }
 
-  const { action, notes } = body.data
+  const { action, notes, headerEnabled } = body.data
   const status = STATUS_MAP[action]
   const templateName = params.templateName
 
@@ -109,6 +112,26 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     }
   }
 
+  // TMPL-07 (Section 4.2) — toggle_header has its own validation, distinct from
+  // every other action's precondition: no status precondition (unlike
+  // reopen_for_review, which requires status === 'approved'), because flipping
+  // the toggle while approved is precisely the mechanism that moves an
+  // approved template back for re-review.
+  if (action === 'toggle_header') {
+    if (typeof headerEnabled !== 'boolean') {
+      return NextResponse.json(
+        { error: 'headerEnabled must be a boolean for the toggle_header action.' },
+        { status: 400 }
+      )
+    }
+    if (!isHeaderToggleTemplate(templateName)) {
+      return NextResponse.json(
+        { error: 'Header toggle is not available for this template.' },
+        { status: 400 }
+      )
+    }
+  }
+
   let updatePayload: Record<string, unknown>
   let newFixCycleId: string | null = null
 
@@ -138,6 +161,21 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       fix_state: 'none', // defensive — already 'none' by construction on any approved row
       fix_changes_summary: null, // clears stale "Automated fix applied" banner text only
       fix_failure_reason: null, // defensive — already null when fix_state is 'none'
+      updated_at: new Date().toISOString(),
+    }
+  } else if (action === 'toggle_header') {
+    // TMPL-07 (Section 4.2) — mirrors reopen_for_review's "clear review
+    // metadata" pattern exactly. Deliberately does not touch fix_state,
+    // style_overrides, fix_changes_summary, fix_failure_reason,
+    // fix_attempt_count, fix_cycle_id, or fix_last_activity_at — irrelevant to
+    // these 7 templates (isFixLoopTemplate only ever returns true for
+    // Heatmap/Overlay) and out of scope for this feature.
+    updatePayload = {
+      header_enabled: headerEnabled,
+      status,
+      reviewed_by: null,
+      reviewed_at: null,
+      review_notes: null,
       updated_at: new Date().toISOString(),
     }
   } else {
@@ -199,6 +237,24 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     await inngest.send({
       name: 'clio/template.fix_requested',
       data: { templateName, notes: notes ?? '', fixCycleId: newFixCycleId },
+    })
+  }
+
+  // TMPL-07 (Section 4.2) — audit log write, reusing template_fix_log per the
+  // brief's explicit instruction rather than a new table. Synchronous DB-only
+  // action — no Inngest event fires, since this is "a direct boolean
+  // render-branch... not an LLM-generated style change." Best-effort: a
+  // transient failure here does not roll back the already-succeeded row
+  // update above (matches request_changes' own precedent for its
+  // feedback_received log insert).
+  if (action === 'toggle_header') {
+    await supabase.from('template_fix_log').insert({
+      template_name: templateName,
+      fix_cycle_id: null,
+      attempt_number: null,
+      event_type: 'header_toggled',
+      message: `Title/subtitle header toggled ${headerEnabled ? 'ON' : 'OFF'} by reviewer.`,
+      actor: user!.email,
     })
   }
 

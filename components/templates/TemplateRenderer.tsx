@@ -46,9 +46,19 @@ export interface TemplateRendererProps {
    * not a behavior change for live sessions.
    */
   styleOverrides?: StyleOverrides
+  /**
+   * TMPL-07 (requirement doc Section 4.5) — per-template title/subtitle
+   * header on/off, read at render time. Only ever populated by the admin
+   * Template Library preview (TemplateApprovalClient.tsx) and only ever
+   * consumed by the 7 templates in HEADER_TOGGLE_TEMPLATE_NAMES — every other
+   * renderer ignores this prop entirely. Optional and untouched by every
+   * existing call site (SessionStack, any walkthrough/preview caller), so
+   * this is additive, not a behavior change for live sessions (Section 4.6).
+   */
+  headerEnabled?: boolean
 }
 
-export default function TemplateRenderer({ section, isActive, onReady, styleOverrides }: TemplateRendererProps) {
+export default function TemplateRenderer({ section, isActive, onReady, styleOverrides, headerEnabled }: TemplateRendererProps) {
   switch (section.type) {
     case 'TopicHero':
       return <TopicHero data={section.data} isActive={isActive} onReady={onReady} />
@@ -69,15 +79,15 @@ export default function TemplateRenderer({ section, isActive, onReady, styleOver
     case 'Timeline':
       return <Timeline data={section.data} isActive={isActive} onReady={onReady} />
     case 'ConceptMap':
-      return <ConceptMap data={section.data} isActive={isActive} onReady={onReady} />
+      return <ConceptMap data={section.data} isActive={isActive} onReady={onReady} headerEnabled={headerEnabled} />
     case 'TwoByTwoMatrix':
       return <TwoByTwoMatrix data={section.data} isActive={isActive} onReady={onReady} />
     case 'FrameworkCard':
-      return <FrameworkCard data={section.data} isActive={isActive} onReady={onReady} />
+      return <FrameworkCard data={section.data} isActive={isActive} onReady={onReady} headerEnabled={headerEnabled} />
     case 'StatCallout':
-      return <StatCallout data={section.data} isActive={isActive} onReady={onReady} />
+      return <StatCallout data={section.data} isActive={isActive} onReady={onReady} headerEnabled={headerEnabled} meta={section.meta} />
     case 'ActionPlan':
-      return <ActionPlan data={section.data} isActive={isActive} onReady={onReady} />
+      return <ActionPlan data={section.data} isActive={isActive} onReady={onReady} headerEnabled={headerEnabled} />
     case 'Funnel':
       return <Funnel data={section.data} isActive={isActive} onReady={onReady} />
     case 'Flowchart':
@@ -85,17 +95,17 @@ export default function TemplateRenderer({ section, isActive, onReady, styleOver
     case 'Hierarchy':
       return <HorizontalTree data={section.data} isActive={isActive} onReady={onReady} />
     case 'QuoteCallout':
-      return <GenericTemplate section={section} isActive={isActive} onReady={onReady} />
+      return <GenericTemplate section={section} isActive={isActive} onReady={onReady} headerEnabled={headerEnabled} />
     case 'ChevronProcess':
       return <ChevronProcess data={section.data} isActive={isActive} onReady={onReady} />
     case 'NarrativeCard':
-      return <NarrativeCard data={section.data} isActive={isActive} onReady={onReady} />
+      return <NarrativeCard data={section.data} isActive={isActive} onReady={onReady} headerEnabled={headerEnabled} />
     case 'DefinitionTriptych':
       return <DefinitionTriptych data={section.data} isActive={isActive} onReady={onReady} />
     case 'HorizontalDecision':
       return <HorizontalDecision data={section.data} isActive={isActive} onReady={onReady} />
     case 'AnswerSpotlight':
-      return <AnswerSpotlight data={section.data} isActive={isActive} onReady={onReady} />
+      return <AnswerSpotlight data={section.data} isActive={isActive} onReady={onReady} headerEnabled={headerEnabled} meta={section.meta} />
     case 'Heatmap':
       return <Heatmap data={section.data} isActive={isActive} onReady={onReady} styleOverrides={styleOverrides} />
     case 'Overlay':

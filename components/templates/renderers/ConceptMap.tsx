@@ -49,9 +49,9 @@ function LeafNode({ data }: NodeProps) {
 const BRANCH_COLORS = ['#7C3AED', '#06B6D4', '#F59E0B', '#10B981', '#EF4444', '#8B5CF6']
 const nodeTypes = { central: CentralNode, branch: BranchNode, leaf: LeafNode }
 
-interface ConceptMapProps { data: ConceptMapData; isActive: boolean; onReady?: () => void }
+interface ConceptMapProps { data: ConceptMapData; isActive: boolean; onReady?: () => void; headerEnabled?: boolean }
 
-export default function ConceptMap({ data, isActive, onReady }: ConceptMapProps) {
+export default function ConceptMap({ data, isActive, onReady, headerEnabled }: ConceptMapProps) {
   const { nodes: initialNodes, edges: initialEdges } = useMemo(() => {
     const nodes: Node[] = []
     const edges: Edge[] = []
@@ -84,7 +84,14 @@ export default function ConceptMap({ data, isActive, onReady }: ConceptMapProps)
   return (
     <div className="relative h-full w-full flex flex-col bg-[#080808] px-8 md:px-16 py-12">
       <motion.div className="flex-1 flex flex-col pb-20" initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ duration: 0.5 }} onAnimationComplete={() => { if (isActive) onReady?.() }}>
-        <h2 className="text-3xl font-bold text-white mb-6">{data.title}</h2>
+        {headerEnabled ? (
+          <div className="mb-6">
+            <h2 className="text-3xl font-bold text-white mb-1">{data.title}</h2>
+            <p className="text-[#94A3B8] text-sm">{data.central_concept}</p>
+          </div>
+        ) : (
+          <h2 className="text-3xl font-bold text-white mb-6">{data.title}</h2>
+        )}
         <div className="flex-1 rounded-2xl overflow-hidden border border-[#1a1a1a]">
           <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} nodeTypes={nodeTypes} onInit={onInit} fitView fitViewOptions={{ padding: 0.15 }} minZoom={0.85} nodesDraggable={false} nodesConnectable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }} style={{ width: '100%', height: '100%' }}>
             <Background color="#111111" variant={BackgroundVariant.Dots} gap={24} />

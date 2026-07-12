@@ -43,9 +43,9 @@ function ComponentNode({ data }: NodeProps) {
 
 const nodeTypes = { header: HeaderNode, component: ComponentNode }
 
-interface FrameworkProps { data: FrameworkCardData; isActive: boolean; onReady?: () => void }
+interface FrameworkProps { data: FrameworkCardData; isActive: boolean; onReady?: () => void; headerEnabled?: boolean }
 
-export default function FrameworkCard({ data, isActive, onReady }: FrameworkProps) {
+export default function FrameworkCard({ data, isActive, onReady, headerEnabled }: FrameworkProps) {
   const { initialNodes, initialEdges } = useMemo(() => {
     const nodes: Node[] = [{ id: 'header', type: 'header', position: { x: 0, y: 0 }, data: { name: data.framework_name, coined_by: data.coined_by, purpose: data.purpose }, width: 400, height: 120, draggable: false }]
     const edges: Edge[] = []
@@ -71,6 +71,12 @@ export default function FrameworkCard({ data, isActive, onReady }: FrameworkProp
   return (
     <div className="relative h-full w-full flex flex-col bg-[#080808] px-8 md:px-16 py-12">
       <motion.div className="flex-1 flex flex-col pb-20" initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ duration: 0.5 }} onAnimationComplete={() => { if (isActive) onReady?.() }}>
+        {headerEnabled && (
+          <div className="mb-4">
+            <h2 className="text-3xl font-bold text-white">{data.framework_name}</h2>
+            {data.coined_by && <p className="text-[#94A3B8] text-sm mt-1">by {data.coined_by}</p>}
+          </div>
+        )}
         <div className="flex-1 rounded-2xl overflow-hidden border border-[#1a1a1a]">
           <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} nodeTypes={nodeTypes} onInit={onInit} fitView fitViewOptions={{ padding: 0.12 }} minZoom={0.85} nodesDraggable={false} nodesConnectable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }} style={{ width: '100%', height: '100%' }}>
             <Background color="#1a1a1a" variant={BackgroundVariant.Dots} gap={22} />
