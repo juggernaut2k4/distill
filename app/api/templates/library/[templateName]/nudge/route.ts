@@ -70,7 +70,7 @@ export async function POST(request: NextRequest, { params }: Params) {
 
   const { data: current, error: fetchError } = await supabase
     .from('template_library')
-    .select('fix_state, fix_attempt_count, fix_cycle_id')
+    .select('fix_state, fix_attempt_count, fix_cycle_id, review_notes')
     .eq('template_name', templateName)
     .maybeSingle()
 
@@ -127,7 +127,7 @@ export async function POST(request: NextRequest, { params }: Params) {
 
   await inngest.send({
     name: 'clio/template.fix_requested',
-    data: { templateName, notes: '', fixCycleId: newFixCycleId, forceRetrigger: true },
+    data: { templateName, notes: current.review_notes, fixCycleId: newFixCycleId, forceRetrigger: true },
   })
 
   return NextResponse.json({ template: updated })

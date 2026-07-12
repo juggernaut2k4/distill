@@ -11,10 +11,11 @@ import { NextRequest } from 'next/server'
 
 let mockUserId: string | null = 'user-1'
 let mockUserEmail: string | null = 'approver@example.com'
-let mockCurrentRow: { fix_state: string; fix_attempt_count: number; fix_cycle_id: string | null } | null = {
+let mockCurrentRow: { fix_state: string; fix_attempt_count: number; fix_cycle_id: string | null; review_notes: string | null } | null = {
   fix_state: 'failed',
   fix_attempt_count: 5,
   fix_cycle_id: 'cycle-1',
+  review_notes: 'Original reviewer feedback text.',
 }
 let capturedUpdatePayload: Record<string, unknown> | null = null
 let capturedFixLogInsert: Record<string, unknown> | null = null
@@ -92,7 +93,7 @@ describe('POST /api/templates/library/[templateName]/nudge', () => {
   beforeEach(() => {
     mockUserId = 'user-1'
     mockUserEmail = 'approver@example.com'
-    mockCurrentRow = { fix_state: 'failed', fix_attempt_count: 5, fix_cycle_id: 'cycle-1' }
+    mockCurrentRow = { fix_state: 'failed', fix_attempt_count: 5, fix_cycle_id: 'cycle-1', review_notes: 'Original reviewer feedback text.' }
     capturedUpdatePayload = null
     capturedFixLogInsert = null
     vi.mocked(inngest.send).mockClear()
@@ -147,7 +148,7 @@ describe('POST /api/templates/library/[templateName]/nudge', () => {
   })
 
   it('status_check logs a nudge event with the actor email and current state, with no other side effects', async () => {
-    mockCurrentRow = { fix_state: 'generating', fix_attempt_count: 3, fix_cycle_id: 'cycle-9' }
+    mockCurrentRow = { fix_state: 'generating', fix_attempt_count: 3, fix_cycle_id: 'cycle-9', review_notes: 'Original reviewer feedback text.' }
     const res = await POST(makeRequest({ action: 'status_check' }), { params: { templateName: 'Heatmap' } })
     expect(res.status).toBe(200)
 
@@ -161,8 +162,8 @@ describe('POST /api/templates/library/[templateName]/nudge', () => {
     expect(inngest.send).not.toHaveBeenCalled()
   })
 
-  it('force_retrigger on a failed cycle starts a new attempt immediately, uncapped by the 5-attempt automatic limit', async () => {
-    mockCurrentRow = { fix_state: 'failed', fix_attempt_count: 5, fix_cycle_id: 'cycle-1' }
+  it('force_retrigger on a failed cycle starts a new attempt immediately, uncapped by the 5-attempt automatic limit, and forwards the original reviewer feedback (TMPL-04)', async () => {
+    mockCurrentRow = { fix_state: 'failed', fix_attempt_count: 5, fix_cycle_id: 'cycle-1', review_notes: 'Make the panel border thinner.' }
     const res = await POST(makeRequest({ action: 'force_retrigger' }), { params: { templateName: 'Heatmap' } })
     expect(res.status).toBe(200)
 
@@ -176,12 +177,15 @@ describe('POST /api/templates/library/[templateName]/nudge', () => {
     expect(capturedFixLogInsert?.actor).toBe('approver@example.com')
     expect(capturedFixLogInsert?.fix_cycle_id).toBe(capturedUpdatePayload?.fix_cycle_id)
 
+    // TMPL-04 — forwards the row's own review_notes (the reviewer's original
+    // feedback), never a hardcoded empty string, so the retry actually has
+    // something to act on.
     expect(inngest.send).toHaveBeenCalledTimes(1)
     expect(inngest.send).toHaveBeenCalledWith({
       name: 'clio/template.fix_requested',
       data: {
         templateName: 'Heatmap',
-        notes: '',
+        notes: 'Make the panel border thinner.',
         fixCycleId: capturedUpdatePayload?.fix_cycle_id,
         forceRetrigger: true,
       },
@@ -189,9 +193,23 @@ describe('POST /api/templates/library/[templateName]/nudge', () => {
   })
 
   it('force_retrigger assigns a fix_cycle_id different from any in-flight cycle (supersedes it)', async () => {
-    mockCurrentRow = { fix_state: 'generating', fix_attempt_count: 2, fix_cycle_id: 'cycle-in-flight' }
+    mockCurrentRow = { fix_state: 'generating', fix_attempt_count: 2, fix_cycle_id: 'cycle-in-flight', review_notes: 'Widen the callout cards.' }
     await POST(makeRequest({ action: 'force_retrigger' }), { params: { templateName: 'Heatmap' } })
     expect(capturedUpdatePayload?.fix_cycle_id).not.toBe('cycle-in-flight')
     expect(capturedUpdatePayload?.fix_attempt_count).toBe(3)
+  })
+
+  it('force_retrigger forwards review_notes as-is (null stays null) when the row genuinely has none, rather than substituting fallback text (TMPL-04 Section 9)', async () => {
+    mockCurrentRow = { fix_state: 'failed', fix_attempt_count: 5, fix_cycle_id: 'cycle-1', review_notes: null }
+    await POST(makeRequest({ action: 'force_retrigger' }), { params: { templateName: 'Heatmap' } })
+    expect(inngest.send).toHaveBeenCalledWith({
+      name: 'clio/template.fix_requested',
+      data: {
+        templateName: 'Heatmap',
+        notes: null,
+        fixCycleId: capturedUpdatePayload?.fix_cycle_id,
+        forceRetrigger: true,
+      },
+    })
   })
 })
