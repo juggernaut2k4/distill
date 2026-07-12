@@ -41,7 +41,7 @@ const COLOR_HEX: Record<OverlayZone['color'], string> = {
 const MAX_ZONES = 4
 
 // Maps each of the 9 fixed grid slots to a row/col index (0-2) inside the
-// 700x420 panel's invisible 3x3 grid (~233px x 140px per cell).
+// panel's invisible 3x3 grid (33.333% x ~113px per cell at any panel width).
 const SLOT_GRID: Record<OverlayZonePosition, { row: number; col: number }> = {
   'top-left': { row: 0, col: 0 }, 'top-center': { row: 0, col: 1 }, 'top-right': { row: 0, col: 2 },
   'mid-left': { row: 1, col: 0 }, 'mid-center': { row: 1, col: 1 }, 'mid-right': { row: 1, col: 2 },
@@ -64,8 +64,10 @@ function dockSide(position: OverlayZonePosition): 'top' | 'bottom' | 'left' | 'r
 }
 
 const PANEL_W = 700
-const PANEL_H = 420
-const CELL_W = PANEL_W / 3
+const PANEL_H = 340
+// TMPL-05 — percentage string so Marker's left/width resolve against the
+// panel's own rendered width (280px or 780px at xl:), not a fixed pixel value.
+const CELL_W = '33.333%'
 const CELL_H = PANEL_H / 3
 
 /**
@@ -108,11 +110,11 @@ function Marker({ zone, styleOverrides }: { zone: OverlayZone; styleOverrides?: 
   return (
     <div
       className="absolute flex items-center justify-center pointer-events-none"
-      style={{ left: slot.col * CELL_W, top: slot.row * CELL_H, width: CELL_W, height: CELL_H }}
+      style={{ left: `${slot.col * 33.333}%`, top: slot.row * CELL_H, width: CELL_W, height: CELL_H }}
     >
       <div className="flex items-center gap-1.5 bg-[#080808]/80 rounded-full px-2 py-1 border border-[#333333] max-w-full">
         <span className="w-2 h-2 rounded-full shrink-0" style={{ background: hex }} />
-        <span className="text-xs text-white line-clamp-1">{zone.zone_label}</span>
+        <span className="text-sm text-white line-clamp-1">{zone.zone_label}</span>
       </div>
     </div>
   )
@@ -156,7 +158,7 @@ export default function Overlay({ data, isActive, onReady, styleOverrides }: Ove
           <p className="text-sm text-[#94A3B8] line-clamp-1">{data.context}</p>
         </div>
 
-        {/* Body — fixed 700x420 base panel + docked callouts, centered */}
+        {/* Body — responsive base panel (280px / 780px at xl:) + docked callouts, centered */}
         <div className="flex-1 flex items-center justify-center overflow-hidden">
           <div className="flex flex-col items-center gap-3">
             {topZones.length > 0 && (
@@ -182,16 +184,16 @@ export default function Overlay({ data, isActive, onReady, styleOverrides }: Ove
                 </div>
               )}
 
-              {/* Fixed 700x420 base panel — plain CSS rectangle, never an image.
-                  `border-2` is a Tailwind arbitrary-value class (border-width
-                  only; Tailwind preflight already sets border-style: solid
-                  globally) — the panel-border-width override targets the same
-                  `borderWidth` CSS property via inline style, which wins over
-                  the class per normal CSS specificity rules. */}
+              {/* Responsive base panel (w-[280px] xl:w-[780px]) — plain CSS
+                  rectangle, never an image. `border-2` is a Tailwind
+                  arbitrary-value class (border-width only; Tailwind preflight
+                  already sets border-style: solid globally) — the
+                  panel-border-width override targets the same `borderWidth`
+                  CSS property via inline style, which wins over the class per
+                  normal CSS specificity rules. */}
               <div
-                className="relative rounded-2xl border-2 border-[#333333] bg-[#111111] shrink-0 overflow-hidden"
+                className="relative rounded-2xl border-2 border-[#333333] bg-[#111111] shrink-0 overflow-hidden w-[280px] xl:w-[780px]"
                 style={{
-                  width: PANEL_W,
                   height: PANEL_H,
                   ...(panelBorderWidthOverride !== undefined ? { borderWidth: panelBorderWidthOverride } : {}),
                 }}
