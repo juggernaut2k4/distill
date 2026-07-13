@@ -12,6 +12,18 @@ _Last updated: 2026-06-23 | Source of truth for active work_
 
 ---
 
+## 🔄 B2B PIVOT IN PROGRESS — see `docs/b2b-pivot-status.md`
+
+Clio is pivoting from B2C (direct-to-executive) to B2B/B2B2C (API integration layer for partner
+platforms like Pluralsight, white-label Designer for partners like Capgemini). B2C is being killed,
+not paused. Full requirements, decisions, and objective-impact analysis: `docs/brainstorm-b2b-platform-pivot.md`.
+**Live orchestration status (updated in real time): `docs/b2b-pivot-status.md`.**
+
+Until B2B-01 (Core Objectives rewrite) lands, `CORE_OBJECTIVES.md` still reflects the old B2C
+framing — do not treat it as current without cross-checking the pivot status doc.
+
+---
+
 ## 🚦 PRE-LAUNCH GATE — do not go live with real clients until this is cleared
 
 These are dev-only shortcuts added deliberately during the build. They must be removed or secured before real customer traffic hits production. Arun: ask Claude to audit this list before flipping the switch to a real audience.
