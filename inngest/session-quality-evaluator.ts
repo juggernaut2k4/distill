@@ -171,7 +171,7 @@ interface DetectedDeferredQuestion {
 // lib/voice/hume-native/prompt-template.ts, rule 6, PROMPT_TEMPLATE_VERSION
 // 'v3') that instructs Clio to acknowledge a deferral verbally — no tool call
 // — built around phrasing anchored on "next time" / "next session" / "cover
-// that properly". This is a different phrase family from the ElevenLabs-path
+// that properly". This is a different phrase family from the Custom-LLM-path
 // DEFERRAL_PHRASES above, so it needs its own keyword list and detector. Keep
 // this list in sync with the phrasing nudged by that prompt rule.
 const DEFERRAL_TRIGGER_PHRASES = [
@@ -195,14 +195,14 @@ const DEFERRAL_DEDUP_SIMILARITY_THRESHOLD = 0.85
 /**
  * Hume-native counterpart to detectDeferredQuestions() above. Scans Clio's
  * utterances for DEFERRAL_TRIGGER_PHRASES (the Hume-native prompt's phrase
- * family — distinct from the ElevenLabs-path DEFERRAL_PHRASES) and pairs each
+ * family — distinct from the Custom-LLM-path DEFERRAL_PHRASES) and pairs each
  * match with the immediately preceding user utterance, treated as the
  * deferred question. Conservative: skips a match if there is no preceding
  * user utterance rather than fabricating a question — same behavior as the
- * ElevenLabs-path detector.
+ * Custom-LLM-path detector.
  *
  * Must only ever be invoked when session.hume_native_enabled === true; the
- * ElevenLabs-path detectDeferredQuestions() remains the detector for every
+ * Custom-LLM-path detectDeferredQuestions() remains the detector for every
  * other session, preserving existing behavior for all pre-existing rows.
  *
  * Near-duplicate matches (paraphrased re-asks of essentially the same
@@ -648,7 +648,7 @@ export const sessionQualityEvaluator = inngest.createFunction(
           created_at: (user as { created_at?: string | null })?.created_at ?? null,
           // Defensive: older rows / pre-migration schemas may not have this column yet.
           // Treat null/undefined as "not Hume-native" so existing sessions keep using
-          // the ElevenLabs-path detector below (no behavior change for existing rows).
+          // the Custom-LLM-path detector below (no behavior change for existing rows).
           hume_native_enabled: (row as { hume_native_enabled?: boolean | null }).hume_native_enabled ?? null,
         } satisfies SessionRow
       })
@@ -717,7 +717,7 @@ async function evaluateSession(
   // Mutually exclusive per session, gated on hume_native_enabled: Hume-native
   // sessions use the Hume-native-specific phrase family/detector; every other
   // session (falsy/undefined flag — includes all pre-existing rows) keeps
-  // using the original ElevenLabs-path detector, unchanged.
+  // using the original Custom-LLM-path detector, unchanged.
   const detectedDeferrals: Array<DetectedDeferredQuestion | DeferredQuestionEntry> = clioTextEmpty
     ? []
     : session.hume_native_enabled === true
@@ -934,7 +934,7 @@ async function evaluateSession(
 
   // ── DEFER-QUESTION-01: Append detected deferrals to sessions.deferred_questions ──
   // Fetch-then-append (never overwrite) so this stays compatible with any other
-  // writer of this column (e.g. the separate ElevenLabs walkthrough path).
+  // writer of this column (e.g. the separate Hume-native walkthrough path).
   let mergedDeferredQuestions: Array<DetectedDeferredQuestion | DeferredQuestionEntry> | null = null
   if (detectedDeferrals.length > 0) {
     const { data: existingSessionRow } = await supabase

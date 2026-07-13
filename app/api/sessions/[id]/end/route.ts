@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireSessionAuth } from '@/lib/session-auth'
 import { createSupabaseAdminClient } from '@/lib/supabase'
-import { releaseAgent } from '@/lib/elevenlabs-pool'
 import { inngest } from '@/inngest/client'
 import {
   writeAuditEvent,
@@ -74,7 +73,7 @@ export async function POST(request: NextRequest, { params }: Params) {
 
   // HUME-DURATION-BILLING-01 — for Hume-native sessions, prefer Hume's own
   // authoritative chat duration over the audit-log calculation. Falls back
-  // to the existing, unmodified computeBilledMinutes() for ElevenLabs/
+  // to the existing, unmodified computeBilledMinutes() for Hume
   // Custom-LLM sessions and whenever the Hume fetch is unavailable/fails.
   const humeResult = await finalizeHumeNativeBilling({
     sessionId: params.id,
@@ -150,19 +149,6 @@ export async function POST(request: NextRequest, { params }: Params) {
     name: 'clio/session.ended',
     data: { userId: userId!, sessionId: params.id },
   }).catch((err) => console.error('[session/end] Failed to emit clio/session.ended:', err))
-
-  // AGENT-POOL-01: release pool agent back to available (no-op when pool mode off)
-  const { data: wsRow } = await supabase
-    .from('walkthrough_state')
-    .select('agent_id')
-    .eq('session_id', params.id)
-    .single()
-
-  if (wsRow?.agent_id) {
-    releaseAgent(wsRow.agent_id as string).catch((err) =>
-      console.error('[session/end] agent release failed (non-fatal):', err)
-    )
-  }
 
   return NextResponse.json({ minutesUsed, newBalance })
 }

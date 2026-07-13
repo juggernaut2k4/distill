@@ -85,7 +85,7 @@ async function getSystemPrompt(
   return { prompt: systemPrompt, cacheStatus: wasStale ? 'STALE_SESSION' : 'MISS' }
 }
 
-// OpenAI-compatible message shapes that ElevenLabs sends to custom LLM endpoints
+// OpenAI-compatible message shapes sent by Hume's Custom-LLM bridge to this endpoint
 interface OAIToolCall {
   id: string
   type: 'function'
@@ -131,18 +131,18 @@ const CLIO_TOOLS: Anthropic.Tool[] = [
 ]
 
 /**
- * Converts the OpenAI-format conversation history from ElevenLabs into
- * Anthropic MessageParam format, including tool_calls and tool_results.
+ * Converts the OpenAI-format conversation history sent by Hume's Custom-LLM
+ * bridge into Anthropic MessageParam format, including tool_calls and tool_results.
  *
  * Claude's API requires the last message to be a user message — it does not
- * support "assistant message prefill". ElevenLabs frequently sends histories
+ * support "assistant message prefill". This bridge frequently sends histories
  * where the final message is an assistant turn (e.g. the welcome message Clio
  * just delivered). We strip any trailing assistant messages before sending so
  * Claude never sees a conversation ending on an assistant role.
  */
 function toAnthropicMessages(messages: OAIMessage[]): Anthropic.MessageParam[] {
   // Strip trailing system and assistant messages before conversion.
-  // ElevenLabs sends the full history including Clio's most recent utterance
+  // The bridge sends the full history including Clio's most recent utterance
   // as the last message, which causes Claude to reject with:
   // "This model does not support assistant message prefill."
   const filtered = [...messages]
@@ -214,38 +214,26 @@ function toAnthropicMessages(messages: OAIMessage[]): Anthropic.MessageParam[] {
 /**
  * POST /api/clio/llm
  *
- * Custom LLM endpoint for ElevenLabs Conversational AI.
- * ElevenLabs calls this with an OpenAI-compatible chat completion request for every
- * conversation turn. We fetch the full session context (41k chars) from walkthrough_state
- * and call Claude Sonnet — bypassing ElevenLabs' prompt override size limit entirely.
- *
- * Configure in ElevenLabs dashboard: Agent → LLM → Custom → URL = https://distill-peach.vercel.app/api/clio/chat/completions
- * Set Authorization header secret = ELEVENLABS_CUSTOM_LLM_SECRET env var.
+ * Custom LLM endpoint for Hume EVI's Custom-LLM (non-native) sessions.
+ * Hume calls this with an OpenAI-compatible chat completion request for every
+ * conversation turn. We fetch the full session context (41k chars) from
+ * walkthrough_state and call Claude Sonnet — no client-side prompt size limit.
  *
  * Hume EVI userId mechanism (root-caused 2026-07-03): Hume's CLM docs confirm that for
  * SSE endpoints (this route), `custom_session_id` is sent back as a query param on this
  * callback ONLY after it has been set via a `session_settings` message sent over the EVI
  * WebSocket post-connect — the `custom_session_id` query param on the initial WS *connect*
  * URL alone is not sufficient. See lib/voice/hume-adapter.ts `onopen` handler for the fix.
+ *
+ * No shared-secret auth is enforced on this route — as of 2026-07-02 there is no
+ * evidence Hume's EVI Custom-LLM config sends an Authorization header, so gating
+ * this endpoint on one would silently 401 every Hume turn (Clio would go mute
+ * mid-session). userId is instead resolved from the URL/body/message content below.
  */
 export async function POST(request: NextRequest) {
   // Diagnostic logging — kept to confirm the userId mechanism holds in production.
   const allHeaders = Object.fromEntries(request.headers.entries())
   console.log('[clio/llm] URL:', request.url)
-
-  // Verify the request is from ElevenLabs using a shared secret.
-  // WARNING: this endpoint is also used by Hume (both providers hit the same
-  // custom-LLM URL). If ELEVENLABS_CUSTOM_LLM_SECRET is ever set, confirm
-  // Hume's EVI config sends a matching `Authorization: Bearer <secret>`
-  // header first — as of 2026-07-02 there's no evidence in this codebase or
-  // docs/voice-provider-toggle.md that it does, so turning this secret on
-  // would silently 401 every Hume turn (Clio would go mute mid-session).
-  const authHeader = request.headers.get('authorization')
-  const secret = process.env.ELEVENLABS_CUSTOM_LLM_SECRET
-  if (secret && authHeader !== `Bearer ${secret}`) {
-    console.warn('[clio/llm] Unauthorized request — bad auth header')
-    return new Response('Unauthorized', { status: 401 })
-  }
 
   let rawBody: string
   let body: { messages?: OAIMessage[]; stream?: boolean; user?: string; [key: string]: unknown }
@@ -260,9 +248,9 @@ export async function POST(request: NextRequest) {
   const messages = body.messages ?? []
 
   // Hume EVI passes userId as ?custom_session_id= in the URL (set at WS connection time).
-  // ElevenLabs embeds DISTILL_USER_ID in the system message via dynamicVariables.
-  // Check URL param first (Hume), fall back to message scan (ElevenLabs).
-  // Also check body.user field (some LLM proxy formats use this).
+  // Check URL param first, then body.user (some LLM proxy formats use this), then
+  // fall back to scanning message content for a DISTILL_USER_ID marker (defensive
+  // fallback — kept in case a future caller embeds it in the message body instead).
   const { searchParams } = new URL(request.url)
   const userIdFromUrl = searchParams.get('custom_session_id')
   const userIdFromBody = typeof body.user === 'string' ? body.user : null
@@ -271,7 +259,7 @@ export async function POST(request: NextRequest) {
     .join('\n')
     .match(/DISTILL_USER_ID:\s*(\S+)/)?.[1] ?? null
   const userId = userIdFromUrl ?? userIdFromBody ?? userIdFromMessages ?? null
-  console.log(`[clio/llm] userId extracted: ${userId ?? '(none)'} from ${messages.length} messages (source: ${userIdFromUrl ? 'hume-url' : userIdFromBody ? 'body-user' : userIdFromMessages ? 'el-message' : 'none'})`)
+  console.log(`[clio/llm] userId extracted: ${userId ?? '(none)'} from ${messages.length} messages (source: ${userIdFromUrl ? 'hume-url' : userIdFromBody ? 'body-user' : userIdFromMessages ? 'message-scan' : 'none'})`)
   console.log('[clio/llm] body keys:', Object.keys(body).join(', '))
 
   // Resolve session context — cached after first turn, validated every 5 min

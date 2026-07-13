@@ -13,8 +13,8 @@ import { inferRoleLevel } from '@/lib/curriculum/role-utils'
 // TOPIC-01 feature flag — gates the new viewport-driven section expand/collapse and
 // score-based section ordering. Defaults to OFF (pre-TOPIC01 behavior: all returned
 // sections render fully expanded, only the beginner-technical "Advanced topics" block
-// collapses) unless explicitly enabled — same convention as NEXT_PUBLIC_VOICE_PROVIDER
-// (see lib/elevenlabs-pool.ts / app/dashboard/walkthrough/WalkthroughClient.tsx).
+// collapses) unless explicitly enabled — same fail-safe env-var-gating convention
+// used throughout app/dashboard/walkthrough/WalkthroughClient.tsx.
 const TOPIC01_ENABLED = process.env.NEXT_PUBLIC_TOPIC01_ENABLED === 'true'
 
 // ── Types ──────────────────────────────────────────────────────────────────────

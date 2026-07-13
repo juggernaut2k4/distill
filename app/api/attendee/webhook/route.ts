@@ -7,7 +7,7 @@ import { inngest } from '@/inngest/client'
  * POST /api/attendee/webhook
  * Receives all Attendee.dev webhook events and normalizes them to the same
  * walkthrough_state DB writes as /api/recall/webhook — so the rest of Clio
- * (ElevenLabs, WalkthroughClient, quality-evaluator) is provider-agnostic.
+ * (WalkthroughClient, quality-evaluator) is meeting-bot-provider-agnostic.
  *
  * Always returns 200. Attendee.dev retries on non-2xx.
  */
@@ -178,14 +178,14 @@ async function handleEvent(event: AttendeeWebhookEvent) {
 
       if (!text || text.length < 2) break
 
-      // Skip Clio's own speech (bot speaks into the meeting via ElevenLabs)
+      // Skip Clio's own speech (bot speaks into the meeting via Hume)
       if (speaker.toLowerCase().includes('clio')) break
 
-      // ElevenLabs hears participant audio directly via the Attendee bot's virtual microphone.
-      // Do NOT write participant speech to pending_transcript — that would cause a double
-      // response: ElevenLabs processes the audio AND receives a sendUserMessage call.
+      // Hume hears participant audio directly via the Attendee bot's virtual microphone.
+      // Do NOT write participant speech to pending_transcript — that would risk a
+      // double response if a forwarding path is ever added back for this field.
       // Only [SYSTEM] messages (e.g. from the session timer) use pending_transcript.
-      console.log('[attendee/webhook] Transcript (not forwarded — EL hears audio directly):', speaker, '|', text.slice(0, 80))
+      console.log('[attendee/webhook] Transcript (not forwarded — Hume hears audio directly):', speaker, '|', text.slice(0, 80))
       break
     }
 

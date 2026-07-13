@@ -14,7 +14,7 @@ interface DeferredQuestion {
 
 /**
  * POST /api/defer-question
- * Called by the WalkthroughClient's ElevenLabs client tool (defer_question).
+ * Called by the WalkthroughClient's defer_question client tool.
  * Appends a deferred question to sessions.deferred_questions via walkthrough_state.session_id.
  * Public — called from the Recall.ai headless browser, no Clerk session.
  * Never returns 5xx — always 200 so the agent tool call doesn't error.

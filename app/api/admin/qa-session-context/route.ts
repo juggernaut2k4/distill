@@ -224,10 +224,10 @@ export async function GET(request: NextRequest) {
 
   // ── System prompt totals ───────────────────────────────────────────────────
   const systemPromptLength = docs.system_prompt.length
-  // ElevenLabs system prompt limit is ~32k chars; warn if close
+  // Generic sanity-check ceiling — warn if the system prompt is getting large.
   const withinLimits = systemPromptLength < 28000
   if (!withinLimits) {
-    issues.push(`system_prompt is ${systemPromptLength} chars — may exceed ElevenLabs limits (28k safe limit)`)
+    issues.push(`system_prompt is ${systemPromptLength} chars — unusually large (28k soft limit)`)
   }
 
   // ── Check current walkthrough_state ───────────────────────────────────────
@@ -267,7 +267,7 @@ export async function GET(request: NextRequest) {
     },
     system_prompt: {
       total_length: systemPromptLength,
-      within_elevenlabs_limits: withinLimits,
+      within_size_limit: withinLimits,
     },
     walkthrough_state: stateCheck,
     issues: issues.length > 0 ? issues : ['None — all checks passed'],

@@ -1,13 +1,16 @@
 /**
  * VoiceSessionAdapter — provider-agnostic interface for a live voice session.
  *
- * ElevenLabs: backed by Conversation from @11labs/client
- * Deepgram:   backed by DeepgramAdapter stub (POC only, CTX-01 build)
+ * Hume:     backed by HumeAdapter (lib/voice/hume-adapter.ts), a direct
+ *           per-session WebRTC/mediaStream WebSocket connection.
+ * Deepgram: backed by DeepgramAdapter stub (POC only, CTX-01 build)
  */
 export interface VoiceSessionAdapter {
   /** Inject additional context text mid-session without restarting it.
-   *  ElevenLabs: calls conversation.sendContextualUpdate(text)
-   *  Deepgram:   sends UpdateInstructions WebSocket message (stub in this build)
+   *  Hume:     intentionally a no-op — Hume rejects session_settings.system_prompt
+   *            (E0716) whenever a custom LLM is configured; context is delivered
+   *            server-side via the custom LLM endpoint instead.
+   *  Deepgram: sends UpdateInstructions WebSocket message (stub in this build)
    */
   injectContext(text: string): void
 
@@ -40,10 +43,9 @@ export interface VoiceSessionAdapter {
    * adapter has confirmed a REAL, working voice connection capable of producing
    * audio. This is the billing-start signal — it must NOT fire on bot-join,
    * screen-share-start, or a merely-attempted (not yet confirmed) connection.
-   *   ElevenLabs: fires when `isOpen()` is confirmed true (verified open transition).
-   *   Hume:       fires only when BOTH `onConnect` (chat_metadata) has occurred AND
-   *               the first successful assistant_message/speaking-mode event has
-   *               occurred — `onConnect` alone is not sufficient proof Clio can speak.
+   *   Hume: fires only when BOTH `onConnect` (chat_metadata) has occurred AND
+   *         the first successful assistant_message/speaking-mode event has
+   *         occurred — `onConnect` alone is not sufficient proof Clio can speak.
    * If the connection never reaches this state, the callback is simply never called.
    */
   onSpeakVerified(callback: () => void): void

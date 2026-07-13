@@ -6,7 +6,7 @@ import { forceEndSession } from '@/lib/session-billing'
  * Server-side session timer — enforces session duration regardless of client state.
  * Triggered when a session starts; cancelled when the session ends (manually or via bot disconnect).
  *
- * Steps (ElevenLabs / Hume Custom-LLM branch — unchanged):
+ * Steps (Hume Custom-LLM branch — unchanged):
  *  1. Sleep (durationMins - 1) minutes
  *  2. Write a 1-minute warning to pending_transcript → Clio reads it via poll and wraps up
  *  3. Sleep 1 final minute
@@ -43,7 +43,7 @@ export const sessionTimerJob = inngest.createFunction(
     // front, so the rest of this job can pick the correct pre-cutoff step
     // without a second DB read. Any failure here (e.g. Supabase error) is
     // treated as "not a Hume-native session" — falls through to the existing,
-    // unmodified ElevenLabs/Custom-LLM branch, which is always a safe default.
+    // unmodified Custom-LLM branch, which is always a safe default.
     const isHumeNative = await step.run('check-hume-native-mode', async () => {
       const supabase = createSupabaseAdminClient()
       const { data } = await supabase
@@ -56,7 +56,7 @@ export const sessionTimerJob = inngest.createFunction(
 
     if (isHumeNative) {
       // ── HUME-NATIVE-01 branch — 2-minute lead time (vs 1 minute for the
-      // existing ElevenLabs path), to account for Hume EVI's own
+      // existing Custom-LLM path), to account for Hume EVI's own
       // end-of-conversation detection latency after Clio's goodbye. Mirrors
       // the existing `durationMins > 1` conditional structure with an
       // adjusted threshold (Section 9, Edge Cases): for very short sessions
@@ -82,8 +82,9 @@ export const sessionTimerJob = inngest.createFunction(
         }
 
         // New, Hume-specific field — deliberately not pending_transcript
-        // (ElevenLabs-only; see module doc comment and the requirement doc,
-        // Section 6). Cleared back to false by the client once sent (or once
+        // (that field is only meaningfully consumed by the Custom-LLM branch
+        // below; see module doc comment and the requirement doc, Section 6).
+        // Cleared back to false by the client once sent (or once
         // a retry has been attempted and given up on) via the existing PATCH
         // /api/walkthrough-state/[userId] pattern.
         await supabase
@@ -95,13 +96,13 @@ export const sessionTimerJob = inngest.createFunction(
       })
 
       // Grace period before the shared backstop fires — widened to match the
-      // 2-minute lead time above (vs the existing 1-minute ElevenLabs grace
+      // 2-minute lead time above (vs the existing 1-minute Custom-LLM grace
       // window), giving Clio's goodbye + Hume EVI's own hang-up detection
       // time to complete before the backstop force-ends the session.
       await step.sleep('wait-final-hume-grace-period', '2m')
     } else {
-      // ── Existing ElevenLabs / Hume Custom-LLM branch — completely
-      // unmodified by this feature.
+      // ── Existing Hume Custom-LLM branch — completely unmodified by this
+      // feature.
 
       // Wait until 1 minute before the session ends
       if (durationMins > 1) {
@@ -109,7 +110,7 @@ export const sessionTimerJob = inngest.createFunction(
       }
 
       // Send 1-minute warning — written to pending_transcript so Clio picks it up on the
-      // next poll cycle and begins wrapping up naturally via ElevenLabs sendUserMessage.
+      // next poll cycle and begins wrapping up naturally.
       await step.run('send-time-warning', async () => {
         const supabase = createSupabaseAdminClient()
 

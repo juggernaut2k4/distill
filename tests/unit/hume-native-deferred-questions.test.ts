@@ -4,7 +4,7 @@ import { detectHumeNativeDeferredQuestions } from '@/inngest/session-quality-eva
 /**
  * DEFER-QUESTION-01 (Hume-native path) — coverage for
  * detectHumeNativeDeferredQuestions(), the parallel/Hume-native-specific
- * counterpart to the existing ElevenLabs-path detectDeferredQuestions().
+ * counterpart to the existing Custom-LLM-path detectDeferredQuestions().
  *
  * Speaker convention used throughout: 'clio' is Clio's speaker label,
  * 'user' is the participant's speaker label — matching the
@@ -121,11 +121,11 @@ describe('detectHumeNativeDeferredQuestions', () => {
     expect(result[0].question).toBe('How should we think about our AI vendor budget for next year?')
   })
 
-  it('does not match old ElevenLabs-path deferral phrasing (proves the two phrase families are separate)', () => {
-    // Old ElevenLabs-path wording (DEFERRAL_PHRASES), e.g. "save that for next time" —
+  it('does not match old Custom-LLM-path deferral phrasing (proves the two phrase families are separate)', () => {
+    // Old Custom-LLM-path wording (DEFERRAL_PHRASES), e.g. "save that for next time" —
     // note this does NOT contain "next time" as its own standalone trigger phrase
-    // match target here; we're verifying phrasing that is purely ElevenLabs-style
-    // and shares no substring with DEFERRAL_TRIGGER_PHRASES doesn't false-positive.
+    // match target here; we're verifying phrasing that is purely from that older
+    // phrase family and shares no substring with DEFERRAL_TRIGGER_PHRASES doesn't false-positive.
     const utterances: Utterance[] = [
       utter(CLIO, 'Let\'s start with the fundamentals.'),
       utter(USER, 'What about our competitor\'s pricing model?'),
@@ -138,18 +138,18 @@ describe('detectHumeNativeDeferredQuestions', () => {
     expect(result).toEqual([])
   })
 
-  it('ElevenLabs-path sessions (hume_native_enabled falsy/missing) never invoke Hume-native detection', () => {
+  it('Custom-LLM-path sessions (hume_native_enabled falsy/missing) never invoke Hume-native detection', () => {
     // Gating-logic-level check: evaluateSession() only calls
     // detectHumeNativeDeferredQuestions() when session.hume_native_enabled === true.
     // We simulate that gate here directly, since evaluateSession() itself performs
     // DB calls and isn't easily unit-testable in isolation.
     function pickDetector(humeNativeEnabled: boolean | null | undefined) {
-      return humeNativeEnabled === true ? 'hume-native' : 'elevenlabs'
+      return humeNativeEnabled === true ? 'hume-native' : 'custom-llm'
     }
 
     expect(pickDetector(true)).toBe('hume-native')
-    expect(pickDetector(false)).toBe('elevenlabs')
-    expect(pickDetector(null)).toBe('elevenlabs')
-    expect(pickDetector(undefined)).toBe('elevenlabs')
+    expect(pickDetector(false)).toBe('custom-llm')
+    expect(pickDetector(null)).toBe('custom-llm')
+    expect(pickDetector(undefined)).toBe('custom-llm')
   })
 })

@@ -59,7 +59,7 @@ describe('POST /api/sessions/audit-event — audit token enforcement', () => {
 
   it('rejects a request with no token at all (Zod validation failure, 400)', async () => {
     const response = await POST(
-      makeRequest({ userId: 'user-1', eventType: 'speak_verified', provider: 'elevenlabs' })
+      makeRequest({ userId: 'user-1', eventType: 'speak_verified', provider: 'hume' })
     )
     expect(response.status).toBe(400)
     expect(writeAuditEvent).not.toHaveBeenCalled()
@@ -67,7 +67,7 @@ describe('POST /api/sessions/audit-event — audit token enforcement', () => {
 
   it('rejects a request with the wrong token (401) and never writes the event', async () => {
     const response = await POST(
-      makeRequest({ userId: 'user-1', eventType: 'speak_verified', provider: 'elevenlabs', token: 'attacker-guess' })
+      makeRequest({ userId: 'user-1', eventType: 'speak_verified', provider: 'hume', token: 'attacker-guess' })
     )
     const json = await response.json()
 
@@ -86,7 +86,7 @@ describe('POST /api/sessions/audit-event — audit token enforcement', () => {
 
   it('accepts a request with the correct token and writes the event', async () => {
     const response = await POST(
-      makeRequest({ userId: 'user-1', eventType: 'speak_verified', provider: 'elevenlabs', token: STORED_TOKEN })
+      makeRequest({ userId: 'user-1', eventType: 'speak_verified', provider: 'hume', token: STORED_TOKEN })
     )
     const json = await response.json()
 

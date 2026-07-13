@@ -444,7 +444,7 @@ export async function POST(request: NextRequest) {
 
   // HUME-SPEAK-01 / Q2 (2026-07-06): the primary user's first name, sourced
   // via Clerk by userId — the identical mechanism app/dashboard/walkthrough/
-  // page.tsx already uses to source `userFirstName` for the ElevenLabs path
+  // page.tsx already uses to source `userFirstName` for the Custom-LLM path
   // (clerkClient.users.getUser(userId).firstName). This route only ever
   // receives a userId (see file-level doc comment above — no Clerk session
   // available), so the lookup is done here instead of being passed in.

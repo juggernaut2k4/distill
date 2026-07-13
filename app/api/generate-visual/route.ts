@@ -13,7 +13,7 @@ const Body = z.object({
 
 /**
  * POST /api/generate-visual
- * Called by the WalkthroughClient's ElevenLabs client tool (show_visual).
+ * Called by the WalkthroughClient's show_visual client tool.
  * Generates a VisualSpec via Claude and writes it to walkthrough_state.
  * Public — called from the Recall.ai headless browser, no Clerk session.
  * Never returns 5xx — always 200 so the agent tool call doesn't error.

@@ -13,8 +13,8 @@ import { inngest } from '@/inngest/client'
  * Receives all Recall.ai webhook events.
  * Always returns 200 — never 5xx (Recall.ai retries on server errors).
  *
- * Voice AND visuals are now driven by the ElevenLabs Conversational AI agent
- * (Clio) running in the walkthrough browser via the show_visual client tool.
+ * Voice AND visuals are now driven by Clio's live Hume EVI voice session
+ * running in the walkthrough browser via the show_visual client tool.
  * This webhook handles: session lifecycle, sentiment tracking, deferred questions.
  */
 export async function POST(request: NextRequest) {
@@ -142,7 +142,8 @@ async function handleEvent(event: RecallWebhookEvent, userIdFromQuery?: string) 
 
       console.log(`[recall/webhook] participant.joined — greeting: "${greeting}"`)
 
-      // Write greeting as pending_transcript so ElevenLabs agent speaks it
+      // Write greeting as pending_transcript (also feeds the client's silence
+      // tracking clock — see WalkthroughClient.tsx's poll effect)
       await supabase
         .from('walkthrough_state')
         .update({ pending_transcript: greeting })
@@ -151,7 +152,7 @@ async function handleEvent(event: RecallWebhookEvent, userIdFromQuery?: string) 
     }
 
     // transcript.data: Analyze participant speech for sentiment + deferred question tracking.
-    // Visual generation is handled by the ElevenLabs show_visual client tool.
+    // Visual generation is handled by Clio's show_visual client tool.
     case 'transcript.data':
     case 'transcript.done': {
       // Recall.ai realtime_endpoints may place words/speaker directly on event.data,
@@ -176,9 +177,9 @@ async function handleEvent(event: RecallWebhookEvent, userIdFromQuery?: string) 
       console.log('[recall/webhook] transcript.data speaker raw:', JSON.stringify(speaker), '| filtered out?', speaker.toLowerCase().includes('clio'))
       if (speaker.toLowerCase().includes('clio')) break
 
-      // Write transcript to DB — WalkthroughClient polls this and feeds it
-      // to the ElevenLabs agent via sendUserMessage(), bypassing the headless
-      // browser mic which returns silence in Recall.ai's environment.
+      // Write transcript to DB — WalkthroughClient polls this to drive its
+      // silence-detection clock (Hume hears participant audio directly over
+      // its own WebSocket/mic stream, so this is not forwarded to Clio).
       await supabase
         .from('walkthrough_state')
         .update({ pending_transcript: text })

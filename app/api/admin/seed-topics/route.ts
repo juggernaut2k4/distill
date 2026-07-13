@@ -109,8 +109,10 @@ async function runBatch(
  * Pass body { replace: true } to clear existing non-custom topics first.
  */
 export async function POST(request: NextRequest) {
-  // Accept either Clerk session auth OR the ElevenLabs shared secret header
-  // (the latter allows server-to-server calls without a browser session)
+  // Accept either Clerk session auth OR the shared admin secret header
+  // (the latter allows server-to-server calls without a browser session).
+  // Reuses ELEVENLABS_CUSTOM_LLM_SECRET's env var name for historical
+  // reasons — it is a generic shared secret, not ElevenLabs-specific.
   const { userId } = auth()
   const secret = process.env.ELEVENLABS_CUSTOM_LLM_SECRET
   const providedSecret = request.headers.get('x-admin-secret')

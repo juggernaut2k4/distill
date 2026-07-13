@@ -1,7 +1,6 @@
 /**
  * Recall.ai API client for creating and managing meeting bots.
  * Mock mode activates automatically when RECALL_AI_API_KEY is a PLACEHOLDER.
- * Audio output uses ElevenLabs TTS → base64 MP3 → Recall.ai output_audio endpoint.
  *
  * Transcript provider:
  *   RECALL_TRANSCRIPT_PROVIDER=recall   (default) — Recall.ai streaming ASR
@@ -11,7 +10,6 @@
  *     Requires DEEPGRAM_API_KEY env var.
  *     Revert: set RECALL_TRANSCRIPT_PROVIDER=recall in Vercel dashboard (no deploy needed).
  */
-import { textToMp3Base64 } from './tts'
 import { redactAuditTokenFromUrl } from './session-billing'
 
 const RECALL_REGION = process.env.RECALL_AI_REGION ?? 'us-west-2'
@@ -138,35 +136,6 @@ export async function deleteBot(botId: string): Promise<void> {
   if (!res.ok && res.status !== 404) {
     const body = await res.text()
     throw new Error(`Recall.ai deleteBot failed: ${res.status} ${body}`)
-  }
-}
-
-/**
- * Converts text to ElevenLabs audio and plays it through the bot in the meeting.
- * Uses output_audio endpoint (us-east-1 compatible) — speak_text is not available.
- */
-export async function speakText(botId: string, text: string): Promise<void> {
-  if (isPlaceholder) {
-    console.log('[MOCK RECALL] speakText called', { botId, text })
-    return
-  }
-
-  try {
-    const b64 = await textToMp3Base64(text)
-
-    const res = await fetch(`${RECALL_BASE}/bot/${botId}/output_audio/`, {
-      method: 'POST',
-      headers: recallHeaders(),
-      body: JSON.stringify({ kind: 'mp3', b64_data: b64 }),
-    })
-
-    if (!res.ok) {
-      const body = await res.text()
-      console.error(`Recall.ai output_audio failed: ${res.status} ${body}`)
-    }
-  } catch (err) {
-    // Non-fatal — log and continue
-    console.error('speakText error:', err)
   }
 }
 

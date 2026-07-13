@@ -8,7 +8,7 @@ import type { UserContext } from '@/lib/content/session-content-generator'
  * voice path's `advance_tab` tool call actually reach the server-side
  * on-demand generation logic in lib/voice/live-conductor-bridge.ts, mirroring
  * exactly what app/api/clio/chat/completions/route.ts already does in-process
- * for the ElevenLabs/Custom-LLM path.
+ * for the Hume Custom-LLM path.
  *
  * Auth: none — matches the established public/userId-keyed pattern already
  * used by app/api/walkthrough-state/[userId]/route.ts (the headless Recall.ai

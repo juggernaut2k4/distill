@@ -8,7 +8,7 @@
  * cookie, so it can only identify itself by userId — never by a Clerk-authenticated
  * sessionId the way /api/sessions/[id]/end does.
  *
- * Bug this fixes: when the ElevenLabs/Hume agent calls the `end_session` client
+ * Bug this fixes: when Clio (Hume) calls the `end_session` client
  * tool (or the farewell-detection heuristic fires), WalkthroughClient today only
  * flips local UI state (`sessionComplete`) — nothing tells Recall.ai to leave the
  * meeting, so the bot lingers indefinitely and keeps accruing (unbilled, since

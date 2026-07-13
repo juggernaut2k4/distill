@@ -13,10 +13,9 @@ const isPublicRoute = createRouteMatcher([
   '/dashboard/welcome(.*)',
   '/api/webhooks/(.*)',
   '/api/recall/webhook(.*)',  // Recall.ai webhook — no user auth
-  '/api/tts(.*)',             // TTS audio — called by Recall.ai headless browser (no auth)
   '/api/walkthrough-state/(.*)', // Walkthrough state polling — called by headless browser
-  '/api/generate-visual(.*)', // Visual generation — triggered by ElevenLabs client tool in headless browser
-  '/api/clio/chat/completions', // Custom LLM endpoint — called by ElevenLabs servers (no user auth)
+  '/api/generate-visual(.*)', // Visual generation — triggered by Clio's show_visual client tool in headless browser
+  '/api/clio/chat/completions', // Custom LLM endpoint — called by Hume's Custom-LLM bridge (no user auth)
   '/api/admin/seed-topics',    // Admin seed — checked via secret header; Clerk session also accepted
   '/api/admin/seed-topic-cache', // Role topic cache seeder — no user session needed
   '/walkthrough/(.*)',        // Public walkthrough page shared by Recall.ai bot

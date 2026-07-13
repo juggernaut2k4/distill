@@ -7,8 +7,8 @@ import SessionStack from '@/components/templates/SessionStack'
 import VisualizationTabPanel from '@/components/kb/VisualizationTabPanel'
 import type { VisualSpec } from '@/lib/session-ai'
 import type { TabManifest, TemplateSection, VisualizationTab } from '@/lib/templates/types'
-import { Conversation } from '@11labs/client'
-import { createVoiceAdapter, type VoiceSessionAdapter, HumeAdapter } from '@/lib/voice'
+import type { VoiceSessionAdapter } from '@/lib/voice'
+import { HumeAdapter } from '@/lib/voice'
 // LIVE-01 — new, isolated client module for the toggle-gated live conductor
 // path. This is invoked conditionally at a few well-defined points below (tool
 // registration + poll-state application + rendering); it does NOT read or
@@ -30,22 +30,12 @@ import LiveConductorVisual from '@/components/live-conductor/LiveConductorVisual
 import { checkRtv03Transition, buildRtv03AuditMetadata } from '@/lib/content/rtv03-tracker'
 import type { SessionMarkerEntry } from '@/lib/content/session-markers'
 
-const AGENT_ID = process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID ?? 'agent_0701krp1ta48fswrff17ctb0520m'
-
-// Siren voice ID — locked via overrides.tts.voiceId to ensure consistent voice
-// across the firstMessage and all subsequent LLM-generated responses.
-const VOICE_ID = process.env.NEXT_PUBLIC_ELEVENLABS_VOICE_ID ?? 'eXpIbVcVbLo8ZJQDlDnl'
-
-// Voice provider toggle — set NEXT_PUBLIC_VOICE_PROVIDER=hume to use Hume EVI 3.
-// Defaults to elevenlabs so existing sessions are unaffected.
-const VOICE_PROVIDER = process.env.NEXT_PUBLIC_VOICE_PROVIDER ?? 'elevenlabs'
 const HUME_CONFIG_ID = process.env.NEXT_PUBLIC_HUME_CONFIG_ID ?? ''
 
-// HUME-NATIVE-01 — separate, additive toggle (per BA spec 4.1). Branches
-// alongside (not inside) VOICE_PROVIDER/LIVE_CONDUCTOR checks, at the point
-// where a session's Hume Config is selected, in this component's session-start
-// path below. Default unset/false leaves the existing VOICE_PROVIDER==='hume'
-// (Custom-LLM/LIVE-01) path completely untouched — this only ever changes
+// HUME-NATIVE-01 — separate, additive toggle (per BA spec 4.1). Branches at
+// the point where a session's Hume Config is selected, in this component's
+// session-start path below. Default unset/false leaves the standard Hume
+// Custom-LLM (LIVE-01) path completely untouched — this only ever changes
 // which configId is requested before connecting; hume-adapter.ts itself is
 // not modified and requires no changes.
 const HUME_NATIVE_ENABLED = process.env.NEXT_PUBLIC_HUME_NATIVE_ENABLED === 'true'
@@ -91,7 +81,9 @@ const HUME_WRAPUP_NUDGE_TEXT =
   'ends, it does not end automatically just because you said goodbye.'
 
 // How long (ms) of polling silence before sending a keep-alive context update.
-// Keep short — ElevenLabs closes the WebSocket after ~15s of inactivity.
+// Note: Hume's injectContext() is a permanent no-op (see lib/voice/hume-adapter.ts),
+// so this keep-alive currently has no effect for the live Hume path — kept as
+// harmless dead code rather than removed, since a future adapter may implement it.
 const KEEPALIVE_INTERVAL = 8_000
 const MAX_RECONNECT = 6
 
@@ -132,11 +124,6 @@ const RTV05_DISPLAY_WAIT_MS = 15_000
 const SILENCE_CHECKIN_MS = 18_000
 const SILENCE_END_CALL_MS = 18_000
 
-// ElevenLabs agent.prompt.prompt override has a practical limit around 12,000 chars.
-// Beyond this the connection drops silently. session_brief + session_script fit easily;
-// topic_context is truncated to fill the remaining budget.
-const MAX_PROMPT_CHARS = 12_000
-
 // ─── AUTOGEN-01 Part D — billing audit event helper ───────────────────────────
 // Writes one row to the session billing audit log via the public,
 // userId-keyed /api/sessions/audit-event route (this component runs inside the
@@ -165,7 +152,7 @@ function writeAuditEvent(
   userId: string,
   eventType: BillingAuditEventType,
   token: string | null,
-  provider?: 'elevenlabs' | 'hume',
+  provider?: 'hume',
   metadata?: Record<string, unknown>
 ): void {
   fetch('/api/sessions/audit-event', {
@@ -269,8 +256,6 @@ interface WalkthroughState {
   session_script?: string | null
   // Legacy combined field — fallback only
   clio_session_context?: string | null
-  // AGENT-POOL-01: when set, overrides NEXT_PUBLIC_ELEVENLABS_AGENT_ID for this session
-  agent_id?: string | null
   // Per-section tab manifests — keyed by section index as string (e.g. "0", "1").
   // Present only when the section has a VisualizationTabPanel with 2+ tabs.
   tab_manifests?: Record<string, TabManifest> | null
@@ -471,11 +456,8 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
   const [agentError, setAgentError] = useState<string | null>(null)
   const [pollCount, setPollCount] = useState(0)
   const [pollError, setPollError] = useState<string | null>(null)
-  const conversationRef = useRef<Conversation | null>(null)
   // adapterRef: provider-agnostic handle (injectContext, endSession, setVolume, etc.)
-  // elevenLabsConvRef: raw Conversation kept separately for sendUserMessage (ElevenLabs-specific)
   const adapterRef = useRef<VoiceSessionAdapter | null>(null)
-  const elevenLabsConvRef = useRef<Conversation | null>(null)
   // HUME-NATIVE-01 (Graceful Session End) — tracks whether a retry has
   // already been attempted for the CURRENT nudge-pending flag, so the once
   // per-poll-cycle retry policy (Section 8: "one immediate retry, then give
@@ -488,19 +470,14 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
   // ─── Silence / no-response handling ─────────────────────────────────────
   // lastEitherSpokeRef: timestamp of the last time EITHER side spoke (user
   // transcript forwarded, or Clio's onMessage fired with source 'ai'). Kept
-  // separate from lastActivityRef (which drives the pre-existing ElevenLabs
-  // keep-alive/inactivity-disconnect logic above) so this new feature cannot
-  // change that unrelated behavior.
+  // separate from lastActivityRef (which drives the keep-alive/inactivity
+  // logic above) so this new feature cannot change that unrelated behavior.
   const lastEitherSpokeRef = useRef<number>(Date.now())
   // checkinSentAtRef: set when the Stage-1 gentle check-in is injected; used
   // to measure the Stage-2 window from the check-in itself (not from the
   // original silence start), and reset to null on any subsequent activity.
   const checkinSentAtRef = useRef<number | null>(null)
   const hasConnectedRef = useRef(false)
-  // Debounce: buffer the latest transcript and wait 500ms after the last update
-  // before sending to ElevenLabs. Prevents cascade from partial transcript events.
-  const pendingTranscriptRef = useRef<string | null>(null)
-  const sendTranscriptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const sessionEndedRef = useRef(false)
   // SESSION-END-01 — pending fallback teardown timer, armed only when a
   // FAREWELL_PHRASES match occurs on the final section (demoted,
@@ -518,7 +495,7 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
   const trainingScriptsRef = useRef<TrainingScript[]>((initialState.training_scripts ?? []) as TrainingScript[])
   const tabManifestsRef = useRef<Record<string, TabManifest> | null>(initialState.tab_manifests ?? null)
   const currentSectionIndexRef = useRef<number>(initialState.current_section_index ?? 0)
-  // Three-document system — used to build the ElevenLabs system prompt override
+  // Three-document system — used to build Clio's system prompt
   const sessionBriefRef = useRef<string | null>(initialState.session_brief ?? null)
   const topicContextRef = useRef<string | null>(initialState.topic_context ?? null)
   const sessionScriptRef = useRef<string | null>(initialState.session_script ?? null)
@@ -656,13 +633,8 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
   const screenQueueRef = useRef<Promise<void>>(Promise.resolve())
   const lastScreenShownAtRef = useRef<number>(Date.now())
 
-  // Connect to ElevenLabs agent on mount, with auto-reconnect on unexpected drops
+  // Connect to Hume EVI on mount, with auto-reconnect on unexpected drops
   useEffect(() => {
-    // AUD-01: relay mode — ElevenLabs runs server-side via the audio relay.
-    // Skip browser session startup entirely; visual polling (below) still runs.
-    const audioMode = process.env.NEXT_PUBLIC_MEETING_BOT_AUDIO_MODE ?? 'browser'
-    if (audioMode === 'relay') return
-
     let cancelled = false
 
     const connect = async () => {
@@ -696,10 +668,10 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
         if (cancelled) return
 
         // AUTOGEN-01 Part D — informational only, NOT the billing-start signal.
-        writeAuditEvent(userId, 'voice_connect_attempt', auditTokenRef.current, VOICE_PROVIDER === 'hume' ? 'hume' : 'elevenlabs')
+        writeAuditEvent(userId, 'voice_connect_attempt', auditTokenRef.current, 'hume')
 
-        // ── HUME EVI 3 path ───────────────────────────────────────────────────
-        if (VOICE_PROVIDER === 'hume') {
+        // ── HUME EVI 3 ─────────────────────────────────────────────────────────
+        {
           const tokenRes = await fetch('/api/hume-token')
           if (!tokenRes.ok) throw new Error(`Hume token fetch failed: ${tokenRes.status}`)
           const { accessToken } = await tokenRes.json() as { accessToken: string }
@@ -905,7 +877,7 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
                 }
               }
               if (source === 'ai') {
-                // NAV command processing — same logic as ElevenLabs path
+                // NAV command processing
                 const { navCommand } = parseNavCommand(text)
                 if (navCommand !== null) {
                   if (currentSectionIndexRef.current === 0) {
@@ -1227,384 +1199,8 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
           // which Hume rejects with E0716 (1008 close) when a custom LLM is configured.
           // Reconnect context is handled server-side by the custom LLM endpoint.
           console.log('[Walkthrough/Hume] Session started — userId:', userId, '| reconnect:', isReconnect, '| midSession:', isMidSession)
-          return // skip ElevenLabs path
         }
-        // ── END HUME path ─────────────────────────────────────────────────────
-
-        const topic = topicRef.current
-        const nameGreet = userFirstName ? `Welcome, ${userFirstName}! ` : ''
-        const greeting = topic
-          ? `${nameGreet}I'm Clio, your AI learning companion. Today we're covering "${topic}". I've prepared everything — let's dive straight in. Ready?`
-          : `${nameGreet}I'm Clio, your AI learning companion. I'm here and ready to coach you. Let's get started.`
-
-        // Custom LLM mode: the full session context (41k chars) lives server-side at
-        // /api/clio/llm. We pass only the userId so the endpoint knows which user's
-        // context to fetch from walkthrough_state. No size limit issues.
-        // AGENT-POOL-01: use pool-assigned agent when available, else env var default
-        const conv = await Conversation.startSession({
-          agentId: state.agent_id ?? AGENT_ID,
-          connectionType: 'websocket',
-          dynamicVariables: { user_id: userId },
-          overrides: {
-            agent: {
-              // Minimal prompt — just the userId marker. The custom LLM endpoint
-              // at /api/clio/llm fetches the real 41k context from the DB each turn.
-              prompt: { prompt: `You are Clio, an AI business coach. DISTILL_USER_ID: ${userId}` },
-              // Suppress greeting on any reconnect (same-page WS drop OR Attendee bot reload)
-              firstMessage: (isReconnect || isMidSession) ? '' : greeting,
-            },
-            tts: {
-              voiceId: VOICE_ID,
-            },
-          },
-          clientTools: {
-            end_session: async () => {
-              console.log('[Walkthrough] Agent called end_session — session closing')
-              // SESSION-END-01: clear any pending farewell-fallback timer first —
-              // the real tool call is the authoritative signal; the fallback must
-              // never also fire and cause a duplicate teardown.
-              if (farewellFallbackTimeoutRef.current) {
-                clearTimeout(farewellFallbackTimeoutRef.current)
-                farewellFallbackTimeoutRef.current = null
-              }
-              sessionEndedRef.current = true
-              setSessionComplete(true)
-              endCallOnServer(userId, auditTokenRef.current)
-              return 'Session ended.'
-            },
-            show_visual: async ({
-              section_index,
-              topic_id,
-              topic_title,
-            }: {
-              section_index?: number
-              topic_id?: string
-              topic_title?: string
-            }) => {
-              console.log('[Walkthrough] show_visual called — section_index:', section_index, 'title:', topic_title ?? '(none)')
-              try {
-                // New flow: find matching section and scroll to it
-                const sections = sectionsRef.current
-                if (sections.length > 0) {
-                  // Primary: use section_index directly (reliable, title-independent).
-                  // Fallback: exact string match on subtopicTitle for backwards compat
-                  // with older scripts that did not emit section_index.
-                  let idx: number
-                  if (typeof section_index === 'number') {
-                    idx = section_index
-                  } else {
-                    // Backwards-compat exact match — no fuzzy matching
-                    idx = sections.findIndex(
-                      (s) => s.meta.subtopicTitle === topic_title
-                    )
-                  }
-                  // Bounds check: clamp idx to a valid range rather than falling through
-                  // to the legacy generate-visual path with an undefined section.
-                  if (idx < 0) {
-                    // Title not matched and no index given — show the current section.
-                    idx = Math.max(0, currentSectionIndexRef.current)
-                    console.log(`[Walkthrough] show_visual: idx resolved to -1, clamping to current section ${idx}`)
-                  } else if (idx >= sections.length) {
-                    idx = sections.length - 1
-                    console.log(`[Walkthrough] show_visual: idx ${section_index} out of bounds, clamping to ${idx}`)
-                  }
-                  if (idx >= 0) {
-                    // Split-mode: inject this tab's script before scrolling to it.
-                    // idx > 0 because overview (idx=0) has no training script.
-                    const splitCtxMode = process.env.NEXT_PUBLIC_CLIO_CONTEXT_MODE ?? 'all-upfront'
-                    if (splitCtxMode === 'split' && idx > 0) {
-                      const scriptIndex = idx - 1  // section_index 1 → training_scripts[0]
-                      const allScripts = trainingScriptsRef.current
-                      const tabScript = allScripts[scriptIndex] ?? null
-                      const tabSection = sections[idx] ?? null
-                      const formattedScript = tabScript && tabSection
-                        ? formatSectionScript(tabSection, tabScript, idx, sections.length - 1)
-                        : '[Context for this section is loading — coach from the TOPIC KNOWLEDGE BASE for now.]'
-                      try {
-                        adapterRef.current?.injectContext(formattedScript)
-                        console.log(`[split mode] Tab ${idx} script injected at show_visual section_index=${idx}${!tabScript ? ' (fallback — not ready)' : ''}`)
-                      } catch (e) {
-                        console.error(`[split mode] injectContext failed at section_index=${idx}:`, e)
-                      }
-                    }
-
-                    // LIVE-06a — queued through screenQueueRef so this write respects
-                    // SCREEN_MIN_DISPLAY_MS relative to the previous screen write, and
-                    // never blocks future queued writes even if this POST fails.
-                    // LIVE-06b — the queue assignment happens synchronously (so the next
-                    // call correctly chains onto it and rapid-fire transitions still get
-                    // spaced out), but we do NOT await it here before returning the
-                    // instruction text to Clio's LLM — the write runs in the background.
-                    screenQueueRef.current = screenQueueRef.current.then(async () => {
-                      const elapsed = Date.now() - lastScreenShownAtRef.current
-                      if (elapsed < SCREEN_MIN_DISPLAY_MS) {
-                        await new Promise((r) => setTimeout(r, SCREEN_MIN_DISPLAY_MS - elapsed))
-                      }
-                      try {
-                        await fetch(`/api/walkthrough-state/${userId}`, {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ command: 'scroll_to', section_index: idx }),
-                        })
-                      } catch (e) {
-                        console.error('[Walkthrough] scroll_to write failed:', e)
-                      }
-                      lastScreenShownAtRef.current = Date.now()
-                    })
-
-                    // Look up the training script for this section and return it as an
-                    // instruction so Clio's LLM delivers the pre-written TEACH script
-                    // verbatim — aligning what Clio says with what's on screen.
-                    const scripts = trainingScriptsRef.current
-                    const script = scripts[idx]
-                    if (script) {
-                      const teachSeg = script.segments.find((s) => s.type === 'TEACH')
-                      const checkpointSeg = script.segments.find((s) => s.type === 'CHECKPOINT')
-                      const probeSeg = script.segments.find((s) => s.type === 'PROBE')
-                      const continueSeg = script.segments.find((s) => s.type === 'CONTINUE')
-                      if (teachSeg) {
-                        const sectionTitle = sections[idx].meta.subtopicTitle
-                        return (
-                          `Visual is now showing: "${sectionTitle}" (section ${idx + 1} of ${sections.length}).\n\n` +
-                          `Deliver your TEACH script for this section now — speak it naturally as if from memory:\n\n` +
-                          `${teachSeg.content}\n\n` +
-                          `Then ask this CHECKPOINT question:\n"${checkpointSeg?.content ?? 'How does that land for you?'}"\n\n` +
-                          `If they seem uncertain, use this PROBE reframe:\n"${probeSeg?.content ?? 'Let me try a different angle.'}"\n\n` +
-                          `When ready to advance, say this CONTINUE bridge:\n"${continueSeg?.content ?? 'Good — let\'s move on.'}"\n` +
-                          `Then call show_visual for the next section.`
-                        )
-                      }
-                    }
-
-                    return `Now showing: ${sections[idx].meta.subtopicTitle}`
-                  }
-                }
-                // Legacy fallback: generate a VisualSpec and display it.
-                // topic_id and topic_title are optional in the show_visual schema —
-                // guard against undefined so /api/generate-visual never receives an
-                // empty topicId that fails Zod validation.
-                const fallbackTopicId = topic_id ?? `section-${section_index ?? 0}`
-                const fallbackTopicTitle = topic_title ?? `Section ${(section_index ?? 0) + 1}`
-                const res = await fetch('/api/generate-visual', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ userId, topicId: fallbackTopicId, topicTitle: fallbackTopicTitle, realtimeTest: REALTIME_VISUAL_TEST_MODE }),
-                })
-                const data = await res.json() as { ok: boolean }
-                return data.ok ? 'Visual is now showing on screen.' : 'Visual could not be loaded.'
-              } catch {
-                return 'Visual failed to load.'
-              }
-            },
-            defer_question: async ({ question }: { question: string }) => {
-              console.log('[Walkthrough] defer_question called —', question.slice(0, 80))
-              try {
-                await fetch('/api/defer-question', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ userId, question }),
-                })
-              } catch {
-                // Non-fatal — Clio still continues the session
-              }
-              return 'Question saved for follow-up session.'
-            },
-            // LIVE-01 — same additive, unconditional registration as the Hume
-            // path above; see that comment for why this is safe to register
-            // even when the toggle is off (server-side model prompt never
-            // instructs calling this tool unless the live-conductor branch is
-            // active, so it is simply never invoked in the default path).
-            advance_tab: createAdvanceTabToolHandler(userId),
-          },
-          onConnect: ({ conversationId }: { conversationId: string }) => {
-            console.log('[Walkthrough] Agent connected, id:', conversationId)
-            setAgentStatus('listening')
-            // Only reset retry counter after 30s of stable connection.
-            // ElevenLabs can hold a WebSocket for 10-15s before dropping even when
-            // something is wrong — 30s means the session is genuinely working.
-            if (stableConnectionTimerRef.current) clearTimeout(stableConnectionTimerRef.current)
-            stableConnectionTimerRef.current = setTimeout(() => {
-              reconnectAttemptsRef.current = 0
-              setRetryCount(0)
-              setConnectionError(null)   // LIVE-06b — clears the stuck "Unable to Connect" modal
-              setAgentError(null)        // LIVE-06b — clears the paired agent-error banner, if set
-              console.log('[Walkthrough] Connection stable for 30s — retry counter reset')
-            }, 30_000)
-            // AUTOGEN-01 Part D / Edge Case D2 — a successful reconnect after
-            // billing had already started closes any open gap.
-            if (gapOpenRef.current) {
-              gapOpenRef.current = false
-              writeAuditEvent(userId, 'gap_end', auditTokenRef.current, 'elevenlabs')
-            }
-          },
-          onDisconnect: () => {
-            console.log('[Walkthrough] Agent disconnected')
-            adapterRef.current = null
-            elevenLabsConvRef.current = null
-            setAgentStatus('disconnected')
-
-            // AUTOGEN-01 Part D / Edge Case D2 — only a genuine gap if billing had
-            // already started; a disconnect before speak_verified is just a failed
-            // connection attempt (AC-D3 covers that with zero billed minutes).
-            if (speakVerifiedWrittenRef.current && !gapOpenRef.current && !sessionEndedRef.current) {
-              gapOpenRef.current = true
-              writeAuditEvent(userId, 'gap_start', auditTokenRef.current, 'elevenlabs')
-            }
-
-            if (sessionEndedRef.current) {
-              console.log('[Walkthrough] Session ended by agent — not reconnecting')
-              return
-            }
-
-            if (!cancelled && reconnectAttemptsRef.current < MAX_RECONNECT) {
-              reconnectAttemptsRef.current++
-              setRetryCount(reconnectAttemptsRef.current)
-              console.log('[walkthrough] WebSocket reconnect attempt', reconnectAttemptsRef.current, '| userId recovered:', !!userId, '| timestamp:', new Date().toISOString())
-              const delay = Math.min(3000 * reconnectAttemptsRef.current, 20000)
-              console.log(`[Walkthrough] Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current}/${MAX_RECONNECT})`)
-              reconnectTimerRef.current = setTimeout(connect, delay)
-            } else if (!cancelled) {
-              const reason = 'ElevenLabs WebSocket dropped and could not reconnect after 6 attempts.'
-              console.error('[Walkthrough] Max reconnect attempts reached —', reason)
-              setAgentStatus('error')
-              setAgentError(reason)
-              setConnectionError(reason)
-            }
-          },
-          onError: (message: string) => {
-            console.error('[Walkthrough] Agent error:', message)
-            setAgentStatus('error')
-            setAgentError(message.slice(0, 60))
-          },
-          onModeChange: ({ mode }: { mode: 'listening' | 'speaking' }) => {
-            console.log('[Walkthrough] Agent mode:', mode)
-            setAgentStatus(mode)
-          },
-          onMessage: ({ message, source }: { message: string; source: string }) => {
-            console.log(`[Walkthrough] Agent message [${source}]:`, message.slice(0, 120))
-            // Silence handling: reset on Clio speaking too, so the escalation
-            // only fires during genuine two-sided silence, never while she's
-            // mid-monologue.
-            if (source === 'ai') {
-              lastEitherSpokeRef.current = Date.now()
-              checkinSentAtRef.current = null
-            }
-            if (source === 'ai') {
-              // ── NAV command processing ─────────────────────────────────────
-              // Strip [NAV:...] from the spoken text and fire tab navigation.
-              // The clean text was already sent to TTS server-side by /api/clio/llm;
-              // here we act on the command to update the visible tab index.
-              const { navCommand } = parseNavCommand(message)
-              if (navCommand !== null) {
-                if (currentSectionIndexRef.current === 0) {
-                  // Overview section (section 0) — ignore NAV directives to prevent
-                  // premature tab advances while Clio is still on the overview.
-                  console.log(`[Walkthrough] NAV command "${navCommand}" ignored — overview section (section 0)`)
-                } else {
-                  const sectionKey = String(currentSectionIndexRef.current)
-                  const manifest = tabManifestsRef.current?.[sectionKey]
-                  if (manifest && manifest.tabs.length >= 2) {
-                    const newIndex = resolveNavIndex(navCommand, manifest.tabs, activeTabIndexRef.current)
-                    activeTabIndexRef.current = newIndex
-                    setActiveTabIndex(newIndex)
-                    console.log(`[Walkthrough] NAV command "${navCommand}" → tab index ${newIndex}`)
-                  } else {
-                    console.log(`[Walkthrough] NAV command "${navCommand}" ignored — no tab manifest for section ${sectionKey}`)
-                  }
-                }
-              }
-
-              // ── Farewell detection ─────────────────────────────────────────
-              // Skip the first AI message (opening greeting) and use
-              // word-boundary matching (see isFarewellMessage above).
-              // SESSION-END-01: demoted to a gated, non-authoritative fallback —
-              // a phrase match only arms the 8s teardown timer when Clio is on
-              // the final section, and only if the real end_session tool call
-              // hasn't already ended the session (already reliably firing for
-              // this ElevenLabs path today — this gating is inert insurance).
-              const isFirstAiMessage = aiMessageCountRef.current === 0
-              aiMessageCountRef.current += 1
-              if (isFarewellMessage(message, isFirstAiMessage)) {
-                const isFinalSection = currentSectionIndexRef.current === sectionsRef.current.length - 1
-                if (isFinalSection && !sessionEndedRef.current && !farewellFallbackTimeoutRef.current) {
-                  console.log('[Walkthrough] Farewell phrase detected on final section — arming 8s fallback teardown timer')
-                  farewellFallbackTimeoutRef.current = setTimeout(() => {
-                    farewellFallbackTimeoutRef.current = null
-                    if (sessionEndedRef.current) return
-                    console.warn('[Walkthrough] Farewell fallback timer elapsed with no end_session tool call — tearing down via demoted fallback')
-                    sessionEndedRef.current = true
-                    setSessionComplete(true)
-                    endCallOnServer(userId, auditTokenRef.current)
-                  }, 8000)
-                } else if (!isFinalSection) {
-                  console.log('[Walkthrough] Farewell phrase detected outside final section — ignored, no timer armed')
-                }
-              }
-            }
-          },
-          onStatusChange: ({ status }: { status: string }) => {
-            console.log('[Walkthrough] Agent status:', status)
-          },
-        })
-
-        if (cancelled) { conv.endSession().catch(() => {}); return }
-        hasConnectedRef.current = true
-        elevenLabsConvRef.current = conv
-        adapterRef.current = createVoiceAdapter('elevenlabs', conv)
-        lastActivityRef.current = Date.now()
-
-        // AUTOGEN-01 Part D / AC-D1 — billing starts here, and only here: once the
-        // adapter confirms a verified `isOpen()` transition. Written at most once
-        // per session lifetime regardless of reconnects.
-        adapterRef.current.onSpeakVerified(() => {
-          if (!speakVerifiedWrittenRef.current) {
-            speakVerifiedWrittenRef.current = true
-            writeAuditEvent(userId, 'speak_verified', auditTokenRef.current, 'elevenlabs')
-          }
-        })
-
-        // Bot view warmup: on first join, delay revealing content for 3s so Attendee's
-        // headless browser screen capture has time to stabilise. On reconnects the
-        // stream is already running — reveal immediately.
-        if (botView) {
-          if (isReconnect || isMidSession) {
-            setBotViewReady(true)
-          } else {
-            setTimeout(() => setBotViewReady(true), 3000)
-          }
-        }
-
-        const contextMode = process.env.NEXT_PUBLIC_CLIO_CONTEXT_MODE ?? 'all-upfront'
-
-        if (isReconnect || isMidSession) {
-          const section = currentSectionIndexRef.current
-          adapterRef.current.injectContext(
-            isReconnect
-              ? 'The WebSocket connection briefly dropped and reconnected. Do not re-introduce yourself — continue the session naturally from where you left off.'
-              : `You are resuming a session that was briefly interrupted (the bot reconnected). The participant is already on section ${section} of the session — do NOT restart from the overview or re-introduce yourself. Call show_visual({ section_index: ${section} }) and continue from where you left off.`
-          )
-        } else if (contextMode === 'split') {
-          // Inject Tab 1 script immediately — overview is section 0, first content tab is section 1
-          const tab1Script = trainingScriptsRef.current[0] ?? null
-          const sections = sectionsRef.current
-          const tab1Section = sections[1] ?? null
-          if (tab1Script && tab1Section) {
-            const formatted = formatSectionScript(tab1Section, tab1Script, 1, sections.length - 1)
-            try {
-              adapterRef.current.injectContext(formatted)
-              console.log('[split mode] Tab 1 script injected at session start')
-            } catch (e) {
-              console.error('[split mode] injectContext failed at session start:', e)
-            }
-          } else {
-            console.log('[split mode] Tab 1 script not ready at session start — skipping initial injection')
-          }
-        }
-
-        console.log(
-          '[Walkthrough]',
-          isReconnect ? 'Reconnected — server-side context persists' : `Session started — context fetched by custom LLM for user=${userId} (mode=${contextMode})`
-        )
+        // ── END HUME ───────────────────────────────────────────────────────────
       } catch (err) {
         if (cancelled) return
         const msg = err instanceof Error ? err.message : String(err)
@@ -1619,7 +1215,7 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
           console.log(`[Walkthrough] Connection failed, retrying in ${delay}ms (attempt ${reconnectAttemptsRef.current}/${MAX_RECONNECT})`)
           reconnectTimerRef.current = setTimeout(connect, delay)
         } else {
-          const reason = `Failed to establish ElevenLabs connection after ${MAX_RECONNECT} attempts. Last error: ${msg}`
+          const reason = `Failed to establish Hume connection after ${MAX_RECONNECT} attempts. Last error: ${msg}`
           console.error('[Walkthrough] Giving up —', reason)
           setConnectionError(reason)
         }
@@ -1639,13 +1235,12 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
       if (relayConfirmTimeoutRef.current) clearTimeout(relayConfirmTimeoutRef.current)
       adapterRef.current?.endSession().catch(() => {})
       adapterRef.current = null
-      elevenLabsConvRef.current = null
     }
   }, [userId])
 
   // Poll walkthrough_state every second:
   // - Update visual_spec / status for the screen
-  // - Forward pending_transcript to ElevenLabs agent via sendUserMessage
+  // - Track pending_transcript activity for silence-escalation timing
   // - Send keep-alive context update every 25s to prevent inactivity disconnect
   useEffect(() => {
     let active = true
@@ -1682,8 +1277,8 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
         // WebSocket. Only ever relevant for Hume-native sessions: the flag is
         // never written to true by session-timer.ts for any other session
         // type, and the adapter check below additionally requires a
-        // HumeAdapter instance, so this is a no-op for ElevenLabs and Hume
-        // Custom-LLM/LIVE-01 sessions even if somehow polled.
+        // HumeAdapter instance, so this is a no-op for Hume Custom-LLM/LIVE-01
+        // sessions even if somehow polled.
         if (!data.hume_wrapup_nudge_pending) {
           // Flag is false/absent — reset the once-per-flag retry tracker so a
           // future nudge (should not normally happen twice per session, but
@@ -1740,55 +1335,18 @@ export default function WalkthroughClient({ userId, userFirstName, initialState,
           setLiveConductorVisual(liveConductorRef.current.visual)
         }
 
-        // elevenLabsConvRef used for sendUserMessage (ElevenLabs-specific transcript forwarding)
-        const conv = elevenLabsConvRef.current
-
-        // Feed participant transcript to agent — debounced to prevent cascade.
-        // Recall.ai fires transcript.data events every 100-300ms while someone speaks.
-        // Without debouncing, each partial fires a separate LLM call → 6+ second cascade.
-        // We buffer the latest transcript and only send after 500ms of no new updates,
-        // ensuring one LLM call per utterance rather than one per partial word chunk.
+        // Track participant transcript activity for silence-escalation timing.
+        // Hume hears participant audio directly over its own WebSocket/mic
+        // stream — this pending_transcript field (written by the Recall.ai
+        // webhook from live transcription) is not forwarded to Hume; it is
+        // used only to reset the "either side spoke" silence clock below.
         const transcript = data.pending_transcript
-        // Silence handling: any new transcript content means the user spoke —
-        // reset the shared "either side spoke" clock for BOTH providers (Hume's
-        // user speech also arrives via this same pending_transcript field from
-        // Recall.ai transcription, even though Hume forwards it server-side
-        // rather than via elevenLabsConvRef/sendUserMessage below).
         if (transcript && transcript !== lastSentTranscriptRef.current) {
           lastEitherSpokeRef.current = Date.now()
           checkinSentAtRef.current = null
         }
-        if (transcript && transcript !== lastSentTranscriptRef.current && conv && !sessionEndedRef.current) {
-          // Skip very short transcripts while Clio is speaking — filler words ("mm", "ok",
-          // "yeah") picked up during TTS should not interrupt or queue a new LLM call.
-          const wordCount = transcript.trim().split(/\s+/).length
-          const currentMode = agentStatus
-          if (wordCount < 3 && (currentMode === 'speaking')) {
-            // Too short to act on while Clio is talking — clear it from DB and skip
-            if (transcript !== lastSentTranscriptRef.current) {
-              fetch(`/api/walkthrough-state/${userId}`, { method: 'PATCH' }).catch(() => {})
-            }
-          } else {
-            // Always buffer the latest (may be longer than the previous partial)
-            pendingTranscriptRef.current = transcript
 
-            // Reset debounce timer — fires 500ms after the last transcript update
-            if (sendTranscriptTimerRef.current) clearTimeout(sendTranscriptTimerRef.current)
-            sendTranscriptTimerRef.current = setTimeout(() => {
-              const toSend = pendingTranscriptRef.current
-              const convNow = elevenLabsConvRef.current
-              if (!toSend || !convNow || toSend === lastSentTranscriptRef.current) return
-              lastSentTranscriptRef.current = toSend
-              pendingTranscriptRef.current = null
-              lastActivityRef.current = Date.now()
-              convNow.sendUserMessage(toSend)
-              console.log('[Walkthrough] Sent to agent (debounced):', toSend.slice(0, 80))
-              fetch(`/api/walkthrough-state/${userId}`, { method: 'PATCH' }).catch(() => {})
-            }, 500)
-          }
-        }
-
-        // Keep-alive: prevent ElevenLabs inactivity disconnect when user is silent
+        // Keep-alive: nudge the session when the participant is silent
         if (adapterRef.current && Date.now() - lastActivityRef.current > KEEPALIVE_INTERVAL) {
           lastActivityRef.current = Date.now()
           adapterRef.current.injectContext('Session is ongoing. Participant may be listening.')

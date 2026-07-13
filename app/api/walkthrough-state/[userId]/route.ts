@@ -103,7 +103,7 @@ export async function GET(
 
 /**
  * PATCH /api/walkthrough-state/[userId]
- * Clears pending_transcript after it has been sent to the ElevenLabs agent.
+ * Clears pending_transcript after it has been consumed by the client.
  *
  * HUME-NATIVE-01 (Graceful Session End) — additive: also accepts an optional
  * `{ clear: 'hume_wrapup_nudge_pending' }` body to clear the new Hume-specific

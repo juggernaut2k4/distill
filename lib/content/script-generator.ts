@@ -22,8 +22,8 @@ export type ScriptSegmentType = 'TEACH' | 'CHECKPOINT' | 'ICE_BREAKER' | 'PROBE'
 
 /**
  * Seven pre-generated response variants per CHECKPOINT question.
- * ElevenLabs selects the right variant at runtime based on what the participant says —
- * no LLM call needed during the live session.
+ * Clio selects the right variant at runtime based on what the participant says —
+ * no separate LLM call needed during the live session.
  */
 export interface CheckpointVariants {
   v1_perfect: string            // Got it right + added insight → celebrate + deepen

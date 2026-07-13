@@ -55,7 +55,7 @@ describe('computeBilledMinutes', () => {
   it('bills 0 minutes when the audit log never contains a speak_verified row', async () => {
     auditRows = [
       { event_type: 'bot_joined', occurred_at: '2024-01-01T00:00:00.000Z', voice_provider: null, metadata: {} },
-      { event_type: 'voice_connect_attempt', occurred_at: '2024-01-01T00:00:05.000Z', voice_provider: 'elevenlabs', metadata: {} },
+      { event_type: 'voice_connect_attempt', occurred_at: '2024-01-01T00:00:05.000Z', voice_provider: 'hume', metadata: {} },
       { event_type: 'disconnected', occurred_at: '2024-01-01T00:05:00.000Z', voice_provider: null, metadata: {} },
     ]
 
@@ -75,7 +75,7 @@ describe('computeBilledMinutes', () => {
   // AC-D6: a gap (disconnect + reconnect) is excluded from billed minutes.
   it('subtracts a closed gap_start/gap_end pair from billed minutes', async () => {
     auditRows = [
-      { event_type: 'speak_verified', occurred_at: '2024-01-01T00:00:00.000Z', voice_provider: 'elevenlabs', metadata: {} },
+      { event_type: 'speak_verified', occurred_at: '2024-01-01T00:00:00.000Z', voice_provider: 'hume', metadata: {} },
       { event_type: 'gap_start', occurred_at: '2024-01-01T00:01:00.000Z', voice_provider: null, metadata: {} },
       { event_type: 'gap_end', occurred_at: '2024-01-01T00:02:00.000Z', voice_provider: null, metadata: {} },
       { event_type: 'disconnected', occurred_at: '2024-01-01T00:05:00.000Z', voice_provider: null, metadata: {} },

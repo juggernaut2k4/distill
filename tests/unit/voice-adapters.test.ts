@@ -1,74 +1,11 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { ElevenLabsAdapter } from '@/lib/voice/elevenlabs-adapter'
+import { describe, it, expect, vi } from 'vitest'
 import { HumeAdapter, type HumeAdapterConfig } from '@/lib/voice/hume-adapter'
 
 /**
- * AUTOGEN-01 Part D — AC-D5: both the ElevenLabs and Hume voice adapters must
- * only fire onSpeakVerified after their respective real readiness signal, never
- * earlier (e.g. never on a mere connection attempt / metadata-only event).
+ * AUTOGEN-01 Part D — AC-D5: the Hume voice adapter must only fire
+ * onSpeakVerified after its real readiness signal, never earlier (e.g. never
+ * on a mere connection attempt / metadata-only event).
  */
-
-describe('ElevenLabsAdapter.onSpeakVerified (AC-D5)', () => {
-  beforeEach(() => {
-    vi.useFakeTimers()
-  })
-
-  afterEach(() => {
-    vi.useRealTimers()
-  })
-
-  function makeConversation(isOpen: () => boolean) {
-    return { isOpen } as unknown as import('@11labs/client').Conversation
-  }
-
-  it('fires immediately when the underlying connection is already open', () => {
-    const conversation = makeConversation(() => true)
-    const adapter = new ElevenLabsAdapter(conversation)
-
-    const callback = vi.fn()
-    adapter.onSpeakVerified(callback)
-
-    expect(callback).toHaveBeenCalledTimes(1)
-  })
-
-  it('does NOT fire while the connection is still closed, and fires once it opens', () => {
-    let open = false
-    const conversation = makeConversation(() => open)
-    const adapter = new ElevenLabsAdapter(conversation)
-
-    const callback = vi.fn()
-    adapter.onSpeakVerified(callback)
-
-    // Not open yet — must not have fired on registration alone.
-    expect(callback).not.toHaveBeenCalled()
-
-    // Still not open after some polling ticks.
-    vi.advanceTimersByTime(600)
-    expect(callback).not.toHaveBeenCalled()
-
-    // Connection opens — next poll tick should fire exactly once.
-    open = true
-    vi.advanceTimersByTime(200)
-    expect(callback).toHaveBeenCalledTimes(1)
-
-    // Further polling ticks must not re-fire it.
-    vi.advanceTimersByTime(1000)
-    expect(callback).toHaveBeenCalledTimes(1)
-  })
-
-  it('never fires if the connection never opens (AC-D3: zero billed minutes for that attempt)', () => {
-    const conversation = makeConversation(() => false)
-    const adapter = new ElevenLabsAdapter(conversation)
-
-    const callback = vi.fn()
-    adapter.onSpeakVerified(callback)
-
-    // Exhaust the internal 10s timeout.
-    vi.advanceTimersByTime(11_000)
-
-    expect(callback).not.toHaveBeenCalled()
-  })
-})
 
 describe('HumeAdapter.onSpeakVerified (AC-D5)', () => {
   function makeAdapter() {

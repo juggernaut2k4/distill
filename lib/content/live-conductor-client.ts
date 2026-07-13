@@ -74,7 +74,7 @@ export function applyLiveConductorPoll(
  * POSTs to /api/live-conductor/advance-tab with the session's userId, which
  * resolves live-conductor state and calls the existing handleAdvanceTab()
  * (lib/voice/live-conductor-bridge.ts) — the same logic already used by the
- * ElevenLabs/Custom-LLM path. The route persists the new tab index + visual
+ * Hume Custom-LLM path. The route persists the new tab index + visual
  * to walkthrough_state directly, and this client's poll loop picks up the
  * result via applyLiveConductorPoll above; no client-side state mutation is
  * needed here beyond returning the tool-call result string.

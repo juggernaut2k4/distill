@@ -49,7 +49,7 @@ const ClientWritableEventType = z.enum([
 const BodySchema = z.object({
   userId: z.string().min(1),
   eventType: ClientWritableEventType,
-  provider: z.enum(['elevenlabs', 'hume']).optional(),
+  provider: z.enum(['hume']).optional(),
   token: z.string().min(1),
   // RTV-03 (additive, optional) — existing event types never send this and
   // default to {} exactly as they do today; only the new rtv03_* event types

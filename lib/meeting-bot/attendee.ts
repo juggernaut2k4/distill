@@ -53,8 +53,8 @@ export const attendeeProvider: MeetingBotProvider = {
 
 // ─── Browser mode (current, default) ─────────────────────────────────────────
 // Attendee loads walkthroughUrl in headless Chromium. WalkthroughClient runs
-// ElevenLabs in the browser. Participant speech reaches ElevenLabs via the
-// transcript webhook → DB → poll → sendUserMessage chain.
+// the live Hume EVI voice session in that browser tab; the bot's mic/speaker
+// carry Hume's audio directly into the meeting.
 
 async function createBotBrowserMode(
   meetingUrl: string,
@@ -88,11 +88,15 @@ async function createBotBrowserMode(
   return { botId: data.id }
 }
 
-// ─── Relay mode (AUD-01) ──────────────────────────────────────────────────────
-// Attendee streams raw PCM16 audio directly to our relay WebSocket server.
-// ElevenLabs runs server-side via the relay — no headless browser page loaded.
-// Tool calls (show_visual, end_session) are handled server-side by relay-handler.
-// Visuals are rendered in the user's own browser at /walkthrough/{userId}.
+// ─── Relay mode (AUD-01) — NON-FUNCTIONAL as of the ElevenLabs removal ────────
+// Attendee streams raw PCM16 audio directly to a relay WebSocket server at
+// AUDIO_RELAY_WS_URL. That server (server.ts + lib/voice/relay-handler.ts) was
+// an ElevenLabs-only implementation and has been deleted — there is currently
+// no backend listening on AUDIO_RELAY_WS_URL, and no Hume-compatible relay
+// server has been built to replace it. This function is left in place (Attendee
+// integration scaffolding is otherwise generic) but MEETING_BOT_AUDIO_MODE=relay
+// will fail/hang until a new relay server is implemented. Not reachable via the
+// default config (MEETING_BOT_PROVIDER=recall, MEETING_BOT_AUDIO_MODE=browser).
 
 async function createBotRelayMode(
   meetingUrl: string,
@@ -116,8 +120,8 @@ async function createBotRelayMode(
       bot_name: 'Clio',
       // Hybrid mode: bot loads the walkthrough page for screen sharing,
       // AND streams raw PCM16 audio to the relay for low-latency voice.
-      // WalkthroughClient skips ElevenLabs in relay mode (relay guard),
-      // so the headless page is a visual renderer only — no duplicate session.
+      // See the NON-FUNCTIONAL note above this function — there is currently
+      // no relay backend to receive this audio stream.
       voice_agent_settings: { url: walkthroughUrl },
       websocket_settings: {
         audio: {
@@ -125,7 +129,7 @@ async function createBotRelayMode(
           sample_rate: 16000,
         },
       },
-      // transcript.update omitted — ElevenLabs STT runs from the audio stream directly
+      // transcript.update omitted — STT was intended to run from the audio stream directly
       webhooks: [{
         url: webhookUrl,
         triggers: ['bot.state_change', 'participant_events.join_leave'],

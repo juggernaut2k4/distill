@@ -98,7 +98,12 @@ export type BillingAuditEventType =
   | 'rtv03_quick_summary_cue'
   | 'rtv03_next_topic_cue'
 
-export type VoiceProvider = 'elevenlabs' | 'hume'
+// Hume is the sole voice provider going forward. The type is kept as a
+// literal union (rather than a bare string) for future-proofing; historical
+// audit-log rows written before the ElevenLabs removal may still contain the
+// legacy 'elevenlabs' string value — that's fine since AuditRow reads are
+// cast, not validated, and no code path writes 'elevenlabs' anymore.
+export type VoiceProvider = 'hume'
 
 interface AuditRow {
   event_type: BillingAuditEventType
@@ -334,7 +339,7 @@ async function tryHumeWebhookFastPath(
  * never silently drift from what Hume itself will invoice us for compute.
  *
  * Per docs/specs/HUME-DURATION-BILLING-01-requirement-doc.md Section 4.1/6.2:
- * - Non-Hume-native sessions (ElevenLabs/Custom-LLM): returns
+ * - Non-Hume-native sessions (Hume Custom-LLM): returns
  *   `{ source: 'not_applicable' }` immediately, no Hume API call attempted.
  *   The caller falls through to the existing, completely unchanged
  *   `computeBilledMinutes()` path.
@@ -489,7 +494,7 @@ export async function forceEndSession(params: {
 
   // HUME-DURATION-BILLING-01 — for Hume-native sessions, prefer Hume's own
   // authoritative chat duration over the audit-log calculation. Falls back
-  // to the existing, unmodified computeBilledMinutes() for ElevenLabs/
+  // to the existing, unmodified computeBilledMinutes() for Hume
   // Custom-LLM sessions and whenever the Hume fetch is unavailable/fails.
   const humeResult = await finalizeHumeNativeBilling({ sessionId })
 

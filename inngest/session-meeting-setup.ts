@@ -2,7 +2,6 @@ import { inngest } from './client'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { createBot } from '@/lib/recall'
 import { sendSMS } from '@/lib/delivery/sms'
-import { isPoolModeEnabled, reserveAgent, attachKbDocs, ensurePoolCapacity } from '@/lib/elevenlabs-pool'
 import { getAllReadySections, type SessionPlan } from '@/lib/session-plan'
 import { buildAllClioDocs } from '@/lib/clio-context-builder'
 import { generateTopicContextDoc } from '@/lib/content/topic-context-generator'
@@ -26,10 +25,6 @@ export const sessionMeetingSetup = inngest.createFunction(
     const now = new Date()
     const windowStart = new Date(now.getTime() + 25 * 60 * 1000)
     const windowEnd = new Date(now.getTime() + 35 * 60 * 1000)
-
-    // AGENT-POOL-01: top up pool before session window so agents are always ready.
-    // Clones from the source Clio agent automatically — no manual cloning needed.
-    await step.run('ensure-agent-pool-capacity', () => ensurePoolCapacity())
 
     const upcomingSessions = await step.run('fetch-sessions-in-window', async () => {
       const supabase = createSupabaseAdminClient()
@@ -61,16 +56,6 @@ export const sessionMeetingSetup = inngest.createFunction(
           const meetingUrl = session.meeting_url as string
           const sessionTitle = (session.session_title as string) ?? 'Your Clio Session'
           const walkthroughUrl = `${process.env.NEXT_PUBLIC_APP_URL}/walkthrough/${userId}`
-
-          // AGENT-POOL-01: reserve a pre-warmed ElevenLabs agent when pool mode is on.
-          // When off (default), poolAgentId is null and everything works as before.
-          let poolAgentId: string | null = null
-          if (isPoolModeEnabled()) {
-            poolAgentId = await reserveAgent(session.id as string)
-            if (!poolAgentId) {
-              console.warn('[session-meeting-setup] Agent pool exhausted — falling back to default agent')
-            }
-          }
 
           // Send bot into the meeting
           const { botId } = await createBot(meetingUrl, userId, walkthroughUrl)
@@ -157,35 +142,13 @@ export const sessionMeetingSetup = inngest.createFunction(
               userIndustry,
             })
 
-            // AGENT-POOL-01: attach pre-indexed KB docs to the reserved agent.
-            // KB doc IDs are written to topic_content_cache at content-generation
-            // time, so ElevenLabs has already indexed them — zero delay here.
-            if (poolAgentId) {
-              const { data: kbRows } = await supabase
-                .from('topic_content_cache')
-                .select('elevenlabs_kb_doc_id')
-                .eq('topic_id', topicId)
-                .in('subtopic_slug', readySections.map((s) => s.id))
-                .not('elevenlabs_kb_doc_id', 'is', null)
-
-              const kbDocIds = (kbRows ?? [])
-                .map((r) => r.elevenlabs_kb_doc_id as string)
-                .filter(Boolean)
-
-              if (kbDocIds.length > 0) {
-                await attachKbDocs(poolAgentId, kbDocIds).catch((err) =>
-                  console.error('[session-meeting-setup] KB attach failed (non-fatal):', err)
-                )
-              }
-            }
           }
 
           // SCREEN-01: wrap the N real subtopics with a dedicated SessionOverview
           // (index 0) and SessionSummary (index N+1). Real subtopics shift from
           // 0..N-1 to 1..N. training_scripts stays real-subtopics-only (N-length,
           // 0-indexed) — Overview/Summary have no TEACH script, so it is NOT
-          // wrapped with a matching null pad here; relay-handler.ts's clampedIndex-1
-          // offset math accounts for this intentional length difference.
+          // wrapped with a matching null pad here.
           const sectionsWithBookends = readySections.length > 0
             ? wrapSectionsWithBookends(readySections, sessionTitle, [])
             : []
@@ -210,8 +173,6 @@ export const sessionMeetingSetup = inngest.createFunction(
               topic_context: docs.topic_context || null,
               session_script: docs.session_script || null,
               clio_session_context: docs.system_prompt || null,
-              // AGENT-POOL-01: null when pool mode off — WalkthroughClient falls back to NEXT_PUBLIC_ELEVENLABS_AGENT_ID
-              agent_id: poolAgentId,
             }, { onConflict: 'user_id' })
 
           if (!userRow) return
