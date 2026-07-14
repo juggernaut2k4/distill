@@ -17,7 +17,7 @@ export default function DefinitionTriptych({ data, isActive, onReady }: Definiti
       {/* Header */}
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-2">
-          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#7C3AED]/20 text-[#A855F7] border border-[#7C3AED]/30">
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_20%,transparent)] text-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_75%,white)] border border-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_30%,transparent)]">
             {data.category}
           </span>
         </div>
@@ -29,14 +29,14 @@ export default function DefinitionTriptych({ data, isActive, onReady }: Definiti
 
         {/* Panel 1 — What It Is */}
         <motion.div
-          className="rounded-xl border-2 border-[#7C3AED]/50 bg-[#111111] p-6 flex flex-col"
+          className="rounded-xl border-2 border-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_50%,transparent)] bg-[#111111] p-6 flex flex-col"
           initial={{ opacity: 0, y: 16 }}
           animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 16 }}
           transition={{ delay: 0.15, duration: 0.4 }}
         >
           <div className="flex items-center gap-2 mb-4">
             <span className="text-2xl">📖</span>
-            <p className="text-xs font-semibold uppercase tracking-widest text-[#A855F7]">What It Is</p>
+            <p className="text-xs font-semibold uppercase tracking-widest text-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_75%,white)]">What It Is</p>
           </div>
           <p className="text-white font-bold text-base mb-3">{data.term}</p>
           <p className="text-[#94A3B8] text-base leading-relaxed flex-1">{data.what_it_is}</p>
@@ -44,14 +44,14 @@ export default function DefinitionTriptych({ data, isActive, onReady }: Definiti
 
         {/* Panel 2 — Real Example */}
         <motion.div
-          className="rounded-xl border-2 border-[#06B6D4]/50 bg-[#111111] p-6 flex flex-col"
+          className="rounded-xl border-2 border-[color-mix(in_srgb,var(--partner-secondary,#06B6D4)_50%,transparent)] bg-[#111111] p-6 flex flex-col"
           initial={{ opacity: 0, y: 16 }}
           animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 16 }}
           transition={{ delay: 0.25, duration: 0.4 }}
         >
           <div className="flex items-center gap-2 mb-4">
             <span className="text-2xl">🏢</span>
-            <p className="text-xs font-semibold uppercase tracking-widest text-[#06B6D4]">Real Example</p>
+            <p className="text-xs font-semibold uppercase tracking-widest text-[var(--partner-secondary,#06B6D4)]">Real Example</p>
           </div>
           <p className="text-white font-bold text-sm mb-2">{data.real_example.company}</p>
           <p className="text-[#94A3B8] text-base leading-relaxed mb-3 flex-1">{data.real_example.what}</p>
@@ -62,22 +62,22 @@ export default function DefinitionTriptych({ data, isActive, onReady }: Definiti
 
         {/* Panel 3 — Common Myth */}
         <motion.div
-          className="rounded-xl border-2 border-[#F59E0B]/50 bg-[#111111] p-6 flex flex-col"
+          className="rounded-xl border-2 border-[color-mix(in_srgb,var(--partner-accent,#F59E0B)_50%,transparent)] bg-[#111111] p-6 flex flex-col"
           initial={{ opacity: 0, y: 16 }}
           animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 16 }}
           transition={{ delay: 0.35, duration: 0.4 }}
         >
           <div className="flex items-center gap-2 mb-4">
             <span className="text-2xl">⚠️</span>
-            <p className="text-xs font-semibold uppercase tracking-widest text-[#F59E0B]">Common Myth</p>
+            <p className="text-xs font-semibold uppercase tracking-widest text-[var(--partner-accent,#F59E0B)]">Common Myth</p>
           </div>
           <p className="text-[#94A3B8] text-base leading-relaxed flex-1">{data.common_myth}</p>
         </motion.div>
       </div>
 
       {/* So what footer */}
-      <div className="absolute bottom-0 left-0 right-0 bg-[#7C3AED]/20 border-t border-[#7C3AED]/30 px-8 py-4 flex items-center gap-3">
-        <span className="text-sm font-semibold text-[#A855F7] shrink-0">So what?</span>
+      <div className="absolute bottom-0 left-0 right-0 bg-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_20%,transparent)] border-t border-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_30%,transparent)] px-8 py-4 flex items-center gap-3">
+        <span className="text-sm font-semibold text-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_75%,white)] shrink-0">So what?</span>
         <span className="text-sm text-white">{data.so_what}</span>
       </div>
     </motion.div>

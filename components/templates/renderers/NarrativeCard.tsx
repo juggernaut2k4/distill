@@ -20,7 +20,7 @@ export default function NarrativeCard({ data, isActive, onReady, headerEnabled }
       {/* Header row */}
       <div className="flex items-center gap-4 mb-6">
         <h2 className="text-3xl font-bold text-white">{data.company}</h2>
-        <span className="px-3 py-1 rounded-full text-xs font-semibold bg-[#06B6D4]/20 text-[#06B6D4] border border-[#06B6D4]/30">
+        <span className="px-3 py-1 rounded-full text-xs font-semibold bg-[color-mix(in_srgb,var(--partner-secondary,#06B6D4)_20%,transparent)] text-[var(--partner-secondary,#06B6D4)] border border-[color-mix(in_srgb,var(--partner-secondary,#06B6D4)_30%,transparent)]">
           {data.industry}
         </span>
       </div>
@@ -41,12 +41,12 @@ export default function NarrativeCard({ data, isActive, onReady, headerEnabled }
 
         {/* Approach */}
         <motion.div
-          className="rounded-xl border border-[#7C3AED]/30 bg-[#7C3AED]/5 p-5 flex flex-col"
+          className="rounded-xl border border-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_30%,transparent)] bg-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_5%,transparent)] p-5 flex flex-col"
           initial={{ opacity: 0, y: 12 }}
           animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 12 }}
           transition={{ delay: 0.25, duration: 0.4 }}
         >
-          <p className="text-xs font-semibold uppercase tracking-widest text-[#A855F7] mb-3">Approach</p>
+          <p className="text-xs font-semibold uppercase tracking-widest text-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_75%,white)] mb-3">Approach</p>
           <p className="text-white text-base leading-relaxed flex-1">{data.approach}</p>
         </motion.div>
 
@@ -72,7 +72,7 @@ export default function NarrativeCard({ data, isActive, onReady, headerEnabled }
       >
         {metrics.map((m, i) => (
           <div key={i} className="rounded-xl border border-[#222222] bg-[#111111] px-5 py-4 text-center">
-            <div className="text-2xl font-extrabold text-[#06B6D4]">{m.value}</div>
+            <div className="text-2xl font-extrabold text-[var(--partner-secondary,#06B6D4)]">{m.value}</div>
             <div className="text-[#94A3B8] text-xs mt-1">{m.label}</div>
           </div>
         ))}
@@ -80,18 +80,18 @@ export default function NarrativeCard({ data, isActive, onReady, headerEnabled }
 
       {/* Lesson */}
       <motion.div
-        className="mt-4 rounded-xl border border-[#F59E0B]/30 bg-[#F59E0B]/5 px-5 py-3 flex items-center gap-3"
+        className="mt-4 rounded-xl border border-[color-mix(in_srgb,var(--partner-accent,#F59E0B)_30%,transparent)] bg-[color-mix(in_srgb,var(--partner-accent,#F59E0B)_5%,transparent)] px-5 py-3 flex items-center gap-3"
         initial={{ opacity: 0 }}
         animate={isActive ? { opacity: 1 } : { opacity: 0 }}
         transition={{ delay: 0.55, duration: 0.4 }}
       >
-        <span className="text-xs font-semibold uppercase tracking-widest text-[#F59E0B] shrink-0">Lesson</span>
+        <span className="text-xs font-semibold uppercase tracking-widest text-[var(--partner-accent,#F59E0B)] shrink-0">Lesson</span>
         <span className="text-white text-sm">{data.lesson}</span>
       </motion.div>
 
       {/* So what footer */}
-      <div className="absolute bottom-0 left-0 right-0 bg-[#7C3AED]/20 border-t border-[#7C3AED]/30 px-8 py-4 flex items-center gap-3">
-        <span className="text-sm font-semibold text-[#A855F7] shrink-0">So what?</span>
+      <div className="absolute bottom-0 left-0 right-0 bg-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_20%,transparent)] border-t border-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_30%,transparent)] px-8 py-4 flex items-center gap-3">
+        <span className="text-sm font-semibold text-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_75%,white)] shrink-0">So what?</span>
         <span className="text-sm text-white">{data.so_what}</span>
       </div>
     </motion.div>

@@ -11,8 +11,8 @@ const DIFFICULTY_STYLE = { easy: { color: '#10B981', label: 'Easy' }, medium: { 
 function TakeawayNode({ data }: NodeProps) {
   const d = data as { takeaway: string; why_it_matters: string }
   return (
-    <div className="w-[220px] rounded-xl border border-[#7C3AED]/40 bg-[#7C3AED]/10 p-4">
-      <Handle type="source" position={Position.Bottom} style={{ background: '#7C3AED', border: 'none' }} />
+    <div className="w-[220px] rounded-xl border border-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_40%,transparent)] bg-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_10%,transparent)] p-4">
+      <Handle type="source" position={Position.Bottom} style={{ background: 'var(--partner-primary, #7C3AED)', border: 'none' }} />
       <p className="text-white font-semibold text-sm mb-1 leading-tight">{d.takeaway}</p>
       <p className="text-[#94A3B8] text-sm leading-relaxed">{d.why_it_matters}</p>
     </div>
@@ -37,9 +37,9 @@ function ActionNode({ data }: NodeProps) {
 function QuestionNode({ data }: NodeProps) {
   const d = data as { question: string; index: number }
   return (
-    <div className="w-[200px] rounded-lg border border-[#06B6D4]/30 bg-[#06B6D4]/5 p-3">
+    <div className="w-[200px] rounded-lg border border-[color-mix(in_srgb,var(--partner-secondary,#06B6D4)_30%,transparent)] bg-[color-mix(in_srgb,var(--partner-secondary,#06B6D4)_5%,transparent)] p-3">
       <Handle type="target" position={Position.Top} style={{ opacity: 0 }} />
-      <div className="text-xs font-bold text-[#06B6D4] mb-1">Q{d.index + 1}</div>
+      <div className="text-xs font-bold text-[var(--partner-secondary,#06B6D4)] mb-1">Q{d.index + 1}</div>
       <p className="text-[#94A3B8] text-sm leading-relaxed italic">&ldquo;{d.question}&rdquo;</p>
     </div>
   )
@@ -77,7 +77,7 @@ export default function ActionPlan({ data, isActive, onReady }: ActionPlanProps)
       nodes.push({ id: `act${i}`, type: 'action', position: { x: actStart + i * actSpacing, y: 180 }, data: a, width: 220, height: 110, draggable: false })
       // Connect nearest takeaway to each action
       const tkIdx = Math.min(i, data.key_takeaways.length - 1)
-      edges.push({ id: `e-ta${i}`, source: `tk${tkIdx}`, target: `act${i}`, style: { stroke: '#7C3AED40', strokeWidth: 1.5, strokeDasharray: '4 3' } })
+      edges.push({ id: `e-ta${i}`, source: `tk${tkIdx}`, target: `act${i}`, style: { stroke: 'color-mix(in srgb, var(--partner-primary, #7C3AED) 25%, transparent)', strokeWidth: 1.5, strokeDasharray: '4 3' } })
     })
     const actCount = immediateActions.length
 
@@ -86,7 +86,7 @@ export default function ActionPlan({ data, isActive, onReady }: ActionPlanProps)
     const qStart = -((data.questions_to_ask_your_team.length - 1) * qSpacing) / 2
     data.questions_to_ask_your_team.slice(0, 4).forEach((q, i) => {
       nodes.push({ id: `q${i}`, type: 'question', position: { x: qStart + i * qSpacing, y: 380 }, data: { question: q, index: i }, width: 200, height: 105, draggable: false })
-      edges.push({ id: `e-qa${i}`, source: `act${Math.min(i, actCount - 1)}`, target: `q${i}`, style: { stroke: '#06B6D430', strokeWidth: 1 } })
+      edges.push({ id: `e-qa${i}`, source: `act${Math.min(i, actCount - 1)}`, target: `q${i}`, style: { stroke: 'color-mix(in srgb, var(--partner-secondary, #06B6D4) 19%, transparent)', strokeWidth: 1 } })
     })
 
     return { initialNodes: nodes, initialEdges: edges }
@@ -106,17 +106,17 @@ export default function ActionPlan({ data, isActive, onReady }: ActionPlanProps)
           </ReactFlow>
         </div>
         {data.watch_out_for.length > 0 && (
-          <div className="mt-4 rounded-xl border border-[#F59E0B]/30 bg-[#F59E0B]/5 p-4">
-            <p className="text-xs font-semibold uppercase tracking-widest text-[#F59E0B] mb-2">Watch out for</p>
+          <div className="mt-4 rounded-xl border border-[color-mix(in_srgb,var(--partner-accent,#F59E0B)_30%,transparent)] bg-[color-mix(in_srgb,var(--partner-accent,#F59E0B)_5%,transparent)] p-4">
+            <p className="text-xs font-semibold uppercase tracking-widest text-[var(--partner-accent,#F59E0B)] mb-2">Watch out for</p>
             <div className="flex flex-wrap gap-2">
-              {data.watch_out_for.map((w, i) => <span key={i} className="text-sm text-white bg-[#111] border border-[#F59E0B]/20 rounded-full px-3 py-1">{w}</span>)}
+              {data.watch_out_for.map((w, i) => <span key={i} className="text-sm text-white bg-[#111] border border-[color-mix(in_srgb,var(--partner-accent,#F59E0B)_20%,transparent)] rounded-full px-3 py-1">{w}</span>)}
             </div>
           </div>
         )}
       </motion.div>
       {data.next_session_preview && (
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ delay: 0.6, duration: 0.4 }} className="absolute bottom-0 left-0 right-0 h-[72px] bg-[#7C3AED]/20 border-t border-[#7C3AED]/30 px-8 py-4 flex items-center gap-3 overflow-hidden">
-          <span className="text-sm font-semibold text-[#A855F7] shrink-0">Next session</span>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ delay: 0.6, duration: 0.4 }} className="absolute bottom-0 left-0 right-0 h-[72px] bg-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_20%,transparent)] border-t border-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_30%,transparent)] px-8 py-4 flex items-center gap-3 overflow-hidden">
+          <span className="text-sm font-semibold text-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_75%,white)] shrink-0">Next session</span>
           <span className="text-sm text-white line-clamp-2">{data.next_session_preview}</span>
         </motion.div>
       )}

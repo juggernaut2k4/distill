@@ -5,7 +5,15 @@ import type { ChevronProcessData } from '@/lib/templates/types'
 
 interface ChevronProcessProps { data: ChevronProcessData; isActive: boolean; onReady?: () => void }
 
-const CHEVRON_COLORS = ['#7C3AED', '#6D28D9', '#0E7490', '#06B6D4']
+// A 4-stop gradient from the partner's primary brand color to their secondary
+// (Clio's own #7C3AED -> #06B6D4 preserved as the fallback blend when no
+// partner theme is configured).
+const CHEVRON_COLORS = [
+  'var(--partner-primary, #7C3AED)',
+  'color-mix(in srgb, var(--partner-primary, #7C3AED) 67%, var(--partner-secondary, #06B6D4) 33%)',
+  'color-mix(in srgb, var(--partner-primary, #7C3AED) 33%, var(--partner-secondary, #06B6D4) 67%)',
+  'var(--partner-secondary, #06B6D4)',
+]
 
 export default function ChevronProcess({ data, isActive, onReady }: ChevronProcessProps) {
   // Cap stages at 4
@@ -91,8 +99,8 @@ export default function ChevronProcess({ data, isActive, onReady }: ChevronProce
       </motion.div>
 
       {/* So what footer */}
-      <div className="absolute bottom-0 left-0 right-0 bg-[#7C3AED]/20 border-t border-[#7C3AED]/30 px-8 py-4 flex items-center gap-3">
-        <span className="text-sm font-semibold text-[#A855F7] shrink-0">So what?</span>
+      <div className="absolute bottom-0 left-0 right-0 bg-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_20%,transparent)] border-t border-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_30%,transparent)] px-8 py-4 flex items-center gap-3">
+        <span className="text-sm font-semibold text-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_75%,white)] shrink-0">So what?</span>
         <span className="text-sm text-white">{data.so_what}</span>
       </div>
     </motion.div>

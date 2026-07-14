@@ -18,7 +18,7 @@ export default function TopicHero({ data, isActive, onReady }: TopicHeroProps) {
       >
         {/* Topic name */}
         <div>
-          <p className="text-xs font-semibold tracking-widest uppercase text-[#7C3AED] mb-3">Topic Overview</p>
+          <p className="text-xs font-semibold tracking-widest uppercase text-[var(--partner-primary,#7C3AED)] mb-3">Topic Overview</p>
           <h1 className="text-4xl md:text-5xl font-extrabold text-white leading-tight tracking-tight">
             {data.topic_name}
           </h1>
@@ -26,9 +26,9 @@ export default function TopicHero({ data, isActive, onReady }: TopicHeroProps) {
 
         {/* Key question */}
         <div className="flex gap-3 items-start border border-[#222222] rounded-xl p-5 bg-[#111111]">
-          <HelpCircle className="text-[#06B6D4] mt-0.5 shrink-0" size={18} />
+          <HelpCircle className="text-[var(--partner-secondary,#06B6D4)] mt-0.5 shrink-0" size={18} />
           <div>
-            <p className="text-xs font-semibold text-[#06B6D4] uppercase tracking-wide mb-1">Key Question</p>
+            <p className="text-xs font-semibold text-[var(--partner-secondary,#06B6D4)] uppercase tracking-wide mb-1">Key Question</p>
             <p className="text-white text-base leading-snug">{data.key_question}</p>
           </div>
         </div>
@@ -55,26 +55,26 @@ export default function TopicHero({ data, isActive, onReady }: TopicHeroProps) {
         {/* Why now (optional) */}
         {data.why_now && (
           <motion.div
-            className="flex gap-3 items-start border border-[#F59E0B]/20 rounded-xl p-4 bg-[#F59E0B]/5"
+            className="flex gap-3 items-start border border-[color-mix(in_srgb,var(--partner-accent,#F59E0B)_20%,transparent)] rounded-xl p-4 bg-[color-mix(in_srgb,var(--partner-accent,#F59E0B)_5%,transparent)]"
             initial={{ opacity: 0 }}
             animate={isActive ? { opacity: 1 } : { opacity: 0 }}
             transition={{ delay: 0.65, duration: 0.4 }}
           >
-            <Clock className="text-[#F59E0B] mt-0.5 shrink-0" size={16} />
-            <p className="text-[#F59E0B] text-sm leading-snug">{data.why_now}</p>
+            <Clock className="text-[var(--partner-accent,#F59E0B)] mt-0.5 shrink-0" size={16} />
+            <p className="text-[var(--partner-accent,#F59E0B)] text-sm leading-snug">{data.why_now}</p>
           </motion.div>
         )}
 
         {/* So what */}
         <motion.div
-          className="flex gap-3 items-start border border-[#7C3AED]/30 rounded-xl p-5 bg-[#7C3AED]/10"
+          className="flex gap-3 items-start border border-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_30%,transparent)] rounded-xl p-5 bg-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_10%,transparent)]"
           initial={{ opacity: 0 }}
           animate={isActive ? { opacity: 1 } : { opacity: 0 }}
           transition={{ delay: 0.8, duration: 0.4 }}
         >
-          <Zap className="text-[#A855F7] mt-0.5 shrink-0" size={16} />
+          <Zap className="text-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_75%,white)] mt-0.5 shrink-0" size={16} />
           <div>
-            <p className="text-xs font-semibold text-[#A855F7] uppercase tracking-wide mb-1">So what?</p>
+            <p className="text-xs font-semibold text-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_75%,white)] uppercase tracking-wide mb-1">So what?</p>
             <p className="text-white text-sm leading-snug">{data.so_what_preview}</p>
           </div>
         </motion.div>

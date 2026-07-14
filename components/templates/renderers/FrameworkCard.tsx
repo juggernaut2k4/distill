@@ -11,8 +11,8 @@ const COMPONENT_COLORS = ['#7C3AED', '#06B6D4', '#10B981', '#F59E0B', '#EF4444',
 function HeaderNode({ data }: NodeProps) {
   const d = data as { name: string; coined_by?: string; purpose: string }
   return (
-    <div className="w-[400px] rounded-2xl bg-gradient-to-br from-[#7C3AED]/30 to-[#06B6D4]/10 border border-[#7C3AED]/40 p-6 shadow-xl">
-      <Handle type="source" position={Position.Bottom} style={{ background: '#7C3AED', border: 'none' }} />
+    <div className="w-[400px] rounded-2xl bg-gradient-to-br from-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_30%,transparent)] to-[color-mix(in_srgb,var(--partner-secondary,#06B6D4)_10%,transparent)] border border-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_40%,transparent)] p-6 shadow-xl">
+      <Handle type="source" position={Position.Bottom} style={{ background: 'var(--partner-primary, #7C3AED)', border: 'none' }} />
       <div className="text-2xl font-extrabold text-white mb-1">{d.name}</div>
       {d.coined_by && <div className="text-xs text-[#475569] mb-3">by {d.coined_by}</div>}
       <p className="text-[#94A3B8] text-sm leading-relaxed">{d.purpose}</p>
@@ -93,8 +93,8 @@ export default function FrameworkCard({ data, isActive, onReady, headerEnabled }
           </div>
         </div>
       </motion.div>
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ delay: 0.6, duration: 0.4 }} className="absolute bottom-0 left-0 right-0 h-[72px] bg-[#7C3AED]/20 border-t border-[#7C3AED]/30 px-8 py-4 flex items-center gap-3 overflow-hidden">
-        <span className="text-sm font-semibold text-[#A855F7] shrink-0">So what?</span>
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ delay: 0.6, duration: 0.4 }} className="absolute bottom-0 left-0 right-0 h-[72px] bg-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_20%,transparent)] border-t border-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_30%,transparent)] px-8 py-4 flex items-center gap-3 overflow-hidden">
+        <span className="text-sm font-semibold text-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_75%,white)] shrink-0">So what?</span>
         <span className="text-sm text-white line-clamp-2">{data.so_what}</span>
       </motion.div>
     </div>

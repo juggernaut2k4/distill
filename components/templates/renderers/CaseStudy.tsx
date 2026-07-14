@@ -10,11 +10,11 @@ import '@xyflow/react/dist/style.css'
 function CompanyNode({ data }: NodeProps) {
   const d = data as { company: string; industry: string; company_size?: string }
   return (
-    <div className="rounded-2xl border-2 border-[#06B6D4] bg-[#06B6D4]/10 p-5 text-center min-w-[280px] max-w-[360px]">
-      <Handle type="source" position={Position.Bottom} style={{ background: '#06B6D4', border: 'none' }} />
+    <div className="rounded-2xl border-2 border-[var(--partner-secondary,#06B6D4)] bg-[color-mix(in_srgb,var(--partner-secondary,#06B6D4)_10%,transparent)] p-5 text-center min-w-[280px] max-w-[360px]">
+      <Handle type="source" position={Position.Bottom} style={{ background: 'var(--partner-secondary, #06B6D4)', border: 'none' }} />
       <div className="text-white font-extrabold text-2xl">{d.company}</div>
       <div className="flex items-center justify-center gap-3 mt-2">
-        <span className="text-xs text-[#06B6D4] border border-[#06B6D4]/30 rounded-full px-3 py-0.5">{d.industry}</span>
+        <span className="text-xs text-[var(--partner-secondary,#06B6D4)] border border-[color-mix(in_srgb,var(--partner-secondary,#06B6D4)_30%,transparent)] rounded-full px-3 py-0.5">{d.industry}</span>
         {d.company_size && <span className="text-xs text-[#475569]">{d.company_size}</span>}
       </div>
     </div>
@@ -36,10 +36,10 @@ function ChallengeNode({ data }: NodeProps) {
 function SolutionNode({ data }: NodeProps) {
   const d = data as { ai_solution: string }
   return (
-    <div className="rounded-xl border border-[#7C3AED]/40 bg-[#7C3AED]/5 p-4 min-w-[240px] max-w-[320px]">
-      <Handle type="target" position={Position.Top} style={{ background: '#7C3AED', border: 'none' }} />
-      <Handle type="source" position={Position.Bottom} style={{ background: '#7C3AED', border: 'none' }} />
-      <div className="text-xs font-semibold text-[#A855F7] mb-2 tracking-wide uppercase">The AI Solution</div>
+    <div className="rounded-xl border border-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_40%,transparent)] bg-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_5%,transparent)] p-4 min-w-[240px] max-w-[320px]">
+      <Handle type="target" position={Position.Top} style={{ background: 'var(--partner-primary, #7C3AED)', border: 'none' }} />
+      <Handle type="source" position={Position.Bottom} style={{ background: 'var(--partner-primary, #7C3AED)', border: 'none' }} />
+      <div className="text-xs font-semibold text-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_75%,white)] mb-2 tracking-wide uppercase">The AI Solution</div>
       <p className="text-[#94A3B8] text-sm leading-relaxed">{d.ai_solution}</p>
     </div>
   )
@@ -48,14 +48,14 @@ function SolutionNode({ data }: NodeProps) {
 function ResultsNode({ data }: NodeProps) {
   const d = data as { results: Array<{ metric: string; value: string; timeframe?: string }> }
   return (
-    <div className="rounded-xl border border-[#06B6D4]/40 bg-[#06B6D4]/5 p-4 min-w-[280px] max-w-[380px]">
-      <Handle type="target" position={Position.Top} style={{ background: '#06B6D4', border: 'none' }} />
-      <Handle type="source" position={Position.Bottom} style={{ background: '#06B6D4', border: 'none' }} />
-      <div className="text-xs font-semibold text-[#06B6D4] mb-3 tracking-wide uppercase">Results</div>
+    <div className="rounded-xl border border-[color-mix(in_srgb,var(--partner-secondary,#06B6D4)_40%,transparent)] bg-[color-mix(in_srgb,var(--partner-secondary,#06B6D4)_5%,transparent)] p-4 min-w-[280px] max-w-[380px]">
+      <Handle type="target" position={Position.Top} style={{ background: 'var(--partner-secondary, #06B6D4)', border: 'none' }} />
+      <Handle type="source" position={Position.Bottom} style={{ background: 'var(--partner-secondary, #06B6D4)', border: 'none' }} />
+      <div className="text-xs font-semibold text-[var(--partner-secondary,#06B6D4)] mb-3 tracking-wide uppercase">Results</div>
       <div className="flex gap-4 flex-wrap justify-center">
         {d.results.map((r, i) => (
           <div key={i} className="text-center">
-            <div className="text-[#06B6D4] font-bold text-lg">{r.value}</div>
+            <div className="text-[var(--partner-secondary,#06B6D4)] font-bold text-lg">{r.value}</div>
             <div className="text-[#94A3B8] text-xs">{r.metric}</div>
             {r.timeframe && <div className="text-[#475569] text-xs">{r.timeframe}</div>}
           </div>
@@ -74,7 +74,7 @@ function LessonNode({ data }: NodeProps) {
       <p className="text-[#94A3B8] text-sm leading-relaxed">{d.what_they_got_right}</p>
       {d.what_they_got_wrong && (
         <div className="mt-2 pt-2 border-t border-[#10B981]/20">
-          <div className="text-xs font-semibold text-[#F59E0B] mb-1">What They Learned</div>
+          <div className="text-xs font-semibold text-[var(--partner-accent,#F59E0B)] mb-1">What They Learned</div>
           <p className="text-[#94A3B8] text-sm">{d.what_they_got_wrong}</p>
         </div>
       )}
@@ -95,14 +95,25 @@ export default function CaseStudy({ data, isActive, onReady }: CaseStudyProps) {
       { id: 'results', type: 'results', position: { x: 0, y: 0 }, data: { results: data.results }, width: 340, height: 110, draggable: false },
       { id: 'lesson', type: 'lesson', position: { x: 0, y: 0 }, data: { what_they_got_right: data.what_they_got_right, what_they_got_wrong: data.what_they_got_wrong }, width: 300, height: data.what_they_got_wrong ? 160 : 115, draggable: false },
     ]
-    const edgePairs = [['company', 'challenge', '#EF4444'], ['challenge', 'solution', '#7C3AED'], ['solution', 'results', '#06B6D4'], ['results', 'lesson', '#10B981']]
-    const edges: Edge[] = edgePairs.map(([src, tgt, color], i) => ({
+    // Solution/Results legs track the partner's primary/secondary brand color
+    // (the AI solution + measured outcomes are the partner-brand-colored 'process'
+    // steps); Challenge (problem) and Lesson (positive takeaway) stay Clio's fixed
+    // semantic red/green — no partner theme slot exists for problem/resolution
+    // framing colors, matching the same red=negative/green=positive convention
+    // used throughout the renderer set.
+    const edgePairs: Array<[string, string, string, string]> = [
+      ['company', 'challenge', '#EF4444', '#EF444460'],
+      ['challenge', 'solution', 'var(--partner-primary, #7C3AED)', 'color-mix(in srgb, var(--partner-primary, #7C3AED) 38%, transparent)'],
+      ['solution', 'results', 'var(--partner-secondary, #06B6D4)', 'color-mix(in srgb, var(--partner-secondary, #06B6D4) 38%, transparent)'],
+      ['results', 'lesson', '#10B981', '#10B98160'],
+    ]
+    const edges: Edge[] = edgePairs.map(([src, tgt, color, strokeColor], i) => ({
       id: `e-${i}`,
       source: src,
       target: tgt,
       animated: true,
       markerEnd: { type: MarkerType.ArrowClosed, color },
-      style: { stroke: color + '60', strokeWidth: 2 },
+      style: { stroke: strokeColor, strokeWidth: 2 },
     }))
     return { rawNodes: nodes, rawEdges: edges }
   }, [data])
@@ -121,7 +132,7 @@ export default function CaseStudy({ data, isActive, onReady }: CaseStudyProps) {
             <p className="text-[#94A3B8] text-sm">{data.industry}{data.company_size ? ` · ${data.company_size}` : ''}</p>
           </div>
           <div className="flex items-center gap-2 ml-auto text-xs text-[#475569]">
-            {[['#EF4444', 'Challenge'], ['#7C3AED', 'Solution'], ['#06B6D4', 'Results'], ['#10B981', 'Lesson']].map(([c, l]) => (
+            {[['#EF4444', 'Challenge'], ['var(--partner-primary, #7C3AED)', 'Solution'], ['var(--partner-secondary, #06B6D4)', 'Results'], ['#10B981', 'Lesson']].map(([c, l]) => (
               <div key={l} className="flex items-center gap-1">
                 <div className="w-2 h-2 rounded-full" style={{ background: c }} />
                 <span>{l}</span>
@@ -135,8 +146,8 @@ export default function CaseStudy({ data, isActive, onReady }: CaseStudyProps) {
           </ReactFlow>
         </div>
       </motion.div>
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ delay: 0.6, duration: 0.4 }} className="absolute bottom-0 left-0 right-0 h-[72px] bg-[#7C3AED]/20 border-t border-[#7C3AED]/30 px-8 py-4 flex items-center gap-3 overflow-hidden">
-        <span className="text-sm font-semibold text-[#A855F7] shrink-0">So what?</span>
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ delay: 0.6, duration: 0.4 }} className="absolute bottom-0 left-0 right-0 h-[72px] bg-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_20%,transparent)] border-t border-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_30%,transparent)] px-8 py-4 flex items-center gap-3 overflow-hidden">
+        <span className="text-sm font-semibold text-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_75%,white)] shrink-0">So what?</span>
         <span className="text-sm text-white line-clamp-2">{data.so_what_for_you}</span>
       </motion.div>
     </div>

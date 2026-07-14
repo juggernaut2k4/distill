@@ -10,11 +10,11 @@ import '@xyflow/react/dist/style.css'
 function TermNode({ data }: NodeProps) {
   const d = data as { term: string; category: string; one_line: string; plain_english: string }
   return (
-    <div className="rounded-2xl border-2 border-[#7C3AED] bg-[#7C3AED]/10 p-5 text-center min-w-[300px] max-w-[380px]">
-      <Handle type="source" position={Position.Bottom} style={{ background: '#7C3AED', border: 'none' }} />
-      <div className="text-xs font-semibold text-[#A855F7] mb-2 tracking-widest uppercase">{d.category}</div>
+    <div className="rounded-2xl border-2 border-[var(--partner-primary,#7C3AED)] bg-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_10%,transparent)] p-5 text-center min-w-[300px] max-w-[380px]">
+      <Handle type="source" position={Position.Bottom} style={{ background: 'var(--partner-primary, #7C3AED)', border: 'none' }} />
+      <div className="text-xs font-semibold text-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_75%,white)] mb-2 tracking-widest uppercase">{d.category}</div>
       <div className="text-white font-extrabold text-2xl mb-2">{d.term}</div>
-      <div className="text-[#06B6D4] text-sm font-medium mb-2">{d.one_line}</div>
+      <div className="text-[var(--partner-secondary,#06B6D4)] text-sm font-medium mb-2">{d.one_line}</div>
       <div className="text-[#94A3B8] text-sm leading-relaxed">{d.plain_english}</div>
     </div>
   )
@@ -39,9 +39,9 @@ function ExampleNode({ data }: NodeProps) {
 function MythNode({ data }: NodeProps) {
   const d = data as { common_misconception: string }
   return (
-    <div className="rounded-xl border border-[#F59E0B]/40 bg-[#F59E0B]/5 p-5 min-w-[260px] max-w-[340px]">
-      <Handle type="target" position={Position.Top} style={{ background: '#F59E0B', border: 'none' }} />
-      <div className="text-xs font-semibold text-[#F59E0B] mb-2 tracking-wide uppercase">Common Myth</div>
+    <div className="rounded-xl border border-[color-mix(in_srgb,var(--partner-accent,#F59E0B)_40%,transparent)] bg-[color-mix(in_srgb,var(--partner-accent,#F59E0B)_5%,transparent)] p-5 min-w-[260px] max-w-[340px]">
+      <Handle type="target" position={Position.Top} style={{ background: 'var(--partner-accent, #F59E0B)', border: 'none' }} />
+      <div className="text-xs font-semibold text-[var(--partner-accent,#F59E0B)] mb-2 tracking-wide uppercase">Common Myth</div>
       <p className="text-[#94A3B8] text-sm leading-relaxed">{d.common_misconception}</p>
     </div>
   )
@@ -60,7 +60,7 @@ export default function ConceptDefinition({ data, isActive, onReady }: ConceptDe
     ]
     const edges: Edge[] = [
       { id: 'e1', source: 'term', target: 'example', markerEnd: { type: MarkerType.ArrowClosed, color: '#10B981' }, style: { stroke: '#10B98160', strokeWidth: 2 } },
-      { id: 'e2', source: 'example', target: 'myth', markerEnd: { type: MarkerType.ArrowClosed, color: '#F59E0B' }, style: { stroke: '#F59E0B60', strokeWidth: 2 } },
+      { id: 'e2', source: 'example', target: 'myth', markerEnd: { type: MarkerType.ArrowClosed, color: 'var(--partner-accent, #F59E0B)' }, style: { stroke: 'color-mix(in srgb, var(--partner-accent, #F59E0B) 38%, transparent)', strokeWidth: 2 } },
     ]
     return { rawNodes: nodes, rawEdges: edges }
   }, [data])
@@ -83,8 +83,8 @@ export default function ConceptDefinition({ data, isActive, onReady }: ConceptDe
           </ReactFlow>
         </div>
       </motion.div>
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ delay: 0.6, duration: 0.4 }} className="absolute bottom-0 left-0 right-0 h-[72px] bg-[#7C3AED]/20 border-t border-[#7C3AED]/30 px-8 py-4 flex items-center gap-3 overflow-hidden">
-        <span className="text-sm font-semibold text-[#A855F7] shrink-0">So what?</span>
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ delay: 0.6, duration: 0.4 }} className="absolute bottom-0 left-0 right-0 h-[72px] bg-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_20%,transparent)] border-t border-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_30%,transparent)] px-8 py-4 flex items-center gap-3 overflow-hidden">
+        <span className="text-sm font-semibold text-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_75%,white)] shrink-0">So what?</span>
         <span className="text-sm text-white line-clamp-2">{data.so_what}</span>
       </motion.div>
     </div>

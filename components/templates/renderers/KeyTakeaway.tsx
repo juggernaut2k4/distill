@@ -13,11 +13,11 @@ const GAP = 20
 function TopicCenterNode({ data }: NodeProps) {
   const d = data as { topic: string; one_thing: string }
   return (
-    <div className="rounded-2xl border-2 border-[#A855F7] bg-[#A855F7]/10 p-5 text-center min-w-[280px] max-w-[360px]">
-      <Handle type="source" position={Position.Bottom} style={{ background: '#A855F7', border: 'none' }} />
-      <div className="text-xs font-semibold text-[#A855F7] mb-2 tracking-widest uppercase">Key Takeaways</div>
+    <div className="rounded-2xl border-2 border-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_75%,white)] bg-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_10%,transparent)] p-5 text-center min-w-[280px] max-w-[360px]">
+      <Handle type="source" position={Position.Bottom} style={{ background: 'color-mix(in srgb, var(--partner-primary, #7C3AED) 75%, white)', border: 'none' }} />
+      <div className="text-xs font-semibold text-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_75%,white)] mb-2 tracking-widest uppercase">Key Takeaways</div>
       <div className="text-white font-bold text-base mb-3 leading-snug">{d.topic}</div>
-      <blockquote className="text-[#A855F7] text-sm font-medium italic border-t border-[#A855F7]/20 pt-3">
+      <blockquote className="text-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_75%,white)] text-sm font-medium italic border-t border-[color-mix(in_srgb,color-mix(in_srgb,var(--partner-primary,#7C3AED)_75%,white)_20%,transparent)] pt-3">
         &ldquo;{d.one_thing}&rdquo;
       </blockquote>
     </div>
@@ -28,7 +28,7 @@ function InsightNode({ data }: NodeProps) {
   const d = data as { insight: string; implication: string }
   return (
     <div className="rounded-xl border border-[#222222] bg-[#111111] p-4 min-w-[240px] max-w-[260px]">
-      <Handle type="target" position={Position.Top} style={{ background: '#7C3AED', border: 'none' }} />
+      <Handle type="target" position={Position.Top} style={{ background: 'var(--partner-primary, #7C3AED)', border: 'none' }} />
       <p className="text-white font-semibold text-sm leading-snug mb-2">{d.insight}</p>
       <div className="h-px bg-[#222222] mb-2" />
       <p className="text-[#94A3B8] text-sm leading-relaxed">{d.implication}</p>
@@ -39,10 +39,10 @@ function InsightNode({ data }: NodeProps) {
 function ActionNode({ data }: NodeProps) {
   const d = data as { action_for_you: string }
   return (
-    <div className="rounded-xl border border-[#F59E0B]/40 bg-[#F59E0B]/5 p-4 min-w-[280px] max-w-[360px]">
-      <Handle type="target" position={Position.Top} style={{ background: '#F59E0B', border: 'none' }} />
-      <Handle type="source" position={Position.Bottom} style={{ background: '#F59E0B', border: 'none' }} />
-      <div className="text-xs font-semibold text-[#F59E0B] mb-2 tracking-wide uppercase">⚡ Action For You</div>
+    <div className="rounded-xl border border-[color-mix(in_srgb,var(--partner-accent,#F59E0B)_40%,transparent)] bg-[color-mix(in_srgb,var(--partner-accent,#F59E0B)_5%,transparent)] p-4 min-w-[280px] max-w-[360px]">
+      <Handle type="target" position={Position.Top} style={{ background: 'var(--partner-accent, #F59E0B)', border: 'none' }} />
+      <Handle type="source" position={Position.Bottom} style={{ background: 'var(--partner-accent, #F59E0B)', border: 'none' }} />
+      <div className="text-xs font-semibold text-[var(--partner-accent,#F59E0B)] mb-2 tracking-wide uppercase">⚡ Action For You</div>
       <p className="text-white text-sm">{d.action_for_you}</p>
     </div>
   )
@@ -115,10 +115,10 @@ export default function KeyTakeaway({ data, isActive, onReady }: KeyTakeawayProp
         id: `e-topic-ins-${i}`,
         source: 'topic',
         target: `insight-${i}`,
-        markerEnd: { type: MarkerType.ArrowClosed, color: '#7C3AED' },
-        style: { stroke: '#7C3AED50', strokeWidth: 1.5 },
+        markerEnd: { type: MarkerType.ArrowClosed, color: 'var(--partner-primary, #7C3AED)' },
+        style: { stroke: 'color-mix(in srgb, var(--partner-primary, #7C3AED) 31%, transparent)', strokeWidth: 1.5 },
       })),
-      { id: 'e-topic-action', source: 'topic', target: 'action', markerEnd: { type: MarkerType.ArrowClosed, color: '#F59E0B' }, style: { stroke: '#F59E0B60', strokeWidth: 2 } },
+      { id: 'e-topic-action', source: 'topic', target: 'action', markerEnd: { type: MarkerType.ArrowClosed, color: 'var(--partner-accent, #F59E0B)' }, style: { stroke: 'color-mix(in srgb, var(--partner-accent, #F59E0B) 38%, transparent)', strokeWidth: 2 } },
     ]
 
     if (data.next_topic_preview) {

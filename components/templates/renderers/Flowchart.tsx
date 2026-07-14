@@ -32,10 +32,10 @@ function DecisionNode({ data }: NodeProps) {
 function ActionNodeComp({ data }: NodeProps) {
   const d = data as { label: string; detail?: string }
   return (
-    <div className="w-[200px] rounded-xl border-2 border-[#7C3AED]/60 bg-[#111111] p-4 text-center shadow-md">
-      <Handle type="target" position={Position.Top} style={{ background: '#7C3AED', border: 'none' }} />
-      <Handle type="source" position={Position.Bottom} style={{ background: '#7C3AED', border: 'none' }} />
-      <Handle type="target" position={Position.Left} style={{ background: '#7C3AED', border: 'none' }} />
+    <div className="w-[200px] rounded-xl border-2 border-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_60%,transparent)] bg-[#111111] p-4 text-center shadow-md">
+      <Handle type="target" position={Position.Top} style={{ background: 'var(--partner-primary, #7C3AED)', border: 'none' }} />
+      <Handle type="source" position={Position.Bottom} style={{ background: 'var(--partner-primary, #7C3AED)', border: 'none' }} />
+      <Handle type="target" position={Position.Left} style={{ background: 'var(--partner-primary, #7C3AED)', border: 'none' }} />
       <div className="text-white font-semibold text-sm mb-1">{d.label}</div>
       {d.detail && <div className="text-[#475569] text-xs">{d.detail}</div>}
     </div>
@@ -88,7 +88,7 @@ export default function FlowchartRenderer({ data, isActive, onReady }: Flowchart
           <p className="text-[#94A3B8] text-sm">{data.context}</p>
         </div>
         <div className="flex gap-3 mb-4">
-          {[['#10B981', 'Start'], ['#F59E0B', 'Decision'], ['#7C3AED', 'Action'], ['#EF4444', 'End']].map(([color, label]) => (
+          {[['#10B981', 'Start'], ['#F59E0B', 'Decision'], ['var(--partner-primary, #7C3AED)', 'Action'], ['#EF4444', 'End']].map(([color, label]) => (
             <div key={label} className="flex items-center gap-1.5">
               <div className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />
               <span className="text-xs text-[#475569]">{label}</span>
@@ -101,8 +101,8 @@ export default function FlowchartRenderer({ data, isActive, onReady }: Flowchart
           </ReactFlow>
         </div>
       </motion.div>
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ delay: 0.6, duration: 0.4 }} className="absolute bottom-0 left-0 right-0 h-[72px] bg-[#7C3AED]/20 border-t border-[#7C3AED]/30 px-8 py-4 flex items-center gap-3 overflow-hidden">
-        <span className="text-sm font-semibold text-[#A855F7] shrink-0">So what?</span>
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ delay: 0.6, duration: 0.4 }} className="absolute bottom-0 left-0 right-0 h-[72px] bg-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_20%,transparent)] border-t border-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_30%,transparent)] px-8 py-4 flex items-center gap-3 overflow-hidden">
+        <span className="text-sm font-semibold text-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_75%,white)] shrink-0">So what?</span>
         <span className="text-sm text-white line-clamp-2">{data.so_what}</span>
       </motion.div>
     </div>

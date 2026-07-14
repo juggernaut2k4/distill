@@ -9,10 +9,10 @@ import '@xyflow/react/dist/style.css'
 function HeroStatNode({ data }: NodeProps) {
   const d = data as { stat: string; unit: string; context: string; source?: string }
   return (
-    <div className="w-[340px] rounded-2xl bg-gradient-to-br from-[#7C3AED]/30 to-[#06B6D4]/10 border border-[#7C3AED]/50 p-8 text-center shadow-2xl">
-      <Handle type="source" position={Position.Bottom} style={{ background: '#7C3AED', border: 'none' }} />
+    <div className="w-[340px] rounded-2xl bg-gradient-to-br from-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_30%,transparent)] to-[color-mix(in_srgb,var(--partner-secondary,#06B6D4)_10%,transparent)] border border-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_50%,transparent)] p-8 text-center shadow-2xl">
+      <Handle type="source" position={Position.Bottom} style={{ background: 'var(--partner-primary, #7C3AED)', border: 'none' }} />
       <div className="text-6xl font-extrabold text-white leading-none mb-1">{d.stat}</div>
-      <div className="text-[#A855F7] font-bold text-lg mb-3">{d.unit}</div>
+      <div className="text-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_75%,white)] font-bold text-lg mb-3">{d.unit}</div>
       <p className="text-[#94A3B8] text-sm leading-relaxed">{d.context}</p>
       {d.source && <p className="text-xs text-[#333] mt-2">Source: {d.source}</p>}
     </div>
@@ -33,9 +33,9 @@ function SupportStatNode({ data }: NodeProps) {
 function WhyNode({ data }: NodeProps) {
   const d = data as { text: string }
   return (
-    <div className="w-[340px] rounded-xl border border-[#06B6D4]/30 bg-[#06B6D4]/5 p-5">
-      <Handle type="target" position={Position.Top} style={{ background: '#06B6D4', border: 'none' }} />
-      <p className="text-xs font-semibold uppercase tracking-widest text-[#06B6D4] mb-2">Why it matters</p>
+    <div className="w-[340px] rounded-xl border border-[color-mix(in_srgb,var(--partner-secondary,#06B6D4)_30%,transparent)] bg-[color-mix(in_srgb,var(--partner-secondary,#06B6D4)_5%,transparent)] p-5">
+      <Handle type="target" position={Position.Top} style={{ background: 'var(--partner-secondary, #06B6D4)', border: 'none' }} />
+      <p className="text-xs font-semibold uppercase tracking-widest text-[var(--partner-secondary,#06B6D4)] mb-2">Why it matters</p>
       <p className="text-white text-sm leading-relaxed">{d.text}</p>
     </div>
   )
@@ -64,7 +64,7 @@ export default function StatCallout({ data, isActive, onReady, headerEnabled, me
 
     nodes.push({ id: 'hero', type: 'heroStat', position: { x: 0, y: 0 }, data: { stat: data.headline_stat, unit: data.unit, context: data.context, source: data.source }, width: 340, height: 180, draggable: false })
     nodes.push({ id: 'why', type: 'why', position: { x: 0, y: 240 }, data: { text: data.why_it_matters }, width: 340, height: 100, draggable: false })
-    edges.push({ id: 'e-why', source: 'hero', target: 'why', style: { stroke: '#7C3AED60', strokeWidth: 2 } })
+    edges.push({ id: 'e-why', source: 'hero', target: 'why', style: { stroke: 'color-mix(in srgb, var(--partner-primary, #7C3AED) 38%, transparent)', strokeWidth: 2 } })
 
     const cols = Math.min(data.supporting_stats.length, 4)
     const spacingX = 210
@@ -98,8 +98,8 @@ export default function StatCallout({ data, isActive, onReady, headerEnabled, me
           </ReactFlow>
         </div>
       </motion.div>
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ delay: 0.6, duration: 0.4 }} className="absolute bottom-0 left-0 right-0 h-[72px] bg-[#7C3AED]/20 border-t border-[#7C3AED]/30 px-8 py-4 flex items-center gap-3 overflow-hidden">
-        <span className="text-sm font-semibold text-[#A855F7] shrink-0">So what?</span>
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ delay: 0.6, duration: 0.4 }} className="absolute bottom-0 left-0 right-0 h-[72px] bg-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_20%,transparent)] border-t border-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_30%,transparent)] px-8 py-4 flex items-center gap-3 overflow-hidden">
+        <span className="text-sm font-semibold text-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_75%,white)] shrink-0">So what?</span>
         <span className="text-sm text-white line-clamp-2">{data.so_what}</span>
       </motion.div>
     </div>

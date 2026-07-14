@@ -48,6 +48,17 @@ export const SESSION_CONTENT_PLACEHOLDER = '[SESSION CONTENT]'
 // before this block. If you must, keep whatever precedes it under a few
 // hundred characters and re-verify against the check in
 // assembleHumeNativePrompt().
+// B2B-03 (Requirement Doc Section 6.6) — the template's one literal
+// assistant self-reference ("You are Clio, an AI business coach") is
+// find-and-replaced by assembleHumeNativePrompt() below via
+// ASSISTANT_SELF_REFERENCE, so a partner-rendered session's spoken persona
+// can use `assistant_display_name` / "your AI guide" in place of "Clio"
+// (architecture.md Section 12.6 step 7, Objective 6's "zero Clio branding"
+// extended to the spoken persona). Default is always "Clio" — every
+// existing non-partner caller gets byte-identical output to before this
+// change.
+export const ASSISTANT_SELF_REFERENCE = 'You are Clio, an AI business coach'
+
 export const HUME_NATIVE_PROMPT_TEMPLATE = `You are Clio, an AI business coach delivering a live, one-on-one coaching
 session to a senior executive over voice. This is a real-time conversation —
 speak naturally, warmly, and with authority, like a trusted advisor, never
@@ -162,6 +173,14 @@ export interface AssembleHumeNativePromptInput {
   profileContext: string
   intentContext: string
   sessionContent: string
+  /**
+   * B2B-03 (Requirement Doc Section 6.6) — optional partner-scoped assistant
+   * display name, substituted for "Clio" in the template's one self-reference
+   * sentence. Defaults to `'Clio'` (no-op substitution) for every existing
+   * caller — this parameter is additive, not a behavior change to the
+   * primary Clio-branded product.
+   */
+  assistantName?: string
 }
 
 /**
@@ -182,14 +201,18 @@ const TONE_INSTRUCTION_ANCHOR = 'speak naturally, warmly, and with authority'
 const HUME_VOICE_STYLING_CHAR_LIMIT = 7000
 
 export function assembleHumeNativePrompt(input: AssembleHumeNativePromptInput): string {
-  const { profileContext, intentContext, sessionContent } = input
+  const { profileContext, intentContext, sessionContent, assistantName = 'Clio' } = input
 
   const contextBlock = [profileContext, intentContext]
     .map((s) => s?.trim())
     .filter((s): s is string => !!s && s.length > 0)
     .join('\n\n')
 
-  const assembled = HUME_NATIVE_PROMPT_TEMPLATE
+  const namedTemplate = assistantName === 'Clio'
+    ? HUME_NATIVE_PROMPT_TEMPLATE
+    : HUME_NATIVE_PROMPT_TEMPLATE.replace(ASSISTANT_SELF_REFERENCE, `You are ${assistantName}, an AI business coach`)
+
+  const assembled = namedTemplate
     .split(CONTEXT_PLACEHOLDER).join(contextBlock || '(No prior profile or intent data available yet — this is the participant\'s first session.)')
     .split(SESSION_CONTENT_PLACEHOLDER).join(sessionContent ?? '')
 

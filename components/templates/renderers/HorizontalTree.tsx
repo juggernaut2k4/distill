@@ -15,7 +15,7 @@ function NodeBox({ label, detail, color, delay, isActive }: {
   return (
     <motion.div
       className="rounded-xl border border-[#222222] bg-[#111111] px-4 py-3 min-w-[130px] max-w-[170px]"
-      style={{ borderColor: color + '40' }}
+      style={{ borderColor: `color-mix(in srgb, ${color} 25%, transparent)` }}
       initial={{ opacity: 0, x: -12 }}
       animate={isActive ? { opacity: 1, x: 0 } : { opacity: 0, x: -12 }}
       transition={{ delay, duration: 0.35 }}
@@ -26,7 +26,10 @@ function NodeBox({ label, detail, color, delay, isActive }: {
   )
 }
 
-const LEVEL_COLORS = ['#7C3AED', '#06B6D4', '#10B981']
+// Exactly 3 fixed tree-depth positions -> maps 1:1 onto the partner's 3
+// configurable brand colors (Clio's own primary/secondary/accent preserved
+// as the fallback).
+const LEVEL_COLORS = ['var(--partner-primary, #7C3AED)', 'var(--partner-secondary, #06B6D4)', 'var(--partner-accent, #F59E0B)']
 
 export default function HorizontalTree({ data, isActive, onReady }: HorizontalTreeProps) {
   // Cap: root.children max 4, each child.children max 4
@@ -113,8 +116,8 @@ export default function HorizontalTree({ data, isActive, onReady }: HorizontalTr
       </div>
 
       {/* So what footer */}
-      <div className="absolute bottom-0 left-0 right-0 bg-[#7C3AED]/20 border-t border-[#7C3AED]/30 px-8 py-4 flex items-center gap-3">
-        <span className="text-sm font-semibold text-[#A855F7] shrink-0">So what?</span>
+      <div className="absolute bottom-0 left-0 right-0 bg-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_20%,transparent)] border-t border-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_30%,transparent)] px-8 py-4 flex items-center gap-3">
+        <span className="text-sm font-semibold text-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_75%,white)] shrink-0">So what?</span>
         <span className="text-sm text-white">{data.so_what}</span>
       </div>
     </motion.div>

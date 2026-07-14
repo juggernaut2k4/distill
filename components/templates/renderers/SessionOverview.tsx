@@ -23,7 +23,7 @@ export default function SessionOverview({ data, isActive, onReady }: SessionOver
         onAnimationComplete={() => { if (isActive) onReady?.() }}
       >
         <div>
-          <p className="text-xs font-semibold tracking-widest uppercase text-[#7C3AED] mb-3">
+          <p className="text-xs font-semibold tracking-widest uppercase text-[var(--partner-primary,#7C3AED)] mb-3">
             Today&apos;s session
           </p>
           <h1 className="text-4xl md:text-5xl font-extrabold text-white leading-tight tracking-tight">
@@ -47,7 +47,7 @@ export default function SessionOverview({ data, isActive, onReady }: SessionOver
                 {item.skipped ? (
                   <CircleSlash className="text-[#475569] mt-0.5 shrink-0" size={16} />
                 ) : (
-                  <Circle className="text-[#06B6D4] mt-0.5 shrink-0" size={16} />
+                  <Circle className="text-[var(--partner-secondary,#06B6D4)] mt-0.5 shrink-0" size={16} />
                 )}
                 <span
                   className={
@@ -64,7 +64,7 @@ export default function SessionOverview({ data, isActive, onReady }: SessionOver
         </div>
 
         <motion.div
-          className="flex gap-3 items-start border border-[#7C3AED]/30 rounded-xl p-5 bg-[#7C3AED]/10"
+          className="flex gap-3 items-start border border-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_30%,transparent)] rounded-xl p-5 bg-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_10%,transparent)]"
           initial={{ opacity: 0 }}
           animate={isActive ? { opacity: 1 } : { opacity: 0 }}
           transition={{ delay: 0.8, duration: 0.4 }}

@@ -15,11 +15,11 @@ const CENTER_X = (COL_W * 2 + COL_GAP) / 2
 function TopicNode({ data }: NodeProps) {
   const d = data as { topic: string; context: string }
   return (
-    <div className="rounded-2xl border-2 border-[#7C3AED] bg-[#7C3AED]/10 p-4 text-center min-w-[260px] max-w-[320px]">
+    <div className="rounded-2xl border-2 border-[var(--partner-primary,#7C3AED)] bg-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_10%,transparent)] p-4 text-center min-w-[260px] max-w-[320px]">
       <Handle type="source" position={Position.Left} id="left" style={{ background: '#10B981', border: 'none' }} />
       <Handle type="source" position={Position.Right} id="right" style={{ background: '#EF4444', border: 'none' }} />
-      <Handle type="source" position={Position.Bottom} style={{ background: '#7C3AED', border: 'none' }} />
-      <div className="text-xs font-semibold text-[#A855F7] mb-1 tracking-widest uppercase">Evaluating</div>
+      <Handle type="source" position={Position.Bottom} style={{ background: 'var(--partner-primary, #7C3AED)', border: 'none' }} />
+      <div className="text-xs font-semibold text-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_75%,white)] mb-1 tracking-widest uppercase">Evaluating</div>
       <div className="text-white font-bold text-base">{d.topic}</div>
       <div className="text-[#94A3B8] text-sm mt-1">{d.context}</div>
     </div>
@@ -45,7 +45,7 @@ function ConNode({ data }: NodeProps) {
       <Handle type="target" position={Position.Left} style={{ background: '#EF4444', border: 'none' }} />
       <div className="text-[#EF4444] font-semibold text-xs mb-1">✗ {d.title}</div>
       <p className="text-[#94A3B8] text-sm leading-relaxed">{d.description}</p>
-      {d.mitigation && <p className="text-[#06B6D4] text-sm mt-1">Mitigate: {d.mitigation}</p>}
+      {d.mitigation && <p className="text-[var(--partner-secondary,#06B6D4)] text-sm mt-1">Mitigate: {d.mitigation}</p>}
     </div>
   )
 }
@@ -54,8 +54,8 @@ function VerdictNode({ data }: NodeProps) {
   const d = data as { verdict: string }
   return (
     <div className="rounded-xl border border-[#333333] bg-[#111111] p-4 text-center min-w-[280px] max-w-[360px]">
-      <Handle type="target" position={Position.Top} style={{ background: '#A855F7', border: 'none' }} />
-      <div className="text-xs font-semibold text-[#A855F7] mb-2 tracking-wide uppercase">Verdict</div>
+      <Handle type="target" position={Position.Top} style={{ background: 'color-mix(in srgb, var(--partner-primary, #7C3AED) 75%, white)', border: 'none' }} />
+      <div className="text-xs font-semibold text-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_75%,white)] mb-2 tracking-wide uppercase">Verdict</div>
       <p className="text-white text-sm">{d.verdict}</p>
     </div>
   )
@@ -144,8 +144,8 @@ export default function ProsCons({ data, isActive, onReady }: ProsConsProps) {
         id: 'e-topic-verdict',
         source: 'topic',
         target: 'verdict',
-        markerEnd: { type: MarkerType.ArrowClosed, color: '#A855F7' },
-        style: { stroke: '#A855F760', strokeWidth: 2 },
+        markerEnd: { type: MarkerType.ArrowClosed, color: 'color-mix(in srgb, var(--partner-primary, #7C3AED) 75%, white)' },
+        style: { stroke: 'color-mix(in srgb, var(--partner-primary, #7C3AED) 38%, transparent)', strokeWidth: 2 },
       },
     ]
 
@@ -179,8 +179,8 @@ export default function ProsCons({ data, isActive, onReady }: ProsConsProps) {
           </ReactFlow>
         </div>
       </motion.div>
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ delay: 0.6, duration: 0.4 }} className="absolute bottom-0 left-0 right-0 h-[72px] bg-[#7C3AED]/20 border-t border-[#7C3AED]/30 px-8 py-4 flex items-center gap-3 overflow-hidden">
-        <span className="text-sm font-semibold text-[#A855F7] shrink-0">So what?</span>
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ delay: 0.6, duration: 0.4 }} className="absolute bottom-0 left-0 right-0 h-[72px] bg-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_20%,transparent)] border-t border-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_30%,transparent)] px-8 py-4 flex items-center gap-3 overflow-hidden">
+        <span className="text-sm font-semibold text-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_75%,white)] shrink-0">So what?</span>
         <span className="text-sm text-white line-clamp-2">{data.so_what}</span>
       </motion.div>
     </div>

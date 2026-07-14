@@ -27,11 +27,11 @@ function CriterionNode({ data }: NodeProps) {
 function OptionHeaderNode({ data }: NodeProps) {
   const d = data as { name: string; tagline: string; best_for: string }
   return (
-    <div className="rounded-xl border-2 border-[#7C3AED]/60 bg-[#7C3AED]/10 p-3 text-center min-w-[180px] max-w-[200px]">
-      <Handle type="source" position={Position.Bottom} style={{ background: '#7C3AED', border: 'none' }} />
+    <div className="rounded-xl border-2 border-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_60%,transparent)] bg-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_10%,transparent)] p-3 text-center min-w-[180px] max-w-[200px]">
+      <Handle type="source" position={Position.Bottom} style={{ background: 'var(--partner-primary, #7C3AED)', border: 'none' }} />
       <div className="text-white font-bold text-sm">{d.name}</div>
       <div className="text-[#94A3B8] text-sm mt-0.5">{d.tagline}</div>
-      <div className="text-[#06B6D4] text-xs mt-1">Best for: {d.best_for}</div>
+      <div className="text-[var(--partner-secondary,#06B6D4)] text-xs mt-1">Best for: {d.best_for}</div>
     </div>
   )
 }
@@ -54,7 +54,7 @@ function VerdictNode({ data }: NodeProps) {
   const d = data as { verdict: string }
   return (
     <div className="rounded-xl border border-[#333333] bg-[#111111] p-4 min-w-[400px] max-w-[600px]">
-      <div className="text-xs font-semibold text-[#A855F7] mb-1 tracking-wide uppercase">Verdict</div>
+      <div className="text-xs font-semibold text-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_75%,white)] mb-1 tracking-wide uppercase">Verdict</div>
       <p className="text-white text-sm">{d.verdict}</p>
     </div>
   )
@@ -131,8 +131,8 @@ export default function ComparisonTable({ data, isActive, onReady }: ComparisonT
         id: `e-opt-${i}-val-0-${i}`,
         source: `opt-${i}`,
         target: `val-0-${i}`,
-        markerEnd: { type: MarkerType.ArrowClosed, color: '#7C3AED' },
-        style: { stroke: '#7C3AED40', strokeWidth: 1.5 },
+        markerEnd: { type: MarkerType.ArrowClosed, color: 'var(--partner-primary, #7C3AED)' },
+        style: { stroke: 'color-mix(in srgb, var(--partner-primary, #7C3AED) 25%, transparent)', strokeWidth: 1.5 },
       })),
       ...criteria.flatMap((_, ri) => options.map((__, ci) => ({
         id: `e-crit-${ri}-val-${ri}-${ci}`,
@@ -163,8 +163,8 @@ export default function ComparisonTable({ data, isActive, onReady }: ComparisonT
           </ReactFlow>
         </div>
       </motion.div>
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ delay: 0.6, duration: 0.4 }} className="absolute bottom-0 left-0 right-0 h-[72px] bg-[#7C3AED]/20 border-t border-[#7C3AED]/30 px-8 py-4 flex items-center gap-3 overflow-hidden">
-        <span className="text-sm font-semibold text-[#A855F7] shrink-0">So what?</span>
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={isActive ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }} transition={{ delay: 0.6, duration: 0.4 }} className="absolute bottom-0 left-0 right-0 h-[72px] bg-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_20%,transparent)] border-t border-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_30%,transparent)] px-8 py-4 flex items-center gap-3 overflow-hidden">
+        <span className="text-sm font-semibold text-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_75%,white)] shrink-0">So what?</span>
         <span className="text-sm text-white line-clamp-2">{data.so_what}</span>
       </motion.div>
     </div>

@@ -7,15 +7,15 @@ interface HorizontalDecisionProps { data: HorizontalDecisionData; isActive: bool
 
 const NODE_BG: Record<string, string> = {
   start: 'bg-[#10B981] border-[#10B981]',
-  decision: 'bg-[#7C3AED]/20 border-[#7C3AED]',
+  decision: 'bg-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_20%,transparent)] border-[var(--partner-primary,#7C3AED)]',
   action: 'bg-[#111111] border-[#333333]',
-  end: 'bg-[#06B6D4]/20 border-[#06B6D4]',
+  end: 'bg-[color-mix(in_srgb,var(--partner-secondary,#06B6D4)_20%,transparent)] border-[var(--partner-secondary,#06B6D4)]',
 }
 const NODE_TEXT: Record<string, string> = {
   start: 'text-white font-bold',
   decision: 'text-white font-semibold',
   action: 'text-white',
-  end: 'text-[#06B6D4] font-bold',
+  end: 'text-[var(--partner-secondary,#06B6D4)] font-bold',
 }
 
 export default function HorizontalDecision({ data, isActive, onReady }: HorizontalDecisionProps) {
@@ -58,7 +58,7 @@ export default function HorizontalDecision({ data, isActive, onReady }: Horizont
                     /* Diamond */
                     <div className="relative w-[120px] h-[120px] flex items-center justify-center">
                       <div
-                        className="absolute inset-0 border-2 border-[#7C3AED] bg-[#7C3AED]/20"
+                        className="absolute inset-0 border-2 border-[var(--partner-primary,#7C3AED)] bg-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_20%,transparent)]"
                         style={{ transform: 'rotate(45deg)', borderRadius: '6px' }}
                       />
                       <span className="relative z-10 text-white font-semibold text-sm text-center px-3 leading-snug">
@@ -116,8 +116,8 @@ export default function HorizontalDecision({ data, isActive, onReady }: Horizont
       </div>
 
       {/* So what footer */}
-      <div className="absolute bottom-0 left-0 right-0 bg-[#7C3AED]/20 border-t border-[#7C3AED]/30 px-8 py-4 flex items-center gap-3">
-        <span className="text-sm font-semibold text-[#A855F7] shrink-0">So what?</span>
+      <div className="absolute bottom-0 left-0 right-0 bg-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_20%,transparent)] border-t border-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_30%,transparent)] px-8 py-4 flex items-center gap-3">
+        <span className="text-sm font-semibold text-[color-mix(in_srgb,var(--partner-primary,#7C3AED)_75%,white)] shrink-0">So what?</span>
         <span className="text-sm text-white">{data.so_what}</span>
       </div>
     </motion.div>
