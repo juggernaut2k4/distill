@@ -153,6 +153,7 @@ Only use packages that are:
 - `googleapis` — Google Calendar integration for session scheduling (official Google SDK)
 - `@dagrejs/dagre`, `@xyflow/react` — flow diagram layout and rendering (used in template system)
 - `svix` — Clerk webhook signature verification (official Svix SDK, used by Clerk)
+- `@vercel/sdk` — Vercel Domains API client for partner custom-domain registration/verification (official Vercel SDK, approved 2026-07-13 as part of B2B-05)
 
 **Removed from the approved list under the pivot** (do not use; flag if found in new code):
 - `twilio` — SMS delivery, killed with B2C (no more direct-to-consumer messaging)
@@ -162,8 +163,8 @@ Only use packages that are:
 Meeting-bot vendor (currently Recall.ai) may also change — Arun is evaluating a swap to Attendee.
 Check `docs/b2b-pivot-status.md` before assuming Recall.ai is still the vendor.
 
-New vendor approvals (Vercel Domains API for white-label subdomains, any usage-based Stripe billing
-APIs) will be added here as the relevant Feature Briefs in `docs/b2b-pivot-status.md` land.
+New vendor approvals (any usage-based Stripe billing APIs) will be added here as the relevant
+Feature Briefs in `docs/b2b-pivot-status.md` land.
 
 ### Do NOT use:
 - Any package not on the approved list without explicit justification written in a code comment

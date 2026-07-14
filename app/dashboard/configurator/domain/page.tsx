@@ -3,9 +3,9 @@ import { redirect } from 'next/navigation'
 import { getPartnerAccountsForClerkUser } from '@/lib/partner/admin-accounts'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { NoPartnerAccounts } from '../_shared'
-import VisualizationClient from './VisualizationClient'
+import DomainConfigClient from './DomainConfigClient'
 
-export default async function VisualizationPage({ searchParams }: { searchParams: { partner_account_id?: string } }) {
+export default async function DomainConfigPage({ searchParams }: { searchParams: { partner_account_id?: string } }) {
   const { userId } = auth()
   if (!userId) redirect('/sign-in')
 
@@ -28,5 +28,5 @@ export default async function VisualizationPage({ searchParams }: { searchParams
     redirect(`/dashboard/configurator/wizard?partner_account_id=${activeId}`)
   }
 
-  return <VisualizationClient accounts={accounts} activePartnerAccountId={activeId} />
+  return <DomainConfigClient accounts={accounts} activePartnerAccountId={activeId} />
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import type { AdminPartnerAccount } from '@/lib/partner/admin-accounts'
 import { ConfiguratorShell, Card, COLORS } from './_shared'
 
@@ -13,25 +14,29 @@ interface Summary {
   themeLabel: string
   parameterizedCount: number
   preferenceScore: number
+  domainLabel: string
 }
 
 export default function HomeClient({ accounts, activePartnerAccountId }: { accounts: AdminPartnerAccount[]; activePartnerAccountId: string }) {
   const [summary, setSummary] = useState<Summary | null>(null)
+  const searchParams = useSearchParams()
+  const showWelcome = searchParams?.get('welcome') === '1'
 
   useEffect(() => {
     let cancelled = false
     async function load() {
-      const [qRes, tRes, cRes, themeRes, templatesRes, meterRes] = await Promise.all([
+      const [qRes, tRes, cRes, themeRes, templatesRes, meterRes, domainRes] = await Promise.all([
         fetch(`/api/admin/configurator/questionnaire?partner_account_id=${activePartnerAccountId}`),
         fetch(`/api/admin/configurator/topics-config?partner_account_id=${activePartnerAccountId}`),
         fetch(`/api/admin/configurator/content-config?partner_account_id=${activePartnerAccountId}`),
         fetch(`/api/admin/configurator/theme?partner_account_id=${activePartnerAccountId}`),
         fetch(`/api/admin/configurator/templates?partner_account_id=${activePartnerAccountId}`),
         fetch(`/api/admin/configurator/preference-meter?partner_account_id=${activePartnerAccountId}`),
+        fetch(`/api/admin/configurator/domain?partner_account_id=${activePartnerAccountId}`),
       ])
       if (cancelled) return
-      const [q, t, c, theme, templates, meter] = await Promise.all([
-        qRes.json(), tRes.json(), cRes.json(), themeRes.json(), templatesRes.json(), meterRes.json(),
+      const [q, t, c, theme, templates, meter, domain] = await Promise.all([
+        qRes.json(), tRes.json(), cRes.json(), themeRes.json(), templatesRes.json(), meterRes.json(), domainRes.json(),
       ])
       setSummary({
         questionnairePublished: (q.questionnaires ?? []).filter((x: { status: string }) => x.status === 'published').length,
@@ -41,6 +46,7 @@ export default function HomeClient({ accounts, activePartnerAccountId }: { accou
         themeLabel: theme.theme?.themeLabel ?? 'Untitled theme',
         parameterizedCount: (templates.templates ?? []).filter((x: { parameterized: boolean }) => x.parameterized).length,
         preferenceScore: meter.meter?.score ?? 0,
+        domainLabel: domain.subdomain_slug ? `${domain.subdomain_slug}.${domain.root_domain}` : 'Not configured',
       })
     }
     load()
@@ -49,6 +55,11 @@ export default function HomeClient({ accounts, activePartnerAccountId }: { accou
 
   return (
     <ConfiguratorShell accounts={accounts} activePartnerAccountId={activePartnerAccountId} title="">
+      {showWelcome && (
+        <Card style={{ marginBottom: 20, borderColor: COLORS.green }}>
+          <p style={{ fontSize: 13, color: COLORS.green }}>Setup complete — you&apos;re live.</p>
+        </Card>
+      )}
       <div style={{ marginBottom: 24 }}>
         <p style={{ fontSize: 12, color: COLORS.textSecondary, marginBottom: 6 }}>
           Design profile: {summary ? `${summary.preferenceScore}%` : '—'}
@@ -76,6 +87,11 @@ export default function HomeClient({ accounts, activePartnerAccountId }: { accou
           href={`/dashboard/configurator/content?partner_account_id=${activePartnerAccountId}`}
           title="Content"
           status={summary ? (summary.contentSource === 'clio_generated' ? 'Clio-generated' : 'Partner-supplied') : '—'}
+        />
+        <DomainCard
+          href={`/dashboard/configurator/domain?partner_account_id=${activePartnerAccountId}`}
+          title="Domain"
+          status={summary ? summary.domainLabel : '—'}
         />
       </div>
 

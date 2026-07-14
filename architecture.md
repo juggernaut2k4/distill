@@ -1023,3 +1023,509 @@ Secondary tie-break (`name.localeCompare`, ascending, always — not reversed by
 the two infinity tiers (e.g. two accounts that both have `exhausted_balance`) need *some* deterministic
 order so the table doesn't visibly reshuffle on every re-render; alphabetical by partner name is
 arbitrary but stable, which is all that's required here — no product meaning is implied by it.
+
+---
+
+## 14. B2B-05 — Domain / White-label Infrastructure (new)
+
+Version: 1.2 | Produced by: Business Analyst Agent, as part of B2B-05
+Source Feature Brief: `.claude/agents/clio/feature-briefs/B2B-05-domain-whitelabel-infra.md`
+Requirement Document: `docs/specs/B2B-05-requirement-document.md`
+v1.2 note: §14.7.5 corrected — the `embedded` prop fix for `QuestionnaireBuilderClient` and
+`ContentConfigClient` is two independent per-branch insertions, not one; see §14.7.5 and the Requirement
+Document's v1.2 changelog for the full correction and rationale.
+
+Extends Sections 1–13 above, does not replace them. Requirement-level rationale (screen states, exact
+copy, acceptance tests) lives in the Requirement Document; this section is the exact schema/route/
+middleware detail a developer implements against, per the same division of labor B2B-02/03/04 established.
+
+### 14.1 Environment Variables (new)
+
+```
+CLIO_ROOT_DOMAIN=hello-clio.com          # single config value — see Requirement Doc Section 9
+VERCEL_API_TOKEN=PLACEHOLDER_VERCEL_API_TOKEN
+VERCEL_PROJECT_ID=PLACEHOLDER_VERCEL_PROJECT_ID
+VERCEL_TEAM_ID=PLACEHOLDER_VERCEL_TEAM_ID   # optional; only required if the project is team-scoped
+```
+`CLIO_ROOT_DOMAIN` is server-side only (not `NEXT_PUBLIC_`) — the Configurator screen gets it via
+`GET /api/admin/configurator/domain`'s `root_domain` field (Requirement Doc Section 4.B.1), never a
+duplicated client-side env var, so there is exactly one source of truth.
+
+### 14.2 Schema (migration, additive ALTER only — no new tables)
+
+```sql
+-- B2B-05: subdomain-first + custom-domain white-label infrastructure.
+-- Additive only — no existing partner_accounts column is modified or dropped.
+
+ALTER TABLE partner_accounts ADD COLUMN IF NOT EXISTS subdomain_slug TEXT;
+ALTER TABLE partner_accounts ADD COLUMN IF NOT EXISTS custom_domain TEXT;
+ALTER TABLE partner_accounts ADD COLUMN IF NOT EXISTS custom_domain_status TEXT NOT NULL DEFAULT 'none'
+  CHECK (custom_domain_status IN ('none', 'pending_verification', 'verified', 'failed'));
+ALTER TABLE partner_accounts ADD COLUMN IF NOT EXISTS custom_domain_error TEXT;
+ALTER TABLE partner_accounts ADD COLUMN IF NOT EXISTS custom_domain_verification JSONB;
+ALTER TABLE partner_accounts ADD COLUMN IF NOT EXISTS custom_domain_added_at TIMESTAMPTZ;
+ALTER TABLE partner_accounts ADD COLUMN IF NOT EXISTS custom_domain_verified_at TIMESTAMPTZ;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_partner_accounts_subdomain_slug
+  ON partner_accounts (subdomain_slug) WHERE subdomain_slug IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_partner_accounts_custom_domain
+  ON partner_accounts (custom_domain) WHERE custom_domain IS NOT NULL;
+
+COMMENT ON COLUMN partner_accounts.subdomain_slug IS 'B2B-05: lowercase DNS label, unique, resolves {slug}.{CLIO_ROOT_DOMAIN} to this partner.';
+COMMENT ON COLUMN partner_accounts.custom_domain IS 'B2B-05: lowercase hostname, unique, registered via Vercel Domains API. NULL until custom_domain_status leaves ''none''.';
+```
+
+Both new unique indexes are the mechanism that makes cross-partner domain leakage structurally
+impossible (Requirement Doc Section 7's isolation acceptance test) — a second `PATCH`/`POST` attempting
+to claim an already-used value fails at the DB layer even if application-level validation were ever
+bypassed.
+
+**Reserved subdomain-slug list** (`lib/partner/domain-config.ts`, exact array — not invented ad hoc
+per-call, a single exported constant):
+```ts
+export const RESERVED_SUBDOMAIN_SLUGS = [
+  'www', 'api', 'app', 'admin', 'dashboard', 'sign-in', 'sign-up', 'pricing', 'onboarding', 'plan',
+  'checkout', 'topics', 'walkthrough', 'partner-render', 'partner-questionnaire', 'questionnaire',
+  'mail', 'ftp', 'staging', 'dev', 'test', 'docs', 'status', 'blog', 'cdn', 'static', 'assets',
+  'help', 'support', 'clio', 'vercel',
+] as const
+```
+
+### 14.3 Vercel Domains API — Exact Request/Response Shapes
+
+Called via the official `@vercel/sdk` package (approved for `CLAUDE.md`'s vendor list as part of this
+brief — Requirement Doc Section 6), wrapped in `lib/partner/vercel-domains.ts`. Every function in that
+file follows `lib/stripe.ts`'s `isPlaceholder` guard convention exactly: if `VERCEL_API_TOKEN` or
+`VERCEL_PROJECT_ID` is a `PLACEHOLDER_` value, the function logs `console.log('[MOCK]', ...)` with what it
+would have sent, and returns a realistic mock response shape (below) instead of making a network call.
+
+**Add a domain** — `addDomainToProject(domain: string)`
+```
+Real call:  POST https://api.vercel.com/v10/projects/{VERCEL_PROJECT_ID}/domains
+            (Authorization: Bearer {VERCEL_API_TOKEN}, body: { "name": domain })
+
+Success (verified immediately — rare, e.g. domain already correctly pointed):
+  { "name": "learning.acme.com", "verified": true }
+
+Success (pending — the common case):
+  {
+    "name": "learning.acme.com",
+    "verified": false,
+    "verification": [
+      { "type": "CNAME", "domain": "learning.acme.com", "value": "cname.vercel-dns.com", "reason": "CNAME Record" }
+    ]
+  }
+
+Error (domain already in use elsewhere — Vercel returns 409 with a structured error body):
+  409 { "error": { "code": "domain_already_in_use", "message": "Domain is already in use by a different project." } }
+
+Mock response (VERCEL_API_TOKEN placeholder):
+  { "name": domain, "verified": false, "verification": [
+      { "type": "CNAME", "domain": domain, "value": "cname.vercel-dns.com", "reason": "CNAME Record (mocked — no VERCEL_API_TOKEN configured)" }
+  ] }
+```
+`addDomainToProject()`'s return type is a discriminated union: `{ ok: true, verified: boolean,
+verification: VercelVerificationRecord[] | null }` or `{ ok: false, errorMessage: string }` — the calling
+route (`POST /api/admin/configurator/domain/custom-domain`) maps `ok: false` to the `422`
+`custom_domain_status: 'failed'` response (Requirement Doc Section 4.B.4) using `errorMessage` verbatim
+as `custom_domain_error`, never a Clio-rewritten string.
+
+**Check verification status** — `checkDomainVerification(domain: string)`
+```
+Real call:  GET https://api.vercel.com/v9/projects/{VERCEL_PROJECT_ID}/domains/{domain}/config
+            (Authorization: Bearer {VERCEL_API_TOKEN})
+
+Response:   { "verified": true } | { "verified": false, "verification": [ ...same shape as above... ] }
+
+Mock:       { "verified": false, "verification": [ ...same mocked record as above... ] } on first call;
+            a mock implementation may optionally flip to { "verified": true } after a fixed number of
+            calls purely to make manual/local testing of the "verified" screen state possible without a
+            real token — this is a test-convenience detail, not a product behavior, and must never run in
+            production (gated the same way every other mock stub in this codebase is: only when the
+            underlying credential is a literal PLACEHOLDER_ string).
+```
+
+**Remove a domain** — `removeDomainFromProject(domain: string)`
+```
+Real call:  DELETE https://api.vercel.com/v9/projects/{VERCEL_PROJECT_ID}/domains/{domain}
+            (Authorization: Bearer {VERCEL_API_TOKEN})
+
+Response:   200 (removed) or 404 (already not registered) — both treated as success by the caller
+            (Requirement Doc Section 5.B.4/8). Any other error is logged, not surfaced to the partner.
+
+Mock:       always returns { ok: true } and logs what it would have called.
+```
+
+### 14.4 API Route Map (Clerk-authenticated, `/api/admin/configurator/domain*` — added to
+`middleware.ts`'s existing protected set alongside the other `/api/admin/configurator/*` routes; no
+change needed there since those routes are already gated by `!isPublicRoute(request)` catching everything
+under `/api/admin/*` that isn't explicitly listed as public)
+
+| Method | Route | Purpose |
+|---|---|---|
+| GET | `/api/admin/configurator/domain` | Read all domain settings for a partner account (Requirement Doc 4.B.1) |
+| GET | `/api/admin/configurator/domain/check-slug` | Live slug-availability check (4.B.2) |
+| PATCH | `/api/admin/configurator/domain/subdomain` | Claim/change the subdomain slug (4.B.3) |
+| POST | `/api/admin/configurator/domain/custom-domain` | Register a custom domain via Vercel (4.B.4) |
+| POST | `/api/admin/configurator/domain/custom-domain/recheck` | Poll Vercel for verification status (4.B.5) |
+| DELETE | `/api/admin/configurator/domain/custom-domain` | Deregister the custom domain (4.B.6) |
+
+Every route calls `requirePartnerAdmin(partnerAccountId)` (`lib/partner/auth.ts`, unmodified) before any
+DB or Vercel access, identical to every existing `/api/admin/configurator/*` route.
+
+**Public, no auth (Host-resolved, not Clerk-gated):**
+
+| Method | Route | Purpose |
+|---|---|---|
+| (rewrite target) | `/partner-questionnaire/[partner_account_id]` | Unchanged from B2B-03; now also reachable via a resolved Host + `/` or `/questionnaire` rewrite |
+| (unchanged) | `/partner-render/[clio_session_ref]` | Unchanged from B2B-03; no new vanity path (Requirement Doc Section 10) |
+
+### 14.5 `middleware.ts` — Exact Extension
+
+The existing file (`isPublicRoute`, `clerkMiddleware` callback, `x-pathname` header injection, `config.matcher`)
+is extended, not restructured. New logic is inserted inside the existing exported default callback, before
+the existing `auth().protect()` gate, so a resolved tenant request never hits the Clerk redirect:
+
+```ts
+import { resolveTenantFromHost } from '@/lib/partner/domain-resolution'
+
+const TENANT_SCOPED_PATTERNS = [
+  /^\/$/,
+  /^\/questionnaire$/,
+  /^\/partner-questionnaire\/.+/,
+  /^\/partner-render\/.+/,
+]
+
+export default clerkMiddleware(async (auth, request) => {
+  const host = (request.headers.get('host') ?? '').toLowerCase().split(':')[0]
+  const pathname = request.nextUrl.pathname
+  const rootDomain = process.env.CLIO_ROOT_DOMAIN ?? ''
+
+  const isTenantHost =
+    rootDomain.length > 0 &&
+    host !== rootDomain &&
+    (host.endsWith(`.${rootDomain}`) || (await isVerifiedCustomDomain(host)))
+
+  if (isTenantHost) {
+    const tenant = await resolveTenantFromHost(host, rootDomain)
+    const isTenantScopedPath = TENANT_SCOPED_PATTERNS.some((re) => re.test(pathname))
+
+    if (!tenant || tenant.status !== 'active') {
+      return neutralNotFoundResponse() // reuses the existing NeutralMessage copy, Requirement Doc 5.B.5
+    }
+    if (!isTenantScopedPath) {
+      return neutralNotFoundResponse() // /dashboard, /api/admin/*, /sign-in, etc. never resolve on a partner domain
+    }
+    if (pathname === '/' || pathname === '/questionnaire') {
+      const rewritten = request.nextUrl.clone()
+      rewritten.pathname = `/partner-questionnaire/${tenant.partnerAccountId}`
+      const requestHeaders = new Headers(request.headers)
+      requestHeaders.set('x-clio-resolved-partner-account-id', tenant.partnerAccountId)
+      requestHeaders.set('x-pathname', rewritten.pathname)
+      return NextResponse.rewrite(rewritten, { request: { headers: requestHeaders } })
+    }
+    // /partner-questionnaire/(.*) or /partner-render/(.*) with the correct id/ref already in the path —
+    // pass through unchanged, existing behavior.
+  }
+
+  // Existing, completely unmodified from here down:
+  const isApiRoute = request.nextUrl.pathname.startsWith('/api/')
+  if (!isApiRoute && !isPublicRoute(request)) {
+    auth().protect()
+  }
+  const requestHeaders = new Headers(request.headers)
+  requestHeaders.set('x-pathname', request.nextUrl.pathname)
+  return NextResponse.next({ request: { headers: requestHeaders } })
+})
+```
+
+`isPublicRoute`'s array gains one new entry: `'/questionnaire'` (exact string, no wildcard) — required so
+that a direct, non-tenant-resolved request to `https://{clio's own domain}/questionnaire` (e.g. hitting
+the app before `CLIO_ROOT_DOMAIN` is configured, or in local dev) doesn't get redirected to `/sign-in`; on
+Clio's own root domain with no resolvable tenant, this path simply falls through to a Next.js 404 (no
+`app/questionnaire/page.tsx` exists), which is correct — the clean path is only ever meaningful under a
+resolved partner host.
+
+`resolveTenantFromHost(host, rootDomain)` (`lib/partner/domain-resolution.ts`):
+```ts
+export async function resolveTenantFromHost(
+  host: string,
+  rootDomain: string
+): Promise<{ partnerAccountId: string; status: 'active' | 'suspended' } | null> {
+  const supabase = createSupabaseAdminClient()
+  if (host.endsWith(`.${rootDomain}`)) {
+    const slug = host.slice(0, -(rootDomain.length + 1))
+    const { data } = await supabase
+      .from('partner_accounts')
+      .select('id, status')
+      .eq('subdomain_slug', slug)
+      .maybeSingle()
+    return data ? { partnerAccountId: data.id, status: data.status } : null
+  }
+  const { data } = await supabase
+    .from('partner_accounts')
+    .select('id, status')
+    .eq('custom_domain', host)
+    .eq('custom_domain_status', 'verified')
+    .maybeSingle()
+  return data ? { partnerAccountId: data.id, status: data.status } : null
+}
+```
+Note: a `custom_domain` row only ever resolves once `custom_domain_status = 'verified'` — a
+`pending_verification` domain does not yet route real traffic to the partner (Vercel itself would not yet
+have valid SSL/routing for it either, so this is consistent with reality, not an extra restriction Clio
+invents).
+
+### 14.6 Sequence — Middleware Edge Runtime Note
+
+`middleware.ts` runs on Vercel's Edge Runtime by default under Next.js 14. `resolveTenantFromHost()`'s
+Supabase read must use the existing `createSupabaseAdminClient()` helper (already Edge-compatible,
+reused unmodified from every other `lib/partner/*` module) — no new Supabase client variant is introduced
+by this document.
+
+### 14.7 Onboarding Wizard (v1.1 amendment — Requirement Doc Section 13)
+
+Companion to Requirement Doc Section 13. Adds one column to `partner_accounts`, one new table
+(`partner_onboarding_progress`), three new API routes, and a redirect check added to every existing
+Configurator `page.tsx`. Additive only — no existing route, table, or column from §14.1–14.6 is modified.
+
+#### 14.7.1 Schema (migration, additive)
+
+```sql
+-- B2B-05 v1.1: onboarding wizard progress + go-live flag. Additive only.
+
+ALTER TABLE partner_accounts ADD COLUMN IF NOT EXISTS onboarding_completed_at TIMESTAMPTZ;
+
+-- Backfill: every partner_accounts row that exists BEFORE this migration runs is treated as
+-- already onboarded. The wizard only ever intercepts accounts created after this ships
+-- (Requirement Doc Section 13.3/13.9 — "no impact on existing", the standing project rule).
+UPDATE partner_accounts
+  SET onboarding_completed_at = COALESCE(onboarding_completed_at, created_at)
+  WHERE onboarding_completed_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS partner_onboarding_progress (
+  partner_account_id       UUID PRIMARY KEY REFERENCES partner_accounts(id) ON DELETE CASCADE,
+
+  current_step              TEXT NOT NULL DEFAULT 'questionnaire'
+                               CHECK (current_step IN
+                                 ('questionnaire','topics','content','visualization','domain','payment','go_live')),
+
+  questionnaire_status      TEXT NOT NULL DEFAULT 'pending'
+                               CHECK (questionnaire_status IN ('pending','completed','skipped')),
+  questionnaire_status_at   TIMESTAMPTZ,
+
+  topics_status             TEXT NOT NULL DEFAULT 'pending'
+                               CHECK (topics_status IN ('pending','completed','skipped')),
+  topics_status_at          TIMESTAMPTZ,
+
+  content_status            TEXT NOT NULL DEFAULT 'pending'
+                               CHECK (content_status IN ('pending','completed','skipped')),
+  content_status_at         TIMESTAMPTZ,
+
+  visualization_status      TEXT NOT NULL DEFAULT 'pending'
+                               CHECK (visualization_status IN ('pending','completed','skipped')),
+  visualization_status_at   TIMESTAMPTZ,
+
+  domain_status             TEXT NOT NULL DEFAULT 'pending'
+                               CHECK (domain_status IN ('pending','completed','skipped')),
+  domain_status_at          TIMESTAMPTZ,
+
+  payment_status            TEXT NOT NULL DEFAULT 'pending'
+                               CHECK (payment_status IN ('pending','completed','skipped')),
+  payment_status_at         TIMESTAMPTZ,
+
+  created_at                TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at                TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TRIGGER update_partner_onboarding_progress_updated_at
+  BEFORE UPDATE ON partner_onboarding_progress
+  FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
+
+ALTER TABLE partner_onboarding_progress ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Service role full access on partner_onboarding_progress"
+  ON partner_onboarding_progress FOR ALL
+  USING (auth.role() = 'service_role');
+
+COMMENT ON COLUMN partner_accounts.onboarding_completed_at IS
+  'B2B-05 v1.1: set once by POST /api/admin/configurator/wizard/go-live, never cleared. NULL = wizard mode (Requirement Doc Section 13.3).';
+COMMENT ON TABLE partner_onboarding_progress IS
+  'B2B-05 v1.1: one row per partner_account_id, lazily created on first wizard-progress read. Historical/audit only after go-live (Requirement Doc Section 13.6).';
+```
+
+The six `{step}_status`/`{step}_status_at` column pairs read/write via the `steps` object keyed by the same
+six step-name strings in every API response below — never a positional array, so a developer never needs to
+infer which index maps to which step.
+
+#### 14.7.2 Per-step "complete" condition — exact read path
+
+`POST /api/admin/configurator/wizard/advance` re-validates `action="complete"` server-side using these
+existing read paths (no new query logic invented; each already backs an existing `GET` endpoint per §12):
+
+| Step | Query |
+|---|---|
+| `questionnaire` | `SELECT 1 FROM questionnaires WHERE partner_account_id = $1 AND status = 'published' LIMIT 1` |
+| `topics` | Existing `topics-config` row-presence check already used by `GET /api/admin/configurator/topics-config` (§12) |
+| `content` | Existing `content-config` row-presence check already used by `GET /api/admin/configurator/content-config` (§12) |
+| `visualization` | Existing theme row-presence check already used by `GET /api/admin/configurator/theme` (§12) |
+| `domain` | `SELECT subdomain_slug FROM partner_accounts WHERE id = $1` — non-null passes; `custom_domain_status` is never inspected (Requirement Doc 13.5) |
+| `payment` | `SELECT funding_mechanism FROM partner_wallets WHERE partner_account_id = $1` — non-null passes |
+
+`action="skip"` never runs any of the above — it unconditionally sets that step's status to `'skipped'`.
+
+#### 14.7.3 API Route Map (new, Clerk-authenticated, added to the existing `/api/admin/configurator/*` protected set — no `middleware.ts` change needed, same reasoning as §14.4)
+
+| Method | Route | Purpose |
+|---|---|---|
+| GET | `/api/admin/configurator/wizard/progress` | Read (lazily create) `partner_onboarding_progress` for a partner account |
+| POST | `/api/admin/configurator/wizard/advance` | Mark the server's current step `completed` or `skipped`; advances `current_step` |
+| POST | `/api/admin/configurator/wizard/go-live` | Validate all 6 steps non-`pending`; set `partner_accounts.onboarding_completed_at` |
+
+**`GET /api/admin/configurator/wizard/progress`** — query: `partner_account_id` (required, uuid).
+Response 200:
+```json
+{
+  "current_step": "topics",
+  "onboarding_completed_at": null,
+  "steps": {
+    "questionnaire": { "status": "completed", "status_at": "2026-07-13T10:02:00Z" },
+    "topics":        { "status": "pending",   "status_at": null },
+    "content":       { "status": "pending",   "status_at": null },
+    "visualization": { "status": "pending",   "status_at": null },
+    "domain":        { "status": "pending",   "status_at": null },
+    "payment":       { "status": "pending",   "status_at": null }
+  }
+}
+```
+403/400: same pattern as every other `/api/admin/configurator/*` route.
+
+**`POST /api/admin/configurator/wizard/advance`** — body:
+`{ "partner_account_id": "uuid", "step": "questionnaire"|"topics"|"content"|"visualization"|"domain"|"payment", "action": "complete"|"skip" }`.
+Server re-validates `step === current partner_onboarding_progress.current_step` (never trusts the client to
+name an arbitrary step — mirrors the existing "never trust a client-side-only check" discipline, §14
+Requirement Doc 4.B.3). `action="complete"` additionally re-runs 14.7.2's query before accepting.
+Response 200: `{ "current_step": "content", "steps": { ...same shape as GET... } }` (the next step in fixed
+order becomes `current_step`; after `payment`, the next value is `go_live`).
+Response 422: `{ "error": { "code": "step_not_ready" } }` — `action="complete"` attempted before the
+condition was met.
+Response 409: `{ "error": { "code": "step_mismatch" } }` — `step` no longer equals the server's
+`current_step` (stale tab/double-submit).
+403: same pattern.
+
+**`POST /api/admin/configurator/wizard/go-live`** — body: `{ "partner_account_id": "uuid" }`.
+Validates all six `{step}_status` values are `'completed'` or `'skipped'`.
+Response 200: `{ "onboarding_completed_at": "2026-07-13T10:30:00Z", "live_url": "https://acme-co.hello-clio.com" }`.
+`live_url` precedence (identical derivation to `GET .../domain`'s own display logic, §14.3/Requirement Doc
+4.B.1): `custom_domain_url` if `custom_domain_status='verified'`, else `subdomain_url` if `subdomain_slug`
+is set, else `{APP_BASE_URL}/partner-questionnaire/{partner_account_id}` (the existing, always-working
+Clio-domain fallback — never blank).
+Response 422: `{ "error": { "code": "steps_incomplete", "pending_steps": ["payment"] } }` — lists every
+step still `'pending'`.
+403: same pattern.
+
+#### 14.7.4 Entry-point redirect — exact check added to every Configurator `page.tsx`
+
+Every existing Configurator server component (`/dashboard/configurator`, `/questionnaire`, `/topics`,
+`/content`, `/visualization`, and this document's own new `/domain`) gains this check, inserted immediately
+after `activeId` resolution and before rendering its client component:
+
+```ts
+const { data: account } = await supabase
+  .from('partner_accounts')
+  .select('onboarding_completed_at')
+  .eq('id', activeId)
+  .single()
+
+if (!account?.onboarding_completed_at) {
+  redirect(`/dashboard/configurator/wizard?partner_account_id=${activeId}`)
+}
+```
+
+`/dashboard/configurator/wizard/page.tsx` runs the inverse:
+
+```ts
+if (account?.onboarding_completed_at) {
+  redirect(`/dashboard/configurator?partner_account_id=${activeId}`)
+}
+```
+
+#### 14.7.5 `embedded` prop — exact shape added to the 5 wrapped client components
+
+`QuestionnaireBuilderClient`, `TopicsConfigClient`, `ContentConfigClient`, `VisualizationClient` (all
+B2B-03, unmodified otherwise), and `DomainConfigClient` (this document, Section 4.A) each gain:
+
+```ts
+interface Props {
+  accounts: AdminPartnerAccount[]
+  activePartnerAccountId: string
+  embedded?: boolean   // new, optional, default false
+}
+```
+
+**Correction (v1.2 review pass):** the two components below do not each have "exactly one wrapped
+return" — verified against the live files. The fix differs by component depending on how many places
+currently call `<ConfiguratorShell>`:
+
+**`TopicsConfigClient`, `VisualizationClient`, `DomainConfigClient` — single wrapped return.**
+Confirmed against the live code: `TopicsConfigClient.tsx` (one `<ConfiguratorShell>` at line 35) and
+`VisualizationClient.tsx` (one `<ConfiguratorShell>` at line 25) each have exactly one early return, and
+`DomainConfigClient` (new, Section 4.A) is being authored with exactly one. For these three, the original
+instruction applies unchanged — the component's existing
+`return (<ConfiguratorShell ...>{content}</ConfiguratorShell>)` becomes:
+
+```tsx
+if (embedded) return <>{content}</>
+return (
+  <ConfiguratorShell accounts={accounts} activePartnerAccountId={activePartnerAccountId} title="..." backHref="...">
+    {content}
+  </ConfiguratorShell>
+)
+```
+
+**`QuestionnaireBuilderClient`, `ContentConfigClient` — two separately-wrapped returns each.**
+Confirmed against the live code:
+- `QuestionnaireBuilderClient.tsx` — the `view.mode === 'edit'` branch (lines 39–48, wraps `<EditView>`
+  with `title="Questionnaire Builder" backHref="#"`) and the list/default branch (lines 53–104, wraps the
+  New-button header + loading/empty/list states with `title="Questionnaire Builder"`, no `backHref`) each
+  call `<ConfiguratorShell>` independently.
+- `ContentConfigClient.tsx` — the `reviewingItem` branch (lines 61–70, wraps `<ReviewView>` with
+  `title="Content — Review" backHref="#"`) and the default/list branch (lines 72–128, wraps the
+  source-toggle + generated-items list with `title="Content" backHref="/dashboard/configurator?..."`)
+  each call `<ConfiguratorShell>` independently.
+
+**Specified approach: duplicate the `embedded` check at each of the two return sites independently — do
+not collapse the component to a single check point.** Rationale: the two branches in each component
+render genuinely different content *and* pass different `title`/`backHref` props to `ConfiguratorShell`
+(edit/review branch uses `backHref="#"`, e.g.; the other branch doesn't, or uses a different one). A true
+single-check refactor would need to thread per-branch title/backHref through a shared variable even
+though neither prop is used at all when `embedded=true` — unnecessary complexity for no behavioral gain.
+Duplicating the guard at each site instead requires no change to which branch executes, no change to
+component structure or hook order, and keeps the "byte-identical content" promise mechanically verifiable
+per branch: take the JSX already nested inside that branch's own `<ConfiguratorShell>` call, assign it
+unchanged to a local `content` variable, then guard-return it immediately before the existing wrap. At
+each of the two return sites:
+
+```tsx
+// at the top of the existing branch, in place of the current `return (<ConfiguratorShell ...>…)`:
+const content = (
+  /* exactly the JSX currently nested inside this branch's <ConfiguratorShell>…</ConfiguratorShell>,
+     unchanged — no business logic, validation, or API call in this branch changes */
+)
+if (embedded) return <>{content}</>
+return (
+  <ConfiguratorShell accounts={accounts} activePartnerAccountId={activePartnerAccountId} title="..." backHref="...">
+    {content}
+  </ConfiguratorShell>
+)
+```
+
+This is applied twice per component (once per branch), each independently — not once for the whole
+component. A developer implementing this must not improvise a merged/single-check version; the two
+branches keep their own separate `title`/`backHref` values exactly as today whenever `embedded=false`.
+
+For all 5 components, `content` (the JSX nested inside the relevant `<ConfiguratorShell>` call) is
+otherwise byte-identical — no business logic, validation, or API call inside any of the 5 components
+changes.
+
+---

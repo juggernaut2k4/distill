@@ -7,7 +7,7 @@ import { ConfiguratorShell, Card, PrimaryButton, SecondaryButton, COLORS } from 
 
 type View = { mode: 'list' } | { mode: 'edit'; id: string }
 
-export default function QuestionnaireBuilderClient({ accounts, activePartnerAccountId }: { accounts: AdminPartnerAccount[]; activePartnerAccountId: string }) {
+export default function QuestionnaireBuilderClient({ accounts, activePartnerAccountId, embedded = false }: { accounts: AdminPartnerAccount[]; activePartnerAccountId: string; embedded?: boolean }) {
   const [view, setView] = useState<View>({ mode: 'list' })
   const [questionnaires, setQuestionnaires] = useState<PartnerQuestionnaire[]>([])
   const [loading, setLoading] = useState(true)
@@ -36,13 +36,17 @@ export default function QuestionnaireBuilderClient({ accounts, activePartnerAcco
   }
 
   if (view.mode === 'edit') {
+    const content = (
+      <EditView
+        partnerAccountId={activePartnerAccountId}
+        questionnaireId={view.id}
+        onBack={() => { setView({ mode: 'list' }); reload() }}
+      />
+    )
+    if (embedded) return <>{content}</>
     return (
       <ConfiguratorShell accounts={accounts} activePartnerAccountId={activePartnerAccountId} title="Questionnaire Builder" backHref="#" >
-        <EditView
-          partnerAccountId={activePartnerAccountId}
-          questionnaireId={view.id}
-          onBack={() => { setView({ mode: 'list' }); reload() }}
-        />
+        {content}
       </ConfiguratorShell>
     )
   }
@@ -50,8 +54,8 @@ export default function QuestionnaireBuilderClient({ accounts, activePartnerAcco
   const published = questionnaires.filter((q) => q.status === 'published')
   const drafts = questionnaires.filter((q) => q.status === 'draft')
 
-  return (
-    <ConfiguratorShell accounts={accounts} activePartnerAccountId={activePartnerAccountId} title="Questionnaire Builder">
+  const content = (
+    <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <h1 style={{ fontSize: 18, fontWeight: 700 }}>Questionnaire Builder</h1>
         <PrimaryButton onClick={createNew}>+ New</PrimaryButton>
@@ -100,6 +104,13 @@ export default function QuestionnaireBuilderClient({ accounts, activePartnerAcco
           ))}
         </div>
       )}
+    </>
+  )
+
+  if (embedded) return <>{content}</>
+  return (
+    <ConfiguratorShell accounts={accounts} activePartnerAccountId={activePartnerAccountId} title="Questionnaire Builder">
+      {content}
     </ConfiguratorShell>
   )
 }

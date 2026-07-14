@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import type { AdminPartnerAccount } from '@/lib/partner/admin-accounts'
 import { ConfiguratorShell, Card, PrimaryButton, COLORS } from '../_shared'
 
-export default function TopicsConfigClient({ accounts, activePartnerAccountId }: { accounts: AdminPartnerAccount[]; activePartnerAccountId: string }) {
+export default function TopicsConfigClient({ accounts, activePartnerAccountId, embedded = false }: { accounts: AdminPartnerAccount[]; activePartnerAccountId: string; embedded?: boolean }) {
   const [topicsSource, setTopicsSource] = useState<'clio_generated' | 'partner_supplied'>('clio_generated')
   const [prerequisitesSource, setPrerequisitesSource] = useState<'clio_generated' | 'partner_supplied'>('clio_generated')
   const [saved, setSaved] = useState({ topicsSource: 'clio_generated', prerequisitesSource: 'clio_generated' })
@@ -31,8 +31,8 @@ export default function TopicsConfigClient({ accounts, activePartnerAccountId }:
     if (res.ok) setSaved({ topicsSource, prerequisitesSource })
   }
 
-  return (
-    <ConfiguratorShell accounts={accounts} activePartnerAccountId={activePartnerAccountId} title="Topics" backHref={`/dashboard/configurator?partner_account_id=${activePartnerAccountId}`}>
+  const content = (
+    <>
       <h1 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20 }}>Topics</h1>
 
       <Card style={{ marginBottom: 16 }}>
@@ -53,6 +53,13 @@ export default function TopicsConfigClient({ accounts, activePartnerAccountId }:
       </Card>
 
       <PrimaryButton disabled={!dirty} onClick={save}>Save changes</PrimaryButton>
+    </>
+  )
+
+  if (embedded) return <>{content}</>
+  return (
+    <ConfiguratorShell accounts={accounts} activePartnerAccountId={activePartnerAccountId} title="Topics" backHref={`/dashboard/configurator?partner_account_id=${activePartnerAccountId}`}>
+      {content}
     </ConfiguratorShell>
   )
 }

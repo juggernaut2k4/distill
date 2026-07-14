@@ -13,7 +13,7 @@ const STATUS_LABEL: Record<PartnerContentItem['status'], string> = {
   failed: 'GENERATION FAILED',
 }
 
-export default function ContentConfigClient({ accounts, activePartnerAccountId }: { accounts: AdminPartnerAccount[]; activePartnerAccountId: string }) {
+export default function ContentConfigClient({ accounts, activePartnerAccountId, embedded = false }: { accounts: AdminPartnerAccount[]; activePartnerAccountId: string; embedded?: boolean }) {
   const [contentSource, setContentSource] = useState<'clio_generated' | 'partner_supplied'>('clio_generated')
   const [items, setItems] = useState<PartnerContentItem[]>([])
   const [newTopicRef, setNewTopicRef] = useState('')
@@ -58,19 +58,23 @@ export default function ContentConfigClient({ accounts, activePartnerAccountId }
   const reviewingItem = items.find((i) => i.id === reviewing) ?? null
 
   if (reviewingItem) {
+    const content = (
+      <ReviewView
+        item={reviewingItem}
+        partnerAccountId={activePartnerAccountId}
+        onBack={() => { setReviewing(null); reload() }}
+      />
+    )
+    if (embedded) return <>{content}</>
     return (
       <ConfiguratorShell accounts={accounts} activePartnerAccountId={activePartnerAccountId} title="Content — Review" backHref="#">
-        <ReviewView
-          item={reviewingItem}
-          partnerAccountId={activePartnerAccountId}
-          onBack={() => { setReviewing(null); reload() }}
-        />
+        {content}
       </ConfiguratorShell>
     )
   }
 
-  return (
-    <ConfiguratorShell accounts={accounts} activePartnerAccountId={activePartnerAccountId} title="Content" backHref={`/dashboard/configurator?partner_account_id=${activePartnerAccountId}`}>
+  const content = (
+    <>
       <h1 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20 }}>Content</h1>
 
       <Card style={{ marginBottom: 16 }}>
@@ -124,6 +128,13 @@ export default function ContentConfigClient({ accounts, activePartnerAccountId }
           </div>
         </>
       )}
+    </>
+  )
+
+  if (embedded) return <>{content}</>
+  return (
+    <ConfiguratorShell accounts={accounts} activePartnerAccountId={activePartnerAccountId} title="Content" backHref={`/dashboard/configurator?partner_account_id=${activePartnerAccountId}`}>
+      {content}
     </ConfiguratorShell>
   )
 }

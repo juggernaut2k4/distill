@@ -18,11 +18,11 @@ interface TemplateListItem {
   parameterized: boolean
 }
 
-export default function VisualizationClient({ accounts, activePartnerAccountId }: { accounts: AdminPartnerAccount[]; activePartnerAccountId: string }) {
+export default function VisualizationClient({ accounts, activePartnerAccountId, embedded = false }: { accounts: AdminPartnerAccount[]; activePartnerAccountId: string; embedded?: boolean }) {
   const [screen, setScreen] = useState<Screen>({ kind: 'theme' })
 
-  return (
-    <ConfiguratorShell accounts={accounts} activePartnerAccountId={activePartnerAccountId} title="Visualization" backHref={`/dashboard/configurator?partner_account_id=${activePartnerAccountId}`}>
+  const content = (
+    <>
       <div style={{ display: 'flex', gap: 16, marginBottom: 20, fontSize: 13 }}>
         <button onClick={() => setScreen({ kind: 'theme' })} style={{ background: 'none', border: 'none', color: screen.kind === 'theme' ? COLORS.textPrimary : COLORS.textSecondary, cursor: 'pointer', fontWeight: screen.kind === 'theme' ? 700 : 400 }}>
           Theme
@@ -39,6 +39,13 @@ export default function VisualizationClient({ accounts, activePartnerAccountId }
       {screen.kind === 'template-detail' && (
         <TemplateDetailScreen partnerAccountId={activePartnerAccountId} templateName={screen.templateName} onBack={() => setScreen({ kind: 'template-list' })} />
       )}
+    </>
+  )
+
+  if (embedded) return <>{content}</>
+  return (
+    <ConfiguratorShell accounts={accounts} activePartnerAccountId={activePartnerAccountId} title="Visualization" backHref={`/dashboard/configurator?partner_account_id=${activePartnerAccountId}`}>
+      {content}
     </ConfiguratorShell>
   )
 }

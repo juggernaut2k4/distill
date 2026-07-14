@@ -20,6 +20,7 @@
     "@stripe/stripe-js": "^9.6.0",
     "@supabase/ssr": "^0.10.2",
     "@supabase/supabase-js": "^2.49.4",
+    "@vercel/sdk": "^1.28.8",
     "@xyflow/react": "^12.10.2",
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0",
