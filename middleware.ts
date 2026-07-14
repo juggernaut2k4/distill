@@ -19,6 +19,7 @@ const isPublicRoute = createRouteMatcher([
   '/api/admin/seed-topics',    // Admin seed — checked via secret header; Clerk session also accepted
   '/api/admin/seed-topic-cache', // Role topic cache seeder — no user session needed
   '/walkthrough/(.*)',        // Public walkthrough page shared by Recall.ai bot
+  '/partner-render/(.*)',     // B2B-02: placeholder render stub, loaded headlessly by the meeting bot on a partner's behalf — no Clerk session available
 ])
 
 export default clerkMiddleware((auth, request) => {
