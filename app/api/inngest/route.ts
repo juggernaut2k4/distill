@@ -27,6 +27,9 @@ import { sessionTimerJob } from '@/inngest/session-timer'
 import { voiceGapWatchdog } from '@/inngest/voice-gap-watchdog'
 import { humeNativeNightlyCleanup } from '@/inngest/hume-native-nightly-cleanup'
 import { templateFixGenerator } from '@/inngest/template-fix-generator'
+import { humeActionItemExtractor, humeActionItemBackstopSweep } from '@/inngest/hume-action-item-extractor'
+import { partnerWebhookDispatcher } from '@/inngest/partner-webhook-dispatcher'
+import { partnerContentGeneration, partnerContentCleanup } from '@/inngest/partner-content-generation'
 
 /**
  * POST /api/inngest
@@ -35,5 +38,5 @@ import { templateFixGenerator } from '@/inngest/template-fix-generator'
  */
 export const { GET, POST, PUT } = serve({
   client: inngest,
-  functions: [dailyDelivery, weeklyDigest, feedbackProcessor, sessionReminder, sessionMeetingSetup, sessionPlanGenerator, sessionAgendaEmail, trialExpiryJob, sessionContentPipeline, sessionContentCron, updateLearningProfile, catalogRefresh, curriculumQueueRegenerate, curriculumRecommendationAccepted, curriculumQueueCron, curriculumGenerator, sessionDesignerAuto, sessionQualityEvaluator, scheduleSetupNudge, analyzeIceBreakerResponse, adaptPlan, abandonedOnboardingCleanup, sessionTimerJob, voiceGapWatchdog, humeNativeNightlyCleanup, rtv03AccuracyEvaluator, templateFixGenerator],
+  functions: [dailyDelivery, weeklyDigest, feedbackProcessor, sessionReminder, sessionMeetingSetup, sessionPlanGenerator, sessionAgendaEmail, trialExpiryJob, sessionContentPipeline, sessionContentCron, updateLearningProfile, catalogRefresh, curriculumQueueRegenerate, curriculumRecommendationAccepted, curriculumQueueCron, curriculumGenerator, sessionDesignerAuto, sessionQualityEvaluator, scheduleSetupNudge, analyzeIceBreakerResponse, adaptPlan, abandonedOnboardingCleanup, sessionTimerJob, voiceGapWatchdog, humeNativeNightlyCleanup, rtv03AccuracyEvaluator, templateFixGenerator, humeActionItemExtractor, humeActionItemBackstopSweep, partnerWebhookDispatcher, partnerContentGeneration, partnerContentCleanup],
 })

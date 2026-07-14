@@ -2,6 +2,7 @@ import crypto from 'crypto'
 import { NextResponse } from 'next/server'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { writeAuditEvent } from '@/lib/session-billing'
+import { inngest } from '@/inngest/client'
 
 /**
  * HUME-WEBHOOK-01 / HUME-GROUND-TRUTH-01 — receives Hume's server-to-server
@@ -140,6 +141,19 @@ export async function POST(request: Request) {
         config_id: configId ?? null,
         chat_id: chatId,
       },
+    })
+
+    // HUME-NATIVE-02 Part B — fast-path trigger for post-session action-item
+    // and glitch extraction. Fires immediately after the audit-event write
+    // succeeds, mirroring FB-HUME-GROUND-TRUTH-01-elevated.md's Decision 1
+    // (additional, faster-arriving trigger, never the sole mechanism — a
+    // 30-minute backstop cron sweep in inngest/hume-action-item-extractor.ts
+    // catches any session this event never reaches). Never awaited in a way
+    // that can throw out of this handler — inngest.send() failures are
+    // swallowed by the outer catch below, same as every other operation here.
+    await inngest.send({
+      name: 'clio/hume-native-session.ended',
+      data: { sessionId: session.id as string },
     })
   } catch (err) {
     // Never throw — a DB write failure here must never cause Hume to retry

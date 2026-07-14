@@ -293,13 +293,9 @@ export async function provisionNativeConfig(
       : [
           { id: '4f15c0c2-9af1-421c-8040-ad34b6345234', version: 1 }, // advance_tab
           { id: '65a3d139-2f7b-4e26-9fce-caeb7fa78e05', version: 1 }, // show_visual
-          // TODO(SESSION-END-01): paste the real {id, version} returned by the
-          // one-time `POST /v0/evi/tools` registration described in
-          // docs/session-end-01-hume-setup.md once it has been run — this
-          // fallback array is only ever used if baseConfig.tools is malformed,
-          // but should still carry end_session once it exists so a malformed
-          // base-config response doesn't silently regress this feature too.
-          // { id: 'REPLACE_WITH_END_SESSION_TOOL_ID', version: 1 }, // end_session
+          // SESSION-END-01: registered 2026-07-13 via docs/session-end-01-hume-setup.md.
+          // Note the actual registered version is 0, not the doc's placeholder example of 1.
+          { id: '6fc0bfde-1f63-44a1-b752-3507b5b5d30d', version: 0 }, // end_session
         ],
     // Dynamically reconstructed from the base config's actual builtin_tools
     // (captured in baseConfig before destructuring below) rather than a

@@ -357,34 +357,61 @@ during the call — matches Arun's earlier stated preference (even a nightly bat
 that day's sessions is acceptable). Noted to write a proper spec and build this when this
 architecture is implemented — not yet spec'd or built.
 
-## New requirement — visualization PDF export (to be spec'd before build)
+## New requirement — visualization PDF export — **REMOVED FROM SCOPE 2026-07-13**
 
-Arun's requirement, noted for a future spec, not yet built: at the moment we decide to move to
+~~Arun's requirement, noted for a future spec, not yet built: at the moment we decide to move to
 the next visual, save a snapshot of the current one. At the end of the session, combine all the
-snapshots into a single PDF and email it to the user. This needs a proper spec (capture method,
-storage, PDF assembly, email delivery) before any implementation — logged here so it isn't lost,
-to be picked up when this architecture is built.
+snapshots into a single PDF and email it to the user.~~
+
+**Superseded by the B2C→B2B pivot (see `docs/brainstorm-b2b-platform-pivot.md`).** Under the pivot,
+Clio no longer owns the end-user relationship or delivers anything directly to end users — partner
+platforms (Pluralsight, Capgemini, etc.) do. A PDF recap emailed to the user is now the partner's
+feature to build if they want it, not Clio's. Explicitly out of scope, not just deferred.
 
 ---
 
-## Open items — resolved vs. still open (updated 2026-07-04)
+## Open items — resolved vs. still open (updated 2026-07-13)
 
 **Resolved by decision, no longer open:**
 - Mid-call context injection: moot — Arun decided everything goes to Hume once, upfront; nothing
   is pushed mid-call by design, so whether Hume supports it is no longer load-bearing.
 - Stuck-tab/backstop pacing logic: resolved — we track Clio's position ourselves via the live
   transcript rather than relying on Hume to self-report or on a forced backstop.
+- **Prompt size (2026-07-13): CONFIRMED by Arun — Hume accepts the prompt at full/normal size.**
+  (Orchestrator note: logging as owner-confirmed; if this came from an actual test call rather
+  than a working assumption, worth noting the source for future reference, but proceeding either
+  way per Arun's direction.)
+- **Visualization triggering (2026-07-13): CONFIRMED, and this doc's own "genuinely open" framing
+  below was wrong/inconsistent — corrected.** Arun confirmed explicitly: **Hume's native LLM does
+  NOT trigger visual changes via its own tool-calling.** We (server-side) watch the live transcript
+  ourselves and trigger the switch directly — same mechanism as the already-resolved
+  stuck-tab/backstop decision above, just not fully carried through to this section before. This
+  makes the "does Hume's own LLM reliably fire tool calls" question **moot for visualization** —
+  we don't depend on Hume's native reasoning to initiate that action at all.
 
-**Still genuinely open, resolvable only by an actual test call:**
-- Whether Hume accepts our prompt at full/normal size (behavior rules + context + full profile +
-  full session content combined in one upfront prompt).
-- Whether Hume's own LLM reliably fires the visualization tool calls it's instructed to make, with
-  no per-turn steering from us.
+**Answered 2026-07-13 — narrows but does not fully close the tool-calling question:**
+- `end_session` is handed to Hume's own native-mode tool-calling — Hume decides when the session
+  should end and invokes the tool itself, unlike visualization (server-driven, above). So there
+  IS still a real, narrower dependency on Hume's native reasoning reliably firing a tool call — just
+  scoped to this one action instead of the many frequent, precisely-timed calls visualization would
+  have needed. Per this doc's own Q4 finding, the tool-calling *wire mechanism* is already confirmed
+  to work identically in CLM and native mode (`hume-adapter.ts`'s existing `tool_call`/
+  `tool_response` pattern) — what's unverified is Hume's own *judgment* on when to call it, not
+  whether the mechanism functions.
+- **Recommended regardless of test results:** build a server-side backstop (e.g. a max-session-
+  duration timeout that force-ends the call) so a missed/late `end_session` tool call can't leave a
+  bot stuck in a live meeting indefinitely. This is good defensive engineering independent of how
+  reliable Hume's judgment turns out to be, and turns an open unknown into a managed risk rather
+  than a blocker.
 
-**Not yet spec'd or built (new requirements from this brainstorm):**
-- Post-session action-item and glitch extraction from the full Hume transcript.
-- Visualization PDF export/email at session end.
+**Not yet spec'd or built (remaining new requirement from this brainstorm):**
+- Post-session action-item and glitch extraction from the full Hume transcript (via Hume's Chat
+  History API, `GET /v0/evi/chats/{id}/events`) — still in scope, unchanged.
 
-Per the standing rule, none of this proceeds to a build until a spec is written and approved —
-most likely framed as a scoped technical spike first (test call to resolve the two open unknowns
-above), followed by a full BA spec covering the new requirements.
+**Status as of 2026-07-13:** prompt-size and visualization-triggering are resolved by direct owner
+confirmation. `end_session` tool-calling reliability is a narrower, real, still-open question —
+mitigated by a recommended timeout backstop rather than requiring a dedicated spike to block on.
+Per the standing rule, this can reasonably move to a CEO Agent Feature Brief → BA spec now, with
+the backstop requirement and the transcript-based action-item extraction feature both written into
+the spec, and `end_session` reliability tracked as a monitored risk during the first real sessions
+rather than gated behind a pre-spec test call.
