@@ -18,7 +18,7 @@
 
 import { inngest } from './client'
 import { createSupabaseAdminClient } from '@/lib/supabase'
-import { fetchRecallTranscript, identifyClioSpeaker } from './session-quality-evaluator'
+import { fetchRecallTranscript, fetchAttendeeTranscript, identifyClioSpeaker } from './session-quality-evaluator'
 import {
   getRtv03AuditEvents,
   extractBotJoinedAt,
@@ -32,6 +32,8 @@ interface Rtv03SessionRow {
   id: string
   recall_bot_id: string | null
   session_markers: SessionMarkers | null
+  /** recall | attendee | agentcall | null (null = pre-migration row, treated as recall). See migration 070. */
+  meeting_bot_provider: string | null
 }
 
 type StepFn = { run: <T>(name: string, fn: () => Promise<T>) => Promise<T> }
@@ -76,13 +78,18 @@ async function evaluateRtv03Session(
   supabase: ReturnType<typeof createSupabaseAdminClient>,
   session: Rtv03SessionRow,
   recallApiKey: string,
+  attendeeApiKey: string,
 ): Promise<void> {
   const topics = session.session_markers?.topics ?? []
 
-  // ── Reuse FB-008's exact transcript fetch — 404 re-throws so Inngest
-  // retries this step (Section 8), other failures return a transcriptError
-  // string rather than throwing.
-  const { utterances, transcriptError } = await fetchRecallTranscript(session.id, session.recall_bot_id, recallApiKey)
+  // ── Reuse FB-008's exact transcript fetch (provider-aware — see
+  // session-quality-evaluator.ts's evaluateSession() for the same branch) —
+  // 404 re-throws so Inngest retries this step (Section 8), other failures
+  // return a transcriptError string rather than throwing.
+  const isAttendeeSession = session.meeting_bot_provider === 'attendee'
+  const { utterances, transcriptError } = isAttendeeSession
+    ? await fetchAttendeeTranscript(session.id, session.recall_bot_id, attendeeApiKey)
+    : await fetchRecallTranscript(session.id, session.recall_bot_id, recallApiKey)
 
   if (transcriptError) {
     await upsertErrorReport(supabase, session.id, topics, transcriptError)
@@ -156,6 +163,10 @@ export const rtv03AccuracyEvaluator = inngest.createFunction(
     if (!recallApiKey || recallApiKey.startsWith('PLACEHOLDER_')) {
       console.warn('[rtv03-accuracy-evaluator] RECALL_API_KEY not set — skipping transcript fetch')
     }
+    const attendeeApiKey = process.env.ATTENDEE_API_KEY ?? ''
+    if (!attendeeApiKey || attendeeApiKey.startsWith('PLACEHOLDER')) {
+      console.warn('[rtv03-accuracy-evaluator] ATTENDEE_API_KEY not set — skipping Attendee transcript fetch')
+    }
 
     const supabase = createSupabaseAdminClient()
 
@@ -163,7 +174,7 @@ export const rtv03AccuracyEvaluator = inngest.createFunction(
     const sessions = await step.run('find-rtv03-sessions-to-evaluate', async () => {
       const { data, error } = await supabase
         .from('sessions')
-        .select('id, recall_bot_id, session_markers')
+        .select('id, recall_bot_id, session_markers, meeting_bot_provider')
         .eq('status', 'completed')
         .eq('rtv03_tracking_enabled', true)
         .gte('ended_at', new Date(Date.now() - 2 * 60 * 60 * 1000 - 15 * 60 * 1000).toISOString())
@@ -193,7 +204,7 @@ export const rtv03AccuracyEvaluator = inngest.createFunction(
 
     for (const session of sessions) {
       await step.run(`evaluate-rtv03-${session.id}`, async () => {
-        await evaluateRtv03Session(supabase, session, recallApiKey)
+        await evaluateRtv03Session(supabase, session, recallApiKey, attendeeApiKey)
       })
     }
 

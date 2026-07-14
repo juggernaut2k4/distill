@@ -1,12 +1,13 @@
 import { auth } from '@clerk/nextjs/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseAdminClient } from '@/lib/supabase'
-import { createBot } from '@/lib/recall'
+import { getMeetingBotProvider } from '@/lib/meeting-bot/provider'
 import { isTestSessionEnabled } from '@/lib/admin-access'
 
 /**
  * POST /api/admin/test-session
- * Creates a test session and sends the Recall.ai bot into an existing meeting URL.
+ * Creates a test session and sends the active meeting bot provider's bot
+ * (Recall.ai or Attendee, per MEETING_BOT_PROVIDER) into an existing meeting URL.
  * For testing only — bypasses the 25-35 min cron window.
  * Body: { title?, meetingUrl, durationMins? }
  */
@@ -75,8 +76,16 @@ export async function POST(request: NextRequest) {
   console.log('[test-session] walkthroughUrl sent to bot:', walkthroughUrl)
 
   try {
-    const { botId } = await createBot(meetingUrl, userId, walkthroughUrl)
+    const botProvider = getMeetingBotProvider()
+    const { botId } = await botProvider.createBot(meetingUrl, userId, walkthroughUrl, session.id as string)
     console.log('[test-session] bot created:', botId)
+
+    // Record which provider actually ran this session — see migration
+    // 070_sessions_meeting_bot_provider.sql.
+    await supabase
+      .from('sessions')
+      .update({ meeting_bot_provider: botProvider.name })
+      .eq('id', session.id)
 
     const { error: upsertError } = await supabase
       .from('walkthrough_state')

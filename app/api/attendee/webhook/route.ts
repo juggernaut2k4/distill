@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createHmac } from 'crypto'
 import { createSupabaseAdminClient } from '@/lib/supabase'
+import { analyzeTranscription } from '@/lib/session-ai'
+import {
+  getOrCreateContext,
+  updateSentiment,
+  addUnresolvedQuestion,
+} from '@/lib/user-context'
 import { inngest } from '@/inngest/client'
 
 /**
@@ -107,6 +113,7 @@ async function handleEvent(event: AttendeeWebhookEvent) {
   }
 
   const sessionId = walkthroughRow.session_id as string | null
+  const currentTopicId = (walkthroughRow.topic_id as string | null) ?? 'introduction'
 
   switch (event.trigger) {
     case 'bot.state_change': {
@@ -143,6 +150,7 @@ async function handleEvent(event: AttendeeWebhookEvent) {
           clio_session_context: null,
           current_section_index: 0,
           pending_transcript: null,
+          last_participant_transcript: null,
         }).eq('user_id', userId)
 
         if (sessionId) {
@@ -155,6 +163,16 @@ async function handleEvent(event: AttendeeWebhookEvent) {
             .from('users').select('primary_domain').eq('id', userId).maybeSingle()
           const domain = (userRow?.primary_domain as string | null) ?? 'ai-ml'
 
+          // Fetch session sentiment (parity with recall/webhook) — populated by the
+          // updateSentiment() calls run from the transcript.update case below.
+          const { data: ctxRow } = await supabase
+            .from('user_session_context')
+            .select('sentiment_history')
+            .eq('user_id', userId)
+            .maybeSingle()
+          const sentimentHistory = (ctxRow?.sentiment_history ?? []) as Array<{ sentiment: string; session: string }>
+          const sessionSentiment = sentimentHistory.find((h) => h.session === sessionId)?.sentiment ?? 'neutral'
+
           // Cancel the Inngest session timer — the bot has already disconnected
           inngest.send({
             name: 'clio/session.ended',
@@ -163,8 +181,34 @@ async function handleEvent(event: AttendeeWebhookEvent) {
 
           inngest.send({
             name: 'distill/session.completed',
-            data: { userId, sessionId, domain, topicTitle, topicId, sessionSentiment: 'neutral' },
+            data: { userId, sessionId, domain, topicTitle, topicId, sessionSentiment },
           }).catch((err) => console.error('[attendee/webhook] session.completed emit failed:', err))
+
+          // Emit ice breaker response events — one per subtopic where the user spoke during
+          // the ICE_BREAKER segment. Parity with recall/webhook's bot.call_ended handling,
+          // except this reads current_section_index/sections/transcript from walkthroughRow
+          // (fetched at the top of handleEvent, before the clearing update above) rather than
+          // re-querying afterward — re-querying after the clear would read back the very
+          // null/0 values this handler just wrote, which would always resolve to section 0.
+          // Also reads last_participant_transcript (not pending_transcript) — see the
+          // "Do NOT write participant speech to pending_transcript" note in the
+          // transcript.update case below for why the two fields are kept separate.
+          const rawTranscript = ((walkthroughRow.last_participant_transcript as string | null) ?? '').trim()
+          if (rawTranscript.length > 10) {
+            const sectionIndex = (walkthroughRow.current_section_index as number | null) ?? 0
+            const sections = walkthroughRow.sections as Array<{ id?: string; subtopic_slug?: string }> | null
+            const activeSection = sections?.[sectionIndex]
+            const subtopicSlug = activeSection?.id ?? activeSection?.subtopic_slug ?? `subtopic-${sectionIndex}`
+
+            inngest.send({
+              name: 'distill/session.ice-breaker.response',
+              data: { sessionId, userId, subtopicSlug, rawTranscript },
+            }).catch((err) => console.error('[attendee/webhook] Failed to emit ice-breaker.response:', err))
+
+            console.log('[attendee/webhook] Emitted ice-breaker.response for subtopic:', subtopicSlug, '| transcript length:', rawTranscript.length)
+          } else {
+            console.log('[attendee/webhook] No ice breaker transcript captured — skipping emission')
+          }
         }
 
         console.log('[attendee/webhook] Call ended', { botId, userId, state })
@@ -186,6 +230,41 @@ async function handleEvent(event: AttendeeWebhookEvent) {
       // double response if a forwarding path is ever added back for this field.
       // Only [SYSTEM] messages (e.g. from the session timer) use pending_transcript.
       console.log('[attendee/webhook] Transcript (not forwarded — Hume hears audio directly):', speaker, '|', text.slice(0, 80))
+
+      // Dedicated, isolated capture for the ice-breaker signal (migration 069) —
+      // never polled by the client, never forwarded to the voice agent, so it
+      // carries none of the double-response risk noted above.
+      await supabase
+        .from('walkthrough_state')
+        .update({ last_participant_transcript: text })
+        .eq('user_id', userId)
+
+      // Sentiment + deferred question tracking — non-critical, run after response.
+      // Parity with recall/webhook's transcript.data handling.
+      ;(async () => {
+        try {
+          const userCtx = await getOrCreateContext(userId)
+          const analysis = await analyzeTranscription(text, currentTopicId, {
+            role: 'executive',
+            communicationStyle: userCtx.communicationStyle,
+            engagementLevel: userCtx.engagementLevel,
+          })
+
+          if (sessionId) {
+            await updateSentiment(userId, analysis.sentiment, sessionId).catch(console.error)
+          }
+
+          if (analysis.intent === 'question' && analysis.isComplex && analysis.extractedQuestion && sessionId) {
+            await addUnresolvedQuestion(userId, analysis.extractedQuestion, sessionId).catch(console.error)
+          }
+
+          if (analysis.intent === 'no_time' && analysis.extractedQuestion && sessionId) {
+            await addUnresolvedQuestion(userId, `[Deferred] ${analysis.extractedQuestion}`, sessionId).catch(console.error)
+          }
+        } catch (err) {
+          console.error('[attendee/webhook] Transcript analysis error:', err)
+        }
+      })()
       break
     }
 

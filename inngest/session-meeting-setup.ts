@@ -1,6 +1,6 @@
 import { inngest } from './client'
 import { createSupabaseAdminClient } from '@/lib/supabase'
-import { createBot } from '@/lib/recall'
+import { getMeetingBotProvider } from '@/lib/meeting-bot/provider'
 import { sendSMS } from '@/lib/delivery/sms'
 import { getAllReadySections, type SessionPlan } from '@/lib/session-plan'
 import { buildAllClioDocs } from '@/lib/clio-context-builder'
@@ -57,8 +57,17 @@ export const sessionMeetingSetup = inngest.createFunction(
           const sessionTitle = (session.session_title as string) ?? 'Your Clio Session'
           const walkthroughUrl = `${process.env.NEXT_PUBLIC_APP_URL}/walkthrough/${userId}`
 
-          // Send bot into the meeting
-          const { botId } = await createBot(meetingUrl, userId, walkthroughUrl)
+          // Send bot into the meeting (provider-agnostic — Recall.ai or Attendee per MEETING_BOT_PROVIDER)
+          const botProvider = getMeetingBotProvider()
+          const { botId } = await botProvider.createBot(meetingUrl, userId, walkthroughUrl, session.id as string)
+
+          // Record which provider actually ran this session — the post-session quality
+          // evaluator and RTV-03 accuracy evaluator need this to know which transcript
+          // API to call (see migration 070_sessions_meeting_bot_provider.sql).
+          await supabase
+            .from('sessions')
+            .update({ meeting_bot_provider: botProvider.name })
+            .eq('id', session.id)
 
           // Load pre-generated template sections from the session plan
           const topicId = session.topic_id as string | null

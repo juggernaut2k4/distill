@@ -54,6 +54,8 @@ interface SessionRow {
   active_plan_id: string | null
   created_at: string | null
   hume_native_enabled: boolean | null
+  /** recall | attendee | agentcall | null (null = pre-migration row, treated as recall). See migration 070. */
+  meeting_bot_provider: string | null
 }
 
 // ─── V1–V7 keyword classifier ──────────────────────────────────────────────────
@@ -455,6 +457,92 @@ export async function fetchRecallTranscript(
   return { utterances, transcriptError }
 }
 
+/**
+ * Fetches the Attendee.dev transcript for a session's bot and normalizes it
+ * into the same RecallUtterance[] shape fetchRecallTranscript() produces, so
+ * every downstream consumer in this file (checkpoint-pair extraction, the 6
+ * quality criteria, the 7-dimension classifier, both deferred-question
+ * detectors) works unmodified regardless of which provider ran the session.
+ *
+ * Attendee's GET /api/v1/bots/{id}/transcript returns an array of
+ * utterance-level objects — { speaker_name, timestamp_ms, duration_ms,
+ * transcription } — not Recall's word-level { text, start_time, end_time }
+ * array. There is no finer-grained timing available from Attendee's API, so
+ * each utterance's words are synthesized by splitting `transcription` on
+ * whitespace and giving every resulting word the SAME start_time/end_time
+ * (the utterance's own start/end, in seconds). This is a real, non-fabricated
+ * value at the utterance boundary — it is only the intra-utterance per-word
+ * timing that's approximated — and every downstream consumer in this file only
+ * ever reads the FIRST or LAST word's start_time/end_time (i.e. the utterance
+ * boundary) or the word COUNT (for "last 200 words" style checks), never true
+ * intra-utterance timing, so this normalization changes no scoring behavior.
+ */
+export async function fetchAttendeeTranscript(
+  sessionIdForLogging: string,
+  attendeeBotId: string | null,
+  attendeeApiKey: string,
+): Promise<RecallTranscriptResult> {
+  let utterances: RecallUtterance[] = []
+  let transcriptError: string | null = null
+
+  if (!attendeeBotId) {
+    console.warn(`[quality-evaluator] Session ${sessionIdForLogging} has no bot id — empty transcript`)
+    transcriptError = 'no_bot_id'
+  } else if (!attendeeApiKey || attendeeApiKey.startsWith('PLACEHOLDER')) {
+    console.warn(`[quality-evaluator] ATTENDEE_API_KEY not set — skipping transcript for session ${sessionIdForLogging}`)
+    transcriptError = 'attendee_api_key_missing'
+  } else {
+    try {
+      const resp = await fetch(
+        `https://app.attendee.dev/api/v1/bots/${attendeeBotId}/transcript`,
+        { headers: { Authorization: `Token ${attendeeApiKey}` } },
+      )
+
+      if (!resp.ok) {
+        if (resp.status === 404) {
+          // Transcript not yet available — throw so Inngest retries this step
+          // (parity with fetchRecallTranscript's 404 handling above).
+          throw new Error(`Transcript not yet available for bot ${attendeeBotId} (HTTP 404)`)
+        }
+        console.error(`[quality-evaluator] Attendee API error ${resp.status} for session ${sessionIdForLogging}`)
+        transcriptError = `attendee_api_error_${resp.status}`
+      } else {
+        const body = await resp.json() as Array<{
+          speaker_name?: string
+          timestamp_ms?: number
+          duration_ms?: number
+          transcription?: string
+        }>
+
+        if (Array.isArray(body) && body.length > 0) {
+          utterances = body
+            .filter((u) => typeof u.transcription === 'string' && u.transcription.trim().length > 0)
+            .map((u) => {
+              const startSec = (u.timestamp_ms ?? 0) / 1000
+              const endSec = ((u.timestamp_ms ?? 0) + (u.duration_ms ?? 0)) / 1000
+              const words = (u.transcription ?? '')
+                .split(/\s+/)
+                .filter(Boolean)
+                .map((text) => ({ text, start_time: startSec, end_time: endSec }))
+              return { speaker: u.speaker_name ?? 'unknown', words }
+            })
+
+          if (utterances.length === 0) transcriptError = 'transcript_empty'
+        } else {
+          transcriptError = 'transcript_empty'
+        }
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg.includes('HTTP 404')) throw err
+      console.error(`[quality-evaluator] Attendee transcript fetch threw for session ${sessionIdForLogging}:`, msg)
+      transcriptError = 'transcript_fetch_error'
+    }
+  }
+
+  return { utterances, transcriptError }
+}
+
 export interface ClioSpeakerIdentification {
   clioSpeaker: string
   userSpeakers: string[]
@@ -598,6 +686,10 @@ export const sessionQualityEvaluator = inngest.createFunction(
     if (!recallApiKey || recallApiKey.startsWith('PLACEHOLDER_')) {
       console.warn('[quality-evaluator] RECALL_API_KEY not set — skipping transcript fetch')
     }
+    const attendeeApiKey = process.env.ATTENDEE_API_KEY ?? ''
+    if (!attendeeApiKey || attendeeApiKey.startsWith('PLACEHOLDER')) {
+      console.warn('[quality-evaluator] ATTENDEE_API_KEY not set — skipping Attendee transcript fetch')
+    }
 
     const supabase = createSupabaseAdminClient()
 
@@ -613,6 +705,7 @@ export const sessionQualityEvaluator = inngest.createFunction(
           recall_bot_id,
           ended_at,
           hume_native_enabled,
+          meeting_bot_provider,
           users!inner (
             role,
             industry,
@@ -650,6 +743,7 @@ export const sessionQualityEvaluator = inngest.createFunction(
           // Treat null/undefined as "not Hume-native" so existing sessions keep using
           // the Custom-LLM-path detector below (no behavior change for existing rows).
           hume_native_enabled: (row as { hume_native_enabled?: boolean | null }).hume_native_enabled ?? null,
+          meeting_bot_provider: (row as { meeting_bot_provider?: string | null }).meeting_bot_provider ?? null,
         } satisfies SessionRow
       })
     })
@@ -659,7 +753,7 @@ export const sessionQualityEvaluator = inngest.createFunction(
     // ── Process each session individually ────────────────────────────────────
     for (const session of sessions) {
       await step.run(`evaluate-session-${session.id}`, async () => {
-        await evaluateSession(supabase, session, recallApiKey)
+        await evaluateSession(supabase, session, recallApiKey, attendeeApiKey)
       })
     }
 
@@ -673,6 +767,7 @@ async function evaluateSession(
   supabase: ReturnType<typeof createSupabaseAdminClient>,
   session: SessionRow,
   recallApiKey: string,
+  attendeeApiKey: string,
 ): Promise<void> {
   const topicId = session.topic_id ?? 'unknown'
   const topicTitle = session.session_title ?? 'AI Strategy Session'
@@ -680,15 +775,20 @@ async function evaluateSession(
   const roleLevel = 'c-suite' // will be resolved from role_level if available
   const industry = session.industry ?? 'business'
 
-  // ── Step B: Fetch Recall.ai transcript ─────────────────────────────────────
-  // RTV-03 (2026-07-10): extracted to fetchRecallTranscript() so the new
-  // sibling accuracy-evaluator reuses this exact logic rather than
-  // duplicating it — pure extraction, no behavior change here.
-  const { utterances, transcriptError: fetchedTranscriptError } = await fetchRecallTranscript(
-    session.id,
-    session.recall_bot_id,
-    recallApiKey,
-  )
+  // ── Step B: Fetch the transcript from whichever meeting-bot provider ran
+  // this session. NULL/'recall' (all pre-migration rows — see migration 070)
+  // keeps using fetchRecallTranscript(), unchanged. Only sessions explicitly
+  // recorded as 'attendee' use the new fetchAttendeeTranscript() path — both
+  // return the identical RecallTranscriptResult shape, so nothing below this
+  // point (checkpoint pairing, quality criteria, dimension classification,
+  // deferred-question detection) needs to know which provider ran the call.
+  // RTV-03 (2026-07-10): fetchRecallTranscript() extracted so the sibling
+  // accuracy-evaluator reuses this exact logic rather than duplicating it —
+  // pure extraction, no behavior change here.
+  const isAttendeeSession = session.meeting_bot_provider === 'attendee'
+  const { utterances, transcriptError: fetchedTranscriptError } = isAttendeeSession
+    ? await fetchAttendeeTranscript(session.id, session.recall_bot_id, attendeeApiKey)
+    : await fetchRecallTranscript(session.id, session.recall_bot_id, recallApiKey)
   let transcriptError = fetchedTranscriptError
 
   // If transcript completely unavailable after retries, mark and move on
