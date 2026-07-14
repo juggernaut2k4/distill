@@ -169,7 +169,7 @@ export default function KBIndexClient() {
             Topics appear here after a session generates visual sections.
           </p>
           <Link
-            href="/dashboard/schedule"
+            href="/dashboard/schedule-setup"
             className="inline-flex items-center gap-2 mt-6 px-4 py-2 bg-[#7C3AED] hover:bg-[#6D28D9] text-white text-sm font-medium rounded-lg transition-colors"
           >
             Schedule a session

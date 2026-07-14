@@ -143,13 +143,21 @@ export default function PartnerBillingClient() {
   return (
     <div className="max-w-6xl mx-auto">
       <div className="mb-8">
-        <Link
-          href="/dashboard"
-          className="inline-flex items-center gap-1.5 text-[#475569] hover:text-[#94A3B8] text-sm transition-colors mb-4"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back to Dashboard
-        </Link>
+        <div className="flex items-center justify-between mb-4">
+          <Link
+            href="/dashboard"
+            className="inline-flex items-center gap-1.5 text-[#475569] hover:text-[#94A3B8] text-sm transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back to Dashboard
+          </Link>
+          <Link
+            href="/dashboard/admin/templates"
+            className="text-[#475569] hover:text-[#94A3B8] text-sm transition-colors"
+          >
+            Template Library →
+          </Link>
+        </div>
         <div className="flex items-center gap-3 mb-1">
           <CreditCard className="w-6 h-6 text-[#7C3AED]" />
           <h1 className="text-white text-2xl font-bold">Partner Billing</h1>

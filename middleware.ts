@@ -26,15 +26,28 @@ const isPublicRoute = createRouteMatcher([
 ])
 
 // B2B-05 — Host-header tenant resolution (Requirement Doc Section 5.B.5,
-// architecture.md §14.5). Applies only to these 4 tenant-scoped path
+// architecture.md §14.5). Applies only to these tenant-scoped path
 // patterns; every other path on a resolved tenant host gets a neutral 404
 // (Section 6/7 — the Clerk-gated Configurator never becomes reachable via a
 // partner's own branded domain).
+//
+// The two /api/* patterns below are additive (found during the 2026-07-14
+// overnight audit, not part of B2B-05's original scope): /partner-render/*
+// is currently only ever loaded on NEXT_PUBLIC_APP_URL by the meeting-bot
+// dispatcher (app/api/partner/v1/sessions/route.ts), never on a tenant host,
+// so this gap was dormant — but PartnerRenderClient.tsx's own same-origin
+// calls to these two routes would 404 under neutralNotFoundResponse() if
+// that page were ever loaded on a resolved tenant host, silently breaking
+// voice connection and end-of-session wallet accounting. Listed here so the
+// gap can't resurface if a future change starts serving partner-render URLs
+// under a partner's own domain.
 const TENANT_SCOPED_PATTERNS = [
   /^\/$/,
   /^\/questionnaire$/,
   /^\/partner-questionnaire\/.+/,
   /^\/partner-render\/.+/,
+  /^\/api\/hume-token$/,
+  /^\/api\/partner\/render\/end-session$/,
 ]
 
 function neutralNotFoundResponse() {

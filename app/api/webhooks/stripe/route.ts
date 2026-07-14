@@ -127,6 +127,7 @@ export async function POST(request: NextRequest) {
             .update({
               reference_topup_amount_usd: amountUsd,
               low_balance_alert_fired_at: null,
+              funding_mechanism: 'checkout_topup',
               ...(typeof session.customer === 'string' ? { stripe_customer_id: session.customer } : {}),
             })
             .eq('partner_account_id', partnerAccountId)

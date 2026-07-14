@@ -45,7 +45,7 @@ export default function QuestionnaireBuilderClient({ accounts, activePartnerAcco
     )
     if (embedded) return <>{content}</>
     return (
-      <ConfiguratorShell accounts={accounts} activePartnerAccountId={activePartnerAccountId} title="Questionnaire Builder" backHref="#" >
+      <ConfiguratorShell accounts={accounts} activePartnerAccountId={activePartnerAccountId} title="Questionnaire Builder" backHref={`/dashboard/configurator?partner_account_id=${activePartnerAccountId}`}>
         {content}
       </ConfiguratorShell>
     )
@@ -109,7 +109,7 @@ export default function QuestionnaireBuilderClient({ accounts, activePartnerAcco
 
   if (embedded) return <>{content}</>
   return (
-    <ConfiguratorShell accounts={accounts} activePartnerAccountId={activePartnerAccountId} title="Questionnaire Builder">
+    <ConfiguratorShell accounts={accounts} activePartnerAccountId={activePartnerAccountId} title="Questionnaire Builder" backHref={`/dashboard/configurator?partner_account_id=${activePartnerAccountId}`}>
       {content}
     </ConfiguratorShell>
   )

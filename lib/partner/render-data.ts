@@ -12,17 +12,18 @@ import { decryptOutboundToken } from './crypto'
  * toggle is off, the function returns before constructing a URL or calling
  * `fetch` at all; there is no code path that could ever issue that request.
  *
- * IMPORTANT — these functions are intentionally NOT wired into
- * `app/partner-render/[clio_session_ref]/page.tsx` in this brief. Per the
- * B2B-02 task brief: the render route is a deliberate placeholder stub (no
- * real content-pulling, no Hume-driving, no white-labeling) — wiring these
- * functions into an actual rendering experience is explicitly B2B-03's job
- * (see architecture.md Section 5, "Why partner_sessions is a new table").
- * They exist here, independently testable, so B2B-03 can call them directly
- * against an already-built, already-correct contract rather than re-deriving
- * it, and so this brief's own acceptance criteria around the
- * profile_sync_enabled gate are verifiable now via unit tests against this
- * module.
+ * At B2B-02 time, these functions were intentionally NOT wired into
+ * `app/partner-render/[clio_session_ref]/page.tsx` — the render route was a
+ * deliberate placeholder stub, with real wiring left as B2B-03's job (see
+ * architecture.md Section 5, "Why partner_sessions is a new table"). That
+ * wiring is now done: `lib/partner/live-render.ts` calls
+ * `pullPartnerContent`/`pullPartnerProfile` directly, and
+ * `app/partner-render/[clio_session_ref]/page.tsx` renders through
+ * `resolveLiveSessionRender()`. `pushPartnerContent` is called from
+ * `lib/partner/content-generation.ts` and the content-approval route.
+ * They remain independently testable here, so this brief's own acceptance
+ * criteria around the profile_sync_enabled gate are verifiable via unit
+ * tests against this module without needing the full render path.
  *
  * Zero Clio-side persistence (architecture.md Section 6.2): every payload
  * here exists only in-memory for the duration of the HTTP call that

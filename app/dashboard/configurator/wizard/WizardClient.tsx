@@ -117,13 +117,29 @@ export default function WizardClient({
       handledFundedRef.current = true
       ;(async () => {
         setBusy(true)
-        await fetch('/api/admin/configurator/wizard/advance', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ partner_account_id: activePartnerAccountId, step: 'payment', action: 'complete' }),
-        }).catch(() => {})
+        setErrorMsg(null)
+        let advanced = false
+        try {
+          const res = await fetch('/api/admin/configurator/wizard/advance', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ partner_account_id: activePartnerAccountId, step: 'payment', action: 'complete' }),
+          })
+          advanced = res.ok
+        } catch {
+          advanced = false
+        }
         router.replace(`/dashboard/configurator/wizard?partner_account_id=${activePartnerAccountId}`)
-        await load()
+        const data = await load()
+        // `load()`'s viewStep guard only fills a null viewStep — the user was
+        // already on 'payment' before Stripe redirected them here, so it would
+        // otherwise leave viewStep stuck even after a successful advance.
+        // Force it to the server's fresh current_step, the only source of truth
+        // for where a returning-from-Stripe user should actually land.
+        if (data) setViewStep(data.current_step)
+        if (!advanced) {
+          setErrorMsg("We couldn't confirm your payment yet — this can take a few seconds if Stripe hasn't finished processing. Click Continue to try again.")
+        }
         setBusy(false)
       })()
     }
@@ -171,7 +187,12 @@ export default function WizardClient({
       } else if (res.status === 422) {
         setErrorMsg("This step isn't finished yet.")
       } else if (res.status === 409) {
-        await load()
+        // Server disagrees about which step we're on (stale tab, double-submit,
+        // or the funded=1 return flow already advanced it) — snap viewStep to
+        // whatever the server says is current, never leave it pointing at a
+        // step the server has already moved past.
+        const data = await load()
+        if (data) setViewStep(data.current_step)
       }
     } finally {
       setBusy(false)
@@ -193,7 +214,8 @@ export default function WizardClient({
         setProgress(data)
         setViewStep(data.current_step)
       } else if (res.status === 409) {
-        await load()
+        const data = await load()
+        if (data) setViewStep(data.current_step)
       }
     } finally {
       setBusy(false)
@@ -259,7 +281,7 @@ export default function WizardClient({
 
   return (
     <WizardShell accounts={accounts} activePartnerAccountId={activePartnerAccountId}>
-      <StepIndicator progress={progress} viewStep={viewStep} onJump={(s) => setViewStep(s)} />
+      <StepIndicator progress={progress} viewStep={viewStep} onJump={(s) => { setViewStep(s); setErrorMsg(null) }} />
 
       <div style={{ minHeight: 300, marginBottom: 24 }}>
         {viewStep === 'questionnaire' && (
@@ -341,7 +363,7 @@ function StepIndicator({
 }: {
   progress: ProgressResponse
   viewStep: WizardCurrentStep
-  onJump: (step: WizardStep) => void
+  onJump: (step: WizardCurrentStep) => void
 }) {
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, marginBottom: 28 }}>
@@ -389,7 +411,18 @@ function StepIndicator({
           </div>
         )
       })}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: viewStep === 'go_live' ? COLORS.textPrimary : COLORS.textMuted, fontWeight: viewStep === 'go_live' ? 700 : 400 }}>
+      <div
+        onClick={() => progress.current_step === 'go_live' && onJump('go_live')}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          fontSize: 12,
+          cursor: progress.current_step === 'go_live' ? 'pointer' : 'default',
+          color: viewStep === 'go_live' ? COLORS.textPrimary : COLORS.textMuted,
+          fontWeight: viewStep === 'go_live' ? 700 : 400,
+        }}
+      >
         <span
           style={{
             width: 20,

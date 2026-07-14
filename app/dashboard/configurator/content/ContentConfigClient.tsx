@@ -67,7 +67,7 @@ export default function ContentConfigClient({ accounts, activePartnerAccountId, 
     )
     if (embedded) return <>{content}</>
     return (
-      <ConfiguratorShell accounts={accounts} activePartnerAccountId={activePartnerAccountId} title="Content — Review" backHref="#">
+      <ConfiguratorShell accounts={accounts} activePartnerAccountId={activePartnerAccountId} title="Content — Review" backHref={`/dashboard/configurator?partner_account_id=${activePartnerAccountId}`}>
         {content}
       </ConfiguratorShell>
     )
