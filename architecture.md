@@ -644,3 +644,382 @@ candidate pool for a given content section — that integration (e.g. an extra l
 resolution did not cover and this document does not invent. Needs a short follow-up design pass before
 `generate-new`/`confirm` are wired to an actual live render, not before the Configurator-side
 generate → preview → confirm flow itself (which is fully specified and does not depend on this).
+
+---
+
+## 13. B2B-04 — Billing / Metering (new)
+
+Version: 1.0 | Produced by: Business Analyst Agent, as part of B2B-04
+Source Feature Brief: `.claude/agents/clio/feature-briefs/B2B-04-billing-metering.md`
+Requirement Document: `docs/specs/B2B-04-requirement-document.md`
+Migration: `supabase/migrations/075_b2b04_billing_metering.sql`
+
+Extends Sections 1–12 above, does not replace them. Rationale for every decision below lives in the
+Requirement Document (especially its Section 6, "Data Requirements") — this section is the exact
+schema/RPC/route detail a developer implements against.
+
+### 13.1 New Tables
+
+```sql
+-- One wallet per top-level partner account. Balance is USD dollars (NUMERIC(14,6)), not a credit-unit
+-- abstraction — see Requirement Doc Section 6's denomination rationale.
+CREATE TABLE IF NOT EXISTS partner_wallets (
+  id                              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  partner_account_id              UUID NOT NULL UNIQUE REFERENCES partner_accounts(id) ON DELETE CASCADE,
+  balance_usd                     NUMERIC(14,6) NOT NULL DEFAULT 0,  -- may go negative, see 13.4/Requirement Doc Section 9
+  tier                            TEXT NOT NULL DEFAULT 'self_serve'
+                                     CHECK (tier IN ('self_serve', 'mid_market', 'enterprise')),
+  funding_mechanism               TEXT CHECK (funding_mechanism IN ('checkout_topup', 'subscription_auto_recharge', 'invoicing')),
+  monthly_minimum_usd             NUMERIC(12,2),   -- mid-market only
+  stripe_customer_id              TEXT,
+  stripe_subscription_id          TEXT,            -- mid-market auto-recharge subscription only
+  stripe_default_payment_method_id TEXT,
+  payment_method_card_brand       TEXT,
+  payment_method_card_last4       TEXT,
+  payment_method_type             TEXT CHECK (payment_method_type IN ('card', 'us_bank_account')),
+  next_billing_date               TIMESTAMPTZ,     -- cached from Stripe subscription/invoice objects, never live-fetched per page load
+  reference_topup_amount_usd      NUMERIC(14,6),   -- amount of the most recent top-up; denominator for the 80%-consumed threshold
+  low_balance_alert_fired_at      TIMESTAMPTZ,     -- NULL = armed; set = already fired for the current depletion cycle
+  created_at                      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at                      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TRIGGER update_partner_wallets_updated_at
+  BEFORE UPDATE ON partner_wallets
+  FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
+
+ALTER TABLE partner_wallets ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Service role full access on partner_wallets"
+  ON partner_wallets FOR ALL
+  USING (auth.role() = 'service_role');
+
+-- Versioned burn rates, keyed by event_type (superset of "voice-minutes" / "LLM-generation-calls" —
+-- one row per usage_events.event_type value). partner_account_id NULL = platform default;
+-- non-null = a negotiated per-account override (mid-market/enterprise discount), per Requirement Doc
+-- Section 6. Never mutated in place — effective_to closes a row, a new row opens the next rate.
+CREATE TABLE IF NOT EXISTS billing_rate_versions (
+  id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  partner_account_id  UUID REFERENCES partner_accounts(id) ON DELETE CASCADE,  -- NULL = platform default
+  event_type          TEXT NOT NULL
+                        CHECK (event_type IN (
+                          'voice_minute', 'llm_generation_topic', 'llm_generation_content',
+                          'llm_generation_prerequisite', 'llm_generation_skeleton',
+                          'llm_generation_discovery', 'llm_generation_sample_fill',
+                          'llm_generation_new_template'
+                        )),
+  unit                TEXT NOT NULL CHECK (unit IN ('minute', 'call')),
+  rate_usd             NUMERIC(14,8) NOT NULL CHECK (rate_usd >= 0),
+  rate_basis           TEXT NOT NULL,  -- e.g. 'cogs_placeholder_2026_05_no_margin' — always explicitly labeled, never presented as final pricing
+  effective_from        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  effective_to          TIMESTAMPTZ,   -- NULL = currently in effect
+  created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_billing_rate_versions_lookup
+  ON billing_rate_versions(event_type, effective_from DESC);
+
+-- At most one open-ended (effective_to IS NULL) row per (partner_account_id, event_type) pair,
+-- including the platform-default (NULL partner_account_id) case — COALESCE gives NULL a stable sentinel
+-- so the uniqueness constraint applies to the default rows too, not just partner-specific overrides.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_billing_rate_versions_open_unique
+  ON billing_rate_versions(COALESCE(partner_account_id, '00000000-0000-0000-0000-000000000000'::uuid), event_type)
+  WHERE effective_to IS NULL;
+
+ALTER TABLE billing_rate_versions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Service role full access on billing_rate_versions"
+  ON billing_rate_versions FOR ALL
+  USING (auth.role() = 'service_role');
+
+-- Append-only wallet balance audit trail — mirrors minutes_ledger's established BILLING-LEDGER-01
+-- pattern (lib/session-billing.ts) exactly: never recompute a balance independently of what the
+-- atomic RPC returned, always write resulting_balance_usd from that same call.
+CREATE TABLE IF NOT EXISTS wallet_ledger (
+  id                       UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  partner_account_id       UUID NOT NULL REFERENCES partner_accounts(id) ON DELETE CASCADE,
+  entry_type               TEXT NOT NULL
+                             CHECK (entry_type IN (
+                               'topup_checkout', 'topup_subscription_recharge', 'topup_invoice',
+                               'usage_decrement', 'manual_adjustment'
+                             )),
+  delta_usd                 NUMERIC(14,6) NOT NULL,   -- signed: +N credit, -N decrement
+  resulting_balance_usd      NUMERIC(14,6) NOT NULL,
+  usage_events_id            UUID REFERENCES usage_events(id) ON DELETE SET NULL,           -- set for usage_decrement rows
+  billing_rate_version_id     UUID REFERENCES billing_rate_versions(id) ON DELETE SET NULL,  -- rate cited, for usage_decrement rows
+  stripe_object_id            TEXT,                     -- Checkout Session / Invoice id, for topup_* rows
+  metadata                    JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at                   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_wallet_ledger_account_time
+  ON wallet_ledger(partner_account_id, created_at DESC);
+
+-- Idempotency for Stripe-triggered top-ups: a webhook redelivery for the same Stripe object must
+-- never double-credit. NULL stripe_object_id (not currently used, but future-proofed) is excluded
+-- from the constraint by the partial WHERE.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_wallet_ledger_stripe_idempotency
+  ON wallet_ledger(stripe_object_id, entry_type)
+  WHERE stripe_object_id IS NOT NULL;
+
+ALTER TABLE wallet_ledger ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Service role full access on wallet_ledger"
+  ON wallet_ledger FOR ALL
+  USING (auth.role() = 'service_role');
+-- No UPDATE/DELETE policy for any role — append-only, matching minutes_ledger/webhook_dispatch_log.
+
+-- ── usage_events extensions (additive ALTERs only, no existing column touched) ──────────────────────
+ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS amount_usd NUMERIC(14,6);
+ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS billing_rate_version_id UUID REFERENCES billing_rate_versions(id) ON DELETE SET NULL;
+ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS billed BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Idempotency close (Requirement Doc Section 1/6/7 — the real gap this brief closes): paired with the
+-- lib/partner/webhooks.ts code fix (13.3 below), this guarantees at most one usage_events row per
+-- genuinely-new webhook_dispatch_log row, inheriting that table's own existing idempotent unique index.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_events_dispatch_log_unique
+  ON usage_events(webhook_dispatch_log_id)
+  WHERE webhook_dispatch_log_id IS NOT NULL;
+
+-- ── RPCs (mirror lib/session-billing.ts's deduct_minutes/add_minutes atomic-update-returning pattern) ─
+CREATE OR REPLACE FUNCTION credit_wallet_balance(p_partner_account_id UUID, p_amount_usd NUMERIC)
+RETURNS NUMERIC AS $$
+DECLARE new_balance NUMERIC;
+BEGIN
+  INSERT INTO partner_wallets (partner_account_id, balance_usd)
+    VALUES (p_partner_account_id, p_amount_usd)
+    ON CONFLICT (partner_account_id)
+    DO UPDATE SET balance_usd = partner_wallets.balance_usd + p_amount_usd, updated_at = NOW()
+    RETURNING balance_usd INTO new_balance;
+  RETURN new_balance;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION decrement_wallet_balance(p_partner_account_id UUID, p_amount_usd NUMERIC)
+RETURNS NUMERIC AS $$
+DECLARE new_balance NUMERIC;
+BEGIN
+  INSERT INTO partner_wallets (partner_account_id, balance_usd)
+    VALUES (p_partner_account_id, -p_amount_usd)
+    ON CONFLICT (partner_account_id)
+    DO UPDATE SET balance_usd = partner_wallets.balance_usd - p_amount_usd, updated_at = NOW()
+    RETURNING balance_usd INTO new_balance;
+  RETURN new_balance;  -- deliberately NOT clamped at 0 — see Requirement Doc Section 9
+END;
+$$ LANGUAGE plpgsql;
+
+-- ── Seed data: the one placeholder rate genuinely on record (Requirement Doc Section 6) ─────────────
+INSERT INTO billing_rate_versions (partner_account_id, event_type, unit, rate_usd, rate_basis, effective_from)
+VALUES (NULL, 'voice_minute', 'minute', 0.01500000, 'cogs_placeholder_2026_05_no_margin', NOW())
+ON CONFLICT DO NOTHING;
+-- Deliberately no seed rows for the 7 llm_generation_* event types — no stale figure exists on record
+-- for them (Requirement Doc Section 6). usage_events.billed stays FALSE for these until F-02's research
+-- pass produces a real number and a row is inserted for that event_type.
+
+COMMENT ON TABLE partner_wallets IS 'B2B-04: one unified prepaid credit wallet per top-level partner_account_id, USD-denominated. May go negative — see docs/specs/B2B-04-requirement-document.md Section 9.';
+COMMENT ON TABLE billing_rate_versions IS 'B2B-04: versioned, event_type-keyed burn rates. Never mutated in place — a rate change closes the old row (effective_to) and opens a new one, so historical usage_events rows always cite the rate genuinely in effect at occurred_at.';
+COMMENT ON TABLE wallet_ledger IS 'B2B-04: append-only wallet balance audit trail, mirrors minutes_ledger. Idempotent on (stripe_object_id, entry_type) for topup rows.';
+```
+
+### 13.2 API Route Map
+
+| Method | Route | Auth | Purpose |
+|---|---|---|---|
+| GET | `/api/admin/billing/clients` | Clerk (matches `/dashboard/admin/templates`'s boundary) | Backs the `/dashboard/admin/clients` screen — cross-partner billing/health rollup. |
+| GET | `/dashboard/admin/clients` | Clerk | The one real UI screen this brief builds. |
+| POST | `/api/admin/billing/checkout` | Clerk, `requirePartnerAdmin` | Self-serve wallet top-up — Stripe Checkout, `mode: "payment"`. |
+| POST | `/api/admin/billing/subscription` | Clerk, `requirePartnerAdmin` | Mid-market auto-recharge — Stripe Checkout, `mode: "subscription"`. |
+| POST | `/api/admin/billing/invoice` | Clerk, internal-operator (same boundary as `/api/admin/billing/clients`) | Enterprise invoicing — Stripe Invoicing. |
+| GET | `/api/partner/v1/wallet` | Partner API key, `requirePartnerApiKey(..., 'reads')` | New sibling to `GET /api/partner/v1/usage` — balance/burn-rate/days-remaining, own data only. |
+| POST | `/api/webhooks/stripe` | Stripe signature (`constructWebhookEvent`, reused unmodified) | Reworked (not extended) — see 13.3. Handles `checkout.session.completed` (topup), `invoice.paid` (mid-market recharge), `invoice.payment_succeeded` (enterprise), `customer.updated`/`payment_method.attached` (payment-method cache sync). |
+
+Every `/api/admin/billing/*` route lives under the existing internal `/api/admin/*` convention already
+protected by `middleware.ts`'s Clerk gate — no `middleware.ts` change needed beyond confirming these new
+paths fall under the existing non-public catch-all (they do; only explicitly-listed routes are public).
+
+### 13.3 `lib/partner/webhooks.ts` — Exact Fix
+
+`recordBillableEvent()`'s `webhook_dispatch_log` upsert already uses
+`{ onConflict: 'partner_account_id,event_type,clio_session_ref,payload_hash', ignoreDuplicates: true }`
+and reads the result via `.select('id').maybeSingle()` — on a duplicate-ignored conflict, `inserted` is
+`null`. Today, the subsequent `usage_events` insert runs regardless of whether `inserted` is `null`. The
+fix: guard that entire block (and the wallet-decrement call this brief adds after it) behind
+`if (inserted?.id) { ... }` — on a duplicate (`inserted` is `null`), skip both the `usage_events` insert
+and `applyWalletDecrement()` entirely, and return the **existing** dispatch-log row's id (a lookup by the
+same conflict key) rather than an empty string, so the function's return contract stays meaningful on a
+duplicate call.
+
+New function, same file: `applyWalletDecrement(usageEventId, partnerAccountId, eventType, quantity,
+occurredAt, testMode)` — implements the exact sequence in Requirement Doc Section 5.B.1. Called from
+`recordBillableEvent()` immediately after a genuinely-new `usage_events` insert succeeds (for billable
+`eventType`s only, never `session.completed`).
+
+### 13.4 `lib/stripe.ts` — Rework, Not Extension
+
+Removed (B2C-era, do not survive): `getPlanFromPriceId`, `createCheckoutSession` (flat-plan
+subscription), `createSubscriptionIntent` (fixed 3-day-trial flow). **Retained as-is**: `stripeClient`
+initialization + `isPlaceholder` guard convention, `constructWebhookEvent` (explicitly named reusable
+infrastructure by the Feature Brief), `createPortalSession` (repurposed for partner card-on-file
+self-service via the Stripe Customer Portal — its signature already only takes a `customerId`, no B2C
+assumption baked in, so it needs no change).
+
+New functions, all following the existing `isPlaceholder`-guarded mock-log pattern:
+- `createWalletTopupCheckoutSession(partnerAccountId, amountUsd, successUrl?, cancelUrl?)` — `mode:
+  "payment"`, ad-hoc `price_data` line item (no pre-created Stripe Price object needed), `metadata: {
+  partner_account_id, purpose: "wallet_topup" }`.
+- `createAutoRechargeSubscriptionCheckout(partnerAccountId, monthlyMinimumUsd, successUrl?, cancelUrl?)`
+  — `mode: "subscription"`, ad-hoc recurring `price_data` (`recurring: { interval: "month" }`),
+  `metadata: { partner_account_id, purpose: "wallet_auto_recharge" }`.
+- `createEnterpriseInvoice(partnerAccountId, amountUsd, stripeCustomerId, description,
+  collectionMethod)` — `invoiceItems.create` + `invoices.create({ collection_method })` +
+  `invoices.finalizeInvoice` + (`collection_method === 'send_invoice'` ? `invoices.sendInvoice` : implicit
+  auto-charge), `metadata: { partner_account_id, purpose: "wallet_invoice" }`.
+- `getOrCreateStripeCustomer(partnerAccountId, billingEmail?)` — finds an existing
+  `partner_wallets.stripe_customer_id` or creates one, `metadata: { partner_account_id }`.
+
+`app/api/webhooks/stripe/route.ts` is reworked to add handling for `checkout.session.completed` (branch
+on `session.metadata.purpose`), `invoice.paid`/`invoice.payment_succeeded` (branch on
+`invoice.subscription` presence per Requirement Doc 5.B.3 vs 5.B.4), and `customer.updated` /
+`payment_method.attached` (sync `payment_method_card_brand`/`last4`/`type` onto `partner_wallets` so the
+admin page never needs a live per-row Stripe API call). The existing B2C-era branches
+(`customer.subscription.created/updated/deleted` keyed to `users.id`, the old `topup`-metadata `minutes`
+branch, Twilio SMS send) are dead code once B2C is retired but are **not** removed as part of this brief
+— removing them is a separate cleanup, out of this brief's scope (Requirement Doc Section 10 lists only
+this brief's own exclusions; the B2C branches predate this brief and their removal is tracked
+separately, not silently done here to avoid conflating two unrelated changes in one migration).
+
+### 13.5 `avg_daily_burn_usd` / `projected_days_remaining` — exact formula
+
+*(Added in Requirement Doc v1.1, closing a CEO-review gap. Computed live, at request time, by
+`GET /api/admin/billing/clients` and `GET /api/partner/v1/wallet` — this is a single indexed
+aggregate query per partner over `usage_events`, not an external API call, so it does not need the
+"cache and never live-fetch" treatment `next_billing_date` gets for Stripe-sourced fields (13.1) —
+there is no cache-invalidation problem to solve and live computation is simpler and always current.)*
+
+**Window: trailing 7 complete UTC calendar days, current partial day always excluded.**
+
+```
+window_end   = date_trunc('day', NOW())              -- UTC midnight, start of "today"
+window_start = window_end - INTERVAL '7 days'
+```
+
+Why 7 days, not 30: this number feeds an admin's "is this account about to run dry" judgment, not a
+financial report. A 30-day average would smooth over a partner ramping usage sharply in the last few
+days — exactly the case where the admin most needs the number to move quickly — and would keep
+showing a comfortable `projected_days_remaining` while an account is actually burning through its
+balance far faster than the smoothed average suggests. A 1-day window would be too noisy (one unusually
+heavy or light day swings the whole number). 7 days catches a real week-over-week trend shift while a
+single outlier day still only moves the average by ~1/7th.
+
+Why the current partial day is excluded entirely, not prorated: prorating (`today's spend so far ÷
+hours elapsed today × 24`) requires assuming usage accrues at a constant rate through the day, which is
+not a safe assumption for this product (voice-minute usage clusters around scheduled sessions, not
+evenly across 24 hours) — prorating a partial morning spike is exactly the "$50 in 3 hours ≠ $50/day"
+overstatement this formula must not produce. Excluding today entirely means the number is always based
+on 7 fully-observed days; it updates once, at UTC midnight, when "today" rolls into the window as a
+complete day.
+
+**New-account handling (a wallet with less than 7 complete days of history):**
+
+```
+account_start = date_trunc('day', partner_wallets.created_at)
+effective_start = GREATEST(window_start, account_start)
+days_in_window = (window_end - effective_start) in whole days   -- 0..7
+```
+
+If `days_in_window = 0` (wallet created today, no complete day has passed yet), there is no window to
+average over at all — treated identically to "no billed usage," below (`no_burn_rate`). This is
+correct, not a special case requiring different handling: a day-0 account and a 7-day-old account with
+zero usage both mean "not enough signal to project," which is exactly what `no_burn_rate` communicates.
+
+**Aggregation: simple arithmetic mean over calendar days in the window, including zero-usage days.**
+
+```sql
+SELECT COALESCE(SUM(amount_usd), 0) AS window_total_usd
+FROM usage_events
+WHERE partner_account_id = $1
+  AND billed = true
+  AND occurred_at >= effective_start
+  AND occurred_at <  window_end;
+
+avg_daily_burn_usd =
+  CASE WHEN days_in_window = 0 OR window_total_usd = 0
+       THEN NULL
+       ELSE window_total_usd / days_in_window
+  END
+```
+
+A simple mean, not a weighted or exponentially-decayed one: the window is already short (7 days) and
+already excludes the noisiest input (today), so a further weighting scheme would add complexity without
+a clear admin-facing benefit — this is a "warn me before it's a problem" number, not a forecasting
+model. Divide by `days_in_window` (calendar days elapsed), never by "days that had any usage" — a
+partner idle for 4 of the last 7 days genuinely has a lower daily burn rate than one who used the same
+total in 3 days, and the average must reflect that, not paper over the idle days.
+
+**`projected_days_remaining` — derived from `avg_daily_burn_usd` and `balance_usd`, with an explicit
+null-reason field (closes the sort tie-break gap, Section 13.6):**
+
+```
+IF avg_daily_burn_usd IS NULL               -- no complete day in window, or zero billed usage in it
+  → projected_days_remaining = NULL
+  → days_remaining_null_reason = 'no_burn_rate'
+ELSE IF balance_usd <= 0                    -- already exhausted or negative
+  → projected_days_remaining = NULL
+  → days_remaining_null_reason = 'exhausted_balance'
+ELSE
+  → projected_days_remaining = balance_usd / avg_daily_burn_usd
+  → days_remaining_null_reason = NULL
+```
+
+`days_remaining_null_reason` is a new response field (not a DB column — computed at read time
+alongside `avg_daily_burn_usd`/`projected_days_remaining`, all three ephemeral, never persisted) on
+both `GET /api/admin/billing/clients` (Requirement Doc 4.B.1) and `GET /api/partner/v1/wallet`
+(Requirement Doc 4.B.2): `"days_remaining_null_reason": "exhausted_balance" | "no_burn_rate" | null`.
+It exists so every consumer of these two endpoints (the admin page today, a future partner-built
+dashboard tomorrow per Objective 6) gets an explicit, pre-resolved signal instead of each one
+re-deriving "which kind of null is this" from `balance_usd`/`avg_daily_burn_usd` independently and
+risking two different, silently inconsistent implementations of the same distinction.
+
+### 13.6 Admin page sort comparator — `days_remaining` column, both directions
+
+*(Added in Requirement Doc v1.1, closing a CEO-review gap.)* The two null cases are not
+interchangeable and must never collapse into "sorts as if 0" or "sorts as if last" via a generic
+nulls-first/nulls-last rule — `exhausted_balance` is the most urgent state (sorts first ascending),
+`no_burn_rate` is the least urgent (sorts last ascending), and a naive `ORDER BY projected_days_remaining
+ASC NULLS LAST` would group both null reasons together and lose that distinction entirely.
+
+**Implementation: map every row to a single synthetic numeric sort key, then run one ordinary numeric
+sort (ascending or descending) on that key. Both directions reuse the exact same key — there is no
+separate "descending" branch of logic to drift out of sync with ascending.**
+
+```ts
+function sortKey(row: { projected_days_remaining: number | null; days_remaining_null_reason: 'exhausted_balance' | 'no_burn_rate' | null }): number {
+  if (row.days_remaining_null_reason === 'exhausted_balance') return -Infinity;
+  if (row.days_remaining_null_reason === 'no_burn_rate') return Infinity;
+  return row.projected_days_remaining as number; // finite, real value
+}
+
+function sortByDaysRemaining(rows, direction: 'asc' | 'desc') {
+  const withKeys = rows.map(r => ({ row: r, key: sortKey(r), name: r.name }));
+  withKeys.sort((a, b) => {
+    if (a.key !== b.key) return direction === 'asc' ? a.key - b.key : b.key - a.key;
+    return a.name.localeCompare(b.name); // deterministic secondary key, same for both directions
+  });
+  return withKeys.map(w => w.row);
+}
+```
+
+Why `-Infinity` / `+Infinity` rather than e.g. `-1` / `999999`: an exhausted-balance account is
+conceptually "0 or negative days left" — the true minimum of the domain — and a no-burn-rate account is
+conceptually "runway of unknown/unbounded length at the current (zero-signal) rate" — the true maximum.
+Using signed infinities makes both directions of the *same* comparator produce the semantically correct
+order for free: ascending (fewest days left first) naturally yields `exhausted_balance → finite ascending
+→ no_burn_rate`; descending (most days left first) naturally yields `no_burn_rate → finite descending →
+exhausted_balance`. Clicking the "Days remaining" column header to toggle ascending/descending calls
+`sortByDaysRemaining` with the flipped `direction` argument — **it reuses this exact function, not a
+separate re-sort path** — so the two null meanings never scramble together regardless of which direction
+the admin has toggled to. This is also why a bare `Array.prototype.sort` on the raw
+`projected_days_remaining` field (which would coerce both `null`s to the same JS sort behavior) must
+never be used directly against this column; `sortKey()` is the only permitted comparator input for it.
+
+Secondary tie-break (`name.localeCompare`, ascending, always — not reversed by `direction`): ties within
+the two infinity tiers (e.g. two accounts that both have `exhausted_balance`) need *some* deterministic
+order so the table doesn't visibly reshuffle on every re-render; alphabetical by partner name is
+arbitrary but stable, which is all that's required here — no product meaning is implied by it.

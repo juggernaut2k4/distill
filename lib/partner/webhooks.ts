@@ -1,5 +1,6 @@
 import crypto from 'crypto'
 import { createSupabaseAdminClient } from '@/lib/supabase'
+import { sendLowBalanceAlertEmail } from '@/lib/delivery/email'
 import { buildSignatureHeader, CLIO_SIGNATURE_HEADER } from './webhook-signature'
 
 /**
@@ -141,37 +142,348 @@ export async function recordBillableEvent(
     return { error: error.message }
   }
 
-  // F-01 Resolution A: usage_events is Clio's own aggregating usage ledger —
-  // unconditional for billable event types (session.completed is a
-  // lifecycle event, not billable, and carries no quantity to record).
-  if (params.eventType !== 'session.completed') {
-    const usageEventType =
-      params.eventType === 'usage.voice_minute'
-        ? 'voice_minute'
-        : params.generationType
-          ? (`llm_generation_${params.generationType}` as const)
-          : null
+  // B2B-04 idempotency fix (architecture.md §13.3, Requirement Doc Section
+  // 1/6/7/5.B.6) — `inserted` is null exactly when the upsert above hit the
+  // ignoreDuplicates conflict path (an identical retry). The usage_events
+  // insert AND the wallet decrement it triggers must both be skipped
+  // entirely on a duplicate call — never run twice for the same logical
+  // event. On a duplicate, look up and return the EXISTING dispatch-log
+  // row's id (same conflict key) so the function's return contract stays
+  // meaningful rather than returning an empty string.
+  let dispatchLogId: string
 
-    if (usageEventType && params.quantity) {
-      const { error: usageEventsError } = await supabase.from('usage_events').insert({
-        partner_account_id: params.partnerAccountId,
-        event_type: usageEventType,
-        quantity: params.quantity,
-        clio_session_ref: params.clioSessionRef ?? null,
-        partner_reference: params.partnerReference ?? null,
-        webhook_dispatch_log_id: inserted?.id ?? null,
-        test_mode: params.testMode ?? false,
-        occurred_at: occurredAt,
-      })
+  if (inserted?.id) {
+    dispatchLogId = inserted.id as string
 
-      if (usageEventsError) {
-        console.error('[partner/webhooks] Failed to record usage_events row:', usageEventsError.message)
-        return { error: usageEventsError.message }
+    // F-01 Resolution A: usage_events is Clio's own aggregating usage ledger —
+    // unconditional for billable event types (session.completed is a
+    // lifecycle event, not billable, and carries no quantity to record).
+    if (params.eventType !== 'session.completed') {
+      const usageEventType =
+        params.eventType === 'usage.voice_minute'
+          ? 'voice_minute'
+          : params.generationType
+            ? (`llm_generation_${params.generationType}` as const)
+            : null
+
+      if (usageEventType && params.quantity) {
+        const { data: insertedUsageEvent, error: usageEventsError } = await supabase
+          .from('usage_events')
+          .insert({
+            partner_account_id: params.partnerAccountId,
+            event_type: usageEventType,
+            quantity: params.quantity,
+            clio_session_ref: params.clioSessionRef ?? null,
+            partner_reference: params.partnerReference ?? null,
+            webhook_dispatch_log_id: inserted.id,
+            test_mode: params.testMode ?? false,
+            occurred_at: occurredAt,
+          })
+          .select('id')
+          .single()
+
+        if (usageEventsError) {
+          console.error('[partner/webhooks] Failed to record usage_events row:', usageEventsError.message)
+          return { error: usageEventsError.message }
+        }
+
+        // B2B-04 — decrement the partner's wallet for this genuinely-new
+        // billable event (Requirement Doc Section 5.B.1). Never blocks or
+        // reverses the usage_events/webhook_dispatch_log writes above on
+        // failure — applyWalletDecrement() already handles expected
+        // (Supabase-returned) errors internally; this try/catch is the
+        // outer backstop against an unexpected thrown exception, so a
+        // billing hiccup can never take down the usage-recording path that
+        // already succeeded.
+        if (insertedUsageEvent?.id) {
+          try {
+            await applyWalletDecrement({
+              usageEventId: insertedUsageEvent.id as string,
+              partnerAccountId: params.partnerAccountId,
+              eventType: usageEventType,
+              quantity: params.quantity,
+              occurredAt,
+              testMode: params.testMode ?? false,
+            })
+          } catch (err) {
+            console.error('[partner/webhooks] applyWalletDecrement threw unexpectedly (non-fatal):', err instanceof Error ? err.message : err)
+          }
+        }
       }
+    }
+  } else {
+    const { data: existing } = await lookupExistingDispatchLog(supabase, {
+      partnerAccountId: params.partnerAccountId,
+      eventType: params.eventType,
+      clioSessionRef: params.clioSessionRef ?? null,
+      payloadHash,
+    })
+    dispatchLogId = (existing?.id as string) ?? ''
+  }
+
+  return { dispatchLogId }
+}
+
+/** Looks up the existing `webhook_dispatch_log` row by its own idempotency
+ * unique index (`partner_account_id, event_type, clio_session_ref,
+ * payload_hash`) — used when the upsert conflicted (a retried/duplicate
+ * call), so `recordBillableEvent()` can still return a meaningful id. */
+async function lookupExistingDispatchLog(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  params: { partnerAccountId: string; eventType: BillableEventType; clioSessionRef: string | null; payloadHash: string }
+) {
+  let query = supabase
+    .from('webhook_dispatch_log')
+    .select('id')
+    .eq('partner_account_id', params.partnerAccountId)
+    .eq('event_type', params.eventType)
+    .eq('payload_hash', params.payloadHash)
+
+  query = params.clioSessionRef
+    ? query.eq('clio_session_ref', params.clioSessionRef)
+    : query.is('clio_session_ref', null)
+
+  return query.maybeSingle()
+}
+
+// ─── B2B-04 — Wallet decrement mechanism (Requirement Doc Section 5.B.1) ─────
+// architecture.md §13.3: new function, same file as recordBillableEvent().
+
+/**
+ * Resolves the currently-effective burn rate for a (partner, event_type,
+ * occurredAt) triple: a partner-specific `billing_rate_versions` override
+ * covering `occurredAt` takes priority; otherwise the platform-default
+ * (`partner_account_id IS NULL`) row covering `occurredAt`; otherwise `null`
+ * (no rate configured — the 7 unrated `llm_generation_*` types at launch,
+ * Requirement Doc Section 6). Never mutated in place — a rate change closes
+ * the old row (`effective_to`) and opens a new one, so this resolves the
+ * rate genuinely in effect at `occurredAt`, even after later rate changes.
+ */
+async function resolveEffectiveRate(
+  partnerAccountId: string,
+  eventType: string,
+  occurredAt: string
+): Promise<{ id: string; rate_usd: number } | null> {
+  const supabase = createSupabaseAdminClient()
+
+  const { data: partnerRate } = await supabase
+    .from('billing_rate_versions')
+    .select('id, rate_usd')
+    .eq('partner_account_id', partnerAccountId)
+    .eq('event_type', eventType)
+    .lte('effective_from', occurredAt)
+    .or(`effective_to.is.null,effective_to.gt.${occurredAt}`)
+    .order('effective_from', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (partnerRate) {
+    return { id: partnerRate.id as string, rate_usd: Number(partnerRate.rate_usd) }
+  }
+
+  const { data: defaultRate } = await supabase
+    .from('billing_rate_versions')
+    .select('id, rate_usd')
+    .is('partner_account_id', null)
+    .eq('event_type', eventType)
+    .lte('effective_from', occurredAt)
+    .or(`effective_to.is.null,effective_to.gt.${occurredAt}`)
+    .order('effective_from', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  return defaultRate ? { id: defaultRate.id as string, rate_usd: Number(defaultRate.rate_usd) } : null
+}
+
+/**
+ * Implements the exact sequence in Requirement Doc Section 5.B.1. Called
+ * from `recordBillableEvent()` immediately after a genuinely-new
+ * `usage_events` insert succeeds (billable event types only).
+ *
+ * Never blocks or reverses the `usage_events`/`webhook_dispatch_log` writes
+ * that already succeeded — a decrement failure here is logged and surfaced
+ * via `usage_events.billed` staying `false` (its default), a recoverable,
+ * queryable inconsistent state, matching this codebase's existing per-item-
+ * error-tolerant convention.
+ */
+export async function applyWalletDecrement(params: {
+  usageEventId: string
+  partnerAccountId: string
+  eventType: string
+  quantity: number
+  occurredAt: string
+  testMode: boolean
+}): Promise<void> {
+  if (params.testMode) return // preserves the existing test_mode=FALSE-only-billable convention
+
+  const supabase = createSupabaseAdminClient()
+
+  const rate = await resolveEffectiveRate(params.partnerAccountId, params.eventType, params.occurredAt)
+
+  if (!rate) {
+    // No billing_rate_versions row covers this event_type yet — record the
+    // event as unbilled, no wallet mutation, no alert check (Requirement Doc
+    // Section 6: the 7 unrated llm_generation_* types at launch).
+    const { error } = await supabase.from('usage_events').update({ billed: false }).eq('id', params.usageEventId)
+    if (error) {
+      console.error('[partner/webhooks] applyWalletDecrement: failed to mark usage_events unbilled:', error.message)
+    }
+    return
+  }
+
+  const amountUsd = params.quantity * rate.rate_usd
+
+  const { data: newBalance, error: decrementError } = await supabase.rpc('decrement_wallet_balance', {
+    p_partner_account_id: params.partnerAccountId,
+    p_amount_usd: amountUsd,
+  })
+
+  if (decrementError) {
+    console.error('[partner/webhooks] applyWalletDecrement: decrement_wallet_balance RPC failed:', decrementError.message)
+    return
+  }
+
+  const { error: updateError } = await supabase
+    .from('usage_events')
+    .update({ billed: true, amount_usd: amountUsd, billing_rate_version_id: rate.id })
+    .eq('id', params.usageEventId)
+
+  if (updateError) {
+    console.error('[partner/webhooks] applyWalletDecrement: failed to mark usage_events billed:', updateError.message)
+  }
+
+  // BILLING-LEDGER-01-style discipline (mirrors lib/session-billing.ts):
+  // resulting_balance_usd is always the RPC's own returned value, never
+  // independently recomputed.
+  const { error: ledgerError } = await supabase.from('wallet_ledger').insert({
+    partner_account_id: params.partnerAccountId,
+    entry_type: 'usage_decrement',
+    delta_usd: -amountUsd,
+    resulting_balance_usd: newBalance,
+    usage_events_id: params.usageEventId,
+    billing_rate_version_id: rate.id,
+  })
+
+  if (ledgerError) {
+    console.error('[partner/webhooks] applyWalletDecrement: wallet_ledger insert failed:', ledgerError.message)
+  }
+
+  await checkLowBalanceAndAlert(params.partnerAccountId, Number(newBalance))
+}
+
+/**
+ * Requirement Doc Section 5.B.5. Fires the low-balance alert at most once
+ * per depletion cycle via a compare-and-set update on
+ * `low_balance_alert_fired_at` (race-safe: only the caller that flips it
+ * from NULL to now() sends the alert). Re-armed only by a new top-up landing
+ * (the three webhook credit paths in app/api/webhooks/stripe/route.ts) —
+ * never by this function.
+ */
+async function checkLowBalanceAndAlert(partnerAccountId: string, newBalanceUsd: number): Promise<void> {
+  const supabase = createSupabaseAdminClient()
+
+  const { data: wallet } = await supabase
+    .from('partner_wallets')
+    .select('reference_topup_amount_usd')
+    .eq('partner_account_id', partnerAccountId)
+    .maybeSingle()
+
+  const referenceTopupAmountUsd = wallet?.reference_topup_amount_usd ? Number(wallet.reference_topup_amount_usd) : 0
+  if (!referenceTopupAmountUsd) return // no funded reference point yet — no alert is possible or expected
+
+  const threshold = referenceTopupAmountUsd * 0.2
+  if (newBalanceUsd > threshold) return // not yet at 80% consumed
+
+  const { data: won } = await supabase
+    .from('partner_wallets')
+    .update({ low_balance_alert_fired_at: new Date().toISOString() })
+    .eq('partner_account_id', partnerAccountId)
+    .is('low_balance_alert_fired_at', null)
+    .select('id')
+    .maybeSingle()
+
+  if (!won) return // already fired for this depletion cycle — no duplicate send
+
+  const [{ data: account }, emails] = await Promise.all([
+    supabase.from('partner_accounts').select('name, outbound_signing_secret').eq('id', partnerAccountId).maybeSingle(),
+    getPartnerAdminEmails(partnerAccountId),
+  ])
+
+  await Promise.all(
+    emails.map((email) =>
+      sendLowBalanceAlertEmail(email, account?.name ?? 'your Clio account', newBalanceUsd, referenceTopupAmountUsd).catch(
+        (err) => console.error('[partner/webhooks] sendLowBalanceAlertEmail failed:', err)
+      )
+    )
+  )
+
+  // Best-effort dispatch of a wallet.low_balance webhook row via the
+  // existing HMAC/signature/retry mechanism (Requirement Doc 5.B.5).
+  //
+  // KNOWN GAP: webhook_dispatch_log.event_type's CHECK constraint (migration
+  // 071, not modified by this brief) does not include 'wallet.low_balance' —
+  // this insert fails until a follow-up migration extends that constraint.
+  // Logged and non-fatal (matches this file's existing fire-and-forget
+  // convention); the email alert above is the acceptance-test-covered path
+  // and is unaffected by this gap.
+  try {
+    const payload = {
+      event_id: crypto.randomUUID(),
+      event_type: 'wallet.low_balance',
+      partner_account_id: partnerAccountId,
+      balance_usd: newBalanceUsd,
+      reference_topup_amount_usd: referenceTopupAmountUsd,
+      occurred_at: new Date().toISOString(),
+    }
+    const payloadHash = crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex')
+    const signingSecret = (account?.outbound_signing_secret as string | null) ?? 'unconfigured-partner-signing-secret'
+    const signature = buildSignatureHeader(signingSecret, JSON.stringify(payload))
+
+    const { error: dispatchError } = await supabase.from('webhook_dispatch_log').insert({
+      partner_account_id: partnerAccountId,
+      event_type: 'wallet.low_balance',
+      payload,
+      payload_hash: payloadHash,
+      signature,
+      delivery_status: 'pending',
+    })
+
+    if (dispatchError) {
+      console.error(
+        '[partner/webhooks] wallet.low_balance dispatch-log insert failed (known schema gap, see comment above):',
+        dispatchError.message
+      )
+    }
+  } catch (err) {
+    console.error('[partner/webhooks] wallet.low_balance dispatch attempt failed:', err instanceof Error ? err.message : err)
+  }
+}
+
+/** Resolves the Clerk-registered email addresses of every `partner_admin_users` row for this account. */
+async function getPartnerAdminEmails(partnerAccountId: string): Promise<string[]> {
+  const supabase = createSupabaseAdminClient()
+  const { data: admins } = await supabase
+    .from('partner_admin_users')
+    .select('clerk_user_id')
+    .eq('partner_account_id', partnerAccountId)
+
+  if (!admins || admins.length === 0) return []
+
+  const { clerkClient } = await import('@clerk/nextjs/server')
+  const emails: string[] = []
+
+  for (const admin of admins) {
+    try {
+      const clerkUser = await clerkClient().users.getUser(admin.clerk_user_id as string)
+      const primaryEmailId = clerkUser.primaryEmailAddressId
+      const email = clerkUser.emailAddresses.find((e) => e.id === primaryEmailId)?.emailAddress
+      if (email) emails.push(email)
+    } catch (err) {
+      console.error('[partner/webhooks] Failed to resolve Clerk email for admin', admin.clerk_user_id, err)
     }
   }
 
-  return { dispatchLogId: (inserted?.id as string) ?? '' }
+  return emails
 }
 
 // ─── Dispatch worker helpers (used by inngest/partner-webhook-dispatcher.ts) ──

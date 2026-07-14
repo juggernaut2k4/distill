@@ -509,6 +509,73 @@ export async function sendSessionReminderEmail(
   }
 }
 
+// ─── B2B-04 — Billing / Metering ──────────────────────────────────────────────
+
+/**
+ * Sends the low-balance alert email (Requirement Doc Section 5.B.5 — fires
+ * at most once per depletion cycle, caller-side compare-and-set already
+ * guarantees that; this function just sends).
+ * @param toEmail - a partner_admin_users Clerk-registered email address
+ * @param partnerName - partner_accounts.name, for the subject/body
+ * @param balanceUsd - the wallet balance at the moment the alert fired
+ * @param referenceTopupAmountUsd - the top-up amount the 80%-consumed threshold is measured against
+ * @returns Success/failure result
+ */
+export async function sendLowBalanceAlertEmail(
+  toEmail: string,
+  partnerName: string,
+  balanceUsd: number,
+  referenceTopupAmountUsd: number
+): Promise<EmailResult> {
+  if (isPlaceholder || !resend) {
+    console.log('[MOCK] sendLowBalanceAlertEmail', { toEmail, partnerName, balanceUsd, referenceTopupAmountUsd })
+    return { success: true, messageId: 'mock-low-balance-alert-id' }
+  }
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
+  const formattedBalance = balanceUsd.toFixed(2)
+  const formattedReference = referenceTopupAmountUsd.toFixed(2)
+
+  try {
+    const result = await resend.emails.send({
+      from: FROM,
+      to: toEmail,
+      subject: `Clio wallet balance running low — ${partnerName}`,
+      html: `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="background:#080808;color:#ffffff;font-family:Inter,system-ui,sans-serif;margin:0;padding:0;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;padding:40px 24px;">
+    <tr><td>
+      <p style="color:#7C3AED;font-size:12px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin:0 0 32px;">CLIO</p>
+      <h1 style="color:#ffffff;font-size:28px;font-weight:800;margin:0 0 12px;">Your wallet balance is running low.</h1>
+      <p style="color:#94A3B8;font-size:16px;line-height:1.7;margin:0 0 32px;">
+        ${partnerName}'s Clio wallet balance is <strong style="color:#F59E0B;">$${formattedBalance}</strong>,
+        which has crossed 20% of your last top-up of $${formattedReference}.
+      </p>
+      <div style="background:#111111;border:1px solid #222222;border-radius:12px;padding:32px;text-align:center;">
+        <a href="${appUrl}/dashboard/admin/clients" style="background:#7C3AED;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:700;display:inline-block;">Top up now →</a>
+      </div>
+    </td></tr>
+  </table>
+</body>
+</html>`,
+      text: `${partnerName}'s Clio wallet balance is $${formattedBalance}, which has crossed 20% of your last top-up of $${formattedReference}. Top up soon at ${appUrl}/dashboard/admin/clients`,
+    })
+
+    logEmailResult('sendLowBalanceAlertEmail', toEmail, result)
+    if (result.error) {
+      return { success: false, error: result.error.message }
+    }
+
+    return { success: true, messageId: result.data?.id }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error(`[email:sendLowBalanceAlertEmail] EXCEPTION to=${toEmail}:`, message)
+    return { success: false, error: message }
+  }
+}
+
 // ─── Private HTML builders ────────────────────────────────────────────────────
 
 function buildDailyEmailHtml(user: User, item: ContentItem): string {

@@ -14,6 +14,33 @@ const state: {
 const upsertSelectMock = vi.fn(() => Promise.resolve({ data: { id: 'dispatch-log-1' }, error: null }))
 const updateEqMock = vi.fn((_patch?: Record<string, unknown>) => Promise.resolve({ error: null }))
 
+/**
+ * B2B-04 — self-returning chain stub for `billing_rate_versions`, used by
+ * applyWalletDecrement()'s resolveEffectiveRate() query. No rate is
+ * configured in these B2B-02-era tests, so this always resolves `null` at
+ * the terminal `.maybeSingle()` regardless of which/how-many chained
+ * methods (`.eq`/`.is`/`.lte`/`.or`/`.order`/`.limit`) are called first —
+ * applyWalletDecrement then marks the usage_events row unbilled and returns
+ * without touching the wallet, exactly like a real "no rate configured yet"
+ * event type. Defined via vi.hoisted() so it's available inside the hoisted
+ * vi.mock() factory below.
+ */
+const { noRateChain } = vi.hoisted(() => ({
+  noRateChain: (): Record<string, unknown> => {
+    const chain: Record<string, unknown> = {
+      select: () => chain,
+      eq: () => chain,
+      is: () => chain,
+      lte: () => chain,
+      or: () => chain,
+      order: () => chain,
+      limit: () => chain,
+      maybeSingle: () => Promise.resolve({ data: null }),
+    }
+    return chain
+  },
+}))
+
 vi.mock('@/lib/supabase', () => ({
   createSupabaseAdminClient: vi.fn(() => ({
     from: vi.fn((table: string) => {
@@ -37,7 +64,14 @@ vi.mock('@/lib/supabase', () => ({
         }
       }
       if (table === 'usage_events') {
-        return { insert: vi.fn(() => Promise.resolve({ error: null })) }
+        return {
+          insert: vi.fn(() => ({
+            select: () => ({ single: () => Promise.resolve({ data: { id: 'usage-event-1' }, error: null }) }),
+          })),
+        }
+      }
+      if (table === 'billing_rate_versions') {
+        return noRateChain()
       }
       throw new Error(`Unexpected table: ${table}`)
     }),
@@ -107,7 +141,12 @@ describe('recordBillableEvent', () => {
           return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: state.accountRow }) }) }) }
         }
         if (table === 'usage_events') {
-          return { insert: () => Promise.resolve({ error: null }) }
+          return {
+            insert: () => ({ select: () => ({ single: () => Promise.resolve({ data: { id: 'usage-event-1' }, error: null }) }) }),
+          }
+        }
+        if (table === 'billing_rate_versions') {
+          return noRateChain()
         }
         return {
           upsert: (row: Record<string, unknown>) => {
@@ -132,7 +171,12 @@ describe('recordBillableEvent', () => {
           return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: state.accountRow }) }) }) }
         }
         if (table === 'usage_events') {
-          return { insert: () => Promise.resolve({ error: null }) }
+          return {
+            insert: () => ({ select: () => ({ single: () => Promise.resolve({ data: { id: 'usage-event-1' }, error: null }) }) }),
+          }
+        }
+        if (table === 'billing_rate_versions') {
+          return noRateChain()
         }
         return {
           upsert: (row: Record<string, unknown>) => {
@@ -150,7 +194,9 @@ describe('recordBillableEvent', () => {
   })
 
   it('F-01 Resolution A: always inserts a usage_events row for a billable event, unconditionally (no feature flag)', async () => {
-    const usageEventsInsertMock = vi.fn(() => Promise.resolve({ error: null }))
+    const usageEventsInsertMock = vi.fn(() => ({
+      select: () => ({ single: () => Promise.resolve({ data: { id: 'usage-event-1' }, error: null }) }),
+    }))
     const { createSupabaseAdminClient } = await import('@/lib/supabase')
     ;(createSupabaseAdminClient as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce({
       from: (table: string) => {
@@ -162,6 +208,9 @@ describe('recordBillableEvent', () => {
         }
         if (table === 'usage_events') {
           return { insert: usageEventsInsertMock }
+        }
+        if (table === 'billing_rate_versions') {
+          return noRateChain()
         }
         throw new Error(`Unexpected table: ${table}`)
       },
@@ -192,7 +241,9 @@ describe('recordBillableEvent', () => {
   })
 
   it('maps an llm_generation_call event + generationType to the usage_events event_type domain', async () => {
-    const usageEventsInsertMock = vi.fn(() => Promise.resolve({ error: null }))
+    const usageEventsInsertMock = vi.fn(() => ({
+      select: () => ({ single: () => Promise.resolve({ data: { id: 'usage-event-1' }, error: null }) }),
+    }))
     const { createSupabaseAdminClient } = await import('@/lib/supabase')
     ;(createSupabaseAdminClient as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce({
       from: (table: string) => {
@@ -204,6 +255,9 @@ describe('recordBillableEvent', () => {
         }
         if (table === 'usage_events') {
           return { insert: usageEventsInsertMock }
+        }
+        if (table === 'billing_rate_versions') {
+          return noRateChain()
         }
         throw new Error(`Unexpected table: ${table}`)
       },
@@ -221,7 +275,9 @@ describe('recordBillableEvent', () => {
   })
 
   it('never inserts into usage_events for the non-billable session.completed event', async () => {
-    const usageEventsInsertMock = vi.fn(() => Promise.resolve({ error: null }))
+    const usageEventsInsertMock = vi.fn(() => ({
+      select: () => ({ single: () => Promise.resolve({ data: { id: 'usage-event-1' }, error: null }) }),
+    }))
     const { createSupabaseAdminClient } = await import('@/lib/supabase')
     ;(createSupabaseAdminClient as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce({
       from: (table: string) => {
@@ -255,7 +311,13 @@ describe('recordBillableEvent', () => {
           return { upsert: () => ({ select: () => ({ maybeSingle: () => Promise.resolve({ data: { id: 'dl-4' } }) }) }) }
         }
         if (table === 'usage_events') {
-          return { insert: () => Promise.resolve({ error: { message: 'relation "usage_events" does not exist' } }) }
+          return {
+            insert: () => ({
+              select: () => ({
+                single: () => Promise.resolve({ data: null, error: { message: 'relation "usage_events" does not exist' } }),
+              }),
+            }),
+          }
         }
         throw new Error(`Unexpected table: ${table}`)
       },

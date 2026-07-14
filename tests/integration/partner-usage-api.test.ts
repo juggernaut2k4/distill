@@ -143,14 +143,25 @@ describe('GET /api/partner/v1/usage', () => {
     expect(eqCalls).toContainEqual({ method: 'eq', args: ['test_mode', false] })
   })
 
-  it('maps event_type=usage.llm_generation_call to the three usage_events.event_type values', async () => {
+  it('maps event_type=usage.llm_generation_call to all 8 usage_events.event_type values (B2B-04: 4 sub-types added by migration 074 were previously missing from this mapping)', async () => {
     const { builder, calls } = makeQueryBuilder({ data: [], error: null })
     usageEventsSelectMock.mockReturnValue(builder)
 
     await GET(makeRequest('?event_type=usage.llm_generation_call'))
 
     const inCall = calls.find((c) => c.method === 'in')
-    expect(inCall?.args).toEqual(['event_type', ['llm_generation_topic', 'llm_generation_content', 'llm_generation_prerequisite']])
+    expect(inCall?.args).toEqual([
+      'event_type',
+      [
+        'llm_generation_topic',
+        'llm_generation_content',
+        'llm_generation_prerequisite',
+        'llm_generation_skeleton',
+        'llm_generation_discovery',
+        'llm_generation_sample_fill',
+        'llm_generation_new_template',
+      ],
+    ])
   })
 
   it('returns a non-null next_cursor when a full page is returned, encoding occurred_at|id', async () => {

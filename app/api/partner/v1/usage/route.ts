@@ -42,7 +42,20 @@ const VALID_EVENT_TYPES: BillableEventType[] = ['usage.voice_minute', 'usage.llm
 function usageEventTypesFor(eventType: BillableEventType): string[] {
   if (eventType === 'usage.voice_minute') return ['voice_minute']
   if (eventType === 'usage.llm_generation_call') {
-    return ['llm_generation_topic', 'llm_generation_content', 'llm_generation_prerequisite']
+    // B2B-04 Requirement Doc Section 6 — migration 074 (B2B-03) extended
+    // usage_events.event_type to 8 values but this mapping was never
+    // updated, so a partner filtering on this event type silently never saw
+    // the 4 newer sub-types' usage. Fixed alongside B2B-04 since it's
+    // already touching usage_events-adjacent billing/read code.
+    return [
+      'llm_generation_topic',
+      'llm_generation_content',
+      'llm_generation_prerequisite',
+      'llm_generation_skeleton',
+      'llm_generation_discovery',
+      'llm_generation_sample_fill',
+      'llm_generation_new_template',
+    ]
   }
   return [] // 'session.completed' — never stored in usage_events (non-billable, no quantity)
 }
