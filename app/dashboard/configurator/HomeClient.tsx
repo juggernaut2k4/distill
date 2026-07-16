@@ -102,6 +102,11 @@ export default function HomeClient({ accounts, activePartnerAccountId }: { accou
           title="Integration"
           status={summary ? summary.integrationLabel : '—'}
         />
+        <DomainCard
+          href={`/dashboard/configurator/developer?partner_account_id=${activePartnerAccountId}`}
+          title="Developer"
+          status="Docs & Playground"
+        />
       </div>
 
       <Link href={`/dashboard/configurator/visualization?partner_account_id=${activePartnerAccountId}`} style={{ textDecoration: 'none' }}>

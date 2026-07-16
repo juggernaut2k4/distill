@@ -101,6 +101,29 @@ export default function PartnerBillingClient() {
   const [loadError, setLoadError] = useState(false)
   const [sortColumn, setSortColumn] = useState<SortColumn>('days_remaining')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
+  const [testBlockBusyId, setTestBlockBusyId] = useState<string | null>(null)
+
+  /**
+   * B2B-08 Requirement Doc Section 4.D / 10 — the only entry point for
+   * POST /api/admin/billing/test-block until a full partner-self-serve
+   * Configurator UI ships (out of scope here). Mirrors the busy-state /
+   * fetch-then-redirect pattern already used by WizardClient.tsx's
+   * startCheckout() for the sibling wallet-topup route.
+   */
+  async function purchaseTestBlock(partnerAccountId: string) {
+    setTestBlockBusyId(partnerAccountId)
+    try {
+      const res = await fetch('/api/admin/billing/test-block', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ partner_account_id: partnerAccountId }),
+      })
+      const data = await res.json()
+      if (data.checkout_url) window.location.href = data.checkout_url
+    } finally {
+      setTestBlockBusyId(null)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -186,12 +209,15 @@ export default function PartnerBillingClient() {
                 <th className="text-left px-4 py-3 whitespace-nowrap">
                   <span className="text-[#94A3B8] text-xs font-semibold uppercase tracking-wide">Payment</span>
                 </th>
+                <th className="text-left px-4 py-3 whitespace-nowrap">
+                  <span className="text-[#94A3B8] text-xs font-semibold uppercase tracking-wide">Test block</span>
+                </th>
               </tr>
             </thead>
             <tbody>
               {isLoading && (
                 <tr>
-                  <td colSpan={COLUMNS.length + 1} className="text-center py-16 text-[#94A3B8] text-sm">
+                  <td colSpan={COLUMNS.length + 2} className="text-center py-16 text-[#94A3B8] text-sm">
                     Loading partner accounts…
                   </td>
                 </tr>
@@ -199,7 +225,7 @@ export default function PartnerBillingClient() {
 
               {!isLoading && loadError && (
                 <tr>
-                  <td colSpan={COLUMNS.length + 1} className="text-center py-16 text-[#EF4444] text-sm">
+                  <td colSpan={COLUMNS.length + 2} className="text-center py-16 text-[#EF4444] text-sm">
                     Couldn&apos;t load partner billing data. Try refreshing the page.
                   </td>
                 </tr>
@@ -207,7 +233,7 @@ export default function PartnerBillingClient() {
 
               {!isLoading && !loadError && rows.length === 0 && (
                 <tr>
-                  <td colSpan={COLUMNS.length + 1} className="text-center py-16 text-[#94A3B8] text-sm">
+                  <td colSpan={COLUMNS.length + 2} className="text-center py-16 text-[#94A3B8] text-sm">
                     No partner accounts yet.
                   </td>
                 </tr>
@@ -236,6 +262,15 @@ export default function PartnerBillingClient() {
                     <td className="px-4 py-3 text-[#94A3B8] whitespace-nowrap">{formatDaysRemaining(row)}</td>
                     <td className="px-4 py-3 text-[#94A3B8] whitespace-nowrap">{formatNextBillingDate(row)}</td>
                     <td className="px-4 py-3 text-[#94A3B8] whitespace-nowrap">{formatPaymentMethod(row)}</td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <button
+                        onClick={() => purchaseTestBlock(row.partner_account_id)}
+                        disabled={testBlockBusyId === row.partner_account_id}
+                        className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-[#333333] text-[#94A3B8] hover:text-white hover:border-[#7C3AED] transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                      >
+                        {testBlockBusyId === row.partner_account_id ? 'Starting…' : 'Purchase test block (2hr, $1.80)'}
+                      </button>
+                    </td>
                   </tr>
                 ))}
             </tbody>
