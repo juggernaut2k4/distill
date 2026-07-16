@@ -66,10 +66,8 @@ export default function PlaygroundClient({
   }
 
   // Requirement Doc Section 4.C.1 / architecture.md §17.3 — reproduced faithfully.
-  // Note: for the sessions_create endpoint, the Send button below has NO onClick
-  // wired at all — this function is never reachable from that state. The
-  // `if (endpoint.playgroundDisabled) return` guard here is defense-in-depth
-  // only, not the sole gate.
+  // 'sessions_create' enabled 2026-07-16 (see content.ts) — sends a real POST
+  // with a JSON body, same as every other real partner integration call.
   async function handleSend() {
     if (endpoint.playgroundDisabled) return
     if (!apiKey) {
@@ -92,9 +90,18 @@ export default function PlaygroundClient({
       }
       const qs = new URLSearchParams(params).toString()
       if (qs) url += `?${qs}`
+    } else if (endpoint.id === 'sessions_create') {
+      let body: unknown
+      try {
+        body = JSON.parse(editorValue || '{}')
+      } catch (e) {
+        setValidationError(`Not valid JSON: ${(e as Error).message}`)
+        return
+      }
+      init.headers = { ...init.headers, 'Content-Type': 'application/json' }
+      init.body = JSON.stringify(body)
     }
     // 'wallet' — no path param, no query params, no body.
-    // 'sessions_create' — unreachable here; playgroundDisabled short-circuits above.
 
     setValidationError(null)
     setSending(true)
@@ -215,6 +222,23 @@ export default function PlaygroundClient({
                   rows={4}
                   style={{ ...inputStyle, resize: 'vertical' }}
                 />
+              </div>
+            )}
+
+            {endpoint.id === 'sessions_create' && (
+              <div style={{ marginBottom: 16 }}>
+                <p style={{ fontSize: 12, color: COLORS.textSecondary, marginBottom: 6 }}>Request body (JSON)</p>
+                <textarea
+                  value={editorValue}
+                  onChange={(e) => setEditorValue(e.target.value)}
+                  placeholder={JSON.stringify(endpoint.exampleRequestBody, null, 2)}
+                  rows={8}
+                  style={{ ...inputStyle, resize: 'vertical' }}
+                />
+                <p style={{ fontSize: 11, color: COLORS.amber, marginTop: 6 }}>
+                  Dispatches a real meeting bot into the meeting_url you provide, bounded by your account&apos;s
+                  test-mode trial allowance.
+                </p>
               </div>
             )}
 

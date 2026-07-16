@@ -69,9 +69,13 @@ export const ENDPOINTS: EndpointDoc[] = [
       { status: '422', meaning: 'validation failure' },
       { status: '429', meaning: 'rate limit exceeded, Retry-After header present' },
     ],
-    playgroundDisabled: true,
-    playgroundDisabledReason:
-      "Live testing for this endpoint is temporarily disabled. Dispatching a session sends a real meeting bot into the meeting URL you provide — Clio's current test-mode safeguard does not yet prevent this for every account state, so this Playground does not enable it until that's fixed. The request/response shape above is accurate; you just can't send it from here yet.",
+    // Enabled 2026-07-16 per Arun's direct confirmation: a test-mode dispatch
+    // from this Playground is meant to behave exactly like any other
+    // test-mode API call — a real bot, bounded by B2B-08's existing trial
+    // gate (free 20-minute allowance, then a paid test block). No separate
+    // Playground-specific safeguard is needed; B2B-08's 402 trial_exhausted
+    // response is the intended limit.
+    playgroundDisabled: false,
   },
   {
     id: 'sessions_get',
