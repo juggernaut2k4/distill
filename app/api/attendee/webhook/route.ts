@@ -8,6 +8,8 @@ import {
   addUnresolvedQuestion,
 } from '@/lib/user-context'
 import { inngest } from '@/inngest/client'
+import { handleSessionEnd } from '@/lib/partner/live-render'
+import { getThemeConfig } from '@/lib/partner/theme'
 
 /**
  * POST /api/attendee/webhook
@@ -124,7 +126,29 @@ async function handleEvent(event: AttendeeWebhookEvent) {
     .single()
 
   if (!walkthroughRow) {
-    console.warn('[attendee/webhook] No walkthrough_state for userId', userId)
+    // B2B-10 — a bot dispatched via the B2B partner flow (dispatchMeetingBot() in
+    // lib/partner/session-init.ts) has no walkthrough_state row at all; its
+    // event.bot_metadata.user_id carries partner_sessions.id instead. Try that
+    // lookup before giving up. See docs/specs/B2B-10-requirement-document.md
+    // Section 4.1 — this is the only change to the pre-existing B2C miss path.
+    const { data: partnerSessionRow } = await supabase
+      .from('partner_sessions')
+      .select('id, partner_account_id, status, test_mode, updated_at')
+      .eq('id', userId)
+      .maybeSingle()
+
+    if (partnerSessionRow) {
+      await handlePartnerSessionEvent(event, {
+        id: partnerSessionRow.id as string,
+        partnerAccountId: partnerSessionRow.partner_account_id as string,
+        status: partnerSessionRow.status as string,
+        testMode: Boolean(partnerSessionRow.test_mode),
+        updatedAt: partnerSessionRow.updated_at as string,
+      })
+      return
+    }
+
+    console.warn('[attendee/webhook] No walkthrough_state or partner_sessions row for userId', userId)
     return
   }
 
@@ -308,5 +332,109 @@ async function handleEvent(event: AttendeeWebhookEvent) {
 
     default:
       console.log('[attendee/webhook] Unhandled trigger:', event.trigger)
+  }
+}
+
+// ─── B2B-10 — PARTNER SESSION HANDLER ───────────────────────────────────────
+// See docs/specs/B2B-10-requirement-document.md Section 4.2. Reached only on
+// a walkthrough_state lookup miss (the B2C switch above is byte-for-byte
+// unchanged). Mirrors the B2C switch's structure and log style, but every
+// branch here is deliberately thinner — see the spec for why each one is a
+// no-op or confirmatory-log-only, except the ended/fatal_error fallback path.
+
+interface PartnerSessionForEvent {
+  id: string
+  partnerAccountId: string
+  status: string
+  testMode: boolean
+  updatedAt: string
+}
+
+async function handlePartnerSessionEvent(
+  event: AttendeeWebhookEvent,
+  row: PartnerSessionForEvent
+) {
+  const botId = event.bot_id
+
+  switch (event.trigger) {
+    case 'bot.state_change': {
+      const state = event.data.new_state as string | undefined
+
+      if (state === 'joined_recording') {
+        // Confirmatory/observability-only — provider_bot_id was already written
+        // at dispatch time by dispatchMeetingBot() (session-init.ts), before any
+        // webhook could possibly fire, and B2B-09's transcript extraction keys
+        // off Hume's own chat_id, never off the Attendee bot id. No DB write.
+        console.log('[attendee/webhook] partner session joined_recording (confirmatory only):', { botId, partnerSessionId: row.id })
+        break
+      }
+
+      if (state === 'ended' || state === 'fatal_error') {
+        // Fallback safety net, not a second source of truth — the client-side
+        // path (PartnerRenderClient.tsx's endSessionOnce() -> /api/partner/render/end-session
+        // -> handleSessionEnd()) is authoritative and expected to win in the common case.
+        if (row.status === 'completed' || row.status === 'failed') {
+          console.log('[attendee/webhook] partner session already finalized — no-op:', { botId, partnerSessionId: row.id, state, status: row.status })
+          break
+        }
+
+        const rawMinutes = (Date.now() - new Date(row.updatedAt).getTime()) / 60000
+        const durationMinutes = Math.min(600, Math.max(0, rawMinutes))
+        const targetStatus: 'completed' | 'failed' = state === 'fatal_error' ? 'failed' : 'completed'
+
+        console.warn('[attendee/webhook] partner session fallback completion triggered (client-side end-session never landed):', {
+          botId,
+          partnerSessionId: row.id,
+          state,
+          targetStatus,
+          durationMinutes,
+        })
+
+        await handleSessionEnd(row.id, row.partnerAccountId, durationMinutes, row.testMode, targetStatus)
+      }
+      break
+    }
+
+    case 'transcript.update': {
+      // No-op, log-only. See docs/specs/B2B-10-requirement-document.md Section 4.2 —
+      // building a partner-session equivalent of analyzeTranscription()/user_session_context
+      // would mean persisting partner end-user transcript content, in tension with
+      // CORE_OBJECTIVES.md's Non-Negotiable Data Boundary. Never log the transcript text itself.
+      const text = ((event.data.transcription as Record<string, unknown>)?.transcript as string | null) ?? ''
+      console.log('[attendee/webhook] partner session transcript.update (not forwarded, not persisted):', { partnerSessionId: row.id, transcriptLength: text.length })
+      break
+    }
+
+    case 'participant_events.join_leave': {
+      // B2B-11 (Requirement Doc Section 6.2) — closes the gap B2B-10
+      // deliberately left open: sets the join-greeting flag instead of only
+      // logging. Guard shape mirrors the B2C branch's own
+      // `eventType !== 'participant_joined' || !participantName` check.
+      const participantName = (event.data.participant_name as string | null) ?? ''
+      const eventType = event.data.event_type as string | undefined
+
+      if (eventType !== 'participant_joined' || !participantName) break
+
+      // Skip the bot itself — also checks the partner's configured assistant
+      // name, not just the literal "clio" the B2C branch checks, since a
+      // partner-branded bot's display name in the meeting roster may not be
+      // "Clio".
+      const theme = await getThemeConfig(row.partnerAccountId)
+      const botNameLower = (theme.assistantDisplayName ?? 'clio').toLowerCase()
+      if (participantName.toLowerCase().includes(botNameLower) || participantName.toLowerCase().includes('clio')) break
+
+      const firstName = participantName.split(' ')[0] ?? participantName
+
+      const supabase = createSupabaseAdminClient()
+      await supabase.from('partner_sessions')
+        .update({ join_greeting_pending: true, join_greeting_participant_first_name: firstName })
+        .eq('id', row.id)
+
+      console.log('[attendee/webhook] partner session participant.joined — join greeting flag set:', { partnerSessionId: row.id, firstName })
+      break
+    }
+
+    default:
+      console.log('[attendee/webhook] Unhandled trigger for partner session:', event.trigger, { partnerSessionId: row.id })
   }
 }

@@ -81,6 +81,14 @@ export default function PartnerRenderClient({ clioSessionRef, sections, humeConf
   const activeIndexRef = useRef(0)
   const sectionEls = useRef<(HTMLDivElement | null)[]>([])
 
+  // B2B-11 (Requirement Doc Section 6.5) — join-greeting poll. Reuses
+  // WalkthroughClient.tsx's proven flag-set -> poll -> send -> clear pattern
+  // (its hume_wrapup_nudge_pending mechanism) at drastically reduced scope:
+  // this loop only reads one flag plus the pre-resolved greeting text and
+  // calls sendWrapUpNudge(), then clears the flag. Single-retry-then-give-up
+  // policy, identical to that mechanism's own documented behavior.
+  const joinGreetingRetriedRef = useRef(false)
+
   /** Moves the on-screen stack to `idx`, clamped to a valid section, and
    *  scrolls it into view — mirrors SessionStack.tsx's scrollToSection. */
   function goToSection(idx: number) {
@@ -213,6 +221,59 @@ export default function PartnerRenderClient({ clioSessionRef, sections, humeConf
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // B2B-11 (Requirement Doc Section 6.5) — new, independent poll effect.
+  // Does not touch, replace, or interact with the connect() effect above's
+  // tool-handler map, endSessionOnce(), or connection logic in any way.
+  useEffect(() => {
+    let active = true
+
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/partner/render/join-greeting/${clioSessionRef}`)
+        if (!active || !res.ok) return // non-fatal — just skip this cycle, next 2s cycle retries
+
+        const data = await res.json() as { pending: boolean; greeting_text: string | null }
+        if (!data.pending || !data.greeting_text) {
+          joinGreetingRetriedRef.current = false // reset for the next occurrence
+          return
+        }
+
+        const adapter = adapterRef.current
+        const clearFlag = () => {
+          fetch(`/api/partner/render/join-greeting/${clioSessionRef}`, { method: 'PATCH' }).catch(() => {})
+        }
+
+        if (adapter?.isOpen()) {
+          const sent = adapter.sendWrapUpNudge(data.greeting_text)
+          if (sent) {
+            joinGreetingRetriedRef.current = false
+            clearFlag()
+          } else if (!joinGreetingRetriedRef.current) {
+            joinGreetingRetriedRef.current = true
+            adapter.sendWrapUpNudge(data.greeting_text) // one retry, per WalkthroughClient's existing policy
+            clearFlag() // cleared either way, per the existing policy
+          }
+          // else: already retried once and failed again — give up silently
+        } else if (!joinGreetingRetriedRef.current) {
+          // Adapter not open yet (mid-connect) — one retry window only, do
+          // NOT clear the flag, exactly mirroring WalkthroughClient.tsx's own
+          // "adapter not open" branch.
+          joinGreetingRetriedRef.current = true
+        }
+        // else: still not open after the retry window — give up silently. The
+        // flag stays pending; there is no billing-critical backstop for this
+        // feature (unlike the wrap-up nudge), so a permanently-missed greeting
+        // is a narrow, accepted UX gap, not a stuck session.
+      } catch {
+        /* swallow — next 2s cycle retries the fetch itself */
+      }
+    }
+
+    poll()
+    const interval = setInterval(poll, 2000)
+    return () => { active = false; clearInterval(interval) }
+  }, [clioSessionRef])
 
   async function endSessionOnce() {
     if (endedRef.current) return

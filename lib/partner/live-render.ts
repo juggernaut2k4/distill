@@ -1,6 +1,7 @@
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { pullPartnerContent, pullPartnerProfile } from './render-data'
 import { resolvePartnerTheme, getThemeConfig, type CSSCustomProperties } from './theme'
+import { getPromptConfig } from './prompt-config'
 import { selectPartnerTemplate } from './custom-templates'
 import { recordBillableEvent } from './webhooks'
 import { assembleHumeNativePrompt } from '@/lib/voice/hume-native/prompt-template'
@@ -15,6 +16,11 @@ import type { DraftPayload } from './content-generation'
  * ref -> pull content -> pull profile (if enabled) -> resolve theme per
  * section -> select template per section -> provision Hume config -> return
  * everything the render page's client component needs to mount.
+ *
+ * B2B-10 — this file also backs the Attendee-webhook fallback-completion
+ * path (see app/api/attendee/webhook/route.ts's handlePartnerSessionEvent).
+ * No new exported functions were added for that; handleSessionEnd() below
+ * gained one optional parameter instead — see its doc comment.
  */
 
 export interface PartnerSessionRow {
@@ -117,17 +123,46 @@ export async function resolveLiveSessionRender(session: PartnerSessionRow): Prom
   }
 
   // Step 7 — Hume config, with the partner's own assistant name in place of "Clio".
+  // B2B-11 (Requirement Doc Section 5.3) — also reads this partner's
+  // prompt-behavior config and threads it through as `promptBehavior`.
   let humeConfigId: string | null = null
   try {
     const sessionContent = sections
       .map((s) => JSON.stringify(s))
       .join('\n\n')
+    const promptConfig = await getPromptConfig(session.partnerAccountId)
     const prompt = assembleHumeNativePrompt({
       profileContext,
       intentContext: '',
       sessionContent,
       assistantName: assistantDisplayName,
+      promptBehavior: {
+        tonePersona: promptConfig.tonePersona,
+        deferralPhrasing: promptConfig.deferralPhrasing,
+        closingConfirmationQuestion: promptConfig.closingConfirmationQuestion,
+        goodbyeLine: promptConfig.goodbyeLine,
+        verificationQuestionStyle: promptConfig.verificationQuestionStyle,
+        interSectionRecapStyle: promptConfig.interSectionRecapStyle,
+      },
     })
+
+    // B2B-11 Section 5.3/6.1a — persist the fully-assembled prompt so the
+    // join-greeting route (Section 6.3) can prepend it to any live greeting
+    // send, rather than replacing Hume's active prompt with the greeting
+    // fragment alone. Best-effort: failure here does not block or fail the
+    // render itself — `prompt` below is still sent to Hume at connect time
+    // either way; only a *later* join greeting for this session degrades
+    // gracefully (Section 8's dedicated error-state row) if this write does
+    // not succeed.
+    const supabase = createSupabaseAdminClient()
+    const { error: snapshotError } = await supabase
+      .from('partner_sessions')
+      .update({ assembled_prompt_snapshot: prompt })
+      .eq('id', session.id)
+    if (snapshotError) {
+      console.error('[partner/live-render] failed to persist assembled_prompt_snapshot (non-fatal — session proceeds, join-greeting for this session may be unavailable):', { sessionId: session.id, error: snapshotError })
+    }
+
     const provisioned = await provisionNativeConfig({ sessionId: session.id, assembledPrompt: prompt })
     humeConfigId = provisioned.configId
   } catch (err) {
@@ -192,17 +227,31 @@ function sectionTitle(section: TemplateSection): string {
  * threaded through from `getPartnerSession()`'s `test_mode` column, and used
  * to (a) cancel the pending trial-cutoff job on a normal end and (b) consume
  * the actual trial/test-block minutes for a test-mode session.
+ *
+ * B2B-10 — `targetStatus` (optional, defaults to `'completed'`) lets the
+ * Attendee-webhook fallback-completion path (handlePartnerSessionEvent in
+ * app/api/attendee/webhook/route.ts) land a session as `'failed'` for a
+ * `bot.state_change: fatal_error` event, without changing behavior for the
+ * existing call site (app/api/partner/render/end-session/route.ts), which
+ * still calls this with 4 arguments and gets identical `'completed'`
+ * behavior. Every other side effect (trial-cutoff cancellation, the
+ * durationMinutes > 0 gated usage.voice_minute billing, and the
+ * unconditional final session.completed billable-event dispatch) is
+ * unchanged and fires identically regardless of targetStatus — full reuse,
+ * no new billing logic, per docs/specs/B2B-10-requirement-document.md
+ * Section 6's Technical Decision.
  */
 export async function handleSessionEnd(
   clioSessionRef: string,
   partnerAccountId: string,
   durationMinutes: number,
   testMode: boolean,
+  targetStatus: 'completed' | 'failed' = 'completed',
 ): Promise<void> {
   const supabase = createSupabaseAdminClient()
   await supabase
     .from('partner_sessions')
-    .update({ status: 'completed', ended_at: new Date().toISOString() })
+    .update({ status: targetStatus, ended_at: new Date().toISOString() })
     .eq('id', clioSessionRef)
 
   // B2B-08 — cancel the trial-cutoff job so a normally-ended test session never triggers a
