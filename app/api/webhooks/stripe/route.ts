@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { constructWebhookEvent, stripe } from '@/lib/stripe'
 import { createSupabaseAdminClient } from '@/lib/supabase'
+import { getPlanTier, getIncludedAllowanceUsd } from '@/lib/billing/plan-tiers'
 import type Stripe from 'stripe'
 
 type AdminSupabaseClient = ReturnType<typeof createSupabaseAdminClient>
@@ -19,7 +20,7 @@ type AdminSupabaseClient = ReturnType<typeof createSupabaseAdminClient>
 async function walletLedgerAlreadyRecorded(
   supabase: AdminSupabaseClient,
   stripeObjectId: string,
-  entryType: 'topup_checkout' | 'topup_subscription_recharge' | 'topup_invoice' | 'test_block_purchase'
+  entryType: 'topup_checkout' | 'topup_subscription_recharge' | 'topup_invoice' | 'test_block_purchase' | 'plan_allowance_credit'
 ): Promise<boolean> {
   const { data } = await supabase
     .from('wallet_ledger')
@@ -194,10 +195,69 @@ export async function POST(request: NextRequest) {
           break
         }
 
+        // ── B2B-13 — Plan subscription checkout completion (mode: "subscription") ──
+        // Requirement Doc Section 4.B step 1 / 6.D. Writes the Plan's identity onto
+        // partner_wallets immediately — NO balance credit here. Crediting happens
+        // exactly once, only on invoice.paid (below), so the fixed allowance is never
+        // credited twice (once at checkout, again at the first invoice). Naturally
+        // idempotent under Stripe redelivery: a repeat event just re-writes the same
+        // five column values.
+        if (session.metadata?.purpose === 'plan_subscription') {
+          const partnerAccountId = session.metadata?.partner_account_id
+          const planTierKey = session.metadata?.plan_tier_key
+          const planBillingPeriod = session.metadata?.plan_billing_period
+
+          const tier = planTierKey ? getPlanTier(planTierKey) : undefined
+          if (!tier) {
+            console.error('[stripe-webhook] plan_subscription checkout.session.completed: unrecognized plan_tier_key:', planTierKey, session.id)
+            break
+          }
+
+          if (!partnerAccountId) {
+            console.warn('[stripe-webhook] plan_subscription checkout.session.completed missing partner_account_id:', session.id)
+            break
+          }
+
+          // Resolve the target row before writing — mirrors the existing
+          // wallet_topup/test_block_purchase branches' partner_account_id
+          // resolution, no new lookup mechanism (Requirement Doc Section 4.B).
+          const { data: existingWallet } = await supabase
+            .from('partner_wallets')
+            .select('partner_account_id')
+            .eq('partner_account_id', partnerAccountId)
+            .maybeSingle()
+
+          if (!existingWallet) {
+            console.warn('[stripe-webhook] plan_subscription checkout.session.completed: no partner_wallets row found for', partnerAccountId, session.id)
+            break
+          }
+
+          const { error: updateError } = await supabase
+            .from('partner_wallets')
+            .update({
+              plan_tier_key: planTierKey,
+              plan_billing_period: planBillingPeriod,
+              stripe_plan_subscription_id: typeof session.subscription === 'string' ? session.subscription : null,
+              funding_mechanism: 'plan_subscription',
+              plan_status: 'active',
+            })
+            .eq('partner_account_id', partnerAccountId)
+
+          if (updateError) {
+            console.error('[stripe-webhook] plan_subscription checkout.session.completed: partner_wallets update failed for', partnerAccountId, updateError.message)
+            break
+          }
+
+          console.log(`[stripe-webhook] B2B-13 plan checkout completed: partner ${partnerAccountId} -> ${planTierKey}/${planBillingPeriod}, subscription ${session.subscription}`)
+
+          break
+        }
+
         break
       }
 
       // ── B2B-04 — mid-market auto-recharge subscription (Requirement Doc 5.B.3) ──
+      // ── B2B-13 — Plan subscription allowance credit, correlated first (Requirement Doc 4.B/6.D) ──
       case 'invoice.paid': {
         const invoice = event.data.object as Stripe.Invoice
 
@@ -206,6 +266,83 @@ export async function POST(request: NextRequest) {
         // the same invoice, so each branch only proceeds for its own case.
         if (!invoice.subscription) break
 
+        // ── B2B-13 — Plan correlation, tried FIRST. Correlates by a stable
+        // Stripe object id (invoice.subscription) looked up against
+        // partner_wallets — never by reading any invoice-level metadata field
+        // (that field's shape shifts across Stripe API versions; see the
+        // Requirement Document's Revision Note for the flaw this closes).
+        // If no match (a genuine non-Plan invoice, OR the documented race
+        // case where checkout.session.completed hasn't landed yet), this
+        // falls through unchanged to the existing B2B-04 auto-recharge logic
+        // below — that fallthrough IS the documented safe behavior, not an
+        // error case.
+        const { data: planWalletRow } = await supabase
+          .from('partner_wallets')
+          .select('partner_account_id, plan_tier_key, plan_billing_period')
+          .eq('stripe_plan_subscription_id', invoice.subscription as string)
+          .maybeSingle()
+
+        if (planWalletRow && planWalletRow.plan_tier_key) {
+          const planPartnerAccountId = planWalletRow.partner_account_id as string
+          const tier = getPlanTier(planWalletRow.plan_tier_key as string)
+
+          if (!tier) {
+            // Catalog drift — should not happen, since plan_tier_key is only
+            // ever written from a valid catalog key (checkout branch above).
+            // Defensive only.
+            console.error('[stripe-webhook] invoice.paid (plan): unrecognized plan_tier_key on partner_wallets:', planWalletRow.plan_tier_key, invoice.id)
+            break
+          }
+
+          if (await walletLedgerAlreadyRecorded(supabase, invoice.id, 'plan_allowance_credit')) break
+
+          const billingPeriod = (planWalletRow.plan_billing_period as string) === 'annual' ? 'annual' : 'monthly'
+          const allowanceUsd = getIncludedAllowanceUsd(tier, billingPeriod)
+
+          const { data: newBalance, error: rpcError } = await supabase.rpc('credit_wallet_balance', {
+            p_partner_account_id: planPartnerAccountId,
+            p_amount_usd: allowanceUsd,
+          })
+
+          if (rpcError) {
+            console.error('[stripe-webhook] credit_wallet_balance RPC failed (invoice.paid, plan_allowance_credit):', rpcError.message)
+            break
+          }
+
+          await supabase.from('wallet_ledger').insert({
+            partner_account_id: planPartnerAccountId,
+            entry_type: 'plan_allowance_credit',
+            delta_usd: allowanceUsd,
+            resulting_balance_usd: newBalance,
+            stripe_object_id: invoice.id,
+            metadata: { plan_tier_key: tier.key, plan_billing_period: billingPeriod },
+          })
+
+          const planPeriodEndUnix = invoice.lines?.data?.[0]?.period?.end
+          const planCurrentPeriodEnd = planPeriodEndUnix ? new Date(planPeriodEndUnix * 1000).toISOString() : null
+
+          await supabase
+            .from('partner_wallets')
+            .update({
+              reference_topup_amount_usd: allowanceUsd,
+              low_balance_alert_fired_at: null,
+              funding_mechanism: 'plan_subscription',
+              plan_tier_key: tier.key,
+              plan_billing_period: billingPeriod,
+              stripe_plan_subscription_id: invoice.subscription as string,
+              plan_status: 'active',
+              ...(planCurrentPeriodEnd ? { plan_current_period_end: planCurrentPeriodEnd } : {}),
+            })
+            .eq('partner_account_id', planPartnerAccountId)
+
+          console.log(`[stripe-webhook] B2B-13 plan allowance credit: +$${allowanceUsd.toFixed(2)} for partner ${planPartnerAccountId} (${tier.key}/${billingPeriod}), new balance: ${newBalance}`)
+
+          break
+        }
+
+        // ── B2B-04 — existing auto-recharge logic, byte-for-byte unchanged. ──
+        // Also the documented safe fallback for the plan-correlation race case
+        // above (Requirement Doc Section 8).
         const customerId = invoice.customer as string
         const { data: wallet } = await supabase
           .from('partner_wallets')
@@ -321,6 +458,71 @@ export async function POST(request: NextRequest) {
           .eq('partner_account_id', partnerAccountId)
 
         console.log(`[stripe-webhook] B2B-04 enterprise invoice paid: +$${amountUsd.toFixed(2)} for partner ${partnerAccountId}, new balance: ${newBalance}`)
+
+        break
+      }
+
+      // ── B2B-13 — Plan subscription lifecycle (Requirement Doc 4.B/6.D/9) ────
+      // No such handler exists today for any funding mechanism (auto-recharge
+      // included) — these are two brand-new cases, not extensions of an
+      // existing one. Correlates via subscription.metadata?.purpose, a field
+      // whose location has not moved across Stripe API versions (unlike
+      // Invoice.subscription_details, which the invoice.paid correlation fix
+      // above deliberately avoids reading).
+      case 'customer.subscription.updated': {
+        const subscription = event.data.object as Stripe.Subscription
+
+        // Auto-recharge subscriptions never carry this metadata key — this
+        // event type has never been handled for them either; out of scope,
+        // unchanged (Requirement Doc Section 10).
+        if (subscription.metadata?.purpose !== 'plan_subscription') break
+
+        const newStatus =
+          subscription.status === 'past_due' ? 'past_due' :
+          subscription.status === 'active' ? 'active' :
+          null // trialing/incomplete/unpaid/etc. — no mapping, no-op
+
+        if (!newStatus) break
+
+        // The stripe_plan_subscription_id match (not just stripe_customer_id)
+        // is deliberate — see Requirement Doc Section 9's "stale event after
+        // a re-subscribe" edge case: a stale event for an id that's no longer
+        // the row's current value matches zero rows and is a no-op by
+        // construction, no special-case code needed.
+        const { error: updateError } = await supabase
+          .from('partner_wallets')
+          .update({ plan_status: newStatus })
+          .eq('stripe_customer_id', subscription.customer as string)
+          .eq('stripe_plan_subscription_id', subscription.id)
+
+        if (updateError) {
+          console.error('[stripe-webhook] customer.subscription.updated: partner_wallets update failed:', updateError.message)
+        } else {
+          console.log(`[stripe-webhook] B2B-13 plan subscription ${subscription.id} -> plan_status=${newStatus}`)
+        }
+
+        break
+      }
+
+      case 'customer.subscription.deleted': {
+        const subscription = event.data.object as Stripe.Subscription
+
+        if (subscription.metadata?.purpose !== 'plan_subscription') break
+
+        // No change to balance_usd, plan_tier_key, or plan_billing_period —
+        // Requirement Doc Section 9 lifecycle policy (mirrors the B2B-04
+        // "don't auto-revert classification, don't touch balance" precedent).
+        const { error: updateError } = await supabase
+          .from('partner_wallets')
+          .update({ plan_status: 'canceled' })
+          .eq('stripe_customer_id', subscription.customer as string)
+          .eq('stripe_plan_subscription_id', subscription.id)
+
+        if (updateError) {
+          console.error('[stripe-webhook] customer.subscription.deleted: partner_wallets update failed:', updateError.message)
+        } else {
+          console.log(`[stripe-webhook] B2B-13 plan subscription ${subscription.id} -> plan_status=canceled`)
+        }
 
         break
       }

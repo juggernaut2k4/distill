@@ -1,7 +1,7 @@
 'use client'
 
 import { UserButton } from '@clerk/nextjs'
-import { LayoutDashboard, MessageSquare, CreditCard, Settings, BookOpen, CalendarDays, Phone, Library } from 'lucide-react'
+import { LayoutDashboard, Settings, BookOpen, CalendarDays, Phone, Library } from 'lucide-react'
 import Link from 'next/link'
 
 interface ShellUser {
@@ -21,8 +21,6 @@ const NAV_ITEMS = [
   { href: '/dashboard/plan', icon: BookOpen, label: 'My Plan' },
   { href: '/dashboard/sessions', icon: CalendarDays, label: 'Sessions' },
   { href: '/dashboard/knowledge-base', icon: Library, label: 'Knowledge Base' },
-  { href: '/dashboard/messages', icon: MessageSquare, label: 'Messages' },
-  { href: '/dashboard/billing', icon: CreditCard, label: 'Billing' },
   { href: '/dashboard/phone', icon: Phone, label: 'Phone Setup' },
   { href: '/dashboard/settings', icon: Settings, label: 'Settings' },
 ]

@@ -13,7 +13,6 @@ const isPublicRoute = createRouteMatcher([
   '/checkout(.*)',
   '/topics(.*)',
   '/questionnaire',            // B2B-05: exact string, no wildcard — see middleware.ts note below
-  '/dashboard/welcome(.*)',
   '/api/webhooks/(.*)',
   '/api/recall/webhook(.*)',  // Recall.ai webhook — no user auth
   '/api/walkthrough-state/(.*)', // Walkthrough state polling — called by headless browser

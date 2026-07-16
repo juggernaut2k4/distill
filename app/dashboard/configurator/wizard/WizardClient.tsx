@@ -9,6 +9,7 @@ import TopicsConfigClient from '../topics/TopicsConfigClient'
 import ContentConfigClient from '../content/ContentConfigClient'
 import VisualizationClient from '../visualization/VisualizationClient'
 import DomainConfigClient from '../domain/DomainConfigClient'
+import { PLAN_TIERS, getIncludedAllowanceUsd, getPlanPriceUsd, type PlanTierKey, type PlanBillingPeriod } from '@/lib/billing/plan-tiers'
 
 /**
  * B2B-05 v1.1 — `/dashboard/configurator/wizard` shell (Requirement Doc
@@ -445,18 +446,53 @@ function StepIndicator({
   )
 }
 
-function PaymentStep({ partnerAccountId }: { partnerAccountId: string }) {
-  const [busy, setBusy] = useState<'topup' | 'subscription' | null>(null)
+const TOPUP_PRESETS_USD = [50, 100, 250, 500]
+const TOPUP_MIN_USD = 20
+const TOPUP_MAX_USD = 50000
 
-  async function startCheckout() {
-    setBusy('topup')
-    const successUrl = `${window.location.origin}/dashboard/configurator/wizard?partner_account_id=${partnerAccountId}&step=payment&funded=1`
-    const cancelUrl = `${window.location.origin}/dashboard/configurator/wizard?partner_account_id=${partnerAccountId}&step=payment`
+function formatUsd(amount: number): string {
+  return `$${amount.toLocaleString('en-US')}`
+}
+
+/**
+ * B2B-13 Requirement Doc Section 4.A/5 — redesigned Payment step. The former
+ * "Set a monthly minimum" auto-recharge card is replaced (not joined) by
+ * Plan-tier selection, per the brief's explicit product-shape decision #4.
+ * The "Pay as you go" card is retained and upgraded with presets + a custom
+ * amount field, replacing the prior hardcoded $100 body.
+ */
+function PaymentStep({ partnerAccountId }: { partnerAccountId: string }) {
+  const [busy, setBusy] = useState<PlanTierKey | 'topup' | null>(null)
+  const [billingPeriod, setBillingPeriod] = useState<PlanBillingPeriod>('monthly')
+  const [topupAmount, setTopupAmount] = useState('')
+  const [selectedPreset, setSelectedPreset] = useState<number | null>(null)
+
+  const trimmedAmount = topupAmount.trim()
+  const amountNum = trimmedAmount === '' ? NaN : Number(trimmedAmount)
+  const amountValid = !Number.isNaN(amountNum) && amountNum >= TOPUP_MIN_USD && amountNum <= TOPUP_MAX_USD
+  const showAmountError = trimmedAmount !== '' && !amountValid
+
+  function successAndCancelUrls() {
+    return {
+      successUrl: `${window.location.origin}/dashboard/configurator/wizard?partner_account_id=${partnerAccountId}&step=payment&funded=1`,
+      cancelUrl: `${window.location.origin}/dashboard/configurator/wizard?partner_account_id=${partnerAccountId}&step=payment`,
+    }
+  }
+
+  async function startPlanCheckout(tierKey: PlanTierKey) {
+    setBusy(tierKey)
+    const { successUrl, cancelUrl } = successAndCancelUrls()
     try {
-      const res = await fetch('/api/admin/billing/checkout', {
+      const res = await fetch('/api/admin/billing/plan-subscription', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ partner_account_id: partnerAccountId, amount_usd: 100, success_url: successUrl, cancel_url: cancelUrl }),
+        body: JSON.stringify({
+          partner_account_id: partnerAccountId,
+          plan_tier_key: tierKey,
+          billing_period: billingPeriod,
+          success_url: successUrl,
+          cancel_url: cancelUrl,
+        }),
       })
       const data = await res.json()
       if (data.checkout_url) window.location.href = data.checkout_url
@@ -465,40 +501,147 @@ function PaymentStep({ partnerAccountId }: { partnerAccountId: string }) {
     }
   }
 
-  async function startSubscription() {
-    setBusy('subscription')
-    const successUrl = `${window.location.origin}/dashboard/configurator/wizard?partner_account_id=${partnerAccountId}&step=payment&funded=1`
-    const cancelUrl = `${window.location.origin}/dashboard/configurator/wizard?partner_account_id=${partnerAccountId}&step=payment`
+  async function startCheckout() {
+    if (!amountValid) return
+    setBusy('topup')
+    const { successUrl, cancelUrl } = successAndCancelUrls()
     try {
-      const res = await fetch('/api/admin/billing/subscription', {
+      const res = await fetch('/api/admin/billing/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ partner_account_id: partnerAccountId, monthly_minimum_usd: 100, success_url: successUrl, cancel_url: cancelUrl }),
+        body: JSON.stringify({ partner_account_id: partnerAccountId, amount_usd: amountNum, success_url: successUrl, cancel_url: cancelUrl }),
       })
       const data = await res.json()
       if (data.checkout_url) window.location.href = data.checkout_url
     } finally {
       setBusy(null)
     }
+  }
+
+  function onPresetClick(amount: number) {
+    setSelectedPreset(amount)
+    setTopupAmount(String(amount))
+  }
+
+  function onCustomAmountChange(value: string) {
+    setTopupAmount(value)
+    setSelectedPreset(null)
   }
 
   return (
     <>
       <h1 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Add a payment method</h1>
       <p style={{ fontSize: 13, color: COLORS.textSecondary, marginBottom: 20 }}>Choose how you&apos;ll fund usage.</p>
-      <div style={{ display: 'flex', gap: 12 }}>
-        <Card style={{ flex: 1 }}>
-          <p style={{ fontWeight: 600, marginBottom: 6 }}>Pay as you go</p>
-          <p style={{ fontSize: 12, color: COLORS.textSecondary, marginBottom: 12 }}>One-time top-up via Stripe Checkout.</p>
-          <PrimaryButton disabled={busy !== null} onClick={startCheckout}>{busy === 'topup' ? 'Redirecting…' : 'Pay as you go'}</PrimaryButton>
-        </Card>
-        <Card style={{ flex: 1 }}>
-          <p style={{ fontWeight: 600, marginBottom: 6 }}>Set a monthly minimum</p>
-          <p style={{ fontSize: 12, color: COLORS.textSecondary, marginBottom: 12 }}>Auto-recharge subscription, discounted rate.</p>
-          <PrimaryButton disabled={busy !== null} onClick={startSubscription}>{busy === 'subscription' ? 'Redirecting…' : 'Set a monthly minimum'}</PrimaryButton>
-        </Card>
+
+      <p style={{ fontSize: 13, fontWeight: 600, color: COLORS.textPrimary, marginBottom: 8 }}>Plans</p>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+        <BillingPeriodPill label="Monthly" active={billingPeriod === 'monthly'} disabled={busy !== null} onClick={() => setBillingPeriod('monthly')} />
+        <BillingPeriodPill label="Annual" active={billingPeriod === 'annual'} disabled={busy !== null} onClick={() => setBillingPeriod('annual')} />
       </div>
+
+      <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
+        {PLAN_TIERS.map((tier) => (
+          <Card key={tier.key} style={{ flex: 1 }}>
+            <p style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>{tier.displayName}</p>
+            <p style={{ fontWeight: 700, fontSize: 20, marginBottom: 4 }}>
+              {formatUsd(getPlanPriceUsd(tier, billingPeriod))}
+              {billingPeriod === 'monthly' ? '/mo' : '/yr'}
+            </p>
+            <p style={{ fontSize: 12, color: COLORS.textSecondary, marginBottom: 12 }}>
+              Includes {formatUsd(getIncludedAllowanceUsd(tier, billingPeriod))}
+              {billingPeriod === 'monthly' ? '/mo' : '/yr'} of usage
+            </p>
+            <PrimaryButton disabled={busy !== null} onClick={() => startPlanCheckout(tier.key)}>
+              {busy === tier.key ? 'Redirecting…' : `Choose ${tier.displayName}`}
+            </PrimaryButton>
+          </Card>
+        ))}
+      </div>
+
+      <div style={{ borderTop: `1px solid ${COLORS.borderSubtle}`, paddingTop: 16, marginBottom: 8 }}>
+        <p style={{ fontSize: 13, fontWeight: 600, color: COLORS.textPrimary }}>Pay as you go</p>
+      </div>
+
+      <Card>
+        <p style={{ fontSize: 12, color: COLORS.textSecondary, marginBottom: 12 }}>One-time top-up via Stripe Checkout.</p>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          {TOPUP_PRESETS_USD.map((amount) => (
+            <SecondaryButton
+              key={amount}
+              disabled={busy !== null}
+              onClick={() => onPresetClick(amount)}
+              style={{
+                padding: '6px 14px',
+                fontSize: 12,
+                borderWidth: selectedPreset === amount ? 2 : 1,
+                borderColor: selectedPreset === amount ? COLORS.purple : COLORS.borderStrong,
+                opacity: busy !== null ? 0.4 : 1,
+                cursor: busy !== null ? 'not-allowed' : 'pointer',
+              }}
+            >
+              ${amount}
+            </SecondaryButton>
+          ))}
+        </div>
+        <label style={{ display: 'block', fontSize: 12, color: COLORS.textSecondary, marginBottom: 6 }}>Or enter a custom amount</label>
+        <div style={{ position: 'relative', marginBottom: showAmountError ? 6 : 12 }}>
+          <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: COLORS.textSecondary, fontSize: 13, pointerEvents: 'none' }}>$</span>
+          <input
+            type="number"
+            placeholder="e.g. 150"
+            value={topupAmount}
+            disabled={busy !== null}
+            onChange={(e) => onCustomAmountChange(e.target.value)}
+            style={{
+              width: '100%',
+              boxSizing: 'border-box',
+              padding: '10px 12px 10px 22px',
+              background: COLORS.raised,
+              border: `1px solid ${COLORS.borderStrong}`,
+              borderRadius: 8,
+              color: COLORS.textPrimary,
+              fontSize: 13,
+            }}
+          />
+        </div>
+        {showAmountError && <p style={{ fontSize: 12, color: COLORS.red, marginBottom: 12 }}>Enter an amount between $20 and $50,000.</p>}
+        <PrimaryButton disabled={busy !== null || !amountValid} onClick={startCheckout}>
+          {busy === 'topup' ? 'Redirecting…' : amountValid ? `Pay as you go — $${trimmedAmount}` : 'Pay as you go'}
+        </PrimaryButton>
+      </Card>
     </>
+  )
+}
+
+function BillingPeriodPill({
+  label,
+  active,
+  disabled,
+  onClick,
+}: {
+  label: string
+  active: boolean
+  disabled: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        padding: '6px 16px',
+        fontSize: 12,
+        fontWeight: 600,
+        background: active ? COLORS.purple : 'transparent',
+        color: active ? '#fff' : COLORS.textSecondary,
+        border: `1px solid ${active ? COLORS.purple : COLORS.borderStrong}`,
+        borderRadius: 999,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.4 : 1,
+      }}
+    >
+      {label}
+    </button>
   )
 }
 

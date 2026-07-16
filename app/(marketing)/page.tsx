@@ -550,7 +550,7 @@ function BottomCTA() {
           <p className="text-base md:text-xl text-[#94A3B8] mb-10">
             Are you?
           </p>
-          <Link href="/onboarding">
+          <Link href="/partner-signup">
             <Button size="lg" className="gap-2">
               Get started — 15 seconds to set up
               <ArrowRight size={20} />

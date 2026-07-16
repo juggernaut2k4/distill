@@ -1,5 +1,6 @@
 import Stripe from 'stripe'
 import { createSupabaseAdminClient } from '@/lib/supabase'
+import { getPlanTier, type PlanBillingPeriod, type PlanTierKey } from '@/lib/billing/plan-tiers'
 
 const isPlaceholder = !process.env.STRIPE_SECRET_KEY ||
   process.env.STRIPE_SECRET_KEY.startsWith('PLACEHOLDER_')
@@ -19,6 +20,9 @@ const stripeClient = isPlaceholder
  * @param customerId - Stripe customer ID
  * @returns Stripe customer portal URL
  */
+// Currently unused (no live caller) — sole caller app/api/portal/route.ts was removed under
+// B2B-14 (dead B2C dashboard cleanup); return_url below also pointed at the now-deleted
+// /dashboard/billing. Left in place pending a future cleanup pass, not this brief's scope.
 export async function createPortalSession(customerId: string): Promise<string> {
   if (isPlaceholder || !stripeClient) {
     console.log('[MOCK] createPortalSession', { customerId })
@@ -275,6 +279,93 @@ export async function createTestBlockCheckoutSession(
   })
 
   if (!session.url) throw new Error('Stripe did not return a checkout URL for the test-block session.')
+  return session.url
+}
+
+// ─── B2B-13 — Recurring Plan Tiers (docs/specs/B2B-13-requirement-document.md) ─
+
+/**
+ * Recurring Plan subscription checkout — Stripe Checkout, `mode:
+ * "subscription"`, referencing a real, pre-created Stripe Price (resolved
+ * from the tier's env var) rather than ad-hoc `price_data`. This is the
+ * first function in this file to do so — no `stripe.products.create` /
+ * `stripe.prices.create` call anywhere; Arun creates the real Products/
+ * Prices himself and sets the env vars (Requirement Doc Section 6.C/10).
+ *
+ * Sets metadata in two places:
+ *  - `subscription_data.metadata` — copied onto the created Subscription
+ *    object verbatim by Stripe, read by the `customer.subscription.updated`/
+ *    `.deleted` webhook cases to identify a Plan subscription.
+ *  - top-level Checkout Session `metadata` — read by the
+ *    `checkout.session.completed` webhook branch (added in v1.1 specifically
+ *    so that handler has data to write onto `partner_wallets` at checkout
+ *    time; `subscription_data.metadata` alone is never visible on the
+ *    Session, only on the Subscription).
+ *
+ * Guarded by two independent placeholder checks: the existing module-level
+ * `isPlaceholder` (missing/placeholder STRIPE_SECRET_KEY) and a new per-call
+ * check that the resolved Price ID env var is itself still `PLACEHOLDER_`-
+ * prefixed — Arun may set a real STRIPE_SECRET_KEY before creating the real
+ * Plan Products/Prices, and this function must still mock cleanly in that
+ * state. Either guard being true logs `[MOCK]` and returns a mock URL.
+ *
+ * @param partnerAccountId - partner_accounts.id (stored in both metadata locations)
+ * @param planTierKey - 'starter' | 'growth' (lib/billing/plan-tiers.ts PLAN_TIERS key)
+ * @param billingPeriod - 'monthly' | 'annual'
+ * @param successUrl - optional override for the post-checkout redirect
+ * @param cancelUrl - optional override for the cancel redirect
+ * @returns Stripe Checkout URL
+ */
+export async function createPlanSubscriptionCheckout(
+  partnerAccountId: string,
+  planTierKey: PlanTierKey,
+  billingPeriod: PlanBillingPeriod,
+  successUrl?: string,
+  cancelUrl?: string
+): Promise<string> {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
+  const resolvedSuccess = successUrl ?? `${appUrl}/dashboard/admin/clients?plan=success`
+  const resolvedCancel = cancelUrl ?? `${appUrl}/dashboard/admin/clients?plan=cancelled`
+
+  const tier = getPlanTier(planTierKey)
+  if (!tier) {
+    throw new Error(`createPlanSubscriptionCheckout: unrecognized plan_tier_key "${planTierKey}"`)
+  }
+
+  const priceIdEnvVarName = billingPeriod === 'annual' ? tier.stripePriceIdAnnualEnvVar : tier.stripePriceIdMonthlyEnvVar
+  const priceId = process.env[priceIdEnvVarName]
+  const priceIdIsPlaceholder = !priceId || priceId.startsWith('PLACEHOLDER_')
+
+  if (isPlaceholder || !stripeClient || priceIdIsPlaceholder) {
+    console.log('[MOCK] createPlanSubscriptionCheckout', { partnerAccountId, planTierKey, billingPeriod })
+    return `${appUrl}/dashboard?mock_plan_subscription=1&partner_account_id=${partnerAccountId}&plan_tier_key=${planTierKey}&plan_billing_period=${billingPeriod}`
+  }
+
+  const metadata = {
+    partner_account_id: partnerAccountId,
+    purpose: 'plan_subscription',
+    plan_tier_key: planTierKey,
+    plan_billing_period: billingPeriod,
+  }
+
+  const session = await stripeClient.checkout.sessions.create({
+    mode: 'subscription',
+    payment_method_types: ['card'],
+    line_items: [{ price: priceId, quantity: 1 }],
+    subscription_data: { metadata },
+    // (Added in v1.1, necessary consequence of the webhook correlation fix —
+    // see docs/specs/B2B-13-requirement-document.md Section 6.C.) Makes
+    // session.metadata readable inside checkout.session.completed, which
+    // subscription_data.metadata alone would not be.
+    metadata,
+    success_url: resolvedSuccess,
+    cancel_url: resolvedCancel,
+  })
+
+  if (!session.url) {
+    throw new Error('Stripe did not return a checkout URL for the plan subscription session.')
+  }
+
   return session.url
 }
 
