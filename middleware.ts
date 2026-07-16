@@ -8,6 +8,7 @@ const isPublicRoute = createRouteMatcher([
   '/onboarding(.*)',
   '/sign-in(.*)',
   '/sign-up(.*)',
+  '/partner-signup(.*)', // B2B-06: self-serve partner signup wrapper (Clerk <SignUp/> + <CreateOrganization/>)
   '/plan(.*)',
   '/checkout(.*)',
   '/topics(.*)',

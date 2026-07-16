@@ -1529,3 +1529,2023 @@ otherwise byte-identical — no business logic, validation, or API call inside a
 changes.
 
 ---
+
+## 15. B2B-08 — Testing / Metering (new)
+
+Version: 1.0 | Produced by: Business Analyst Agent, as part of B2B-08
+Source Feature Brief: `.claude/agents/clio/feature-briefs/B2B-08-testing-metering.md`
+Requirement Document: `docs/specs/B2B-08-requirement-document.md`
+Migration: `supabase/migrations/077_b2b08_testing_metering.sql`
+
+Extends Section 13 (B2B-04 billing/metering) additively — no `partner_wallets`/`usage_events`/
+`wallet_ledger` column, RPC, or route built there is modified or narrowed. Rationale for every
+decision below lives in the Requirement Document; this section is the exact schema/RPC/route/job
+detail a developer implements against.
+
+**Correction to the CEO brief's own pseudocode, made explicit here (BA authority, technical
+naming fix, not a product-shape change):** the brief's Real-Time Cutoff mechanism names
+`provider.leaveBot(providerBotId)`. The actual vendor-agnostic interface
+(`lib/meeting-bot/types.ts`) exposes `deleteBot(botId): Promise<void>` — `attendeeProvider.deleteBot()`
+(`lib/meeting-bot/attendee.ts:30-46`) is the function that already calls Attendee's
+`POST /bots/{botId}/leave` endpoint. Every reference below uses `getMeetingBotProvider().deleteBot()`,
+the real exported method; the brief's `leaveBot` was descriptive shorthand for "call the provider's
+leave/remove call," not a literal API name — the underlying behavior (call the existing vendor-agnostic
+leave call, unmodified, no new vendor call added) is exactly what the brief specified.
+
+### 15.1 Schema — additive only
+
+See `supabase/migrations/077_b2b08_testing_metering.sql` for the exact, applied DDL (not yet run — the
+Orchestrator applies it after CEO re-approval of this document). Summary:
+
+- `partner_wallets.trial_minutes_used NUMERIC(10,2) NOT NULL DEFAULT 0` (`CHECK >= 0`) — lifetime free-
+  trial minutes consumed. The 20.00 ceiling is enforced by `consume_trial_and_test_minutes()` (RPC
+  layer), deliberately not a DB `CHECK` against the literal figure, so a future change to the allowance
+  size needs no schema migration.
+- `partner_wallets.test_minutes_balance NUMERIC(10,2) NOT NULL DEFAULT 0` (`CHECK >= 0`) — purchased
+  test-block minutes remaining, structurally separate from `balance_usd`.
+- `usage_events.is_metered_test_usage BOOLEAN NOT NULL DEFAULT FALSE` — Clio-internal-only cost-
+  visibility signal, orthogonal to `test_mode` (unchanged meaning). Never read by any partner-facing
+  response; never consulted by `applyWalletDecrement()`'s existing `test_mode` skip.
+- `partner_sessions.end_reason TEXT` (`CHECK (end_reason IS NULL OR end_reason IN
+  ('trial_limit_reached', 'trial_exhausted'))`) — `NULL` for an ordinary session end (unchanged
+  default), `'trial_limit_reached'` for a mid-session forced cutoff (lands on the existing `'completed'`
+  status), `'trial_exhausted'` for a pre-dispatch rejection (lands on the existing `'failed'` status). No
+  new `partner_sessions.status` enum value is added.
+- `wallet_ledger.entry_type` `CHECK` gains `'test_block_purchase'` (constraint dropped and recreated —
+  see migration comment for the exact default-constraint-name assumption).
+- `wallet_ledger.resulting_test_minutes_balance NUMERIC(10,2)` — nullable, set only for
+  `test_block_purchase` rows.
+- Two new RPCs: `credit_test_minutes_balance(p_partner_account_id, p_minutes) RETURNS NUMERIC` and
+  `consume_trial_and_test_minutes(p_partner_account_id, p_minutes) RETURNS TABLE(trial_minutes_used
+  NUMERIC, test_minutes_balance NUMERIC)` — exact bodies in the migration file, mirroring
+  `credit_wallet_balance`/`decrement_wallet_balance`'s atomic lazy-create pattern.
+
+`consume_trial_and_test_minutes` is **not** wallet-ledger-logged — `wallet_ledger`'s existing discipline
+covers `balance_usd` credits/debits plus this brief's one addition (`test_block_purchase`, a real-money
+credit event); trial/test-minute *consumption* has no `balance_usd` analog and is tracked entirely via
+`partner_wallets.trial_minutes_used`/`.test_minutes_balance` plus `usage_events.is_metered_test_usage`
+rows — the same non-ledgered treatment `usage_events.billed = false` rows already get for unrated event
+types (Section 13.3).
+
+### 15.2 API Route Map (additive to Section 13.2)
+
+| Method | Route | Auth | Purpose |
+|---|---|---|---|
+| POST | `/api/admin/billing/test-block` | Clerk, `requirePartnerAdmin` | Purchases one 120-minute test block — Stripe Checkout, `mode: "payment"`, fixed $1.80 line item, `setup_future_usage: "off_session"`. |
+| POST | `/api/partner/v1/sessions` | Partner API key (unchanged auth) | **Gate logic added**, test-mode branch only — see 15.4. Route/auth/response shape otherwise unchanged from Section 4. |
+
+No new partner-facing `GET` route. `GET /api/partner/v1/wallet` (Section 13.2) is **not** extended with
+`trial_minutes_used`/`test_minutes_balance` fields — see Requirement Document Section 4 for the BA
+judgment call resolving this (no UI or API surface for viewing trial/test-block state in this document;
+the only partner-visible signal is the `402 trial_exhausted` error itself).
+
+### 15.3 `lib/stripe.ts` — one new function, same `isPlaceholder`-guarded pattern
+
+```ts
+export async function createTestBlockCheckoutSession(
+  partnerAccountId: string,
+  successUrl?: string,
+  cancelUrl?: string
+): Promise<string> {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
+  const resolvedSuccess = successUrl ?? `${appUrl}/dashboard/admin/clients?test_block=success`
+  const resolvedCancel = cancelUrl ?? `${appUrl}/dashboard/admin/clients?test_block=cancelled`
+
+  if (isPlaceholder || !stripeClient) {
+    console.log('[MOCK] createTestBlockCheckoutSession', { partnerAccountId })
+    return `${appUrl}/dashboard?mock_test_block=1&partner_account_id=${partnerAccountId}`
+  }
+
+  const session = await stripeClient.checkout.sessions.create({
+    mode: 'payment',
+    payment_method_types: ['card'],
+    customer_creation: 'always',
+    payment_intent_data: { setup_future_usage: 'off_session' },
+    line_items: [{
+      price_data: {
+        currency: 'usd',
+        product_data: { name: 'Clio 2-hour test block (120 minutes)' },
+        unit_amount: 180, // $1.80 fixed — 120 min x $0.0150/min seeded voice_minute platform-default
+                           // rate (billing_rate_versions, rate_basis='cogs_placeholder_2026_05_no_margin'),
+                           // zero margin. No Stripe Price object — quantity/price are both fixed, not
+                           // partner-supplied, so an ad-hoc line item is used exactly as
+                           // createWalletTopupCheckoutSession already does.
+      },
+      quantity: 1,
+    }],
+    metadata: { partner_account_id: partnerAccountId, purpose: 'test_block_purchase' },
+    success_url: resolvedSuccess,
+    cancel_url: resolvedCancel,
+  })
+
+  if (!session.url) throw new Error('Stripe did not return a checkout URL for the test-block session.')
+  return session.url
+}
+```
+
+`setup_future_usage: 'off_session'` is the one deliberate difference from `createWalletTopupCheckoutSession`
+— it instructs Stripe to save the payment method for reuse (Requirement Document, Interaction with
+B2B-06). `customer_creation: 'always'` (reused, unchanged) guarantees a `session.customer` is always
+present for the webhook handler to persist.
+
+### 15.4 `app/api/partner/v1/sessions/route.ts` — Gate logic (inserted between the existing
+`partner_sessions` insert and the existing `dispatchMeetingBot()` call)
+
+```ts
+import { inngest } from '@/inngest/client'
+// ...existing imports unchanged...
+
+// after the existing `const clioSessionRef = inserted.id as string` / renderUrl construction,
+// BEFORE the existing `const dispatchResult = await dispatchMeetingBot(...)` call:
+
+if (auth.mode === 'test') {
+  const { data: wallet } = await supabase
+    .from('partner_wallets')
+    .select('trial_minutes_used, test_minutes_balance')
+    .eq('partner_account_id', auth.partnerAccountId)
+    .maybeSingle()
+
+  const trialMinutesUsed = wallet ? Number(wallet.trial_minutes_used) : 0
+  const testMinutesBalance = wallet ? Number(wallet.test_minutes_balance) : 0
+  const availableMinutes = Math.max(0, 20 - trialMinutesUsed) + testMinutesBalance
+
+  if (availableMinutes <= 0) {
+    await supabase
+      .from('partner_sessions')
+      .update({ status: 'failed', end_reason: 'trial_exhausted' })
+      .eq('id', clioSessionRef)
+
+    return NextResponse.json(
+      { error: { code: 'trial_exhausted', message: 'Free testing allowance used. Purchase a 2-hour test block to continue.' } },
+      { status: 402 }
+    )
+  }
+
+  const dispatchResult = await dispatchMeetingBot({ clioSessionRef, meetingUrl: meeting_url, renderUrl })
+
+  if (dispatchResult.status === 'bot_active' && dispatchResult.botId) {
+    inngest.send({
+      name: 'clio/partner-trial.started',
+      data: { clioSessionRef, partnerAccountId: auth.partnerAccountId, providerBotId: dispatchResult.botId, availableMinutes },
+    }).catch((err) => console.error('[partner/sessions] clio/partner-trial.started emit failed:', err))
+  }
+
+  return NextResponse.json(
+    { clio_session_ref: clioSessionRef, status: dispatchResult.status, render_url: renderUrl, ...(dispatchResult.error ? { error: dispatchResult.error } : {}) },
+    { status: 201 }
+  )
+}
+
+// auth.mode === 'live' falls through to the existing, unmodified code below —
+// entirely B2B-06's scope, not touched by this document.
+const dispatchResult = await dispatchMeetingBot({ clioSessionRef, meetingUrl: meeting_url, renderUrl })
+// ...existing response construction, unchanged...
+```
+
+`DispatchBotResult` (`lib/partner/session-init.ts`) gains one additive optional field so the route can
+fire the Inngest event without an extra DB read (the `botId` is already in scope right where
+`dispatchMeetingBot()` calls `provider.createBot()`):
+
+```ts
+export interface DispatchBotResult {
+  status: 'bot_active' | 'bot_dispatch_failed'
+  error?: string
+  botId?: string   // NEW — B2B-08, only set on 'bot_active'
+}
+// inside the try block, on success: return { status: 'bot_active', botId }
+```
+
+### 15.5 `inngest/partner-trial-cutoff.ts` — new job, modeled on `inngest/session-timer.ts`
+
+```ts
+import { inngest } from './client'
+import { createSupabaseAdminClient } from '@/lib/supabase'
+import { getMeetingBotProvider } from '@/lib/meeting-bot/provider'
+import { recordBillableEvent } from '@/lib/partner/webhooks'
+
+/**
+ * B2B-08 — server-side timer that force-ends a test-mode partner session at
+ * its available-minutes boundary, regardless of client state. Scoped to
+ * partner_sessions (not the legacy `sessions` table session-timer.ts covers).
+ * Deliberately no graceful pre-cutoff nudge (unlike session-timer.ts's
+ * two-phase warning) — the meeting belongs to the partner, not to Clio;
+ * there is nothing for Clio to gracefully wrap up. A clean bot-leave at the
+ * boundary is correct and sufficient. See Requirement Document for the full
+ * reasoning — this is a considered deviation from the session-timer.ts
+ * precedent, not an oversight.
+ */
+export const partnerTrialCutoffJob = inngest.createFunction(
+  {
+    id: 'partner-trial-cutoff',
+    name: 'Partner Trial Cutoff',
+    triggers: [{ event: 'clio/partner-trial.started' }],
+    cancelOn: [{ event: 'clio/partner-trial.ended', match: 'data.clioSessionRef' }],
+    concurrency: { key: 'event.data.clioSessionRef', limit: 1 },
+    retries: 1,
+  },
+  async ({ event, step }: {
+    event: { data: { clioSessionRef: string; partnerAccountId: string; providerBotId: string; availableMinutes: number } }
+    step: { sleep: (id: string, duration: string) => Promise<void>; run: <T>(id: string, fn: () => Promise<T>) => Promise<T> }
+  }) => {
+    const { clioSessionRef, partnerAccountId, providerBotId, availableMinutes } = event.data
+
+    await step.sleep('wait-for-available-minutes', `${availableMinutes}m`)
+
+    const alreadyEnded = await step.run('check-session-status', async () => {
+      const supabase = createSupabaseAdminClient()
+      const { data } = await supabase.from('partner_sessions').select('status').eq('id', clioSessionRef).maybeSingle()
+      return data?.status === 'completed' || data?.status === 'failed'
+    })
+    // Race-safe no-op — cancelOn should already have caught a normal end; this is a second guard,
+    // mirroring session-timer.ts's own "already ended — skipping" checks.
+    if (alreadyEnded) return
+
+    await step.run('leave-bot', async () => {
+      try {
+        await getMeetingBotProvider().deleteBot(providerBotId)
+      } catch (err) {
+        console.error('[partner-trial-cutoff] deleteBot failed (non-fatal — session is still force-ended below):', err)
+      }
+    })
+
+    await step.run('consume-minutes', async () => {
+      const supabase = createSupabaseAdminClient()
+      const { error } = await supabase.rpc('consume_trial_and_test_minutes', {
+        p_partner_account_id: partnerAccountId,
+        p_minutes: availableMinutes, // the session ran its full allowance, not a re-measured duration
+      })
+      if (error) console.error('[partner-trial-cutoff] consume_trial_and_test_minutes RPC failed:', error.message)
+    })
+
+    await step.run('mark-session-completed', async () => {
+      const supabase = createSupabaseAdminClient()
+      await supabase
+        .from('partner_sessions')
+        .update({ status: 'completed', ended_at: new Date().toISOString(), end_reason: 'trial_limit_reached' })
+        .eq('id', clioSessionRef)
+    })
+
+    await step.run('record-billable-events', async () => {
+      // Mirrors handleSessionEnd()'s own two-call pattern (usage.voice_minute + session.completed)
+      // so a partner's outbound webhook integration learns a forcibly-cutoff test session ended,
+      // exactly as it would for a normal end — omitting session.completed here would be the one
+      // observable inconsistency between the two end paths.
+      await recordBillableEvent({
+        partnerAccountId, eventType: 'usage.voice_minute', clioSessionRef,
+        quantity: availableMinutes, unit: 'minutes', testMode: true, isMeteredTestUsage: true,
+      })
+      await recordBillableEvent({
+        partnerAccountId, eventType: 'session.completed', clioSessionRef, testMode: true,
+      })
+    })
+  },
+)
+```
+
+Registration: `app/api/inngest/route.ts` gains `import { partnerTrialCutoffJob } from '@/inngest/partner-trial-cutoff'` and adds `partnerTrialCutoffJob` to the `functions: [...]` array — the same one-line addition every prior new job in that file has required.
+
+**Accepted residual risk, named explicitly (not silently glossed over, not escalated to Section 11 —
+a technical risk-acceptance decision, precedented by the identical shape already accepted for
+`session-timer.ts`):** if the `clio/partner-trial.started` event itself fails to send (the `.catch()`
+above is non-blocking, matching this codebase's existing fire-and-forget event-emission convention), or
+the job's function throws and exhausts Inngest's single configured retry, there is no secondary
+backstop equivalent to `voice-gap-watchdog.ts` for this specific job — the session would, in that
+failure mode, run without an enforced minute-based cutoff, bounded only by the meeting's own natural
+end or the partner's client eventually calling `POST /api/partner/render/end-session`. This mirrors the
+exact residual-risk shape `session-timer.ts` itself already carries for the legacy session flow (its own
+Inngest send-failure or exhausted-retry case is not further backstopped by `voice-gap-watchdog.ts`
+either — that mechanism detects Hume silence, a different failure signature, not "Inngest job never
+ran"). Building a redundant secondary watchdog for this specific job is not named in the CEO brief's
+Approval Note (exactly one new Inngest job is approved) and is called out here as a follow-on
+hardening item, not built as unapproved scope in this document.
+
+### 15.6 `lib/partner/live-render.ts` — `handleSessionEnd()`, extended
+
+**In-scope adjacent fix, not a new feature (mirrors the B2B-04 precedent of fixing an adjacent gap
+found while touching the same code path):** `handleSessionEnd()` today never reads `partner_sessions.
+test_mode` and never passes a `testMode` argument to either of its `recordBillableEvent()` calls —
+every session-end billable event currently defaults to `testMode: false` regardless of the session's
+actual mode, meaning `applyWalletDecrement()`'s `test_mode` skip (Section 13.3) has never actually been
+reachable from this call site. This document is already modifying `handleSessionEnd()` to add the
+trial/test-block consumption call this brief requires — leaving the pre-existing `testMode` gap unfixed
+while simultaneously adding `is_metered_test_usage` logic that depends on knowing whether a session is
+test-mode would be incoherent, so it is fixed here as part of this same, already-in-scope edit.
+
+`getPartnerSession()` (same file) gains `test_mode` to its existing `select(...)` and `PartnerSessionRow`
+gains a `testMode: boolean` field; `POST /api/partner/render/end-session`
+(`app/api/partner/render/end-session/route.ts`) passes `session.testMode` through as
+`handleSessionEnd()`'s new fourth argument — no other change to that route.
+
+```ts
+export async function handleSessionEnd(
+  clioSessionRef: string,
+  partnerAccountId: string,
+  durationMinutes: number,
+  testMode: boolean,   // NEW — B2B-08, threaded from getPartnerSession()'s now-selected test_mode
+): Promise<void> {
+  const supabase = createSupabaseAdminClient()
+  await supabase
+    .from('partner_sessions')
+    .update({ status: 'completed', ended_at: new Date().toISOString() })
+    .eq('id', clioSessionRef)
+
+  // B2B-08 — cancel the trial-cutoff job so a normally-ended test session never triggers a
+  // redundant forced cutoff. Mirrors session-timer.ts's own cancelOn pattern. Fire-and-forget.
+  if (testMode) {
+    inngest.send({ name: 'clio/partner-trial.ended', data: { clioSessionRef } })
+      .catch((err) => console.error('[live-render] clio/partner-trial.ended emit failed:', err))
+  }
+
+  if (durationMinutes > 0) {
+    await recordBillableEvent({
+      partnerAccountId, eventType: 'usage.voice_minute', clioSessionRef,
+      quantity: durationMinutes, unit: 'minutes',
+      testMode,                          // FIX — previously always omitted/false
+      isMeteredTestUsage: testMode,      // NEW — every test-mode dispatch is now gated by this
+                                          // mechanism (Gate Logic, 15.4), so there is no remaining
+                                          // "ordinary, unmetered" test-mode usage path to distinguish.
+    })
+
+    if (testMode) {
+      // Consumes the ACTUAL duration used (not availableMinutes — that figure is only for the
+      // forced-cutoff path, where the session ran its full allowance). Non-fatal on failure, same
+      // discipline recordBillableEvent()'s own wallet-decrement call already uses.
+      try {
+        await supabase.rpc('consume_trial_and_test_minutes', {
+          p_partner_account_id: partnerAccountId,
+          p_minutes: durationMinutes,
+        })
+      } catch (err) {
+        console.error('[live-render] consume_trial_and_test_minutes failed (non-fatal):', err)
+      }
+    }
+  }
+
+  await recordBillableEvent({ partnerAccountId, eventType: 'session.completed', clioSessionRef, testMode })
+}
+```
+
+### 15.7 `lib/partner/webhooks.ts` — `recordBillableEvent()`, one new optional param
+
+`RecordBillableEventParams` gains `isMeteredTestUsage?: boolean`, threaded onto the `usage_events`
+insert (`is_metered_test_usage: params.isMeteredTestUsage ?? false`) alongside the existing `test_mode:
+params.testMode ?? false` field — same insert call, one additive field, no other change to
+`recordBillableEvent()`'s logic, idempotency handling, or `applyWalletDecrement()` call.
+
+### 15.8 `app/api/webhooks/stripe/route.ts` — one new `purpose` branch
+
+Inside the existing `case 'checkout.session.completed':` block, alongside the existing `if
+(session.metadata?.purpose === 'wallet_topup')` branch (Section 13.4):
+
+```ts
+if (session.metadata?.purpose === 'test_block_purchase') {
+  const partnerAccountId = session.metadata?.partner_account_id
+  if (!partnerAccountId) {
+    console.warn('[stripe-webhook] test_block_purchase checkout.session.completed missing partner_account_id:', session.id)
+    break
+  }
+
+  if (await walletLedgerAlreadyRecorded(supabase, session.id, 'test_block_purchase')) break
+
+  const { data: newTestMinutesBalance, error: rpcError } = await supabase.rpc('credit_test_minutes_balance', {
+    p_partner_account_id: partnerAccountId,
+    p_minutes: 120,
+  })
+  if (rpcError) {
+    console.error('[stripe-webhook] credit_test_minutes_balance RPC failed:', rpcError.message)
+    break
+  }
+
+  // resulting_balance_usd is still required/populated on every wallet_ledger row — this row type
+  // never moves balance_usd, so the account's CURRENT, unchanged value is cited, preserving the
+  // ledger's "never independently recompute a balance" discipline for both balance columns on
+  // every row type (Requirement Document, Purchase Mechanism).
+  const { data: walletRow } = await supabase
+    .from('partner_wallets')
+    .select('balance_usd')
+    .eq('partner_account_id', partnerAccountId)
+    .maybeSingle()
+  const currentBalanceUsd = walletRow ? Number(walletRow.balance_usd) : 0
+
+  await supabase.from('wallet_ledger').insert({
+    partner_account_id: partnerAccountId,
+    entry_type: 'test_block_purchase',
+    delta_usd: 1.80,
+    resulting_balance_usd: currentBalanceUsd,
+    resulting_test_minutes_balance: newTestMinutesBalance,
+    stripe_object_id: session.id,
+  })
+
+  // Same payment-method extraction the wallet_topup branch performs, minimally — sets
+  // stripe_customer_id only. Card brand/last4/type sync happens via the existing, UNMODIFIED
+  // customer.updated / payment_method.attached handlers below, which already key off
+  // stripe_customer_id across every partner_wallets row regardless of which funding path attached
+  // it — no new code needed for that part.
+  if (typeof session.customer === 'string') {
+    await supabase
+      .from('partner_wallets')
+      .update({ stripe_customer_id: session.customer })
+      .eq('partner_account_id', partnerAccountId)
+  }
+
+  console.log(`[stripe-webhook] B2B-08 test block purchase: +120 min for partner ${partnerAccountId}, new test_minutes_balance: ${newTestMinutesBalance}`)
+
+  break
+}
+```
+
+`walletLedgerAlreadyRecorded()`'s `entryType` parameter type widens additively:
+`'topup_checkout' | 'topup_subscription_recharge' | 'topup_invoice' | 'test_block_purchase'` — no
+change to the function's body, which already operates generically on `(stripeObjectId, entryType)`.
+
+Tier/`funding_mechanism` are deliberately **not** touched by this branch — buying a test block does not
+imply a commercial tier change; `tier` remains whatever it already was (mirrors the B2B-04 precedent of
+a mid-market subscription cancellation not auto-reverting `tier`, Requirement Doc Section 9).
+
+---
+
+## 16. B2B-09 — Session Delivery Extraction Fix + Internal Glitch Dashboard (new)
+
+Version: 1.1 | Produced by: Business Analyst Agent, as part of B2B-09
+Companion to `docs/specs/B2B-09-requirement-document.md`. Migration:
+`supabase/migrations/078_b2b09_session_delivery_glitch_dashboard.sql` (next free number after
+B2B-08's `077`, verified no overlap — see Requirement Doc Section 12).
+v1.1 note: §16.4 and §16.7 corrected — a CEO-review gap closed. `recordInsightsReadyEvent()` hardcoded
+`test_mode: false` in the outbound reference payload, and its caller (`extractInsightsForPartnerSession()`)
+never fetched or threaded through the real value, so every `session.insights_ready` webhook for a
+test-mode partner session reported `test_mode: false` regardless of the session's actual mode — the same
+bug class B2B-08 (§15.6) fixed at a different call site (`handleSessionEnd()`'s `recordBillableEvent()`
+calls). `test_mode` now flows from `partner_sessions` through both call sites of
+`recordInsightsReadyEvent()` — the success path in `extractInsightsForPartnerSession()` and the failure
+path in `markInsightsExtractionFailed()` — into the reference payload. See the Requirement Document's
+v1.1 changelog for the full correction and rationale.
+
+### 16.1 Schema — additive only
+
+```sql
+-- 1. The missing link: partner_sessions never had a way to be resolved from a Hume chat_id.
+ALTER TABLE partner_sessions ADD COLUMN IF NOT EXISTS hume_chat_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_partner_sessions_hume_chat_id
+  ON partner_sessions(hume_chat_id) WHERE hume_chat_id IS NOT NULL;
+
+-- 2. New table, parallel in SHAPE to session_action_items (migration 073), not a reuse of it —
+-- session_action_items is hard-FK'd to sessions(id) and this document's own Feature Brief explicitly
+-- forbids forcing partner_sessions through that FK. Requirement Doc Section 6.
+CREATE TABLE IF NOT EXISTS partner_session_insights (
+  id                    UUID        DEFAULT uuid_generate_v4() PRIMARY KEY,
+  partner_session_id    UUID        NOT NULL REFERENCES partner_sessions(id) ON DELETE CASCADE,
+  partner_account_id    UUID        NOT NULL REFERENCES partner_accounts(id) ON DELETE CASCADE,
+  hume_chat_id          TEXT,
+
+  extraction_status     TEXT        NOT NULL DEFAULT 'pending'
+                           CHECK (extraction_status IN ('pending', 'success', 'success_empty', 'failed')),
+
+  -- Full detail while within the 30-day retention window; NULL after purge (action_items,
+  -- psychology_keywords) or reduced-to-type-only (glitches) — see 16.4.
+  action_items          JSONB       DEFAULT NULL,   -- [{ text: string }]
+  glitches              JSONB       DEFAULT NULL,   -- [{ type, description }] pre-purge; [{ type }] post-purge
+  psychology_keywords   JSONB       DEFAULT NULL,   -- string[] — keywords only, never full sentences
+
+  transcript_event_count INTEGER    DEFAULT NULL,
+  attempt_count          INTEGER    NOT NULL DEFAULT 0,
+  error_message           TEXT       DEFAULT NULL,
+  extracted_at             TIMESTAMPTZ DEFAULT NULL,   -- set only on a terminal success/success_empty write
+  full_detail_purged_at    TIMESTAMPTZ DEFAULT NULL,   -- set by the daily purge job (16.4); NULL = not yet purged
+
+  created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (partner_session_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_partner_session_insights_session ON partner_session_insights(partner_session_id);
+CREATE INDEX IF NOT EXISTS idx_partner_session_insights_account_time
+  ON partner_session_insights(partner_account_id, extracted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_partner_session_insights_status ON partner_session_insights(extraction_status)
+  WHERE extraction_status IN ('pending', 'failed');
+-- Purge job's own eligibility scan (16.4).
+CREATE INDEX IF NOT EXISTS idx_partner_session_insights_purge_eligibility
+  ON partner_session_insights(extracted_at) WHERE full_detail_purged_at IS NULL AND extracted_at IS NOT NULL;
+
+ALTER TABLE partner_session_insights ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Service role full access on partner_session_insights"
+  ON partner_session_insights FOR ALL
+  USING (auth.role() = 'service_role');
+
+COMMENT ON TABLE partner_session_insights IS
+  'B2B-09: per-partner-session extraction result. action_items/glitches/psychology_keywords hold full
+   detail for 30 days after extracted_at, then the daily purge job (16.4) reduces them to type-only
+   (glitches) or NULL (action_items, psychology_keywords) permanently. Never the same table as the
+   legacy session_action_items (migration 073) — see Requirement Doc Section 6 for why.';
+
+-- 3. Widen webhook_dispatch_log.event_type to add BOTH this document's new event type AND B2B-04's
+-- still-open 'wallet.low_balance' gap (lib/partner/webhooks.ts's checkLowBalanceAndAlert() has carried
+-- a KNOWN GAP comment since B2B-04 shipped; migration 075 never widened this constraint). One migration
+-- closes both rather than shipping a second near-identical one — Requirement Doc Section 6.
+ALTER TABLE webhook_dispatch_log DROP CONSTRAINT IF EXISTS webhook_dispatch_log_event_type_check;
+ALTER TABLE webhook_dispatch_log ADD CONSTRAINT webhook_dispatch_log_event_type_check
+  CHECK (event_type IN (
+    'usage.voice_minute',
+    'usage.llm_generation_call',
+    'session.completed',
+    'wallet.low_balance',
+    'session.insights_ready'
+  ));
+```
+
+### 16.2 API Route Map (additive)
+
+| Route | Method | Auth | Notes |
+|---|---|---|---|
+| `/api/partner/render/session-chat-id` | POST | None (opaque `clio_session_ref` only) | Mirrors `/api/hume-native/session-chat-id` exactly (16.5) |
+| `/api/admin/glitches/summary` | GET | Clerk (any signed-in user, matches `/api/admin/billing/clients`'s boundary) | Backs Panel 1 (16.7) |
+| `/api/admin/glitches` | GET | Clerk, same boundary | Backs Panel 2, `?partner_account_id=`/`?type=` filters (16.7) |
+| `/dashboard/admin/glitches` | GET (page) | Clerk | `currentUser()` gate, `<DashboardShell>`, `GlitchDashboardClient` |
+
+### 16.3 `app/api/partner/render/session-chat-id/route.ts` — new, mirrors the existing pattern exactly
+
+```ts
+import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
+import { createSupabaseAdminClient } from '@/lib/supabase'
+
+const CaptureSchema = z.object({
+  clio_session_ref: z.string().uuid(),
+  hume_chat_id: z.string().min(1),
+})
+
+export async function POST(request: NextRequest) {
+  const body = await request.json().catch(() => null)
+  const parsed = CaptureSchema.safeParse(body)
+  if (!parsed.success) {
+    return NextResponse.json({ ok: false }, { status: 200 }) // best-effort — never blocks connect flow
+  }
+
+  const supabase = createSupabaseAdminClient()
+  const { error } = await supabase
+    .from('partner_sessions')
+    .update({ hume_chat_id: parsed.data.hume_chat_id })
+    .eq('id', parsed.data.clio_session_ref)
+
+  if (error) {
+    console.warn('[partner/render/session-chat-id] Failed to persist hume_chat_id:', error.message)
+    return NextResponse.json({ ok: false })
+  }
+
+  return NextResponse.json({ ok: true })
+}
+```
+
+`PartnerRenderClient.tsx`'s `onConnect` handler changes from `onConnect: () => setStatus('listening')` to:
+
+```ts
+onConnect: (sessionId) => {
+  setStatus('listening')
+  if (sessionId) {
+    fetch('/api/partner/render/session-chat-id', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clio_session_ref: clioSessionRef, hume_chat_id: sessionId }),
+    }).catch((err) => console.warn('[partner-render] Failed to persist hume_chat_id:', err))
+  }
+},
+```
+
+### 16.4 `inngest/partner-session-insights-extractor.ts` — new file: extraction fast path, backstop, purge
+
+```ts
+import Anthropic from '@anthropic-ai/sdk'
+import { z } from 'zod'
+import { inngest } from './client'
+import { createSupabaseAdminClient } from '@/lib/supabase'
+import { fetchAllTranscriptEvents } from '@/lib/voice/hume-native/session-details' // newly exported, 16.6
+import { formatTranscriptLines } from './hume-action-item-extractor' // verbatim reuse, unmodified import
+import { recordInsightsReadyEvent } from '@/lib/partner/webhooks'
+
+// ─── NEW prompt/schema pair — deliberately NOT EXTRACTION_SYSTEM_PROMPT/ExtractionSchema from
+// hume-action-item-extractor.ts. Requirement Doc Section 6 / Section 11 judgment call 1: editing that
+// shared constant would change the live Anthropic call for every existing sessions-table session too.
+
+const PartnerActionItemSchema = z.object({ text: z.string() })
+const PartnerGlitchSchema = z.object({
+  type: z.enum(['misunderstanding', 'repetition', 'confusion_about_clio', 'derailment', 'other']),
+  description: z.string(),
+})
+export const PartnerInsightsExtractionSchema = z.object({
+  action_items: z.array(PartnerActionItemSchema),
+  glitches: z.array(PartnerGlitchSchema),
+  psychology_keywords: z.array(z.string()),
+})
+type PartnerInsightsPayload = z.infer<typeof PartnerInsightsExtractionSchema>
+
+const MODEL = 'claude-sonnet-4-6'
+const isPlaceholder = !process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY.startsWith('PLACEHOLDER')
+const anthropic = isPlaceholder ? null : new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+
+const PARTNER_INSIGHTS_SYSTEM_PROMPT = `You are reviewing a transcript of a 1:1 AI-guided conversation between an AI assistant and a user. Extract three things:
+1. **Action items** — concrete next steps the User committed to, or that the assistant explicitly recommended and the User acknowledged. Do not invent items the transcript does not support.
+2. **Glitches** — moments where the conversation broke down: the assistant misunderstood or mis-heard the User, the assistant repeated itself unnecessarily, the User expressed confusion specifically about the assistant (not about the subject matter), or the conversation was derailed by an off-topic interruption. Do not flag ordinary comprehension checkpoints.
+3. **Psychology keywords** — short keyword/phrase signals (1-4 words each, lowercase, hyphenated if multi-word) capturing the User's inferred psychological state or communication pattern, based on HOW they asked/responded (tone, hesitation, confidence, urgency, frustration, curiosity) — never WHAT subject matter they discussed. Examples: "hesitant", "time-pressured", "skeptical-of-ai", "highly-engaged". Never a full sentence, never a verbatim quote.
+
+Respond with ONLY a JSON object matching this exact shape, no prose outside the JSON:
+{"action_items": [{"text": string}], "glitches": [{"type": "misunderstanding" | "repetition" | "confusion_about_clio" | "derailment" | "other", "description": string}], "psychology_keywords": [string]}
+
+Empty arrays are valid, expected results when nothing of that kind is present — never fabricate content to avoid an empty array.`
+
+async function callClaudeForPartnerInsightsExtraction(
+  transcriptText: string
+): Promise<{ data: PartnerInsightsPayload; isMock: boolean }> {
+  if (isPlaceholder || !anthropic) {
+    console.log('[MOCK partner-session-insights-extractor] ANTHROPIC_API_KEY is a placeholder — returning mock extraction')
+    return {
+      isMock: true,
+      data: {
+        action_items: [{ text: '[MOCK] Review the AI vendor shortlist discussed in this session before the next call.' }],
+        glitches: [{ type: 'other', description: '[MOCK] Placeholder glitch — ANTHROPIC_API_KEY is not configured.' }],
+        psychology_keywords: ['[mock]-placeholder-keyword'],
+      },
+    }
+  }
+
+  const response = await anthropic.messages.create({
+    model: MODEL,
+    max_tokens: 1500,
+    system: PARTNER_INSIGHTS_SYSTEM_PROMPT,
+    messages: [{ role: 'user', content: transcriptText }],
+  })
+
+  const rawText = response.content[0].type === 'text' ? response.content[0].text : '{}'
+  const cleaned = rawText.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim()
+  const parsedJson: unknown = JSON.parse(cleaned) // throws -> Inngest retries the step
+  const validated = PartnerInsightsExtractionSchema.safeParse(parsedJson)
+  if (!validated.success) {
+    throw new Error(`Partner insights extraction response failed schema validation: ${validated.error.message}`)
+  }
+  return { isMock: false, data: validated.data }
+}
+
+// ─── Idempotency guard — structurally identical to runIdempotencyGuard() in
+// hume-action-item-extractor.ts, against partner_session_insights instead of session_action_items.
+
+type GuardOutcome = { shortCircuit: true; status: 'already_terminal' } | { shortCircuit: false }
+
+async function runInsightsIdempotencyGuard(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  partnerSessionId: string,
+  partnerAccountId: string,
+  humeChatId: string | null
+): Promise<GuardOutcome> {
+  const { data: existing } = await supabase
+    .from('partner_session_insights')
+    .select('extraction_status, attempt_count')
+    .eq('partner_session_id', partnerSessionId)
+    .maybeSingle()
+
+  if (existing) {
+    const status = existing.extraction_status as string
+    if (status === 'success' || status === 'success_empty') return { shortCircuit: true, status: 'already_terminal' }
+    if (status === 'failed' && (existing.attempt_count ?? 0) >= 3) return { shortCircuit: true, status: 'already_terminal' }
+    return { shortCircuit: false }
+  }
+
+  await supabase.from('partner_session_insights').upsert(
+    { partner_session_id: partnerSessionId, partner_account_id: partnerAccountId, hume_chat_id: humeChatId, extraction_status: 'pending' },
+    { onConflict: 'partner_session_id', ignoreDuplicates: true }
+  )
+
+  const { data: afterInsert } = await supabase
+    .from('partner_session_insights')
+    .select('extraction_status')
+    .eq('partner_session_id', partnerSessionId)
+    .maybeSingle()
+
+  const afterStatus = afterInsert?.extraction_status as string | undefined
+  if (afterStatus === 'success' || afterStatus === 'success_empty') return { shortCircuit: true, status: 'already_terminal' }
+  return { shortCircuit: false }
+}
+
+// ─── Core extraction — mirrors extractActionItemsForSession()'s shape exactly, against the new table.
+
+export async function extractInsightsForPartnerSession(partnerSessionId: string): Promise<{ status: string }> {
+  const supabase = createSupabaseAdminClient()
+
+  const { data: session } = await supabase
+    .from('partner_sessions')
+    .select('id, partner_account_id, hume_chat_id, test_mode')
+    .eq('id', partnerSessionId)
+    .maybeSingle()
+
+  if (!session) throw new Error(`No partner_sessions row for id ${partnerSessionId}`)
+  if (!session.hume_chat_id) throw new Error(`partner_sessions ${partnerSessionId} has no hume_chat_id`)
+
+  const guard = await runInsightsIdempotencyGuard(supabase, partnerSessionId, session.partner_account_id as string, session.hume_chat_id as string)
+  if (guard.shortCircuit) return { status: guard.status }
+
+  const apiKey = process.env.HUME_API_KEY
+  if (!apiKey || apiKey.startsWith('PLACEHOLDER_')) throw new Error('HUME_API_KEY not configured')
+
+  const transcriptEvents = await fetchAllTranscriptEvents(apiKey, session.hume_chat_id as string)
+  const messageLines = formatTranscriptLines(transcriptEvents)
+
+  let result: { status: string; extraction_status: 'success' | 'success_empty'; actionItems: unknown[]; glitches: unknown[]; psychologyKeywords: string[]; isMock: boolean; eventCount: number }
+
+  if (messageLines.length === 0) {
+    result = { status: 'success_empty', extraction_status: 'success_empty', actionItems: [], glitches: [], psychologyKeywords: [], isMock: false, eventCount: 0 }
+  } else {
+    const { data, isMock } = await callClaudeForPartnerInsightsExtraction(messageLines.join('\n'))
+    const isEmpty = data.action_items.length === 0 && data.glitches.length === 0 && data.psychology_keywords.length === 0
+    result = {
+      status: isEmpty ? 'success_empty' : 'success',
+      extraction_status: isEmpty ? 'success_empty' : 'success',
+      actionItems: data.action_items, glitches: data.glitches, psychologyKeywords: data.psychology_keywords,
+      isMock, eventCount: messageLines.length,
+    }
+  }
+
+  await supabase.from('partner_session_insights').update({
+    extraction_status: result.extraction_status,
+    action_items: result.actionItems,
+    glitches: result.glitches,
+    psychology_keywords: result.psychologyKeywords,
+    transcript_event_count: result.eventCount,
+    error_message: result.isMock ? '[MOCK] ANTHROPIC_API_KEY not configured — mock data written' : null,
+    extracted_at: new Date().toISOString(),
+  }).eq('partner_session_id', partnerSessionId)
+
+  await recordInsightsReadyEvent({
+    partnerSessionId, partnerAccountId: session.partner_account_id as string, extractionStatus: result.extraction_status,
+    testMode: session.test_mode as boolean, // v1.1 — was missing; see §16 v1.1 note
+  })
+
+  return { status: result.status }
+}
+
+async function markInsightsExtractionFailed(partnerSessionId: string, errorMessage: string): Promise<void> {
+  const supabase = createSupabaseAdminClient()
+  // v1.1 — select gains the partner_sessions!inner(test_mode) embed (identical FK-embed pattern to
+  // fetchDueDispatches()'s partner_accounts!inner() embed, §16.7) so this failure path can thread
+  // test_mode through too, same as the success path in extractInsightsForPartnerSession() above.
+  const { data: current } = await supabase
+    .from('partner_session_insights')
+    .select('attempt_count, partner_account_id, partner_sessions!inner(test_mode)')
+    .eq('partner_session_id', partnerSessionId)
+    .maybeSingle()
+  if (current) {
+    await supabase.from('partner_session_insights').update({
+      extraction_status: 'failed', error_message: errorMessage.slice(0, 2000), attempt_count: (current.attempt_count ?? 0) + 1,
+    }).eq('partner_session_id', partnerSessionId)
+    // A permanently-failed extraction still tells the partner explicitly, once, per the Requirement
+    // Doc's "extraction_status: 'failed'" webhook shape — only fired on the FIRST time this row crosses
+    // into 'failed' with attempt_count reaching 3 (mirrors the guard's own >= 3 exhaustion check), never
+    // re-fired on every retry attempt below that.
+    if (((current.attempt_count ?? 0) + 1) >= 3) {
+      const testMode = (current.partner_sessions as unknown as { test_mode: boolean } | null)?.test_mode ?? false
+      await recordInsightsReadyEvent({ partnerSessionId, partnerAccountId: current.partner_account_id as string, extractionStatus: 'failed', testMode })
+    }
+  }
+}
+
+// ─── Fast path
+
+export const partnerSessionInsightsExtractor = inngest.createFunction(
+  { id: 'partner-session-insights-extractor', name: 'Extract Partner Session Insights (Fast Path)', retries: 3, triggers: [{ event: 'clio/partner-session.ended' }] },
+  async ({ event, step }) => {
+    const { partnerSessionId } = event.data as { partnerSessionId?: string }
+    if (!partnerSessionId) return { status: 'skipped', reason: 'missing_partner_session_id' }
+    try {
+      return await step.run('extract-partner-insights', () => extractInsightsForPartnerSession(partnerSessionId))
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      await markInsightsExtractionFailed(partnerSessionId, message)
+      return { status: 'failed', reason: message }
+    }
+  }
+)
+
+// ─── Backstop — mirrors humeActionItemBackstopSweep exactly, against partner_sessions/partner_session_insights.
+
+export const partnerSessionInsightsBackstopSweep = inngest.createFunction(
+  { id: 'partner-session-insights-backstop-sweep', name: 'Partner Session Insights — Backstop Sweep', retries: 3, triggers: [{ cron: '*/30 * * * *' }] },
+  async ({ step }) => {
+    const supabase = createSupabaseAdminClient()
+    const eligibleIds = await step.run('find-eligible-sessions', async () => {
+      const cutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString()
+      const { data: candidates } = await supabase.from('partner_sessions').select('id')
+        .eq('status', 'completed').not('ended_at', 'is', null).lt('ended_at', cutoff).not('hume_chat_id', 'is', null)
+      const candidateIds = (candidates ?? []).map((s) => s.id as string)
+      if (candidateIds.length === 0) return [] as string[]
+      const { data: existing } = await supabase.from('partner_session_insights').select('partner_session_id, extraction_status, attempt_count').in('partner_session_id', candidateIds)
+      const existingMap = new Map((existing ?? []).map((r) => [r.partner_session_id as string, r as { extraction_status: string; attempt_count: number }]))
+      return candidateIds.filter((id) => {
+        const row = existingMap.get(id)
+        if (!row) return true
+        if (row.extraction_status === 'success' || row.extraction_status === 'success_empty') return false
+        if (row.extraction_status === 'failed') return (row.attempt_count ?? 0) < 3
+        return true
+      })
+    })
+    let extracted = 0, failed = 0
+    for (const id of eligibleIds) {
+      try {
+        await step.run(`extract-partner-insights-${id}`, () => extractInsightsForPartnerSession(id))
+        extracted++
+      } catch (err) {
+        await markInsightsExtractionFailed(id, err instanceof Error ? err.message : String(err))
+        failed++
+      }
+    }
+    return { checked: eligibleIds.length, extracted, failed }
+  }
+)
+
+// ─── Purge — new daily cron. 30-day window, reasoning: Requirement Doc Section 9.
+
+const PURGE_WINDOW_DAYS = 30
+
+export const partnerSessionInsightsPurge = inngest.createFunction(
+  { id: 'partner-session-insights-purge', name: 'Partner Session Insights — 30-Day Full-Detail Purge', retries: 3, triggers: [{ cron: '0 3 * * *' }] },
+  async ({ step }) => {
+    const purged = await step.run('purge-expired-full-detail', async () => {
+      const supabase = createSupabaseAdminClient()
+      const cutoffIso = new Date(Date.now() - PURGE_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString()
+      const { data, error } = await supabase.rpc('purge_partner_session_insights_full_detail', { p_cutoff: cutoffIso })
+      if (error) throw new Error(`Purge RPC failed: ${error.message}`)
+      return (data as number) ?? 0
+    })
+    console.log(`[partner-session-insights-purge] Purged full-detail text from ${purged} row(s)`)
+    return { purged }
+  }
+)
+```
+
+Registered alongside the existing functions in `app/api/inngest/route.ts`'s `serve([...])` array —
+additive entries, no existing entry modified.
+
+**Purge RPC** (migration, `078`):
+
+```sql
+CREATE OR REPLACE FUNCTION purge_partner_session_insights_full_detail(p_cutoff TIMESTAMPTZ)
+RETURNS INTEGER AS $$
+DECLARE
+  v_count INTEGER;
+BEGIN
+  WITH purged AS (
+    UPDATE partner_session_insights
+    SET
+      action_items = NULL,
+      psychology_keywords = NULL,
+      glitches = CASE
+        WHEN glitches IS NULL OR jsonb_array_length(glitches) = 0 THEN glitches
+        ELSE (SELECT jsonb_agg(jsonb_build_object('type', g->>'type')) FROM jsonb_array_elements(glitches) AS g)
+      END,
+      full_detail_purged_at = now()
+    WHERE full_detail_purged_at IS NULL
+      AND extracted_at IS NOT NULL
+      AND extracted_at < p_cutoff
+    RETURNING id
+  )
+  SELECT count(*) INTO v_count FROM purged;
+  RETURN v_count;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### 16.5 `app/api/webhooks/hume/route.ts` — `chat_ended` handler, fallback extension
+
+Inserted immediately after the existing `if (!session) { ... }` block (the point where a `sessions`
+lookup by `hume_chat_id` has already come back empty):
+
+```ts
+    if (!session) {
+      // NEW — fallback: this chat_id may belong to a partner session, not a legacy sessions row.
+      const { data: partnerSession } = await supabase
+        .from('partner_sessions')
+        .select('id, partner_account_id')
+        .eq('hume_chat_id', chatId)
+        .maybeSingle()
+
+      if (partnerSession) {
+        // No writeAuditEvent() for the partner branch — that function requires a Clerk userId and a
+        // sessions(id) FK, neither of which a partner_sessions row has; partner completion accounting
+        // already happens independently via handleSessionEnd(), client-triggered on disconnect.
+        await inngest.send({ name: 'clio/partner-session.ended', data: { partnerSessionId: partnerSession.id as string } })
+        return NextResponse.json({ received: true })
+      }
+
+      console.warn('[hume-webhook] No sessions or partner_sessions row found for hume_chat_id:', chatId)
+      return NextResponse.json({ received: true })
+    }
+```
+
+### 16.6 `lib/voice/hume-native/session-details.ts` — one-line export change
+
+```ts
+// Before: async function fetchAllTranscriptEvents(...)
+// After:
+export async function fetchAllTranscriptEvents(apiKey: string, chatId: string): Promise<unknown[]> {
+```
+No change to the function body — every existing call site (`getHumeSessionDetails()`) is unaffected;
+this only widens visibility so `inngest/partner-session-insights-extractor.ts` can import it directly
+rather than duplicating Hume's Chat History pagination loop a third time.
+
+### 16.7 `lib/partner/webhooks.ts` — `WebhookPayload`/`BillableEventType` extension + `recordInsightsReadyEvent()`
+
+```ts
+export type BillableEventType =
+  | 'usage.voice_minute'
+  | 'usage.llm_generation_call'
+  | 'session.completed'
+  | 'session.insights_ready' // B2B-09 — not billable; reuses this union purely for webhook_dispatch_log typing, same as the existing non-billable 'session.completed'
+
+export interface WebhookPayload {
+  // ... existing fields, unchanged ...
+  // B2B-09 — additive. null/absent on every event type except 'session.insights_ready'.
+  extraction_status?: 'success' | 'success_empty' | 'failed' | null
+  action_items?: { text: string }[] | null
+  glitches?: { type: string; description?: string }[] | null
+  psychology_keywords?: string[] | null
+}
+
+/**
+ * B2B-09 — inserts a REFERENCE-ONLY webhook_dispatch_log row for session.insights_ready. Deliberately
+ * does NOT include action_items/glitches/psychology_keywords in the stored payload — that content is
+ * reconstructed live from partner_session_insights at each delivery attempt (attemptDispatch(), below),
+ * per the Requirement Doc Section 6 / Section 11 judgment call 2 (migration 071's own restriction on
+ * this column). Never routed through recordBillableEvent() — this is not a billable event and doesn't
+ * fit that function's usage_events/wallet-decrement branches.
+ */
+export async function recordInsightsReadyEvent(params: {
+  partnerSessionId: string
+  partnerAccountId: string
+  extractionStatus: 'success' | 'success_empty' | 'failed'
+  testMode: boolean // v1.1 — was missing; every caller must thread the session's real test_mode through
+}): Promise<void> {
+  const supabase = createSupabaseAdminClient()
+  const { data: account } = await supabase.from('partner_accounts').select('id, outbound_signing_secret').eq('id', params.partnerAccountId).maybeSingle()
+  if (!account) return
+
+  const now = new Date().toISOString()
+  const referencePayload = {
+    event_id: crypto.randomUUID(),
+    event_type: 'session.insights_ready' as const,
+    clio_session_ref: params.partnerSessionId,
+    partner_reference: null,
+    occurred_at: now,
+    dispatched_at: now,
+    test_mode: params.testMode, // v1.1 — was hardcoded false; see §16 v1.1 note
+    extraction_status: params.extractionStatus,
+    // action_items / glitches / psychology_keywords intentionally omitted — see function doc comment.
+  }
+  const payloadHash = crypto.createHash('sha256').update(canonicalHashInput({ event_type: 'session.insights_ready', clio_session_ref: params.partnerSessionId, partner_reference: null, quantity: null, unit: null, generation_type: null, occurred_at: now })).digest('hex')
+  const signature = buildSignatureHeader((account.outbound_signing_secret as string | null) ?? 'unconfigured-partner-signing-secret', JSON.stringify(referencePayload))
+
+  const { error } = await supabase.from('webhook_dispatch_log').upsert(
+    { partner_account_id: params.partnerAccountId, event_type: 'session.insights_ready', clio_session_ref: params.partnerSessionId, payload: referencePayload, payload_hash: payloadHash, signature, delivery_status: 'pending' },
+    { onConflict: 'partner_account_id,event_type,clio_session_ref,payload_hash', ignoreDuplicates: true }
+  )
+  if (error) console.error('[partner/webhooks] recordInsightsReadyEvent insert failed:', error.message)
+}
+```
+
+`fetchDueDispatches()` — one additional selected column (`outbound_signing_secret`, needed for the
+fresh-signature path below), all other event types unaffected:
+
+```ts
+    .select('id, partner_account_id, event_type, payload, signature, retry_count, partner_accounts!inner(outbound_base_url, outbound_signing_secret)')
+```
+
+`attemptDispatch()` — the one event-type-specific branch:
+
+```ts
+export async function attemptDispatch(row: DueDispatchRow): Promise<'delivered' | 'retrying' | 'exhausted' | 'skipped_no_endpoint'> {
+  const supabase = createSupabaseAdminClient()
+  if (!row.outbound_base_url) return 'skipped_no_endpoint'
+
+  let rawBody: string
+  let signatureHeader: string
+
+  if (row.event_type === 'session.insights_ready') {
+    // NEW — reconstruct live from partner_session_insights; never replay the stored reference payload.
+    const { data: live } = await supabase
+      .from('partner_session_insights')
+      .select('action_items, glitches, psychology_keywords')
+      .eq('partner_session_id', row.payload.clio_session_ref)
+      .maybeSingle()
+
+    const fullPayload = {
+      ...row.payload,
+      action_items: live?.action_items ?? null,
+      glitches: live?.glitches ?? null,
+      psychology_keywords: live?.psychology_keywords ?? null,
+    }
+    rawBody = JSON.stringify(fullPayload)
+    signatureHeader = buildSignatureHeader(row.outbound_signing_secret ?? 'unconfigured-partner-signing-secret', rawBody)
+  } else {
+    rawBody = JSON.stringify(row.payload)   // unchanged — every other event type
+    signatureHeader = row.signature          // unchanged — every other event type
+  }
+
+  const url = `${row.outbound_base_url.replace(/\/$/, '')}/webhooks/usage`
+  // ... rest of the function (fetch, timeout, delivered/retry/exhausted handling) unchanged ...
+}
+```
+
+`DueDispatchRow` gains `outbound_signing_secret: string | null` (populated from the extended
+`fetchDueDispatches()` select above).
+
+### 16.8 `GET /api/admin/glitches/summary` and `GET /api/admin/glitches` — exact queries
+
+```ts
+// GET /api/admin/glitches/summary
+const { data } = await supabase.rpc('glitch_summary_by_type_and_partner')
+// backing SQL function (migration 078):
+//
+// CREATE OR REPLACE FUNCTION glitch_summary_by_type_and_partner()
+// RETURNS TABLE(glitch_type text, partner_account_id uuid, partner_name text, count bigint, first_seen timestamptz, last_seen timestamptz)
+// AS $$
+//   SELECT g->>'type' AS glitch_type, psi.partner_account_id, pa.name AS partner_name,
+//          count(*) AS count, min(psi.extracted_at) AS first_seen, max(psi.extracted_at) AS last_seen
+//   FROM partner_session_insights psi
+//   CROSS JOIN LATERAL jsonb_array_elements(psi.glitches) AS g
+//   JOIN partner_accounts pa ON pa.id = psi.partner_account_id
+//   WHERE psi.glitches IS NOT NULL AND jsonb_array_length(psi.glitches) > 0
+//   GROUP BY g->>'type', psi.partner_account_id, pa.name
+//   ORDER BY count DESC;
+// $$ LANGUAGE sql STABLE;
+
+// GET /api/admin/glitches?partner_account_id=&type=
+let query = supabase
+  .from('partner_session_insights')
+  .select('partner_session_id, partner_account_id, glitches, full_detail_purged_at, extracted_at, partner_accounts!inner(name)')
+  .not('glitches', 'is', null)
+if (partnerAccountId) query = query.eq('partner_account_id', partnerAccountId)
+// unnest `glitches` (and filter by `type` if provided) in application code after the fetch — the
+// per-row JSONB array is small (typically 0-3 glitches per session), so this avoids a second SQL
+// function purely for the drill-down's row-level filtering.
+//
+// Per unnested glitch element, derive the two response fields the RD's Section 4.B.3 shape requires
+// directly, no extra query needed:
+//   full_detail_purged = (row.full_detail_purged_at !== null)   // session-level flag, same for every
+//                                                                 // glitch unnested from that row
+//   description         = glitchElement.description ?? null     // present pre-purge; the purge RPC
+//                                                                 // (migration 078) physically removes
+//                                                                 // this key from every element in the
+//                                                                 // array when it runs, so `?? null`
+//                                                                 // is the correct, sufficient guard —
+//                                                                 // never a separate purge-aware branch
+```
+
+### 16.9 `/dashboard/admin/glitches/page.tsx` + `GlitchDashboardClient.tsx`
+
+`page.tsx` — byte-for-byte the same shape as `app/dashboard/admin/clients/page.tsx` (16.2), substituting
+`GlitchDashboardClient` for `PartnerBillingClient`. `GlitchDashboardClient.tsx` fetches both endpoints
+(16.8) on mount, renders Panel 1 (summary) and Panel 2 (drill-down, with the two filter dropdowns) per
+Requirement Doc Section 4.A/5.A, using the same table/loading/empty/error state components
+`PartnerBillingClient.tsx` already established (no new shared UI primitive needed).
+
+---
+
+## 18. B2B-06 — Partner Provisioning (new)
+
+Companion to `docs/specs/B2B-06-requirement-document.md` (v3 Feature Brief). Migration:
+`supabase/migrations/079_b2b06_provisioning.sql` (079 is the next free number — 078 is B2B-09, verified
+against the live `supabase/migrations/` directory listing, not assumed).
+
+### 18.1 Schema — additive only
+
+```sql
+-- 1. partner_accounts: one new nullable column, keys a Clerk Organization to a partner account.
+-- Nullable because internal-operator-provisioned accounts (v1/v2's recovery path, still preserved)
+-- never have a Clerk Organization behind them.
+ALTER TABLE partner_accounts ADD COLUMN IF NOT EXISTS clerk_org_id TEXT UNIQUE;
+
+-- 2. partner_sessions.end_reason: extend the existing CHECK constraint (migration 077) with the
+-- funding-guardrail's own rejection reason. Same DROP-then-ADD pattern 077 itself used against 075's
+-- inline default-named constraint.
+ALTER TABLE partner_sessions DROP CONSTRAINT IF EXISTS partner_sessions_end_reason_check;
+ALTER TABLE partner_sessions ADD CONSTRAINT partner_sessions_end_reason_check
+  CHECK (end_reason IS NULL OR end_reason IN ('trial_limit_reached', 'trial_exhausted', 'funding_required'));
+
+-- 3. New table: partner_oauth_clients. Mirrors partner_api_keys's proven security shape exactly
+-- (Requirement Doc Section 6) — never store a plaintext secret, hash it; keep a safe-to-display
+-- identifier; mode test/live split preserved for the same billing-exclusion reason it exists on
+-- partner_api_keys. Deliberately NOT an extension of partner_api_keys (client_id is a standalone
+-- identifier, not a truncated prefix of a secret like key_prefix is).
+CREATE TABLE IF NOT EXISTS partner_oauth_clients (
+  id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  partner_account_id    UUID NOT NULL REFERENCES partner_accounts(id) ON DELETE CASCADE,
+
+  mode                  TEXT NOT NULL DEFAULT 'live' CHECK (mode IN ('test', 'live')),
+
+  client_id             TEXT NOT NULL,   -- e.g. "clio_client_a1b2c3d4e5f6..." — safe to display indefinitely
+  client_secret_hash    TEXT NOT NULL,   -- SHA-256 hex digest of the full secret, never the plaintext
+  label                 TEXT,            -- partner-assigned name, e.g. "Production integration"
+
+  status                TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'revoked')),
+
+  last_used_at          TIMESTAMPTZ,
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  revoked_at            TIMESTAMPTZ
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_partner_oauth_clients_client_id ON partner_oauth_clients(client_id);
+CREATE INDEX IF NOT EXISTS idx_partner_oauth_clients_account ON partner_oauth_clients(partner_account_id);
+CREATE INDEX IF NOT EXISTS idx_partner_oauth_clients_status ON partner_oauth_clients(status) WHERE status = 'active';
+
+ALTER TABLE partner_oauth_clients ENABLE ROW LEVEL SECURITY;
+
+-- No token-storage table — access tokens are stateless (Requirement Doc Section 6): verified by
+-- signature + expiry, never looked up by value. The two status checks the verification path performs
+-- (this table's own `status`, and partner_accounts.status) are reads of already-existing rows the
+-- static-key path already reads identically, not a per-issued-token record.
+CREATE POLICY "Service role full access on partner_oauth_clients"
+  ON partner_oauth_clients FOR ALL
+  USING (auth.role() = 'service_role');
+
+COMMENT ON TABLE partner_oauth_clients IS 'B2B-06: OAuth2 Client Credentials (RFC 6749 §4.4) issuance. The v1/day-one self-serve default credential, per Arun''s direct instruction (docs/brainstorm-partner-signup-integration.md Decision #2) — not an extension of partner_api_keys, which is preserved as a secondary, internal-operator-only path.';
+COMMENT ON COLUMN partner_accounts.clerk_org_id IS 'B2B-06: keys a Clerk Organization (self-serve signup) to this row. NULL for internal-operator-provisioned accounts (the v1/v2 recovery path), which never have a Clerk Organization.';
+
+-- 4. partner_sessions: reconcile the auth-credential FK for OAuth2-authenticated sessions.
+--
+-- CEO review finding (2026-07-15, B2B-06 v3 spec review — see docs/specs/B2B-06-requirement-document.md
+-- Version 3.1 changelog): POST /api/partner/v1/sessions inserts partner_api_key_id unconditionally on
+-- every request (app/api/partner/v1/sessions/route.ts:51), but an OAuth2-authenticated request has no
+-- partner_api_keys row at all — §18.3's OAuth2 branch resolves a partner_oauth_clients row instead and
+-- returns apiKeyId: null. Because partner_api_key_id was NOT NULL (migration 071, line 177), every
+-- OAuth2-authenticated session-create call would fail this column's NOT NULL constraint before the
+-- test/live dispatch branch is ever reached — session creation, the core partner operation, was
+-- uncallable via the mechanism this brief mandates as the v1/day-one default.
+--
+-- Fix: make partner_api_key_id nullable, add a new nullable partner_oauth_client_id FK alongside it
+-- (mirrors the apiKeyId/clientId distinction now on PartnerApiKeyContext, §18.3), and require exactly
+-- one of the two to be set — a partner_sessions row is always authenticated by exactly one credential
+-- mechanism, never both, never neither, matching this table's own one-row-one-cause discipline already
+-- established for end_reason above.
+ALTER TABLE partner_sessions ALTER COLUMN partner_api_key_id DROP NOT NULL;
+
+ALTER TABLE partner_sessions ADD COLUMN IF NOT EXISTS partner_oauth_client_id UUID
+  REFERENCES partner_oauth_clients(id) ON DELETE RESTRICT;
+
+ALTER TABLE partner_sessions ADD CONSTRAINT partner_sessions_auth_credential_check
+  CHECK (num_nonnulls(partner_api_key_id, partner_oauth_client_id) = 1);
+
+CREATE INDEX IF NOT EXISTS idx_partner_sessions_oauth_client ON partner_sessions(partner_oauth_client_id)
+  WHERE partner_oauth_client_id IS NOT NULL;
+
+COMMENT ON COLUMN partner_sessions.partner_api_key_id IS 'B2B-06: nullable as of this migration — NULL for OAuth2-authenticated sessions (see partner_oauth_client_id). Exactly one of the two credential FKs is always set (partner_sessions_auth_credential_check).';
+COMMENT ON COLUMN partner_sessions.partner_oauth_client_id IS 'B2B-06: set for OAuth2-authenticated sessions only. NULL for static-API-key-authenticated sessions (see partner_api_key_id). ON DELETE RESTRICT mirrors partner_api_key_id''s existing discipline — a session record must never be silently orphaned by credential deletion.';
+```
+
+### 18.2 `lib/partner/oauth.ts` — client generation, secret hashing, JWT sign/verify
+
+New file, mirrors `lib/partner/api-keys.ts`'s exact shape for the generation/hash half, and hand-rolls a
+minimal HS256 JWT (no new npm dependency — `package.json` confirms no JWT library is present; this
+follows the exact precedent `lib/partner/webhook-signature.ts` already set for hand-rolled HMAC
+primitives on Node's built-in `crypto`, per `CLAUDE.md`'s no-new-dependency-without-justification rule).
+
+```typescript
+import crypto from 'crypto'
+
+export type OAuthClientMode = 'test' | 'live'
+
+export interface GeneratedOAuthClient {
+  clientId: string
+  /** Full plaintext secret. Shown to the caller exactly once — never store this value. */
+  clientSecret: string
+  clientSecretHash: string
+}
+
+/** Generates a new OAuth2 client_id/client_secret pair. Never logs the plaintext secret. */
+export function generateOAuthClient(mode: OAuthClientMode): GeneratedOAuthClient {
+  const clientId = `clio_client_${crypto.randomBytes(16).toString('hex')}`
+  const clientSecret = `clio_secret_${crypto.randomBytes(24).toString('hex')}`
+  return { clientId, clientSecret, clientSecretHash: hashClientSecret(clientSecret) }
+}
+
+export function hashClientSecret(secret: string): string {
+  return crypto.createHash('sha256').update(secret).digest('hex')
+}
+
+/** 3-segment JWT shape check — cheap pre-filter before attempting signature verification. */
+export function looksLikeOAuthAccessToken(value: string): boolean {
+  return /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(value)
+}
+
+export interface OAuthTokenClaims {
+  sub: string              // client_id
+  partner_account_id: string
+  mode: OAuthClientMode
+  iat: number
+  exp: number
+  jti: string
+}
+
+const TOKEN_TTL_SECONDS = 3600 // 1 hour — BA technical judgment call, Requirement Doc Section 4.B.2
+
+function deriveSigningSecret(): string {
+  const secret = process.env.PARTNER_OAUTH_TOKEN_SIGNING_SECRET
+  return secret && !secret.startsWith('PLACEHOLDER_') ? secret : 'clio-dev-only-fallback-oauth-signing-key'
+}
+
+function base64url(input: Buffer | string): string {
+  return Buffer.from(input).toString('base64url')
+}
+
+/** Signs a hand-rolled HS256 JWT. No external JWT library — see file header. */
+export function signAccessToken(clientId: string, partnerAccountId: string, mode: OAuthClientMode): { token: string; expiresIn: number } {
+  const header = { alg: 'HS256', typ: 'JWT' }
+  const now = Math.floor(Date.now() / 1000)
+  const claims: OAuthTokenClaims = {
+    sub: clientId,
+    partner_account_id: partnerAccountId,
+    mode,
+    iat: now,
+    exp: now + TOKEN_TTL_SECONDS,
+    jti: crypto.randomUUID(),
+  }
+  const encodedHeader = base64url(JSON.stringify(header))
+  const encodedPayload = base64url(JSON.stringify(claims))
+  const signature = crypto
+    .createHmac('sha256', deriveSigningSecret())
+    .update(`${encodedHeader}.${encodedPayload}`)
+    .digest('base64url')
+  return { token: `${encodedHeader}.${encodedPayload}.${signature}`, expiresIn: TOKEN_TTL_SECONDS }
+}
+
+/** Verifies signature + expiry only (stateless) — caller is responsible for the two DB status checks (Section 18.3). */
+export function verifyAccessToken(token: string): { valid: true; claims: OAuthTokenClaims } | { valid: false } {
+  const parts = token.split('.')
+  if (parts.length !== 3) return { valid: false }
+  const [encodedHeader, encodedPayload, signature] = parts
+
+  const expectedSig = crypto
+    .createHmac('sha256', deriveSigningSecret())
+    .update(`${encodedHeader}.${encodedPayload}`)
+    .digest('base64url')
+
+  const expectedBuf = Buffer.from(expectedSig)
+  const actualBuf = Buffer.from(signature)
+  if (expectedBuf.length !== actualBuf.length || !crypto.timingSafeEqual(expectedBuf, actualBuf)) {
+    return { valid: false }
+  }
+
+  try {
+    const claims = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8')) as OAuthTokenClaims
+    if (typeof claims.exp !== 'number' || claims.exp < Math.floor(Date.now() / 1000)) return { valid: false }
+    return { valid: true, claims }
+  } catch {
+    return { valid: false }
+  }
+}
+```
+
+### 18.3 `lib/partner/auth.ts` — `requirePartnerApiKey()` extension
+
+Exact insertion point: after the existing `looksLikePartnerApiKey(rawKey)` check fails, before the
+existing `invalid_api_key` 401 return. Zero changes to the function's exported *signature* —
+`sessions`/`usage`/`wallet` route call sites need no changes to how they *call*
+`requirePartnerApiKey()` (Requirement Doc Section 4.B.2 point 3) — but the returned context shape
+gains one field, `clientId`, alongside the existing `apiKeyId` (CEO review, 2026-07-15: see §18.1 step
+4's changelog note for why this pair is now required, not just `apiKeyId: null`).
+
+**Type changes** — `PartnerApiKeyContext` and `PartnerApiKeyResult`:
+
+```typescript
+export interface PartnerApiKeyContext {
+  partnerAccountId: string
+  /** Set for a static-API-key-authenticated request (the partner_api_keys.id row). Null for OAuth2. */
+  apiKeyId: string | null
+  /** Set for an OAuth2-authenticated request (the partner_oauth_clients.id row, NOT the public
+   *  client_id string). Null for a static-API-key request. Exactly one of apiKeyId/clientId is ever
+   *  non-null on a successful result — mirrors partner_sessions' own auth-credential CHECK
+   *  constraint (§18.1 step 4) that this field pair exists specifically to satisfy. */
+  clientId: string | null
+  mode: 'test' | 'live'
+}
+
+type PartnerApiKeyResult =
+  | (PartnerApiKeyContext & { error: null })
+  | { partnerAccountId: null; apiKeyId: null; clientId: null; mode: null; error: NextResponse }
+```
+
+**Code changes** — every existing early-return in the static-key path (the four `partnerAccountId:
+null, apiKeyId: null, mode: null, error: ...` returns already in the live file, one each for
+malformed key / key not found / revoked key / suspended account / rate-limited) gains `clientId: null`
+alongside the existing `apiKeyId: null`, and the function's final success return
+(`{ partnerAccountId: accountRow.id, apiKeyId: keyRow.id, mode: keyRow.mode, error: null }`) gains
+`clientId: null` alongside `apiKeyId: keyRow.id` — a mechanical, type-driven addition to every existing
+return statement, not a behavior change to the static-key path itself. The new OAuth2 branch below is
+the only place `clientId` is ever set to a non-null value:
+
+```typescript
+// Existing static-key path, unchanged in behavior — every existing return in this branch now also
+// includes `clientId: null` (mechanical addition, shown inline below only where new code is added):
+if (!rawKey || !looksLikePartnerApiKey(rawKey)) {
+  // NEW: fall through to OAuth2 token verification before giving up.
+  if (rawKey && looksLikeOAuthAccessToken(rawKey)) {
+    const verified = verifyAccessToken(rawKey)
+    if (verified.valid) {
+      const supabase = createSupabaseAdminClient()
+
+      const { data: clientRow } = await supabase
+        .from('partner_oauth_clients')
+        .select('id, status')
+        .eq('client_id', verified.claims.sub)
+        .maybeSingle()
+
+      const { data: accountRow } = await supabase
+        .from('partner_accounts')
+        .select('id, status')
+        .eq('id', verified.claims.partner_account_id)
+        .maybeSingle()
+
+      if (clientRow?.status === 'active' && accountRow) {
+        if (accountRow.status !== 'active') {
+          return { partnerAccountId: null, apiKeyId: null, clientId: null, mode: null, error: NextResponse.json(errorEnvelope('account_suspended', 'This partner account is suspended.'), { status: 403 }) }
+        }
+
+        const rateLimit = checkRateLimit(accountRow.id, routeClass)
+        if (!rateLimit.allowed) {
+          const res = NextResponse.json(errorEnvelope('rate_limit_exceeded', 'Rate limit exceeded.'), { status: 429 })
+          res.headers.set('Retry-After', String(rateLimit.retryAfterSeconds))
+          return { partnerAccountId: null, apiKeyId: null, clientId: null, mode: null, error: res }
+        }
+
+        // Best-effort, non-blocking — mirrors the static-key path's own last_used_at update.
+        supabase.from('partner_oauth_clients').update({ last_used_at: new Date().toISOString() }).eq('id', clientRow.id)
+          .then(undefined, (err: unknown) => console.error('[partner/auth] oauth last_used_at update failed (non-fatal):', err))
+
+        // clientId is the partner_oauth_clients row id (clientRow.id) — the FK value
+        // app/api/partner/v1/sessions/route.ts writes into partner_sessions.partner_oauth_client_id
+        // (§18.7), exactly parallel to how apiKeyId already carries keyRow.id, not the raw key string.
+        return { partnerAccountId: accountRow.id, apiKeyId: null, clientId: clientRow.id, mode: verified.claims.mode, error: null }
+      }
+    }
+  }
+
+  return {
+    partnerAccountId: null, apiKeyId: null, clientId: null, mode: null,
+    error: NextResponse.json(errorEnvelope('invalid_api_key', 'Missing or malformed API key.'), { status: 401 }),
+  }
+}
+// Existing static-key lookup path continues from here down, unchanged in behavior; its own
+// pre-existing return statements each gain `clientId: null` alongside their existing `apiKeyId: ...`.
+```
+
+`PartnerApiKeyContext.apiKeyId` is `null` for an OAuth2-authenticated request, and `.clientId` is
+`null` for a static-API-key-authenticated request — a documented, additive shape difference
+(Requirement Doc Section 5.B.2). The one call site that reads either field —
+`app/api/partner/v1/sessions/route.ts`'s `partner_sessions` insert — is updated in §18.7 below to
+write whichever of `partner_api_key_id`/`partner_oauth_client_id` corresponds to the non-null field,
+satisfying the `partner_sessions_auth_credential_check` constraint added in §18.1 step 4. (This
+replaces the prior draft's unresolved "developer note: verify this FK column's own nullability during
+implementation" — the CEO's 2026-07-15 review confirmed the column was in fact NOT NULL and would have
+failed on every OAuth2-authenticated call; §18.1 step 4 and this section's `clientId` field are the
+resolution, not a build-time check left for later.)
+
+### 18.4 `POST /api/partner/v1/oauth/token/route.ts`
+
+```typescript
+import { NextRequest, NextResponse } from 'next/server'
+import { createSupabaseAdminClient } from '@/lib/supabase'
+import { hashClientSecret, signAccessToken } from '@/lib/partner/oauth'
+import { checkRateLimit } from '@/lib/partner/rate-limit'
+
+export async function POST(request: NextRequest) {
+  const contentType = request.headers.get('content-type') ?? ''
+  let grantType: string | null, clientId: string | null, clientSecret: string | null
+
+  if (contentType.includes('application/x-www-form-urlencoded')) {
+    const form = new URLSearchParams(await request.text())
+    grantType = form.get('grant_type')
+    clientId = form.get('client_id')
+    clientSecret = form.get('client_secret')
+  } else {
+    const body = await request.json().catch(() => ({}))
+    grantType = body.grant_type ?? null
+    clientId = body.client_id ?? null
+    clientSecret = body.client_secret ?? null
+  }
+
+  if (grantType !== 'client_credentials' || !clientId || !clientSecret) {
+    return NextResponse.json({ error: 'invalid_request', error_description: 'grant_type must be client_credentials.' }, { status: 400 })
+  }
+
+  const rateLimit = checkRateLimit(clientId, 'oauth_token')
+  if (!rateLimit.allowed) {
+    const res = NextResponse.json({ error: 'invalid_request', error_description: 'Rate limit exceeded.' }, { status: 429 })
+    res.headers.set('Retry-After', String(rateLimit.retryAfterSeconds))
+    return res
+  }
+
+  const supabase = createSupabaseAdminClient()
+  const { data: clientRow } = await supabase
+    .from('partner_oauth_clients')
+    .select('id, partner_account_id, mode, status, client_secret_hash')
+    .eq('client_id', clientId)
+    .maybeSingle()
+
+  if (!clientRow || clientRow.status !== 'active' || clientRow.client_secret_hash !== hashClientSecret(clientSecret)) {
+    return NextResponse.json({ error: 'invalid_client', error_description: 'Client authentication failed.' }, { status: 401 })
+  }
+
+  const { data: accountRow } = await supabase
+    .from('partner_accounts')
+    .select('id, status')
+    .eq('id', clientRow.partner_account_id)
+    .maybeSingle()
+
+  if (!accountRow || accountRow.status !== 'active') {
+    return NextResponse.json({ error: 'invalid_client', error_description: 'This partner account is suspended.' }, { status: 403 })
+  }
+
+  const { token, expiresIn } = signAccessToken(clientRow.client_id ?? clientId, accountRow.id, clientRow.mode as 'test' | 'live')
+
+  supabase.from('partner_oauth_clients').update({ last_used_at: new Date().toISOString() }).eq('id', clientRow.id)
+    .then(undefined, (err: unknown) => console.error('[oauth/token] last_used_at update failed (non-fatal):', err))
+
+  return NextResponse.json({ access_token: token, token_type: 'Bearer', expires_in: expiresIn })
+}
+```
+
+`lib/partner/rate-limit.ts`'s `RateLimitClass` union gains one new value, `'oauth_token'` (20 req/min),
+keyed by `client_id` rather than `partner_account_id` (the account isn't resolved until after a
+successful secret hash-compare) — a one-line addition to the existing `LIMITS` record, no change to the
+bucket mechanism itself.
+
+### 18.5 Rate limit table addition
+
+```typescript
+export type RateLimitClass = 'sessions_create' | 'reads' | 'oauth_token'
+
+const LIMITS: Record<RateLimitClass, { capacity: number; refillPerMs: number }> = {
+  sessions_create: { capacity: 60, refillPerMs: 60 / 60_000 },
+  reads: { capacity: 300, refillPerMs: 300 / 60_000 },
+  oauth_token: { capacity: 20, refillPerMs: 20 / 60_000 }, // B2B-06 — keyed by client_id, not partner_account_id
+}
+```
+
+### 18.6 `app/api/webhooks/clerk-organization/route.ts`
+
+New route, structurally identical to the existing `app/api/webhooks/clerk/route.ts` (svix verify →
+switch on event type), never merged into that file.
+
+```typescript
+import { Webhook } from 'svix'
+import { headers } from 'next/headers'
+import { NextResponse } from 'next/server'
+import { createSupabaseAdminClient } from '@/lib/supabase'
+import { sendPartnerSignupWelcomeEmail } from '@/lib/delivery/email'
+import { inngest } from '@/inngest/client'
+
+interface ClerkOrgCreatedEvent {
+  type: 'organization.created'
+  data: { id: string; name: string; created_by: string }
+}
+interface ClerkOrgMembershipCreatedEvent {
+  type: 'organizationMembership.created'
+  data: { organization: { id: string }; public_user_data: { user_id: string; identifier: string } }
+}
+type ClerkOrgEvent = ClerkOrgCreatedEvent | ClerkOrgMembershipCreatedEvent | { type: string; data: unknown }
+
+export async function POST(request: Request) {
+  const secret = process.env.CLERK_ORGANIZATION_WEBHOOK_SECRET
+  if (!secret) {
+    console.error('[clerk-org-webhook] CLERK_ORGANIZATION_WEBHOOK_SECRET not set')
+    return new NextResponse('Webhook secret not configured', { status: 500 })
+  }
+
+  const headersList = headers()
+  const svixId = headersList.get('svix-id')
+  const svixTimestamp = headersList.get('svix-timestamp')
+  const svixSignature = headersList.get('svix-signature')
+  if (!svixId || !svixTimestamp || !svixSignature) {
+    return new NextResponse('Missing svix headers', { status: 400 })
+  }
+
+  const body = await request.text()
+  let event: ClerkOrgEvent
+  try {
+    const wh = new Webhook(secret)
+    event = wh.verify(body, { 'svix-id': svixId, 'svix-timestamp': svixTimestamp, 'svix-signature': svixSignature }) as ClerkOrgEvent
+  } catch (err) {
+    console.error('[clerk-org-webhook] Signature verification failed:', err)
+    return new NextResponse('Invalid signature', { status: 400 })
+  }
+
+  const supabase = createSupabaseAdminClient()
+
+  if (event.type === 'organization.created') {
+    const data = event.data as ClerkOrgCreatedEvent['data']
+    const { data: account, error } = await supabase
+      .from('partner_accounts')
+      .upsert({ clerk_org_id: data.id, name: data.name, archetype: 'unspecified', status: 'active' }, { onConflict: 'clerk_org_id', ignoreDuplicates: true })
+      .select('id')
+      .maybeSingle()
+
+    const partnerAccountId = account?.id ?? (await supabase.from('partner_accounts').select('id').eq('clerk_org_id', data.id).single()).data?.id
+
+    if (!error && partnerAccountId) {
+      inngest.send({ name: 'clio/partner-org.created', data: { partnerAccountId, orgName: data.name, createdAt: new Date().toISOString() } })
+        .catch((err: unknown) => console.error('[clerk-org-webhook] Failed to emit clio/partner-org.created:', err))
+    }
+    return NextResponse.json({ received: true })
+  }
+
+  if (event.type === 'organizationMembership.created') {
+    const data = event.data as ClerkOrgMembershipCreatedEvent['data']
+    const { data: account } = await supabase.from('partner_accounts').select('id').eq('clerk_org_id', data.organization.id).maybeSingle()
+
+    if (!account) {
+      // organization.created hasn't landed yet (delivery race) — non-2xx so Clerk redelivers.
+      return new NextResponse('Organization not yet provisioned', { status: 409 })
+    }
+
+    const { count } = await supabase
+      .from('partner_admin_users')
+      .select('id', { count: 'exact', head: true })
+      .eq('partner_account_id', account.id)
+
+    const role = (count ?? 0) === 0 ? 'owner' : 'admin'
+
+    const { error: insertError } = await supabase
+      .from('partner_admin_users')
+      .upsert({ clerk_user_id: data.public_user_data.user_id, partner_account_id: account.id, role }, { onConflict: 'clerk_user_id,partner_account_id', ignoreDuplicates: true })
+
+    if (!insertError && role === 'owner') {
+      const { data: orgRow } = await supabase.from('partner_accounts').select('name').eq('id', account.id).single()
+      await sendPartnerSignupWelcomeEmail(data.public_user_data.identifier, orgRow?.name ?? 'your organization')
+        .catch((err: unknown) => console.error('[clerk-org-webhook] sendPartnerSignupWelcomeEmail failed:', err))
+    }
+
+    return NextResponse.json({ received: true })
+  }
+
+  return NextResponse.json({ received: true })
+}
+```
+
+`middleware.ts`'s `isPublicRoute` matcher gains `/partner-signup(.*)` (the two new signup pages) and
+`/api/webhooks/(.*)` already covers the new webhook route (existing wildcard, unmodified).
+
+### 18.7 `app/api/partner/v1/sessions/route.ts` — auth-credential FK fix + funding guardrail insertion
+
+Two changes to this existing, live route, both required by this document — not one:
+
+**18.7.1 — Fix the `partner_sessions` insert to write the correct credential FK (CEO review finding,
+2026-07-15).** The live file's insert (currently `app/api/partner/v1/sessions/route.ts:51`) writes
+`partner_api_key_id: auth.apiKeyId` unconditionally. Per §18.1 step 4 and §18.3, an OAuth2-authenticated
+request now resolves `auth.clientId` instead, with `auth.apiKeyId` null — the insert must write
+whichever of the pair is non-null into whichever of `partner_api_key_id`/`partner_oauth_client_id` is
+non-null, satisfying `partner_sessions_auth_credential_check`. Exact diff, replacing the existing
+`partner_api_key_id: auth.apiKeyId,` line inside the existing `.insert({...})` call:
+
+```typescript
+  const { data: inserted, error: insertError } = await supabase
+    .from('partner_sessions')
+    .insert({
+      partner_account_id: auth.partnerAccountId,
+      // B2B-06: exactly one of these two is non-null on any successful auth result (§18.3) —
+      // satisfies partner_sessions_auth_credential_check (§18.1 step 4). Replaces the prior
+      // unconditional `partner_api_key_id: auth.apiKeyId` line, which NOT NULL-violated on every
+      // OAuth2-authenticated request before this fix.
+      partner_api_key_id: auth.apiKeyId,
+      partner_oauth_client_id: auth.clientId,
+      test_mode: auth.mode === 'test',
+      meeting_url,
+      partner_topic_ref: partner_topic_ref ?? null,
+      content_ref: content_ref ?? null,
+      partner_end_user_ref: partner_end_user_ref ?? null,
+      partner_reference: partner_reference ?? null,
+      status: 'requested',
+    })
+    .select('id')
+    .single()
+```
+
+**18.7.2 — Funding guardrail.** Exact diff, inserted at the file's own already-annotated location
+(between the `partner_sessions` insert and the `auth.mode === 'live'` comment block):
+
+```typescript
+  // auth.mode === 'live' — B2B-06 funding guardrail, inserted here per this file's own reserved comment.
+  const { data: wallet } = await supabase
+    .from('partner_wallets')
+    .select('stripe_default_payment_method_id')
+    .eq('partner_account_id', auth.partnerAccountId)
+    .maybeSingle()
+
+  if (!wallet || !wallet.stripe_default_payment_method_id) {
+    await supabase
+      .from('partner_sessions')
+      .update({ status: 'failed', end_reason: 'funding_required' })
+      .eq('id', clioSessionRef)
+
+    return NextResponse.json(
+      { error: { code: 'funding_required', message: 'Add a payment method before starting a live session. Test-mode sessions remain unaffected.' } },
+      { status: 402 }
+    )
+  }
+
+  const dispatchResult = await dispatchMeetingBot({ clioSessionRef, meetingUrl: meeting_url, renderUrl })
+  // ... unchanged from here down
+```
+
+### 18.8 `app/api/admin/configurator/oauth-clients/route.ts`
+
+`POST`/`GET`, Clerk-authenticated via `requirePartnerAdmin(partner_account_id)`, structurally identical
+to `app/api/admin/partner-keys/route.ts` (Section headers reproduced in Requirement Doc 4.B.3/4.B.4) —
+substitutes `generateOAuthClient()`/`hashClientSecret()` (18.2) for `generateApiKey()`, and the
+`partner_oauth_clients` table for `partner_api_keys`. Not reproduced line-for-line here since it is a
+direct structural copy with a different table/generator — a developer implements this by following
+`admin/partner-keys/route.ts` as the literal template, substituting per Requirement Doc Section 4.B.3/4.B.4's
+exact field names.
+
+### 18.9 `app/api/admin/configurator/outbound-config/route.ts` (GET) + pass-through PATCH
+
+```typescript
+// GET
+export async function GET(request: NextRequest) {
+  const partnerAccountId = new URL(request.url).searchParams.get('partner_account_id')
+  if (!partnerAccountId) return NextResponse.json({ error: 'partner_account_id query param is required' }, { status: 400 })
+
+  const admin = await requirePartnerAdmin(partnerAccountId)
+  if (admin.error) return admin.error
+
+  const supabase = createSupabaseAdminClient()
+  const { data } = await supabase
+    .from('partner_accounts')
+    .select('outbound_base_url, outbound_auth_token_ciphertext, outbound_signing_secret')
+    .eq('id', partnerAccountId)
+    .maybeSingle()
+
+  return NextResponse.json({
+    outbound_base_url: data?.outbound_base_url ?? null,
+    outbound_auth_token_set: Boolean(data?.outbound_auth_token_ciphertext),
+    outbound_signing_secret_set: Boolean(data?.outbound_signing_secret),
+  })
+}
+
+// PATCH — pure pass-through, re-exports the existing handler's logic against the same table/columns;
+// a developer may literally re-export the existing route's POST handler function here rather than
+// duplicating it, since the request/response contract is identical (Requirement Doc Section 4.B.5).
+export { PATCH } from '@/app/api/admin/partner-accounts/[id]/outbound-config/route'
+```
+
+(Developer note: the existing route's handler signature takes `{ params: { id: string } }` from the
+dynamic segment; this new flat route takes `partner_account_id` from the request body instead — the
+literal `export { PATCH }` re-export shown above is illustrative of intent, not necessarily valid as
+written given the signature mismatch. The actual implementation should have this route's own thin
+`PATCH` handler that extracts `partner_account_id` from the body and calls the existing
+`outbound-config` route's underlying update logic directly, or simply duplicates its ~15-line body. This
+is a small, mechanical implementation detail, not a spec ambiguity.)
+
+### 18.10 `app/api/admin/configurator/integration/test-outbound/route.ts`
+
+```typescript
+import { NextRequest, NextResponse } from 'next/server'
+import { createSupabaseAdminClient } from '@/lib/supabase'
+import { requirePartnerAdmin } from '@/lib/partner/auth'
+import { buildSignatureHeader } from '@/lib/partner/webhook-signature'
+
+export async function POST(request: NextRequest) {
+  const body = await request.json().catch(() => null)
+  const partnerAccountId = body?.partner_account_id
+  if (!partnerAccountId) return NextResponse.json({ error: 'partner_account_id is required' }, { status: 400 })
+
+  const admin = await requirePartnerAdmin(partnerAccountId)
+  if (admin.error) return admin.error
+
+  const supabase = createSupabaseAdminClient()
+  const { data: account } = await supabase
+    .from('partner_accounts')
+    .select('outbound_base_url, outbound_signing_secret')
+    .eq('id', partnerAccountId)
+    .maybeSingle()
+
+  if (!account?.outbound_base_url || !account?.outbound_signing_secret) {
+    return NextResponse.json({ error: { code: 'outbound_not_configured', message: 'Set your outbound base URL and signing secret first.' } }, { status: 422 })
+  }
+
+  const payload = { event_id: `test-${crypto.randomUUID()}`, event_type: 'webhook.test', occurred_at: new Date().toISOString(), test: true }
+  const rawBody = JSON.stringify(payload)
+  const signature = buildSignatureHeader(account.outbound_signing_secret, rawBody)
+  const url = `${account.outbound_base_url.replace(/\/$/, '')}/webhooks/usage`
+
+  try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 10000)
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Clio-Signature': signature }, body: rawBody, signal: controller.signal })
+      .finally(() => clearTimeout(timeout))
+
+    return NextResponse.json({ success: res.ok, status_code: res.status, ...(res.ok ? {} : { error: `Received HTTP ${res.status}.` }) })
+  } catch {
+    return NextResponse.json({ success: false, status_code: null, error: 'Could not reach the endpoint (timeout or connection refused).' })
+  }
+}
+```
+Deliberately never writes to `webhook_dispatch_log` (Requirement Doc Section 4.B.6) — this is a
+synchronous, ephemeral test call, not a queued/audited billing event.
+
+### 18.11 `inngest/partner-signup-reminder.ts`
+
+```typescript
+import { inngest } from './client'
+import { createSupabaseAdminClient } from '@/lib/supabase'
+import { clerkClient } from '@clerk/nextjs/server'
+import { sendPartnerSignupReminderEmail } from '@/lib/delivery/email'
+
+export const partnerSignupReminder = inngest.createFunction(
+  { id: 'partner-signup-reminder', name: 'Partner Signup Reminder', triggers: [{ event: 'clio/partner-org.created' }], retries: 2 },
+  async ({ event, step }) => {
+    await step.sleep('wait-24h', '24h')
+
+    await step.run('check-and-remind', async () => {
+      const { partnerAccountId, orgName } = event.data as { partnerAccountId: string; orgName: string }
+      const supabase = createSupabaseAdminClient()
+
+      const { data: account } = await supabase
+        .from('partner_accounts')
+        .select('onboarding_completed_at')
+        .eq('id', partnerAccountId)
+        .maybeSingle()
+
+      if (!account || account.onboarding_completed_at) return // finished on their own — no reminder needed
+
+      const { data: owner } = await supabase
+        .from('partner_admin_users')
+        .select('clerk_user_id')
+        .eq('partner_account_id', partnerAccountId)
+        .eq('role', 'owner')
+        .maybeSingle()
+
+      if (!owner) return // no owner resolved yet — nothing to email
+
+      const clerkUser = await clerkClient().users.getUser(owner.clerk_user_id as string)
+      const email = clerkUser.emailAddresses.find((e) => e.id === clerkUser.primaryEmailAddressId)?.emailAddress
+      if (email) await sendPartnerSignupReminderEmail(email, orgName)
+    })
+  }
+)
+```
+Registered in `app/api/inngest/route.ts`'s existing function-list array alongside every other Inngest
+function (one-line addition, not reproduced here — matches the existing registration convention).
+
+### 18.12 `lib/delivery/email.ts` — two new functions
+
+`sendPartnerSignupWelcomeEmail(email, orgName)` and `sendPartnerSignupReminderEmail(email, orgName)`
+follow `sendSignupWelcomeEmail()`'s exact shape (isPlaceholder-guarded mock, `Promise<EmailResult>`
+return, `resend.emails.send()` call) with B2B-appropriate copy (not reused B2C copy, per Known
+Constraints) — e.g. welcome subject `"Welcome to Clio — let's get {orgName} set up"`, linking to
+`/dashboard/configurator`; reminder subject `"Finish setting up {orgName} on Clio"`, same link. Full copy
+is a content decision within BA/dev authority per the existing precedent that email body copy is not
+spec'd word-for-word in this repo's prior BA documents either (e.g. B2B-04's `sendLowBalanceAlertEmail`).
+
+## 17. B2B-07 — Developer Portal (Documentation + Playground) (new)
+
+Companion to `docs/specs/B2B-07-requirement-document.md`. **No migration** — this brief adds no schema
+(Requirement Doc Section 6). No new API route of Clio's own either — the Playground calls the four already-live
+`/api/partner/v1/*` routes directly from the browser.
+
+### 17.1 File layout
+
+```
+app/dashboard/configurator/developer/
+  page.tsx                    — server component, auth/onboarding gate (identical shape to
+                                 app/dashboard/configurator/topics/page.tsx, Requirement Doc Section 3)
+  DeveloperDocsClient.tsx      — 'use client', renders the static reference content (17.2)
+  content.ts                   — the hand-authored TypeScript constants (17.2), imported by both
+                                 DeveloperDocsClient.tsx and PlaygroundClient.tsx (example payloads are
+                                 shared, not duplicated)
+  playground/
+    page.tsx                  — server component, identical gate shape to ../page.tsx
+    PlaygroundClient.tsx       — 'use client', the interactive Send/response flow (17.3)
+```
+
+### 17.2 `content.ts` — the documentation source of truth
+
+```ts
+// app/dashboard/configurator/developer/content.ts
+//
+// Hand-transcribed from the live route files cited in the Requirement Doc's header, verified against
+// them directly (not from any other spec doc, which can drift). Update this file whenever any of those
+// four routes' request/response contract changes — a stale reference here is worse than none, matching
+// this repo's existing docs/reference-vendor-api-integrations.md convention.
+
+export type PlaygroundEndpointId = 'sessions_create' | 'sessions_get' | 'usage' | 'wallet'
+
+export interface EndpointDoc {
+  id: PlaygroundEndpointId
+  method: 'GET' | 'POST'
+  path: string                 // display path, e.g. '/api/partner/v1/sessions/:clio_session_ref'
+  purpose: string
+  rateLimit: string
+  requestFields?: { field: string; type: string; required: string; notes: string }[]
+  queryParams?: { param: string; type: string; default: string; notes: string }[]
+  pathParam?: { name: string; type: string; notes: string }
+  exampleRequestBody?: object   // undefined for GET endpoints with no body
+  exampleResponse: object
+  responseNotes: string[]       // rendered as a bullet list under the example response
+  otherResponses: { status: string; meaning: string }[]
+  playgroundDisabled: boolean
+  playgroundDisabledReason?: string
+}
+
+export const ENDPOINTS: EndpointDoc[] = [
+  {
+    id: 'sessions_create',
+    method: 'POST',
+    path: '/api/partner/v1/sessions',
+    purpose: 'Starts a new Clio session — dispatches a real meeting bot into the given URL and provisions the live voice/visual experience.',
+    rateLimit: '60 requests/minute per partner account.',
+    requestFields: [
+      { field: 'meeting_url', type: 'string (URL)', required: 'Yes', notes: 'Must be a valid URL.' },
+      { field: 'partner_topic_ref', type: 'string', required: 'No*', notes: '1–512 printable-ASCII chars.' },
+      { field: 'content_ref', type: 'string (UUID)', required: 'No*', notes: '' },
+      { field: 'partner_end_user_ref', type: 'string', required: 'No', notes: '1–256 printable-ASCII chars.' },
+      { field: 'partner_reference', type: 'string', required: 'No', notes: '1–256 printable-ASCII chars. Echoed on every usage webhook for this session.' },
+    ],
+    exampleRequestBody: { meeting_url: 'https://meet.google.com/abc-defg-hij', partner_topic_ref: 'onboarding-101', partner_reference: 'acct_492' },
+    exampleResponse: { clio_session_ref: 'uuid', status: 'bot_active', render_url: 'string' },
+    responseNotes: [
+      '* At least one of partner_topic_ref or content_ref is required.',
+      '401/403/429 use { error: { code, message, request_id } }.',
+      '402/500 use { error: { code, message } } — no request_id.',
+      '422 uses { error: "Validation failed", details } — error is a plain string here, not an object.',
+    ],
+    otherResponses: [
+      { status: '401', meaning: 'invalid_api_key / revoked_api_key' },
+      { status: '402', meaning: 'trial_exhausted (test-mode keys only, once the free 20-minute allowance is used up)' },
+      { status: '403', meaning: 'account_suspended' },
+      { status: '422', meaning: 'validation failure' },
+      { status: '429', meaning: 'rate limit exceeded, Retry-After header present' },
+    ],
+    playgroundDisabled: true,
+    playgroundDisabledReason:
+      "Live testing for this endpoint is temporarily disabled. Dispatching a session sends a real meeting bot into the meeting URL you provide — Clio's current test-mode safeguard does not yet prevent this for every account state, so this Playground does not enable it until that's fixed. The request/response shape above is accurate; you just can't send it from here yet.",
+  },
+  {
+    id: 'sessions_get',
+    method: 'GET',
+    path: '/api/partner/v1/sessions/:clio_session_ref',
+    purpose: 'Reads the current status of a session you previously created.',
+    rateLimit: '300 requests/minute per partner account.',
+    pathParam: { name: 'clio_session_ref', type: 'UUID', notes: 'Required.' },
+    exampleResponse: { clio_session_ref: 'uuid', status: 'bot_active', created_at: 'ISO 8601', ended_at: null },
+    responseNotes: ['Never includes provider_bot_id, provider_name, or meeting_url — internal-only fields.'],
+    otherResponses: [
+      { status: '401/403', meaning: 'same as sessions_create' },
+      { status: '404', meaning: 'not_found — identical whether the ref does not exist or belongs to a different partner' },
+    ],
+    playgroundDisabled: false,
+  },
+  {
+    id: 'usage',
+    method: 'GET',
+    path: '/api/partner/v1/usage',
+    purpose: "Reads your account's own billable usage history — one row per metered event.",
+    rateLimit: '300 requests/minute per partner account.',
+    queryParams: [
+      { param: 'from', type: 'ISO 8601 string', default: '30 days ago', notes: '' },
+      { param: 'to', type: 'ISO 8601 string', default: 'now', notes: '' },
+      { param: 'event_type', type: '"usage.voice_minute" | "usage.llm_generation_call" | "session.completed"', default: '(all types)', notes: 'session.completed always returns an empty events array.' },
+      { param: 'cursor', type: 'opaque base64 string', default: '(first page)', notes: 'From the previous response next_cursor.' },
+    ],
+    exampleResponse: { events: [{ event_id: 'uuid', event_type: 'usage.voice_minute', quantity: 2.0, unit: 'minutes', test_mode: false, delivery_status: 'delivered' }], next_cursor: null },
+    responseNotes: ['Always filtered to test_mode = false.', 'Page size 100.'],
+    otherResponses: [
+      { status: '401/403', meaning: 'same as sessions_create' },
+      { status: '422', meaning: 'invalid event_type (string-error shape, same as sessions_create)' },
+      { status: '429', meaning: 'rate limit exceeded' },
+    ],
+    playgroundDisabled: false,
+  },
+  {
+    id: 'wallet',
+    method: 'GET',
+    path: '/api/partner/v1/wallet',
+    purpose: 'Reads your current prepaid balance, per-event-type burn rate, and projected days-until-exhausted.',
+    rateLimit: '300 requests/minute per partner account.',
+    exampleResponse: {
+      balance_usd: 42.315,
+      reference_topup_amount_usd: 100.0,
+      low_balance_alert_active: false,
+      burn_rate_by_event_type: [{ event_type: 'voice_minute', unit: 'minute', rate_usd: 0.015, rate_basis: 'cogs_placeholder_2026_05_no_margin' }],
+      avg_daily_burn_usd: 1.203,
+      projected_days_remaining: 35.2,
+      days_remaining_null_reason: null,
+      next_billing_date: '2026-08-13T00:00:00Z',
+      updated_at: '2026-07-13T19:00:00Z',
+    },
+    responseNotes: [
+      'burn_rate_by_event_type always lists all 8 current event types; rate_usd: null means no rate configured yet.',
+      'No explicit 4xx handling beyond auth — a DB read failure surfaces as a generic, unstructured 500.',
+    ],
+    otherResponses: [{ status: '401/403', meaning: 'same as usage' }],
+    playgroundDisabled: false,
+  },
+]
+
+export const WEBHOOK_DOC = {
+  path: 'POST {your outbound_base_url}/webhooks/usage',
+  payloadFields: ['event_id', 'event_type', 'clio_session_ref', 'partner_reference', 'quantity', 'unit', 'generation_type', 'occurred_at', 'dispatched_at', 'test_mode'],
+  signatureHeader: 'Clio-Signature: t=<unix_timestamp>,v1=<hex_hmac>',
+  verificationRecipe: 'HMAC-SHA256(signing_secret, `${t}.${raw_body}`), constant-time compare, reject if |now - t| > 300s.',
+  retrySchedule: '1m, 5m, 30m, 2h, 6h (5 attempts total, then marked exhausted).',
+  knownGap: 'No transcript, action-item, glitch, or psychology data in this payload today — usage/billing fields only.',
+}
+```
+
+### 17.3 `PlaygroundClient.tsx` — Send mechanics
+
+```ts
+// Simplified to the load-bearing logic (Requirement Doc Section 4.B/7).
+
+async function handleSend(endpoint: EndpointDoc, apiKey: string, editorValue: string, pathParamValue: string) {
+  if (endpoint.playgroundDisabled) return // belt-and-suspenders — the button has no onClick wired at all
+                                           // in this state; this guard is defense-in-depth, not the only gate.
+  if (!apiKey) { setValidationError('Enter an API key first.'); return }
+
+  let url = endpoint.path
+  const init: RequestInit = { method: endpoint.method, headers: { Authorization: `Bearer ${apiKey}` } }
+
+  if (endpoint.id === 'sessions_get') {
+    url = url.replace(':clio_session_ref', encodeURIComponent(pathParamValue))
+  } else if (endpoint.id === 'usage') {
+    let params: Record<string, string>
+    try { params = JSON.parse(editorValue || '{}') }
+    catch (e) { setValidationError(`Not valid JSON: ${(e as Error).message}`); return }
+    const qs = new URLSearchParams(params).toString()
+    if (qs) url += `?${qs}`
+  }
+  // 'wallet' — no path param, no query params, no body.
+  // 'sessions_create' — unreachable here; playgroundDisabled short-circuits above.
+
+  setValidationError(null)
+  setSending(true)
+  try {
+    const res = await fetch(url, init)
+    const body = await res.json().catch(() => null)
+    setResponse({ status: res.status, retryAfter: res.headers.get('Retry-After'), body })
+  } catch {
+    setResponse({ networkError: true })
+  } finally {
+    setSending(false)
+  }
+}
+```
+
+Not persisted: `apiKey` state is never written to `localStorage`/`sessionStorage` (Requirement Doc Section
+6/9) — plain `useState`, cleared on navigation/reload by React's own unmount behavior, no explicit clear
+logic needed.
+
+### 17.4 Auth/onboarding gate — identical to every existing Configurator screen
+
+```ts
+// app/dashboard/configurator/developer/page.tsx (and playground/page.tsx, identical shape)
+import { auth } from '@clerk/nextjs/server'
+import { redirect } from 'next/navigation'
+import { getPartnerAccountsForClerkUser } from '@/lib/partner/admin-accounts'
+import { createSupabaseAdminClient } from '@/lib/supabase'
+import { NoPartnerAccounts } from '../_shared'
+import DeveloperDocsClient from './DeveloperDocsClient'
+
+export default async function DeveloperDocsPage({ searchParams }: { searchParams: { partner_account_id?: string } }) {
+  const { userId } = auth()
+  if (!userId) redirect('/sign-in')
+
+  const accounts = await getPartnerAccountsForClerkUser(userId)
+  if (accounts.length === 0) return <NoPartnerAccounts />
+
+  const activeId = searchParams.partner_account_id && accounts.some((a) => a.id === searchParams.partner_account_id)
+    ? searchParams.partner_account_id
+    : accounts[0].id
+
+  const supabase = createSupabaseAdminClient()
+  const { data: account } = await supabase
+    .from('partner_accounts')
+    .select('onboarding_completed_at')
+    .eq('id', activeId)
+    .single()
+
+  if (!account?.onboarding_completed_at) {
+    redirect(`/dashboard/configurator/wizard?partner_account_id=${activeId}`)
+  }
+
+  return <DeveloperDocsClient accounts={accounts} activePartnerAccountId={activeId} />
+}
+```
+
+Byte-for-byte the same shape as `app/dashboard/configurator/topics/page.tsx` — no new gate logic invented
+for these two screens (Requirement Doc Section 3).
+
+### 17.5 The `dispatchMeetingBot()` test-mode gap — not fixed by this brief, named for the record
+
+Confirmed by direct read, not assumed: `lib/partner/session-init.ts`'s `dispatchMeetingBot()` calls
+`provider.createBot()` (`session-init.ts:57-61`) with no `test_mode` parameter and no conditional branch of
+any kind. `app/api/partner/v1/sessions/route.ts`'s B2B-08 gate (lines 75-126) only prevents this call when
+`availableMinutes <= 0`; whenever any trial/test-block allowance remains, the call proceeds identically to a
+`live`-mode request. This document's Playground therefore ships `sessions_create.playgroundDisabled = true`
+(17.2) rather than wiring a real Send for that endpoint. Re-enabling it requires either (a) a `test_mode`
+branch added to `dispatchMeetingBot()`/`session-init.ts` itself, or (b) a confirmed-equivalent guard — neither
+is built by this section. When either lands, the follow-on change to this brief's own code is small: flip
+`playgroundDisabled` to `false` for `sessions_create` in `content.ts`, and add the client-side
+test-mode-only restriction the original Feature Brief's Q3 named (reject a `clio_live_sk_...` key client-side
+for this one endpoint specifically) as the layered guard on top of the now-real server-side fix.

@@ -15,6 +15,7 @@ interface Summary {
   parameterizedCount: number
   preferenceScore: number
   domainLabel: string
+  integrationLabel: string
 }
 
 export default function HomeClient({ accounts, activePartnerAccountId }: { accounts: AdminPartnerAccount[]; activePartnerAccountId: string }) {
@@ -25,7 +26,7 @@ export default function HomeClient({ accounts, activePartnerAccountId }: { accou
   useEffect(() => {
     let cancelled = false
     async function load() {
-      const [qRes, tRes, cRes, themeRes, templatesRes, meterRes, domainRes] = await Promise.all([
+      const [qRes, tRes, cRes, themeRes, templatesRes, meterRes, domainRes, oauthClientsRes] = await Promise.all([
         fetch(`/api/admin/configurator/questionnaire?partner_account_id=${activePartnerAccountId}`),
         fetch(`/api/admin/configurator/topics-config?partner_account_id=${activePartnerAccountId}`),
         fetch(`/api/admin/configurator/content-config?partner_account_id=${activePartnerAccountId}`),
@@ -33,11 +34,13 @@ export default function HomeClient({ accounts, activePartnerAccountId }: { accou
         fetch(`/api/admin/configurator/templates?partner_account_id=${activePartnerAccountId}`),
         fetch(`/api/admin/configurator/preference-meter?partner_account_id=${activePartnerAccountId}`),
         fetch(`/api/admin/configurator/domain?partner_account_id=${activePartnerAccountId}`),
+        fetch(`/api/admin/configurator/oauth-clients?partner_account_id=${activePartnerAccountId}`),
       ])
       if (cancelled) return
-      const [q, t, c, theme, templates, meter, domain] = await Promise.all([
-        qRes.json(), tRes.json(), cRes.json(), themeRes.json(), templatesRes.json(), meterRes.json(), domainRes.json(),
+      const [q, t, c, theme, templates, meter, domain, oauthClients] = await Promise.all([
+        qRes.json(), tRes.json(), cRes.json(), themeRes.json(), templatesRes.json(), meterRes.json(), domainRes.json(), oauthClientsRes.json(),
       ])
+      const clientCount = (oauthClients.clients ?? []).length
       setSummary({
         questionnairePublished: (q.questionnaires ?? []).filter((x: { status: string }) => x.status === 'published').length,
         questionnaireDraft: (q.questionnaires ?? []).filter((x: { status: string }) => x.status === 'draft').length,
@@ -47,6 +50,7 @@ export default function HomeClient({ accounts, activePartnerAccountId }: { accou
         parameterizedCount: (templates.templates ?? []).filter((x: { parameterized: boolean }) => x.parameterized).length,
         preferenceScore: meter.meter?.score ?? 0,
         domainLabel: domain.subdomain_slug ? `${domain.subdomain_slug}.${domain.root_domain}` : 'Not configured',
+        integrationLabel: clientCount > 0 ? `${clientCount} API credential${clientCount === 1 ? '' : 's'}` : 'Not configured',
       })
     }
     load()
@@ -92,6 +96,11 @@ export default function HomeClient({ accounts, activePartnerAccountId }: { accou
           href={`/dashboard/configurator/domain?partner_account_id=${activePartnerAccountId}`}
           title="Domain"
           status={summary ? summary.domainLabel : '—'}
+        />
+        <DomainCard
+          href={`/dashboard/configurator/integration?partner_account_id=${activePartnerAccountId}`}
+          title="Integration"
+          status={summary ? summary.integrationLabel : '—'}
         />
       </div>
 

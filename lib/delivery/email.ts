@@ -576,6 +576,125 @@ export async function sendLowBalanceAlertEmail(
   }
 }
 
+// ─── B2B-06 — Partner Provisioning (self-serve signup) ────────────────────────
+
+/**
+ * Sends the partner-org welcome email, fired once when the first
+ * (`owner`) `partner_admin_users` membership is created for a new
+ * self-serve-signed-up partner account (B2B-06 —
+ * docs/specs/B2B-06-requirement-document.md Section 4.B.1, architecture.md
+ * §18.12). B2B-appropriate copy, not reused B2C copy.
+ * @param email - the org creator's Clerk-registered email (from the
+ *   organizationMembership.created event's own public_user_data)
+ * @param orgName - the Clerk Organization's name (partner_accounts.name)
+ * @returns Success/failure result
+ */
+export async function sendPartnerSignupWelcomeEmail(email: string, orgName: string): Promise<EmailResult> {
+  if (isPlaceholder || !resend) {
+    console.log('[MOCK] sendPartnerSignupWelcomeEmail', { email, orgName })
+    return { success: true, messageId: 'mock-partner-signup-welcome-id' }
+  }
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
+
+  try {
+    const result = await resend.emails.send({
+      from: FROM,
+      to: email,
+      subject: `Welcome to Clio — let's get ${orgName} set up`,
+      html: `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="background:#080808;color:#ffffff;font-family:Inter,system-ui,sans-serif;margin:0;padding:0;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;padding:40px 24px;">
+    <tr><td>
+      <p style="color:#7C3AED;font-size:12px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin:0 0 32px;">CLIO</p>
+      <h1 style="color:#ffffff;font-size:28px;font-weight:800;margin:0 0 12px;">Welcome to Clio, ${orgName}.</h1>
+      <p style="color:#94A3B8;font-size:16px;line-height:1.7;margin:0 0 32px;">
+        Your Clio partner account is live. Head into the Configurator to generate your API credentials,
+        configure outbound delivery, and finish setting up your integration.
+      </p>
+      <div style="background:#111111;border:1px solid #222222;border-radius:12px;padding:32px;text-align:center;">
+        <a href="${appUrl}/dashboard/configurator" style="background:#7C3AED;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:700;display:inline-block;">Go to the Configurator →</a>
+      </div>
+    </td></tr>
+  </table>
+</body>
+</html>`,
+      text: `Welcome to Clio, ${orgName}. Your partner account is live — head into the Configurator to generate your API credentials and finish setting up your integration: ${appUrl}/dashboard/configurator`,
+    })
+
+    logEmailResult('sendPartnerSignupWelcomeEmail', email, result)
+    if (result.error) {
+      return { success: false, error: result.error.message }
+    }
+
+    return { success: true, messageId: result.data?.id }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error(`[email:sendPartnerSignupWelcomeEmail] EXCEPTION to=${email}:`, message)
+    return { success: false, error: message }
+  }
+}
+
+/**
+ * Sends the abandoned-signup reminder, fired exactly once (T+24h, via
+ * `inngest/partner-signup-reminder.ts`) if a self-serve-signed-up partner
+ * account has not completed the Configurator onboarding wizard
+ * (`partner_accounts.onboarding_completed_at IS NULL`). B2B-06 —
+ * docs/specs/B2B-06-requirement-document.md Section 4.B.6/5.B.6.
+ * @param email - the account owner's Clerk-registered email
+ * @param orgName - the Clerk Organization's name (partner_accounts.name)
+ * @returns Success/failure result
+ */
+export async function sendPartnerSignupReminderEmail(email: string, orgName: string): Promise<EmailResult> {
+  if (isPlaceholder || !resend) {
+    console.log('[MOCK] sendPartnerSignupReminderEmail', { email, orgName })
+    return { success: true, messageId: 'mock-partner-signup-reminder-id' }
+  }
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
+
+  try {
+    const result = await resend.emails.send({
+      from: FROM,
+      to: email,
+      subject: `Finish setting up ${orgName} on Clio`,
+      html: `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="background:#080808;color:#ffffff;font-family:Inter,system-ui,sans-serif;margin:0;padding:0;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;padding:40px 24px;">
+    <tr><td>
+      <p style="color:#7C3AED;font-size:12px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin:0 0 32px;">CLIO</p>
+      <h1 style="color:#ffffff;font-size:28px;font-weight:800;margin:0 0 12px;">Pick up where you left off.</h1>
+      <p style="color:#94A3B8;font-size:16px;line-height:1.7;margin:0 0 32px;">
+        ${orgName}'s Clio setup isn't finished yet. It only takes a few minutes to complete the
+        Configurator wizard and start integrating.
+      </p>
+      <div style="background:#111111;border:1px solid #222222;border-radius:12px;padding:32px;text-align:center;">
+        <a href="${appUrl}/dashboard/configurator" style="background:#7C3AED;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:700;display:inline-block;">Finish setup →</a>
+      </div>
+    </td></tr>
+  </table>
+</body>
+</html>`,
+      text: `${orgName}'s Clio setup isn't finished yet. Finish setting up at ${appUrl}/dashboard/configurator`,
+    })
+
+    logEmailResult('sendPartnerSignupReminderEmail', email, result)
+    if (result.error) {
+      return { success: false, error: result.error.message }
+    }
+
+    return { success: true, messageId: result.data?.id }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error(`[email:sendPartnerSignupReminderEmail] EXCEPTION to=${email}:`, message)
+    return { success: false, error: message }
+  }
+}
+
 // ─── Private HTML builders ────────────────────────────────────────────────────
 
 function buildDailyEmailHtml(user: User, item: ContentItem): string {

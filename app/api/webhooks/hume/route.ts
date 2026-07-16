@@ -127,7 +127,28 @@ export async function POST(request: Request) {
     }
 
     if (!session) {
-      console.warn('[hume-webhook] No sessions row found for hume_chat_id:', chatId)
+      // B2B-09 — fallback: this chat_id may belong to a partner session, not
+      // a legacy sessions row. architecture.md §16.5.
+      const { data: partnerSession } = await supabase
+        .from('partner_sessions')
+        .select('id, partner_account_id')
+        .eq('hume_chat_id', chatId)
+        .maybeSingle()
+
+      if (partnerSession) {
+        // No writeAuditEvent() for the partner branch — that function
+        // requires a Clerk userId and a sessions(id) FK, neither of which a
+        // partner_sessions row has; partner completion accounting already
+        // happens independently via handleSessionEnd(), client-triggered on
+        // disconnect.
+        await inngest.send({
+          name: 'clio/partner-session.ended',
+          data: { partnerSessionId: partnerSession.id as string },
+        })
+        return NextResponse.json({ received: true })
+      }
+
+      console.warn('[hume-webhook] No sessions or partner_sessions row found for hume_chat_id:', chatId)
       return NextResponse.json({ received: true })
     }
 

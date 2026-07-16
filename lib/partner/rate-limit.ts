@@ -24,11 +24,12 @@ interface Bucket {
 
 const buckets = new Map<string, Bucket>()
 
-export type RateLimitClass = 'sessions_create' | 'reads'
+export type RateLimitClass = 'sessions_create' | 'reads' | 'oauth_token'
 
 const LIMITS: Record<RateLimitClass, { capacity: number; refillPerMs: number }> = {
   sessions_create: { capacity: 60, refillPerMs: 60 / 60_000 }, // 60/min
   reads: { capacity: 300, refillPerMs: 300 / 60_000 }, // 300/min
+  oauth_token: { capacity: 20, refillPerMs: 20 / 60_000 }, // B2B-06 — 20/min, keyed by client_id, not partner_account_id
 }
 
 /** Returns { allowed, retryAfterSeconds } for a given partner account + route class. Mutates in-memory bucket state. */

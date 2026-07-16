@@ -1,6 +1,6 @@
 # B2B Pivot — Orchestration Plan & Live Status
 
-_Last updated: 2026-07-13 | Source of truth for B2B pivot execution status and approach_
+_Last updated: 2026-07-15 | Source of truth for B2B pivot execution status and approach_
 
 **Related docs:**
 - `docs/brainstorm-b2b-platform-pivot.md` — full requirements, Q&A, objective-impact analysis, decisions
@@ -17,9 +17,10 @@ state, per Arun's standing instruction — do not batch).
 
 - **Status vocabulary** (matches `BACKLOG.md` convention): `Not started` | `In progress` |
   `CEO brief done` | `BA spec needed` | `Approved, build ready` | `Blocked` | `Done`
-- **IDs**: `B2B-01`..`B2B-05` for the five Feature Briefs, `INFRA-*` for the Mia Digital LLC
-  migration track. Referenced in commits/PRs the same way `TMPL-XX`/`RTV-XX`/`SESS-XX` are elsewhere
-  in this repo.
+- **IDs**: `B2B-01`..`B2B-05` for the five originally-sequenced Feature Briefs, `B2B-06`+ for
+  briefs that surfaced afterward (provisioning, developer portal, testing/metering, ...), `INFRA-*`
+  for the Mia Digital LLC migration track. Referenced in commits/PRs the same way
+  `TMPL-XX`/`RTV-XX`/`SESS-XX` are elsewhere in this repo.
 
 ---
 
@@ -82,6 +83,10 @@ INFRA-* (Mia Digital LLC migration) — parallel, non-blocking, land before prod
 | B2B-03 | Designer/Configurator | **Done** (built, committed `a49e151`) | B2B-02 (done) | **Tracker correction 2026-07-13 (during B2B-05 CEO brief research): this row was stale.** Full chain was actually complete: CEO brief (`.claude/agents/clio/feature-briefs/B2B-03-designer-configurator.md`) → BA spec (`docs/specs/B2B-03-requirement-document.md`) → built and committed (`a49e151`, "feat(configurator): B2B-03 Designer/Configurator, partner theming, custom templates") — `lib/partner/{theme,questionnaire,topics-config,content-generation,custom-templates,render-data,live-render}.ts`, `/app/partner-render/[clio_session_ref]`, `/app/partner-questionnaire/[partner_account_id]`, migration adding `partner_questionnaires`/`questionnaire_dispatch_log`/`partner_topic_config`/`partner_content_items`/`partner_theme_config`/`partner_template_config`/`partner_component_config`/`partner_design_preference`/`partner_custom_templates` (architecture.md §12.1). Scope resolved 2026-07-13: Arun confirmed customer-facing (partner-facing) but NOT end-user-facing for the Configurator itself — partners configure it, their own end users never see it. Hard requirement, his own words: "we need to make sure that other partner changes impact all other customers so each partner should be isolated and modular (parameter driven) from their configuration screen" — strict multi-tenant isolation. Replaced the B2B-02 `/partner-render/[clio_session_ref]` placeholder with the real content-pull + theme-resolve + Hume-driving render path (architecture.md §12.6). One item the B2B-03 spec itself explicitly deferred, by name, to B2B-05: subdomain/custom-domain routing for both public render surfaces, and the domain settings-field UI — both remain Clio-hosted paths today, confirmed still true when B2B-05 was scoped (see B2B-05 row). |
 | B2B-04 | Billing/metering | **Done** (built, committed `a49f1dc`/`34f7e92`) | B2B-02 (done) | **Tracker correction 2026-07-13: also stale** — was showing "uncommitted, awaiting Arun's go-ahead"; confirmed committed via `git log` during B2B-05 research (`a49f1dc` "feat(billing): B2B-04 wallet/metering...", `34f7e92` "fix(stripe): remove dead B2C-era webhook branches, align lib/stripe.ts to B2B"). Full chain complete: CEO brief → BA spec (`docs/specs/B2B-04-requirement-document.md` v1.1, 0 open questions, produced `architecture.md` §13) → CEO sent back once (2 precision gaps: `days_remaining` null-tie-break rule, `avg_daily_burn_usd` formula) → BA closed both → CEO re-reviewed and approved → migration `075` applied (`partner_wallets`, `billing_rate_versions`, `wallet_ledger`, `usage_events` idempotency columns/index) → built (`lib/partner/webhooks.ts` idempotency fix + `applyWalletDecrement()`, reworked `lib/stripe.ts` for prepaid wallet funding, 3 new `/api/admin/billing/*` routes, new `GET /api/partner/v1/wallet`, `/dashboard/admin/clients` admin page, `lib/billing/{sort,metrics}.ts`). `tsc --noEmit` clean, full test suite passes (1 pre-existing unrelated failure, confirmed via `git stash`). Known deviation, resolved in the follow-up commit: `lib/stripe.ts`'s `getPlanFromPriceId` and all other dead B2C-era webhook branches were removed once confirmed to have zero live callers. |
 | B2B-05 | Domain/white-label infra | **Done** (built, uncommitted) | B2B-02 (done), B2B-03 (done) | Full chain complete: CEO brief (`.claude/agents/clio/feature-briefs/B2B-05-domain-whitelabel-infra.md`, verified against live code that this was real unbuilt work, not something B2B-03 solved) → BA spec (`docs/specs/B2B-05-requirement-document.md` v1.2, produced `architecture.md` §14) → CEO caught one real gap on first review (the `embedded`-prop screen-reuse mechanism assumed a single return per component, but `QuestionnaireBuilderClient`/`ContentConfigClient` each have 2 separately-wrapped branches) → BA fixed with per-branch duplication (not a merged check — the two branches pass different `title`/`backHref` props) → CEO re-reviewed and approved → migration `076` applied (`partner_accounts` domain columns + `onboarding_completed_at`, new `partner_onboarding_progress` table) → `@vercel/sdk` added to `CLAUDE.md`'s approved list → built. **Scope**: subdomain-first hosting, custom-domain upgrade via Vercel Domains API, Host-header tenant-resolution middleware (extends, doesn't replace, the existing Clerk gate), new `/dashboard/configurator/domain` screen, plus the full onboarding wizard Arun confirmed 2026-07-13 ("build it now, as part of this brief") — 7 steps (Questionnaire → Topics → Content → Visualization → Domain → Payment method → Go-live), save-and-resume via new `partner_onboarding_progress` table, non-blocking domain verification, reusing B2B-03/B2B-04's existing screens via the `embedded` prop rather than rebuilding them. `tsc --noEmit` clean (independently re-verified), 384/385 tests pass (1 pre-existing unrelated failure, same as B2B-04's). **Real pre-existing bug found and fixed along the way**: `/partner-questionnaire/(.*)` (B2B-03's public questionnaire route) was missing from `middleware.ts`'s `isPublicRoute` list — would have redirected real unauthenticated end users to `/sign-in`, breaking the entire public questionnaire flow; confirmed against the live file and fixed. `.env.local.example` additions (`CLIO_ROOT_DOMAIN`/`VERCEL_API_TOKEN`/`VERCEL_PROJECT_ID`/`VERCEL_TEAM_ID`) skipped — permission-blocked for both agents and Orchestrator, same as the earlier RTV env var item; needs Arun to add manually. Not yet committed — awaiting go-ahead. **This closes all 5 Feature Briefs in the B2B pivot's original sequence (B2B-01 through B2B-05).** `INFRA-07` (final brand/root-domain decision) still "in progress" — the root domain is a single `CLIO_ROOT_DOMAIN` config value throughout, never hardcoded, so this doesn't block. |
+| B2B-07 | Developer Portal (docs + playground) | **CEO brief done** — ready for BA dispatch, with one named phasing dependency | B2B-06 (v2 approved, but see Notes — a v3 revision is required before this brief's auth-dependent scope can complete) | Item 5 ("documentation/developer" screen) and item 6 (JSON playground) of Arun's original 8-point vision, confirmed NOT BUILT by an earlier gap analysis (no OpenAPI spec, no `/docs` route, no playground anywhere in the repo). CEO brief written (`.claude/agents/clio/feature-briefs/B2B-07-developer-portal.md`), grounded in `docs/reference-vendor-api-integrations.md`, `docs/brainstorm-partner-signup-integration.md`, `B2B-06-partner-provisioning.md` v2, `docs/specs/B2B-02-requirement-document.md`, `architecture.md` §3/§7/§10, and the live `app/api/partner/v1/*` route files (verified directly, not from spec text, since routes can drift from spec). **Most significant finding: a same-day contradiction between two source documents on Clio's own partner-auth mechanism.** `docs/brainstorm-partner-signup-integration.md` (2026-07-14/15) records Arun's direct correction — "We need this advanced login now itself. Let's not start with static API" — meaning OAuth2 Client Credentials is the confirmed day-one default. But `B2B-06-partner-provisioning.md` v2 (also revised 2026-07-15) still says the opposite in its own text: "OAuth2 Client Credentials: explicitly named fast-follow, not v1/v2 scope," with the static API key as v2's actual in-scope mechanism. Reading both together: the brainstorm conversation happened but was never written back into B2B-06 v2's document text — v2 is stale on this one point despite being dated the same day. Verified against live code: no OAuth2 token endpoint, `client_id`/`client_secret` issuance, or `/oauth2/token`-shaped partner route exists anywhere (`grep`-confirmed) — only the existing static-key mechanism is live today. CEO did not silently pick one document over the other or guess — resolved by grounding in Arun's most recent, most explicit verbatim instruction (the brainstorm doc), and named the finding explicitly rather than burying it: **B2B-06 needs a v3 revision (or a dedicated follow-on brief) to actually build the OAuth2 client_id/secret + token endpoint mechanism before B2B-07's Playground credential-flow and auth documentation can complete.** Scoped B2B-07 so it isn't fully blocked in the meantime: the Documentation screen's non-auth content (all 4 partner-facing endpoints' schemas, the webhook contract, rate limits) and the Playground's read-only usage/wallet flows can ship independent of B2B-06 v3's timeline; only the sessions-endpoint Playground flow and the OAuth2-specific auth section are phased behind it. Also verified and excluded: domain-config endpoints (`/api/admin/configurator/domain*`) are Clerk-session-gated (`requirePartnerAdmin()`), not part of the partner-API-key-authenticated surface — confirmed via direct code read, correctly kept off the Documentation screen rather than assumed either way. Playground design decision: hits the real API using the partner's own `test`-mode credential (not a full mock) — justified by the existing `mode: 'test'/'live'` distinction already used for billing exclusion (`partner_api_keys.mode`, `partner_sessions.test_mode`), giving partners real validation errors and real response shapes. **One hard pre-condition flagged, not glossed over**: `dispatchMeetingBot()` (`lib/partner/session-init.ts`) does not currently branch on `test_mode` before calling Attendee — a real Google Meet URL pasted into the Playground and sent against the live sessions endpoint would dispatch a real, billable bot today. This is the same gap already named as an open item in the brainstorm doc; B2B-07 does not resolve it but makes it a named, hard pre-condition on shipping the Playground's sessions-endpoint "Send" button. Credential-generation UI is scoped to live only in B2B-06's own Configurator screen — B2B-07 links to it, does not duplicate it. No new npm dependency justified (plain `<textarea>` for the JSON body editor, hand-rolled endpoint cards reusing the existing Configurator design system — a JSON-editor package or an OpenAPI-renderer like Swagger UI would be unjustified for a 4-endpoint surface and would introduce a second visual language). Zero open questions blocking BA dispatch, with the one named phasing dependency the BA should sequence around, not treat as resolved. Next: dispatch BA Agent for the Requirement Document. |
+| B2B-08 | Testing/Metering | **CEO brief done** — ready for BA dispatch | B2B-02 (done), B2B-04 (done, schema/mechanism dependency) — does NOT block on or wait for B2B-06 | CEO brief written (`.claude/agents/clio/feature-briefs/B2B-08-testing-metering.md`), grounded in `docs/brainstorm-partner-signup-integration.md` item 3 + "Resolved during follow-up discussion", `docs/reference-vendor-api-integrations.md` §7/§8, `docs/specs/B2B-04-requirement-document.md`, migration `075`, `lib/partner/session-init.ts`, `app/api/partner/v1/sessions/route.ts`, and `B2B-06-partner-provisioning.md` v2. Confirmed by direct code read (not assumed): `dispatchMeetingBot()` does not branch on `test_mode` today — a `test`-mode key dispatch already sends a real, unbounded, unmetered Attendee+Hume bot at real cost to Clio, forever, with zero cap (cross-confirmed independently by the B2B-07 row below). Arun's "20 min free, then pay per 2-hour block, real bot, cost on us" is therefore the fix that *bounds* an already-live gap, not a mechanism built from nothing. Six items resolved, each with reasoning not just an answer: (1) allowance tracked lifetime-per-`partner_account_id` on new `partner_wallets.trial_minutes_used`, not per-session (a per-session reset would leave the exploitable shape of the existing unbounded gap intact); (2) a real server-side forced cutoff (new `inngest/partner-trial-cutoff.ts`, modeled on the existing `session-timer.ts` precedent but scoped to `partner_sessions`, calling Attendee's existing outbound `leave` endpoint) pulls the bot mid-session at the allowance boundary — checking only at natural session-end was rejected as insufficient to actually bound Clio's cost exposure; (3) the 2-hour block is a real, fixed-price ($1.80) one-time Stripe Checkout charge crediting a **new, dedicated** `partner_wallets.test_minutes_balance` counter, deliberately NOT routed through `balance_usd` — two code-confirmed reasons: `applyWalletDecrement()` already unconditionally skips wallet mutation for `test_mode=true` events (B2B-04 §5.B.1), and conflating test spend into `balance_usd` would corrupt the admin page's real-revenue reporting; (4) rate is $1.80 flat = 120 min × the existing seeded `voice_minute` `$0.0150/min` platform-default rate, same `cogs_placeholder_2026_05_no_margin` label, no new figure invented, per F-02's deferral; (5) new additive `usage_events.is_metered_test_usage` flag added alongside the *unchanged* `test_mode` flag — `test_mode` still means "never billed to the partner, permanently" (unmodified); the new flag is a purely Clio-internal signal that real vendor cost was incurred, resolving the exact tension the dispatch task named ("this DOES cost real money... needs careful design, not just reusing that flag as-is"); (6) confirmed orthogonal to B2B-06's guardrail by activation condition (this brief's gate fires only for `test`-mode keys, B2B-06's fires only for `live`-mode keys) — neither brief blocks on the other's build order; named one deliberate positive interaction, not a dependency: the test-block Checkout session uses `setup_future_usage: "off_session"`, so a partner's first block purchase is likely also the first time they attach a payment method, which incidentally satisfies B2B-06's separate `stripe_default_payment_method_id` check for their future live-mode usage. All schema changes additive (2 new `partner_wallets` columns, 1 new `usage_events` column, 1 new `partner_sessions` column, 1 new `wallet_ledger` entry_type + 1 new nullable column, 2 new RPCs mirroring `credit_wallet_balance`/`decrement_wallet_balance`'s exact pattern); one new route (`POST /api/admin/billing/test-block`); one new Inngest job; three small, named modifications to existing files (`sessions/route.ts`, `live-render.ts`'s `handleSessionEnd()`, the Stripe webhook route's `checkout.session.completed` branch). Explicitly out of scope, named not silently dropped: the separate Attendee inbound-webhook signature bypass (unrelated security fix), a partner-facing Configurator UI for buying a block (flagged as a real follow-on gap for B2B-03 to pick up, not built here without its own spec), and retroactive accounting for historical unmetered test usage (forward-only, matching F-01's own declined-backfill precedent). Zero open questions. Next: dispatch BA Agent for the Requirement Document.
+| B2B-06 | Partner provisioning | **CEO brief v3 done** — ready for BA dispatch | B2B-02 (done, schema dependency), two new migrations required (`clerk_org_id`, plus v3's new `partner_oauth_clients` table) | **v3, 2026-07-15 — same-day correction of a v2 document error on the auth mechanism, caught by the sibling B2B-07 CEO Agent.** v2 (below in this same cell's history) flipped Q1 to self-serve per Arun's direct override, but its own "Auth/integration setup" text still said OAuth2 Client Credentials was "explicitly named fast-follow, not v1/v2 scope," with the static API key as the actual in-scope v1 mechanism. That was wrong: `docs/brainstorm-partner-signup-integration.md` Decision #2 (same conversation, same day) records Arun's direct correction — *"We need this advanced login now itself. Let's not start with static API"* — meaning OAuth2 Client Credentials is the v1/day-one default, not a fast-follow. v2's document text was simply never updated to reflect the conversation that had already happened. **v3 corrects this, scoped narrowly to the auth-mechanism section only** (`.claude/agents/clio/feature-briefs/B2B-06-partner-provisioning.md`, now v3) — self-serve signup via Clerk Organizations, the outbound-config UI, the payment-guardrail scoping, and the internal-operator recovery routes are all unchanged from v2. New in v3: self-serve `client_id`/`client_secret` generation (reveal-once, same pattern as the outbound signing secret) as a partner's first credential; a new token endpoint `POST /api/partner/v1/oauth/token`, matching the existing `/api/partner/v1/*` flat-route convention and mirroring the exact shape Clio's own upstream vendor already uses for this grant type (Hume's live `oauth2-cc/token` endpoint, `app/api/hume-token/route.ts:18-25`); `requirePartnerApiKey()` (or its replacement) extended to accept a short-lived OAuth2 token alongside the existing static key, with zero changes to the `sessions`/`usage`/`wallet` route call sites themselves; a new table, `partner_oauth_clients` (not an extension of `partner_api_keys` — `client_id` is a standalone identifier, not a truncated-prefix-of-a-secret like `key_prefix`, so overloading one table would produce a confusing 2x2 state matrix for no reuse benefit). **Decision on the static key, made explicitly rather than left ambiguous**: preserved, not deleted, per the standing "no delete without approval" rule and because `partner_api_keys`/`requirePartnerApiKey()`/every `/api/partner/v1/*` route already depend on it correctly — but demoted to secondary, reachable only via the existing internal-operator route (`POST /api/admin/partner-keys`) for SPOC support/recovery, no longer the self-serve partner's default or first-generated credential. The v2-scoped self-serve static-key-generation Configurator call site is replaced by the OAuth2 client-generation flow instead. Everything else — Q1-Q4, the cost-exposure guardrail (now explicitly confirmed credential-form-agnostic), Identity Model, Known Constraints — carried forward unchanged and re-confirmed, not re-derived. New Q5 added, resolving the OAuth2/static-key scoping explicitly. Zero open questions. Next: dispatch BA Agent for the Requirement Document (now against v3). |
+| B2B-09 | Session delivery extraction fix + internal glitch dashboard | **CEO brief done, blocked on Arun** — not yet cleared for BA dispatch | B2B-02 (done, schema dependency) | **ID collision, resolved.** First written as `B2B-08`; the sibling testing/metering brief (row above) independently claimed the same ID ~3 seconds earlier, both on a simultaneous fresh read of this file that (correctly, at the time) showed no `B2B-08` anywhere. Renamed to `B2B-09` per this brief's own stated tie-break rule ("whichever was written second renumbers") — `B2B-08` is the testing/metering brief, full stop. CEO brief (`.claude/agents/clio/feature-briefs/B2B-09-session-delivery-glitch-dashboard.md`), grounded in `docs/brainstorm-partner-signup-integration.md` Decisions 5–6, `docs/reference-vendor-api-integrations.md` §6–§8 (the exact `file:line`-cited technical gap analysis this brief executes on), `inngest/hume-action-item-extractor.ts`, migration `073`, `lib/partner/webhooks.ts`, `app/api/webhooks/hume/route.ts`, and `app/dashboard/admin/clients` as the admin-page precedent. Confirmed by direct code read, not the reference doc alone: extraction is fully dead for partner sessions (`partner_sessions` has no `hume_chat_id` column, `session_action_items` is hard-FK'd to `sessions(id)`, and `hume_native_config_archives.session_id` is *also* hard-FK'd to `sessions(id)` — a structural finding the reference doc didn't cover, ruling out any archive-first path for partner sessions); the chat_id needed to fix it is already being received and discarded client-side (`PartnerRenderClient.tsx`'s `onConnect` handler ignores the argument `lib/voice/hume-adapter.ts:154` already passes it). Design direction: reuse the two genuinely shared primitives (`formatTranscriptLines()`, `callClaudeForExtraction()`, both already exported), write a new partner-specific orchestration function against a new `partner_session_insights` table rather than forcing `extractActionItemsForSession()`/`getHumeSessionDetails()`/`session_action_items` to serve two structurally incompatible tables; export the currently-private `fetchAllTranscriptEvents()` helper rather than duplicating Hume's Chat History pagination a third time. New `session.insights_ready` webhook event, one Anthropic call producing action items (full detail), glitches (full detail), and psychology (keywords only, the one exception) per Arun's exact spec. Internal dashboard recommended as a simple sortable/filterable table plus one aggregate summary view (`/dashboard/admin/glitches`, following the `/dashboard/admin/clients` precedent) — not AI-assisted clustering, since no precedent for this kind of internal analytics screen exists yet to build clustering against. **Genuine escalation, not a delay tactic — one open question blocks BA dispatch**: full-detail action items/glitches are session content, and reliable webhook delivery (retry-with-backoff, matching every other event type) requires persisting that payload somewhere until delivered — but `CORE_OBJECTIVES.md`'s "Non-Negotiable Data Boundary" (approved 2 days ago as part of B2B-01) and B2B-02's own `webhook_dispatch_log` design comment (`migrations/071:246-251`, "NEVER logged to this or any table") both restrict exactly this. Three options laid out in the brief (bounded-retention persistence in a new table / fully ephemeral with no retry / persist indefinitely) with Option A (bounded retention) recommended, but this revises the practical meaning of a data-governance statement Arun personally approved this week, for enterprise partners where this promise gets tested by a real security review — not a call the CEO will make unilaterally. Everything else in the brief (extraction mechanism, webhook payload shape, dashboard design) is fully specified and does not change shape under any of the three options. Next: **awaiting Arun's decision on the retention question** before BA dispatch — flagged directly per the CEO Agent's standing escalation instruction, not routed through the orchestrator relay. |
 
 ### Infra Migration to Mia Digital LLC (parallel track)
 
@@ -137,5 +142,233 @@ INFRA-* (Mia Digital LLC migration) — parallel, non-blocking, land before prod
   - **Admin-page navigation gap**: `/dashboard/admin/clients` (B2B-04) and `/dashboard/admin/templates` were confirmed disconnected islands — no shared admin layout/sidebar, no cross-links, reachable only by typing the exact URL, and not linked from `/dashboard` itself either. Added a minimal cross-link between the two pages' headers rather than building a full admin shell (out of scope for an overnight fix).
   - **Dormant middleware gap, fixed proactively**: `PartnerRenderClient.tsx`'s same-origin calls to `/api/hume-token` and `/api/partner/render/end-session` were missing from `middleware.ts`'s `TENANT_SCOPED_PATTERNS` — currently unreachable in production (partner-render URLs are always built from `NEXT_PUBLIC_APP_URL`, never a tenant host, per `app/api/partner/v1/sessions/route.ts`), but would silently break voice connection and end-of-session wallet accounting if that ever changes. Added both patterns before the gap could ever actually fire.
   - **Stale doc comment fixed**: `lib/partner/render-data.ts`'s module comment still said B2B-03 render-path wiring was "explicitly B2B-03's job" (i.e. not yet done) — it's been done since B2B-03 shipped (`lib/partner/live-render.ts` calls these functions directly). Comment updated to reflect reality.
+- **2026-07-15**: B2B-08 (Testing/Metering) CEO Feature Brief written
+  (`.claude/agents/clio/feature-briefs/B2B-08-testing-metering.md`), dispatched off the same
+  `docs/brainstorm-partner-signup-integration.md` session that produced B2B-06 v2 and B2B-07. ID
+  confirmed as the next free number (`B2B-07` already reserved for the developer portal per the
+  brainstorm doc's own "Brief breakdown" section). Grounded in Arun's own words ("We can give them
+  20 minutes of free bot usage for testing then they can pay for 2 hours every time to continue
+  testing" / "That cost is on us. We will send real bot.") plus a direct code read confirming
+  `dispatchMeetingBot()` does not branch on `test_mode` today — meaning a `test`-mode key dispatch
+  is *already* a real, unbounded, unmetered, real-cost Attendee+Hume bot with zero cap, independently
+  cross-confirmed by the B2B-07 row's own pre-condition note. This reframes the brief as bounding an
+  already-live gap, not building a mechanism from nothing. Resolved all 6 items the dispatching task
+  posed, each with the reasoning shown (not just an answer) so BA can verify the logic: lifetime
+  (not per-session) allowance tracking on a new `partner_wallets.trial_minutes_used` column; a real
+  server-side mid-session forced cutoff (new `inngest/partner-trial-cutoff.ts`, modeled on the
+  existing `session-timer.ts` precedent, calling Attendee's existing outbound `leave` endpoint) since
+  an end-of-session-only check cannot actually bound Clio's cost exposure; the 2-hour block funded via
+  a real $1.80 one-time Stripe charge into a **new, separate** `test_minutes_balance` counter rather
+  than the production `balance_usd` (two code-confirmed reasons: `applyWalletDecrement()` already
+  unconditionally skips `test_mode=true` events, and conflating test spend into `balance_usd` would
+  corrupt the admin page's real-revenue reporting); the $1.80 rate itself derived from the existing
+  seeded `voice_minute` COGS-placeholder rate (120 min × $0.0150/min), no new figure invented; a new,
+  purely-additive, Clio-internal-only `usage_events.is_metered_test_usage` flag added *alongside* the
+  unchanged `test_mode` flag, resolving the brief's own flagged tension that `test_mode`'s existing
+  "never billed, permanently" meaning cannot just be reused for usage that does eventually cost real
+  money; and confirmed orthogonal-by-activation-condition to B2B-06's live-mode-only funding
+  guardrail (this brief's gate fires only for `test`-mode keys), with one named non-required positive
+  interaction (`setup_future_usage: "off_session"` on the block-purchase Checkout session means a
+  partner's first test-block purchase can incidentally satisfy B2B-06's payment-method check for
+  their later live-mode usage). All schema changes additive; explicitly excludes the separate
+  Attendee inbound-webhook signature bug, a partner-facing purchase UI (flagged as a real B2B-03
+  follow-on gap, not built here), and retroactive billing for historical unmetered test usage
+  (forward-only, matching F-01's own declined-backfill precedent). Zero open questions. Does not
+  block on B2B-06 landing first. Next: dispatch BA Agent for the Requirement Document.
   - **Confirmed, not fixed (by design or out of scope for tonight)**: `/dashboard/configurator/wizard` is reachable only via the automatic onboarding-gate redirect or a direct URL, never a hub menu item — this is intentional (it's a gate, not a hub destination) but means there's no "resume setup" affordance if a partner-admin navigates away mid-wizard; `/api/admin/billing/invoice` (enterprise) has no UI trigger anywhere, confirmed intentional/ops-only per its own code comment; `app/dashboard/messages/MessagesComingSoon.tsx` is dead/orphaned code (the real `MessagesClient` is what actually renders) — left in place, flagged for a future cleanup pass rather than deleted without being asked.
   - **The most significant finding — confirmed with full certainty, not new tonight but re-verified exhaustively**: there is no code path anywhere (`grep`-confirmed across every `.insert()` call in `app/`, `lib/`, `inngest/`, every migration, every seed script) that creates a new `partner_accounts` or `partner_admin_users` row. Every partner-lifecycle feature built across B2B-02 through B2B-05 assumes the account already exists. This is being driven as its own Feature Brief — see the new B2B-06 row below.
+- **2026-07-13 (overnight, continued)**: CEO Feature Brief written for the B2B-06 gap
+  (`.claude/agents/clio/feature-briefs/B2B-06-partner-provisioning.md`), grounded in a full read of
+  migration `071`'s live schema (both tables' exact NOT NULL/CHECK constraints), `lib/partner/wizard.ts`,
+  `lib/partner/webhooks.ts` and migration `075`'s `credit_wallet_balance`/`decrement_wallet_balance`
+  SQL functions, `middleware.ts`, `app/api/webhooks/clerk/route.ts`, and
+  `docs/specs/B2B-05-requirement-document.md` §13. Scoped narrower than the gap first appeared: both
+  `partner_wallets` and `partner_onboarding_progress` already self-provision (confirmed in code, not
+  assumed) the moment an account exists, and `POST /api/admin/partner-keys` already works once a
+  `partner_admin_users` row exists — so the brief is two new routes (create account, link an existing
+  Clerk user as admin by email) plus a list route, no migration. Four audit questions resolved directly
+  by CEO rather than escalated, each grounded in an already-approved precedent from a prior brief
+  (B2B-04's enterprise-negotiated-not-self-serve provisioning model; B2B-04's own wallet lazy-create
+  mechanism; the `partner-keys`/`outbound-config` "API-only, no UI" precedent) — full reasoning in the
+  brief. One item flagged prominently rather than silently decided: internal-operator-only provisioning
+  (not public self-serve signup) is the call closest to a genuine product-shape decision in this brief;
+  proceeding on it per Arun's standing overnight authorization, not blocking, but surfacing for him to
+  confirm or override in the morning. Also flagged, not touched: `app/api/webhooks/clerk/route.ts` is
+  pure B2C-era `user.created` handling (retired `users` table, B2C welcome email, abandoned-onboarding
+  timer) that still fires on every new Clerk sign-up — reusing it for partner-admin linking would
+  conflate identity models; left as a separate cleanup candidate rather than folded into this brief.
+  Zero open questions blocking BA dispatch. Next: dispatch BA Agent for the Requirement Document.
+- **2026-07-15: B2B-06 revised to v2 — Arun overrode v1's Q1 directly, in his own words.** v1 (above)
+  flagged internal-operator-only provisioning as "the one call in this brief closest to a genuine
+  product-shape decision... flagging it prominently for Arun to confirm or override." Arun responded
+  directly: *"someone from customer side will signup (capgemini or pluralsight)... our role will be to
+  help them if they face any issues in signup or integration... those are sensitive and we should not
+  see it hence it has to be self serve."* This is a direct override, not a refinement — v1's own
+  supporting evidence for internal-operator-only was "Pluralsight and Capgemini are realistically
+  negotiated deals, not self-serve"; Arun names those exact two companies as the self-serve example,
+  meaning v1's central piece of reasoning was read backwards, not merely under-confirmed. CEO revised
+  the brief same-day (`.claude/agents/clio/feature-briefs/B2B-06-partner-provisioning.md`, now v2)
+  rather than writing a new brief, per the "revise in place, don't fork" instruction. Changes, each
+  re-verified against live code today rather than carried over from v1's assumptions: **Q1** flips to
+  self-serve via Clerk Organizations (confirmed genuinely new integration surface — `grep` across
+  `lib/`/`app/` for any Organizations-API usage found only plain `clerkClient().users.*` calls, never
+  `organizationMembership`/`Organizations`); **Q4** flips from "API-only, no UI" to three real UI
+  surfaces — a minimal branded wrapper around Clerk's own prebuilt `<SignUp/>`/`<CreateOrganization/>`
+  components (deliberately not a full designed marketing page, since the pivot's design system remains
+  undefined and inventing one would violate the "flag as blocker, don't invent a visual direction"
+  rule), a Configurator call site letting a partner self-generate their first API key (no new backend
+  route needed — `POST /api/admin/partner-keys` already accepts any caller with a `partner_admin_users`
+  row, confirmed today, not just Clio staff — the gap was UI-only), and a new self-serve outbound-config
+  screen (reveal-once signing secret, Stripe's own webhook-secret UX pattern, plus a "Test connection"
+  button) — folded into B2B-06 itself rather than a fast-follow, because it's the direct, load-bearing
+  answer to Arun's stated reason self-serve is required at all ("those are sensitive and we should not
+  see it"); **schema claim corrected** — v1 said "no migration needed," which was true only for v1's
+  scope; v2 needs one new column, `partner_accounts.clerk_org_id TEXT UNIQUE`, to key a self-serve
+  signup's Clerk Organization to its `partner_accounts` row. **New finding that surfaced only while
+  re-verifying for this revision, not previously flagged**: read `docs/specs/B2B-04-requirement-document.md`
+  §9 and `app/api/partner/v1/sessions/route.ts` directly (per the orchestrator's explicit instruction not
+  to assume) — confirmed there is no funding/payment-method check anywhere in the real-session-dispatch
+  path; §9 deliberately left this unblocked at the time, relying solely on manual
+  `partner_accounts.status='suspended'` as mitigation, which was a reasonable gap only because every
+  account used to be internal-operator-vetted before it could exist at all. Self-serve removes that
+  vetting step, so v2 adds a small, explicitly-scoped cost-exposure guardrail: gates only
+  fund-requiring (non-test-mode) session dispatch, never signup, never test-mode API/Configurator access
+  — reuses the already-existing `partner_wallets.stripe_default_payment_method_id` field (already
+  computed today for the `/dashboard/admin/clients` "payment method on file" column, confirmed via
+  `app/api/admin/billing/clients/route.ts`) and the existing `account_suspended` error-envelope pattern
+  already in `requirePartnerApiKey()` — no new schema, implementation lands in B2B-02/04-owned files
+  (`lib/partner/auth.ts`, the sessions route) as a small named addition, not a rewrite. v1's two
+  internal-operator routes (create/link/list) are preserved, not deleted, reframed as a SPOC
+  manual-recovery fallback for exactly the support scenario Arun named today, per the "no delete without
+  approval" standing rule. OAuth2 Client Credentials (Arun's "if they want to use JWT") named explicitly
+  as a fast-follow — real, worth building, not required for v2 to be complete or safe to ship, not
+  silently dropped. Q2 reframed (Clerk identity is now synchronous with account creation, unlike v1;
+  `archetype` no longer required at signup, defaults `unspecified`, settable later from the admin table)
+  and Q3 (wallet stays untouched, still lazy-creates) carried forward unchanged and re-confirmed rather
+  than re-derived. Zero open questions blocking BA dispatch. Next: dispatch BA Agent for the Requirement
+  Document — against v2, not v1.
+- **2026-07-15**: CEO Feature Brief written for B2B-07 — Developer Portal (docs + playground), items 5
+  and 6 of Arun's original 8-point vision, confirmed not built. See the B2B-07 row above for full
+  detail. Headline finding: a same-day contradiction between `docs/brainstorm-partner-signup-integration.md`
+  (Arun's direct instruction that OAuth2 Client Credentials is the day-one default auth mechanism —
+  "We need this advanced login now itself. Let's not start with static API") and
+  `B2B-06-partner-provisioning.md` v2's own written text (which still frames OAuth2 as an unscoped
+  fast-follow, with the static API key as v2's actual in-scope mechanism). Both documents are dated
+  2026-07-15; read together, the brainstorm conversation's decision was never written back into B2B-06
+  v2's text, making v2 stale on this one specific point despite the shared date. Resolved by grounding
+  in Arun's more recent, more explicit verbatim instruction rather than guessing or silently picking
+  one — **B2B-06 needs a v3 revision (or a dedicated follow-on brief) to actually build the OAuth2
+  client_id/secret + token endpoint mechanism**, named as a recommended near-term action, not resolved
+  inside B2B-07 itself (issuing credentials is B2B-06's job). B2B-07 is scoped so it is not fully
+  blocked in the meantime: the Documentation screen's non-auth content and the Playground's read-only
+  usage/wallet flows can ship ahead of B2B-06 v3; only the sessions-endpoint Playground flow and the
+  OAuth2-specific auth documentation are phased behind it. Also flagged as a hard pre-condition on the
+  Playground's sessions-endpoint "Send" button specifically (not usage/wallet, which are pure reads):
+  `dispatchMeetingBot()` (`lib/partner/session-init.ts`) does not currently branch on `test_mode`
+  before calling Attendee, so a real Google Meet URL pasted into the Playground today would dispatch a
+  real, billable bot — this is the same gap already named as an open item in the brainstorm doc, not
+  new, but B2B-07 makes it an explicit, named launch blocker for that one flow rather than an implicit
+  risk. Domain-config endpoints (`/api/admin/configurator/domain*`) verified via direct code read to be
+  Clerk-session-gated (`requirePartnerAdmin()`), not part of the partner-API-key-authenticated surface
+  — correctly excluded from the Documentation screen. No new npm dependency justified for either the
+  JSON-body editor (plain `<textarea>`) or an OpenAPI-spec renderer (hand-rolled endpoint cards reusing
+  the existing Configurator design system instead) — both would be unjustified additions for a
+  4-endpoint surface. Zero open questions blocking BA dispatch, with the one named phasing dependency
+  the BA should sequence around. Next: dispatch BA Agent for the Requirement Document.
+- **2026-07-15 (later still)**: CEO Feature Brief written for the extraction-fix + internal glitch
+  dashboard gap (Decisions 5–6 of `docs/brainstorm-partner-signup-integration.md`). **ID collision
+  confirmed and resolved**: written first as `B2B-08` on a fresh read of this file and the
+  feature-briefs directory showing no `B2B-08` anywhere; the sibling testing/metering brief (dispatched
+  in parallel, by design) independently claimed the same ID roughly 3 seconds earlier. Per this brief's
+  own stated tie-break rule, renamed to `B2B-09`
+  (`.claude/agents/clio/feature-briefs/B2B-09-session-delivery-glitch-dashboard.md`) — `B2B-08` stays
+  the testing/metering brief. Grounded in `docs/reference-vendor-api-integrations.md` §6–§8's exact
+  `file:line` citations plus additional direct verification this brief performed itself: confirmed
+  `hume_native_config_archives.session_id` is *also* hard-FK'd to `sessions(id)` (not covered by the
+  reference doc), ruling out any archive-first transcript path for partner sessions — every partner
+  extraction will always live-fetch from Hume directly. Confirmed `PartnerRenderClient.tsx`'s `onConnect`
+  handler already receives the real Hume chat_id and discards it — the exact same signal
+  `WalkthroughClient.tsx` already captures for Clio's own direct sessions via a proven, existing route
+  pattern. Design direction: reuse `formatTranscriptLines()`/`callClaudeForExtraction()` (already
+  exported, table-agnostic) and export the currently-private `fetchAllTranscriptEvents()` helper; do
+  NOT generalize `extractActionItemsForSession()`/`getHumeSessionDetails()`/`session_action_items`
+  with a source-table branch — write a new, smaller partner-specific orchestration function and a new
+  `partner_session_insights` table instead, since the existing ones have real FK/Config-id structural
+  assumptions that don't hold for `partner_sessions`. New `session.insights_ready` webhook event; one
+  Anthropic call producing action items (full detail), glitches (full detail), psychology (keywords
+  only) per Arun's exact corrected spec. Internal glitch dashboard recommended as a simple
+  sortable/filterable table plus one aggregate summary view at `/dashboard/admin/glitches` (following
+  the `/dashboard/admin/clients` Clerk-gated-any-signed-in-user precedent), not AI-assisted clustering,
+  since no precedent exists yet for this kind of internal analytics screen to build clustering against.
+  **Not cleared for BA dispatch — one genuine data-governance escalation, flagged directly to Arun, not
+  resolved by the CEO unilaterally**: reliable webhook delivery (retry-with-backoff, matching every
+  other event type) requires durably persisting the full-detail action-items/glitches payload until
+  delivered, but `CORE_OBJECTIVES.md`'s Non-Negotiable Data Boundary (approved 2 days ago as part of
+  B2B-01) and B2B-02's own `webhook_dispatch_log` design comment ("NEVER logged to this or any table")
+  both restrict exactly this for session content. Three options written up in the brief (bounded-retention
+  persistence in a new table / fully ephemeral with no retry / persist indefinitely), Option A
+  (bounded retention, ~30-day purge window on full-detail fields, glitch type/partner/date retained
+  longer for the dashboard) recommended but not decided — this revises the practical meaning of a
+  data-governance statement Arun personally approved this week, for enterprise partners (Capgemini-scale)
+  where the promise gets tested by a real security review. Everything else in the brief is fully
+  specified and does not change shape under any of the three options.
+- **2026-07-15: B2B-06 revised to v3 — same-day correction of a v2 document error on the auth mechanism.**
+  The sibling CEO Agent working B2B-07 (row above) caught it while grounding that brief: v2's own
+  "Auth/integration setup" text said OAuth2 Client Credentials was "explicitly named fast-follow, not
+  v1/v2 scope," with the static API key as the actual in-scope v1 mechanism — but
+  `docs/brainstorm-partner-signup-integration.md` Decision #2, captured in the same conversation, same
+  day, records Arun's direct correction: *"We need this advanced login now itself. Let's not start with
+  static API."* v2's document text was never updated to reflect that the conversation had already
+  happened — a document error, not a new interpretation, and not a case of two conflicting instructions
+  from Arun. v3 (`.claude/agents/clio/feature-briefs/B2B-06-partner-provisioning.md`) corrects this,
+  scoped narrowly to the auth-mechanism section only — self-serve signup via Clerk Organizations, the
+  outbound-config UI, the payment-guardrail scoping, and the internal-operator recovery routes are all
+  unchanged from v2, re-confirmed not re-derived. OAuth2 Client Credentials is now scoped as the v1/
+  day-one default: self-serve `client_id`/`client_secret` generation (reveal-once, same UX pattern as the
+  outbound signing secret) as a partner's first credential; new token endpoint
+  `POST /api/partner/v1/oauth/token` (matches the existing `/api/partner/v1/*` route convention, mirrors
+  the exact shape Clio's own upstream voice vendor already uses for this grant type — Hume's live
+  `oauth2-cc/token` endpoint, `app/api/hume-token/route.ts:18-25`); `requirePartnerApiKey()` (or its
+  replacement) extended to accept a short-lived OAuth2 token alongside the existing static key, with zero
+  changes needed to the `sessions`/`usage`/`wallet` route call sites; one new table,
+  `partner_oauth_clients` — deliberately not an extension of `partner_api_keys`, since `client_id` is a
+  standalone identifier (not a truncated prefix of a secret, unlike `key_prefix`) and overloading one
+  table with both shapes plus a second orthogonal `credential_type` dimension on top of the existing
+  `mode` enum would produce a confusing 2x2 state matrix for no real reuse benefit. **Static-key decision,
+  made explicitly rather than left implicit**: preserved, not deleted, per the standing "no delete without
+  approval" rule and because `partner_api_keys`/`requirePartnerApiKey()`/every existing
+  `/api/partner/v1/*` route already depend on it and already work correctly — demoted to secondary,
+  reachable only through the unchanged internal-operator route (`POST /api/admin/partner-keys`) for SPOC
+  support/recovery, no longer the self-serve partner's default or first-generated credential. v2's planned
+  self-serve static-key-generation Configurator call site is not built in v3; the OAuth2 client-generation
+  flow replaces it. New Q5 added to Questions for BA, resolving the OAuth2/static-key scoping explicitly;
+  Q1-Q4 unchanged and not reopened. Zero open questions. Next: dispatch BA Agent for the Requirement
+  Document (now against v3, not v2).
+
+## Backlog — deferred, not forgotten
+
+- **Attendee webhook signature hard-enforcement.** `app/api/attendee/webhook/route.ts` was found (2026-07-14/15
+  overnight audit) with signature verification computed but never enforced — any POST claiming to be from
+  Attendee was accepted. Fixed 2026-07-15 with Attendee's real documented signing algorithm (canonical-JSON
+  HMAC-SHA256, per `https://attendee.dev/blog/webhooks-implementation-guide`), but deployed in **soft-verify
+  mode**: mismatches are logged loudly but the event still processes, since the new algorithm has never been
+  confirmed against real Attendee traffic (none in the observable log window). Arun's instruction: sort this
+  out separately later, don't let it block the reuse work below. **Next step when picked up**: watch Vercel
+  logs for `[attendee/webhook] sig_match:` on the next real session, confirm `true`, then flip the `if
+  (!match)` branch to `return 401` instead of falling through.
+
+- **Reconstruct lost B2B-06/07/08/09 governance documents.** A concurrent-agent `git stash` collision
+  during the parallel B2B-06/07/08/09 build spree (2026-07-15) wiped, and nobody caught: all 4 CEO
+  Feature Brief files (`.claude/agents/clio/feature-briefs/B2B-0[6-9]-*.md`), and 3 of 4 Requirement
+  Documents (`docs/specs/B2B-07-requirement-document.md`, `B2B-08-requirement-document.md`,
+  `B2B-09-requirement-document.md` — B2B-06's survived because it happened to be recreated by its own
+  build agent minutes before the loss was discovered). **Not lost**: `architecture.md` §§15-18 (the
+  full technical spec for all four briefs, fully intact), both migration files (077, 078 — reconstructed
+  2026-07-15 from the exact SQL used in their original `apply_migration` calls, verified against the
+  live Supabase migration list), and all shipped application code (verified via `tsc`/test suite before
+  and after reconstruction). Arun's decision (2026-07-15): commit the code now (Option A), reconstruct
+  the missing governance docs as a follow-up, not blocking. **When picked up**: `architecture.md` §§15-18
+  has the full technical detail to reconstruct the Requirement Documents' "how"; the CEO Feature Briefs'
+  "why" (user stories, original scoping reasoning, resolved escalations) needs to be rebuilt from this
+  file's own Changelog entries for B2B-06 through B2B-09 plus Orchestrator memory of the review cycles —
+  both are still available, this doesn't need re-deriving from scratch.

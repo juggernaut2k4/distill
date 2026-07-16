@@ -30,6 +30,13 @@ import { templateFixGenerator } from '@/inngest/template-fix-generator'
 import { humeActionItemExtractor, humeActionItemBackstopSweep } from '@/inngest/hume-action-item-extractor'
 import { partnerWebhookDispatcher } from '@/inngest/partner-webhook-dispatcher'
 import { partnerContentGeneration, partnerContentCleanup } from '@/inngest/partner-content-generation'
+import { partnerTrialCutoffJob } from '@/inngest/partner-trial-cutoff'
+import {
+  partnerSessionInsightsExtractor,
+  partnerSessionInsightsBackstopSweep,
+  partnerSessionInsightsPurge,
+} from '@/inngest/partner-session-insights-extractor'
+import { partnerSignupReminder } from '@/inngest/partner-signup-reminder'
 
 /**
  * POST /api/inngest
@@ -38,5 +45,5 @@ import { partnerContentGeneration, partnerContentCleanup } from '@/inngest/partn
  */
 export const { GET, POST, PUT } = serve({
   client: inngest,
-  functions: [dailyDelivery, weeklyDigest, feedbackProcessor, sessionReminder, sessionMeetingSetup, sessionPlanGenerator, sessionAgendaEmail, trialExpiryJob, sessionContentPipeline, sessionContentCron, updateLearningProfile, catalogRefresh, curriculumQueueRegenerate, curriculumRecommendationAccepted, curriculumQueueCron, curriculumGenerator, sessionDesignerAuto, sessionQualityEvaluator, scheduleSetupNudge, analyzeIceBreakerResponse, adaptPlan, abandonedOnboardingCleanup, sessionTimerJob, voiceGapWatchdog, humeNativeNightlyCleanup, rtv03AccuracyEvaluator, templateFixGenerator, humeActionItemExtractor, humeActionItemBackstopSweep, partnerWebhookDispatcher, partnerContentGeneration, partnerContentCleanup],
+  functions: [dailyDelivery, weeklyDigest, feedbackProcessor, sessionReminder, sessionMeetingSetup, sessionPlanGenerator, sessionAgendaEmail, trialExpiryJob, sessionContentPipeline, sessionContentCron, updateLearningProfile, catalogRefresh, curriculumQueueRegenerate, curriculumRecommendationAccepted, curriculumQueueCron, curriculumGenerator, sessionDesignerAuto, sessionQualityEvaluator, scheduleSetupNudge, analyzeIceBreakerResponse, adaptPlan, abandonedOnboardingCleanup, sessionTimerJob, voiceGapWatchdog, humeNativeNightlyCleanup, rtv03AccuracyEvaluator, templateFixGenerator, humeActionItemExtractor, humeActionItemBackstopSweep, partnerWebhookDispatcher, partnerContentGeneration, partnerContentCleanup, partnerTrialCutoffJob, partnerSessionInsightsExtractor, partnerSessionInsightsBackstopSweep, partnerSessionInsightsPurge, partnerSignupReminder],
 })

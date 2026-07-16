@@ -222,6 +222,62 @@ export async function createEnterpriseInvoice(
   return { invoiceId: finalized.id, hostedInvoiceUrl: finalized.hosted_invoice_url ?? null }
 }
 
+// ─── B2B-08 — Testing / Metering (architecture.md §15.3) ─────────────────────
+
+/**
+ * Purchases one fixed 120-minute test block — Stripe Checkout, `mode:
+ * "payment"`, one ad-hoc fixed line item ($1.80, no Stripe Price object,
+ * nothing partner-configurable). `setup_future_usage: "off_session"` is the
+ * one deliberate difference from `createWalletTopupCheckoutSession` — it
+ * instructs Stripe to save the payment method for reuse (Requirement
+ * Document, Interaction with B2B-06). `customer_creation: "always"` (reused,
+ * unchanged) guarantees a `session.customer` is always present for the
+ * webhook handler to persist.
+ * @param partnerAccountId - partner_accounts.id (stored in Checkout Session metadata)
+ * @param successUrl - optional override for the post-payment redirect
+ * @param cancelUrl - optional override for the cancel redirect
+ * @returns Stripe Checkout URL
+ */
+export async function createTestBlockCheckoutSession(
+  partnerAccountId: string,
+  successUrl?: string,
+  cancelUrl?: string
+): Promise<string> {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
+  const resolvedSuccess = successUrl ?? `${appUrl}/dashboard/admin/clients?test_block=success`
+  const resolvedCancel = cancelUrl ?? `${appUrl}/dashboard/admin/clients?test_block=cancelled`
+
+  if (isPlaceholder || !stripeClient) {
+    console.log('[MOCK] createTestBlockCheckoutSession', { partnerAccountId })
+    return `${appUrl}/dashboard?mock_test_block=1&partner_account_id=${partnerAccountId}`
+  }
+
+  const session = await stripeClient.checkout.sessions.create({
+    mode: 'payment',
+    payment_method_types: ['card'],
+    customer_creation: 'always',
+    payment_intent_data: { setup_future_usage: 'off_session' },
+    line_items: [{
+      price_data: {
+        currency: 'usd',
+        product_data: { name: 'Clio 2-hour test block (120 minutes)' },
+        unit_amount: 180, // $1.80 fixed — 120 min x $0.0150/min seeded voice_minute platform-default
+                           // rate (billing_rate_versions, rate_basis='cogs_placeholder_2026_05_no_margin'),
+                           // zero margin. No Stripe Price object — quantity/price are both fixed, not
+                           // partner-supplied, so an ad-hoc line item is used exactly as
+                           // createWalletTopupCheckoutSession already does.
+      },
+      quantity: 1,
+    }],
+    metadata: { partner_account_id: partnerAccountId, purpose: 'test_block_purchase' },
+    success_url: resolvedSuccess,
+    cancel_url: resolvedCancel,
+  })
+
+  if (!session.url) throw new Error('Stripe did not return a checkout URL for the test-block session.')
+  return session.url
+}
+
 /**
  * Finds an existing `partner_wallets.stripe_customer_id` or creates one.
  * Requirement Doc Section 5.B.4's invoicing flow and the self-serve/

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createHmac } from 'crypto'
+import { createHmac, timingSafeEqual } from 'crypto'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { analyzeTranscription } from '@/lib/session-ai'
 import {
@@ -16,60 +16,76 @@ import { inngest } from '@/inngest/client'
  * (WalkthroughClient, quality-evaluator) is meeting-bot-provider-agnostic.
  *
  * Always returns 200. Attendee.dev retries on non-2xx.
+ *
+ * VERIFICATION ROLLOUT STATUS (2026-07-15): soft-verify mode. The signature
+ * check below is Attendee's own documented algorithm (not a guess — see
+ * sortKeys()'s comment), but has never been confirmed against a real
+ * Attendee-signed request (no traffic in the observable log window). A
+ * mismatch is logged loudly but the event still processes, so a subtle bug
+ * in the canonical-JSON reconstruction can't silently break real sessions.
+ * TODO: once a real webhook fires and `sig_match: true` is confirmed in
+ * Vercel logs, flip the `if (!match)` branch below to `return 401` instead
+ * of falling through — that closes the actual security hole this replaces.
  */
+
+// Recursively sorts object keys so JSON.stringify produces the exact
+// canonical form Attendee signs against — https://attendee.dev/blog/webhooks-implementation-guide
+// (HMAC-SHA256 of JSON.stringify(sortKeys(payload)), base64-decoded secret,
+// base64-encoded digest, sent in the X-Webhook-Signature header). Verified
+// against Attendee's own published Node.js reference implementation, not
+// guessed — the previous 4-strategy diagnostic mode never matched because it
+// HMAC'd the raw body instead of this canonical reconstruction.
+function sortKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortKeys)
+  if (value && typeof value === 'object') {
+    return Object.keys(value as Record<string, unknown>)
+      .sort()
+      .reduce((acc: Record<string, unknown>, k) => {
+        acc[k] = sortKeys((value as Record<string, unknown>)[k])
+        return acc
+      }, {})
+  }
+  return value
+}
+
+function verifyAttendeeSignature(payload: unknown, signatureHeader: string, secretB64: string): boolean {
+  const canonical = JSON.stringify(sortKeys(payload))
+  const secretBuf = Buffer.from(secretB64, 'base64')
+  const expected = createHmac('sha256', secretBuf).update(canonical, 'utf8').digest('base64')
+
+  const expectedBuf = Buffer.from(expected, 'utf8')
+  const providedBuf = Buffer.from(signatureHeader, 'utf8')
+  if (expectedBuf.length !== providedBuf.length) return false
+  return timingSafeEqual(expectedBuf, providedBuf)
+}
+
 export async function POST(request: NextRequest) {
   const rawBody = await request.text()
 
-  // Signature verification — diagnostic mode
-  // Testing two strategies to identify Attendee.dev's actual signing algorithm.
-  // Previous implementation (canonical JSON + base64-decoded key) never matched.
-  const secret = process.env.ATTENDEE_WEBHOOK_SECRET
-  if (secret && !secret.startsWith('PLACEHOLDER')) {
-    const sig = request.headers.get('x-webhook-signature') ??
-                request.headers.get('x-signature') ??
-                request.headers.get('x-hub-signature-256') ?? ''
-
-    // Log all header names to help identify the correct signature header
-    const headerNames = Array.from(request.headers.keys()).join(', ')
-
-    const keyBytes = Buffer.from(secret, 'base64')
-    // A: raw secret → base64
-    const stratA = createHmac('sha256', secret).update(rawBody).digest('base64')
-    // B: base64-decoded secret → base64
-    const stratB = createHmac('sha256', keyBytes).update(rawBody).digest('base64')
-    // C: raw secret → hex
-    const stratC = createHmac('sha256', secret).update(rawBody).digest('hex')
-    // D: base64-decoded secret → hex
-    const stratD = createHmac('sha256', keyBytes).update(rawBody).digest('hex')
-
-    // Some providers prefix the signature with the algorithm name
-    const sigNoPrefix = sig.replace(/^sha256=/, '').replace(/^v1,/, '')
-
-    const match =
-      sig === stratA           ? 'A_base64' :
-      sig === stratB           ? 'B_base64_decoded_key' :
-      sig === stratC           ? 'C_hex' :
-      sig === stratD           ? 'D_hex_decoded_key' :
-      sigNoPrefix === stratA   ? 'A_prefixed' :
-      sigNoPrefix === stratB   ? 'B_prefixed' :
-      sigNoPrefix === stratC   ? 'C_prefixed' :
-      sigNoPrefix === stratD   ? 'D_prefixed' :
-      'NONE'
-
-    console.log('[attendee/webhook] sig_check', { match, sig: sig.slice(0, 20), headers: headerNames })
-
-    if (match === 'NONE') {
-      console.warn('[attendee/webhook] No strategy matched — passing through for diagnosis')
-    }
-  }
-
-  let event: AttendeeWebhookEvent
+  let parsedBody: unknown
   try {
-    event = JSON.parse(rawBody) as AttendeeWebhookEvent
+    parsedBody = JSON.parse(rawBody)
   } catch {
     return NextResponse.json({ ok: true })
   }
 
+  const secret = process.env.ATTENDEE_WEBHOOK_SECRET
+  const isPlaceholder = !secret || secret.startsWith('PLACEHOLDER')
+
+  if (!isPlaceholder) {
+    const signatureHeader = request.headers.get('x-webhook-signature') ?? ''
+    const match = !!signatureHeader && verifyAttendeeSignature(parsedBody, signatureHeader, secret)
+    // Loud, greppable, one-line log so a real event's verification result is
+    // unambiguous in Vercel logs — see the rollout-status comment above.
+    console.log('[attendee/webhook] sig_match:', match, '| trigger:', (parsedBody as { trigger?: string })?.trigger)
+    if (!match) {
+      console.warn('[attendee/webhook] Signature did not verify — soft-verify mode, processing anyway. Investigate before flipping to hard-reject.')
+    }
+  } else {
+    console.log('[attendee/webhook] MOCK — ATTENDEE_WEBHOOK_SECRET unset, signature check skipped')
+  }
+
+  const event = parsedBody as AttendeeWebhookEvent
   console.log('[attendee/webhook] event:', event.trigger, '| bot_id:', event.bot_id)
 
   await handleEvent(event).catch((err) =>

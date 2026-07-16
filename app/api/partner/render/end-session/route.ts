@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'not_found' }, { status: 404 })
   }
 
-  await handleSessionEnd(session.id, session.partnerAccountId, parsed.data.duration_minutes)
+  await handleSessionEnd(session.id, session.partnerAccountId, parsed.data.duration_minutes, session.testMode)
 
   return NextResponse.json({ ok: true })
 }

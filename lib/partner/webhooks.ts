@@ -26,7 +26,11 @@ import { buildSignatureHeader, CLIO_SIGNATURE_HEADER } from './webhook-signature
  * will emit into.
  */
 
-export type BillableEventType = 'usage.voice_minute' | 'usage.llm_generation_call' | 'session.completed'
+export type BillableEventType =
+  | 'usage.voice_minute'
+  | 'usage.llm_generation_call'
+  | 'session.completed'
+  | 'session.insights_ready' // B2B-09 — not billable; reuses this union purely for webhook_dispatch_log typing, same as the existing non-billable 'session.completed'
 
 export interface WebhookPayload {
   event_id: string
@@ -46,6 +50,12 @@ export interface WebhookPayload {
    * 7.3; this is the one deliberate, documented addition.
    */
   test_mode: boolean
+  // B2B-09 — additive. null/absent on every event type except
+  // 'session.insights_ready'. architecture.md §16.7.
+  extraction_status?: 'success' | 'success_empty' | 'failed' | null
+  action_items?: { text: string }[] | null
+  glitches?: { type: string; description?: string }[] | null
+  psychology_keywords?: string[] | null
 }
 
 /** Deterministic subset used for the idempotency index — excludes event_id/dispatched_at, which vary per attempt. */
@@ -71,6 +81,13 @@ export interface RecordBillableEventParams {
   generationType?: 'topic' | 'content' | 'prerequisite' | 'skeleton' | 'discovery' | 'sample_fill' | 'new_template' | null
   occurredAt?: string
   testMode?: boolean
+  /**
+   * B2B-08 — additive, Clio-internal-only cost-visibility signal, orthogonal
+   * to `testMode` (unchanged meaning: never billed to the partner). True for
+   * usage_events rows produced by the trial/test-block metering mechanism
+   * (architecture.md Section 15). Never read by any partner-facing response.
+   */
+  isMeteredTestUsage?: boolean
 }
 
 /**
@@ -177,6 +194,7 @@ export async function recordBillableEvent(
             partner_reference: params.partnerReference ?? null,
             webhook_dispatch_log_id: inserted.id,
             test_mode: params.testMode ?? false,
+            is_metered_test_usage: params.isMeteredTestUsage ?? false,
             occurred_at: occurredAt,
           })
           .select('id')
@@ -486,6 +504,92 @@ async function getPartnerAdminEmails(partnerAccountId: string): Promise<string[]
   return emails
 }
 
+// ─── B2B-09 — session.insights_ready reference-event recording ────────────────
+// architecture.md §16.7.
+
+/**
+ * B2B-09 — inserts a REFERENCE-ONLY webhook_dispatch_log row for
+ * session.insights_ready. Deliberately does NOT include
+ * action_items/glitches/psychology_keywords in the stored payload — that
+ * content is reconstructed live from partner_session_insights at each
+ * delivery attempt (attemptDispatch(), below), per the Requirement Doc
+ * Section 6 / Section 11 judgment call 2 (migration 071's own restriction on
+ * this column). Never routed through recordBillableEvent() — this is not a
+ * billable event and doesn't fit that function's usage_events/wallet-decrement
+ * branches.
+ *
+ * Called from both call sites in
+ * `inngest/partner-session-insights-extractor.ts`: the success path
+ * (`extractInsightsForPartnerSession()`, which reads `partner_sessions.test_mode`
+ * directly) and the failure path (`markInsightsExtractionFailed()`, which
+ * resolves it via a `partner_sessions!inner(test_mode)` FK embed on its own
+ * query, mirroring `fetchDueDispatches()`'s own `partner_accounts!inner(...)`
+ * embed pattern below) — both callers MUST thread the session's real
+ * `test_mode` value through `testMode`, never a hardcoded default (v1.1
+ * correction, Requirement Doc Section 6 / Acceptance Test 11).
+ */
+export async function recordInsightsReadyEvent(params: {
+  partnerSessionId: string
+  partnerAccountId: string
+  extractionStatus: 'success' | 'success_empty' | 'failed'
+  testMode: boolean
+}): Promise<void> {
+  const supabase = createSupabaseAdminClient()
+  const { data: account } = await supabase
+    .from('partner_accounts')
+    .select('id, outbound_signing_secret')
+    .eq('id', params.partnerAccountId)
+    .maybeSingle()
+  if (!account) return
+
+  const now = new Date().toISOString()
+  const referencePayload = {
+    event_id: crypto.randomUUID(),
+    event_type: 'session.insights_ready' as const,
+    clio_session_ref: params.partnerSessionId,
+    partner_reference: null,
+    occurred_at: now,
+    dispatched_at: now,
+    test_mode: params.testMode,
+    extraction_status: params.extractionStatus,
+    // action_items / glitches / psychology_keywords intentionally omitted — see function doc comment.
+  }
+  const payloadHash = crypto
+    .createHash('sha256')
+    .update(
+      canonicalHashInput({
+        event_type: 'session.insights_ready',
+        clio_session_ref: params.partnerSessionId,
+        partner_reference: null,
+        quantity: null,
+        unit: null,
+        generation_type: null,
+        occurred_at: now,
+      })
+    )
+    .digest('hex')
+  const signature = buildSignatureHeader(
+    (account.outbound_signing_secret as string | null) ?? 'unconfigured-partner-signing-secret',
+    JSON.stringify(referencePayload)
+  )
+
+  const { error } = await supabase.from('webhook_dispatch_log').upsert(
+    {
+      partner_account_id: params.partnerAccountId,
+      event_type: 'session.insights_ready',
+      clio_session_ref: params.partnerSessionId,
+      payload: referencePayload,
+      payload_hash: payloadHash,
+      signature,
+      delivery_status: 'pending',
+    },
+    { onConflict: 'partner_account_id,event_type,clio_session_ref,payload_hash', ignoreDuplicates: true }
+  )
+  if (error) {
+    console.error('[partner/webhooks] recordInsightsReadyEvent insert failed:', error.message)
+  }
+}
+
 // ─── Dispatch worker helpers (used by inngest/partner-webhook-dispatcher.ts) ──
 
 /** Backoff schedule per architecture.md Section 7.2: 1m, 5m, 30m, 2h, 6h — 5 attempts total. */
@@ -500,6 +604,11 @@ export interface DueDispatchRow {
   signature: string
   retry_count: number
   outbound_base_url: string | null
+  // B2B-09 — populated for every row (all event types); only read by
+  // attemptDispatch()'s 'session.insights_ready' branch, which must sign the
+  // live-reconstructed body fresh rather than reuse the stored `signature`
+  // column. architecture.md §16.7.
+  outbound_signing_secret: string | null
 }
 
 /** Fetches pending dispatch-log rows whose next retry is due (or that have never been attempted). */
@@ -509,7 +618,9 @@ export async function fetchDueDispatches(limit = 50): Promise<DueDispatchRow[]> 
 
   const { data, error } = await supabase
     .from('webhook_dispatch_log')
-    .select('id, partner_account_id, event_type, payload, signature, retry_count, partner_accounts!inner(outbound_base_url)')
+    .select(
+      'id, partner_account_id, event_type, payload, signature, retry_count, partner_accounts!inner(outbound_base_url, outbound_signing_secret)'
+    )
     .eq('delivery_status', 'pending')
     .or(`next_retry_at.is.null,next_retry_at.lte.${nowIso}`)
     .limit(limit)
@@ -520,7 +631,10 @@ export async function fetchDueDispatches(limit = 50): Promise<DueDispatchRow[]> 
   }
 
   return (data ?? []).map((row) => {
-    const partnerAccount = row.partner_accounts as unknown as { outbound_base_url: string | null } | null
+    const partnerAccount = row.partner_accounts as unknown as {
+      outbound_base_url: string | null
+      outbound_signing_secret: string | null
+    } | null
     return {
       id: row.id as string,
       partner_account_id: row.partner_account_id as string,
@@ -529,6 +643,7 @@ export async function fetchDueDispatches(limit = 50): Promise<DueDispatchRow[]> 
       signature: row.signature as string,
       retry_count: row.retry_count as number,
       outbound_base_url: partnerAccount?.outbound_base_url ?? null,
+      outbound_signing_secret: partnerAccount?.outbound_signing_secret ?? null,
     }
   })
 }
@@ -551,7 +666,40 @@ export async function attemptDispatch(row: DueDispatchRow): Promise<'delivered' 
     return 'skipped_no_endpoint'
   }
 
-  const rawBody = JSON.stringify(row.payload)
+  let rawBody: string
+  let signatureHeader: string
+
+  if (row.event_type === 'session.insights_ready') {
+    // B2B-09 — reconstruct live from partner_session_insights; never replay
+    // the stored reference payload (Requirement Doc Section 6 / Section 11
+    // judgment call 2). Reads WHATEVER is currently in
+    // partner_session_insights: full detail if within the 30-day retention
+    // window, the purged (type-only glitches, null action_items/psychology)
+    // shape if not — graceful degradation, not a special-cased error
+    // (Requirement Doc Section 9). architecture.md §16.7.
+    const { data: live } = await supabase
+      .from('partner_session_insights')
+      .select('action_items, glitches, psychology_keywords')
+      .eq('partner_session_id', row.payload.clio_session_ref as string)
+      .maybeSingle()
+
+    const fullPayload = {
+      ...row.payload,
+      action_items: (live?.action_items as WebhookPayload['action_items']) ?? null,
+      glitches: (live?.glitches as WebhookPayload['glitches']) ?? null,
+      psychology_keywords: (live?.psychology_keywords as WebhookPayload['psychology_keywords']) ?? null,
+    }
+    rawBody = JSON.stringify(fullPayload)
+    // Signed FRESH here, never reused from insert time — the wire body no
+    // longer matches the stored reference payload, so the pre-computed
+    // `signature` column cannot be reused for this event type without
+    // producing an HMAC that fails the partner's own verification.
+    signatureHeader = buildSignatureHeader(row.outbound_signing_secret ?? 'unconfigured-partner-signing-secret', rawBody)
+  } else {
+    rawBody = JSON.stringify(row.payload) // unchanged — every other event type
+    signatureHeader = row.signature // unchanged — every other event type
+  }
+
   const url = `${row.outbound_base_url.replace(/\/$/, '')}/webhooks/usage`
 
   try {
@@ -562,7 +710,7 @@ export async function attemptDispatch(row: DueDispatchRow): Promise<'delivered' 
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        [CLIO_SIGNATURE_HEADER]: row.signature,
+        [CLIO_SIGNATURE_HEADER]: signatureHeader,
       },
       body: rawBody,
       signal: controller.signal,

@@ -19,7 +19,7 @@ type AdminSupabaseClient = ReturnType<typeof createSupabaseAdminClient>
 async function walletLedgerAlreadyRecorded(
   supabase: AdminSupabaseClient,
   stripeObjectId: string,
-  entryType: 'topup_checkout' | 'topup_subscription_recharge' | 'topup_invoice'
+  entryType: 'topup_checkout' | 'topup_subscription_recharge' | 'topup_invoice' | 'test_block_purchase'
 ): Promise<boolean> {
   const { data } = await supabase
     .from('wallet_ledger')
@@ -133,6 +133,63 @@ export async function POST(request: NextRequest) {
             .eq('partner_account_id', partnerAccountId)
 
           console.log(`[stripe-webhook] B2B-04 wallet top-up: +$${amountUsd.toFixed(2)} for partner ${partnerAccountId}, new balance: ${newBalance}`)
+
+          break
+        }
+
+        // ── B2B-08 — test-block purchase (mode: "payment", fixed $1.80 / 120 min) ──
+        // Requirement Doc Section 5.F / architecture.md §15.8.
+        if (session.metadata?.purpose === 'test_block_purchase') {
+          const partnerAccountId = session.metadata?.partner_account_id
+          if (!partnerAccountId) {
+            console.warn('[stripe-webhook] test_block_purchase checkout.session.completed missing partner_account_id:', session.id)
+            break
+          }
+
+          if (await walletLedgerAlreadyRecorded(supabase, session.id, 'test_block_purchase')) break
+
+          const { data: newTestMinutesBalance, error: rpcError } = await supabase.rpc('credit_test_minutes_balance', {
+            p_partner_account_id: partnerAccountId,
+            p_minutes: 120,
+          })
+          if (rpcError) {
+            console.error('[stripe-webhook] credit_test_minutes_balance RPC failed:', rpcError.message)
+            break
+          }
+
+          // resulting_balance_usd is still required/populated on every wallet_ledger row — this row
+          // type never moves balance_usd, so the account's CURRENT, unchanged value is cited,
+          // preserving the ledger's "never independently recompute a balance" discipline for both
+          // balance columns on every row type (Requirement Document, Purchase Mechanism).
+          const { data: walletRow } = await supabase
+            .from('partner_wallets')
+            .select('balance_usd')
+            .eq('partner_account_id', partnerAccountId)
+            .maybeSingle()
+          const currentBalanceUsd = walletRow ? Number(walletRow.balance_usd) : 0
+
+          await supabase.from('wallet_ledger').insert({
+            partner_account_id: partnerAccountId,
+            entry_type: 'test_block_purchase',
+            delta_usd: 1.80,
+            resulting_balance_usd: currentBalanceUsd,
+            resulting_test_minutes_balance: newTestMinutesBalance,
+            stripe_object_id: session.id,
+          })
+
+          // Same payment-method extraction the wallet_topup branch performs, minimally — sets
+          // stripe_customer_id only. Card brand/last4/type sync happens via the existing, UNMODIFIED
+          // customer.updated / payment_method.attached handlers below, which already key off
+          // stripe_customer_id across every partner_wallets row regardless of which funding path
+          // attached it — no new code needed for that part.
+          if (typeof session.customer === 'string') {
+            await supabase
+              .from('partner_wallets')
+              .update({ stripe_customer_id: session.customer })
+              .eq('partner_account_id', partnerAccountId)
+          }
+
+          console.log(`[stripe-webhook] B2B-08 test block purchase: +120 min for partner ${partnerAccountId}, new test_minutes_balance: ${newTestMinutesBalance}`)
 
           break
         }

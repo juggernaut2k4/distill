@@ -36,6 +36,8 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 export interface DispatchBotResult {
   status: 'bot_active' | 'bot_dispatch_failed'
   error?: string
+  botId?: string   // B2B-08 — only set on 'bot_active'; lets the dispatch route fire the
+                    // trial-cutoff Inngest event without an extra DB read (architecture.md §15.4)
 }
 
 /**
@@ -63,7 +65,7 @@ export async function dispatchMeetingBot(params: {
       .update({ status: 'bot_active', provider_bot_id: botId, provider_name: provider.name })
       .eq('id', params.clioSessionRef)
 
-    return { status: 'bot_active' }
+    return { status: 'bot_active', botId }
   } catch (err) {
     const rawMessage = err instanceof Error ? err.message : 'Unknown meeting-bot dispatch error'
     const redacted = redactVendorIdentifiers(rawMessage)

@@ -168,7 +168,22 @@ export default function PartnerRenderClient({ clioSessionRef, sections, humeConf
               return 'Session ended.'
             },
           },
-          onConnect: () => setStatus('listening'),
+          // B2B-09 architecture.md §16.3 / Requirement Doc §4.B.1, §9 — capture
+          // the real Hume chat_id the instant the WebSocket connects and
+          // persist it fire-and-forget. Best-effort by design (route always
+          // returns 200): a missed write here is recoverable via the 30-minute
+          // backstop sweep (inngest/partner-session-insights-extractor.ts),
+          // so this never blocks or delays session start.
+          onConnect: (sessionId) => {
+            setStatus('listening')
+            if (sessionId) {
+              fetch('/api/partner/render/session-chat-id', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ clio_session_ref: clioSessionRef, hume_chat_id: sessionId }),
+              }).catch((err) => console.warn('[partner-render] Failed to persist hume_chat_id:', err))
+            }
+          },
           onDisconnect: () => setStatus('ended'),
           onError: (message) => {
             console.error('[partner-render] Voice session error:', message)

@@ -72,8 +72,14 @@ export class HumeSessionDetailsLookupError extends Error {
  * pagination shape already proven in inngest/hume-native-nightly-cleanup.ts.
  * Extracted here as a small shared helper rather than duplicating the loop a
  * third time (per the requirement doc's Section 12 dependency note).
+ *
+ * B2B-09 — exported (no behavior change to the function body) so
+ * `inngest/partner-session-insights-extractor.ts` can import it directly
+ * rather than duplicating this pagination loop a third time. Every existing
+ * call site (`getHumeSessionDetails()`, below) is unaffected. architecture.md
+ * §16.6.
  */
-async function fetchAllTranscriptEvents(apiKey: string, chatId: string): Promise<unknown[]> {
+export async function fetchAllTranscriptEvents(apiKey: string, chatId: string): Promise<unknown[]> {
   const transcriptEvents: unknown[] = []
   let pageNumber = 0
   let hasMore = true

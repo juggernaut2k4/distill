@@ -361,6 +361,7 @@ describe('attemptDispatch', () => {
       signature: 't=123,v1=abc',
       retry_count: 0,
       outbound_base_url: 'https://partner.example.com/api',
+      outbound_signing_secret: 'test-signing-secret',
       ...overrides,
     }
   }

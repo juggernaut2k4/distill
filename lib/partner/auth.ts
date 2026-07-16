@@ -4,6 +4,7 @@ import { auth as clerkAuth } from '@clerk/nextjs/server'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { hashApiKey, looksLikePartnerApiKey } from './api-keys'
 import { checkRateLimit, type RateLimitClass } from './rate-limit'
+import { looksLikeOAuthAccessToken, verifyAccessToken } from './oauth'
 
 /**
  * B2B-02 — Two Auth Systems, kept structurally separate (architecture.md
@@ -25,22 +26,35 @@ function errorEnvelope(code: string, message: string): PartnerErrorBody {
 
 export interface PartnerApiKeyContext {
   partnerAccountId: string
-  apiKeyId: string
+  /** Set for a static-API-key-authenticated request (the partner_api_keys.id row). Null for OAuth2. */
+  apiKeyId: string | null
+  /** Set for an OAuth2-authenticated request (the partner_oauth_clients.id row, NOT the public
+   *  client_id string). Null for a static-API-key request. Exactly one of apiKeyId/clientId is ever
+   *  non-null on a successful result — mirrors partner_sessions' own auth-credential CHECK
+   *  constraint (migration 079) that this field pair exists specifically to satisfy. B2B-06,
+   *  architecture.md §18.3. */
+  clientId: string | null
   mode: 'test' | 'live'
 }
 
 type PartnerApiKeyResult =
   | (PartnerApiKeyContext & { error: null })
-  | { partnerAccountId: null; apiKeyId: null; mode: null; error: NextResponse }
+  | { partnerAccountId: null; apiKeyId: null; clientId: null; mode: null; error: NextResponse }
 
 /**
  * Authenticates a `/api/partner/v1/*` request via `Authorization: Bearer
- * clio_live_sk_...` (or `clio_test_sk_...`). Section 4/8 of the requirement
- * doc: 401 for missing/malformed/unrecognized/revoked keys, 403 for a
- * suspended partner account. `last_used_at` is updated best-effort
+ * clio_live_sk_...` / `clio_test_sk_...` (static partner API key) OR a
+ * short-lived OAuth2 Client Credentials access token minted by `POST
+ * /api/partner/v1/oauth/token` (B2B-06). Section 4/8 of the requirement doc:
+ * 401 for missing/malformed/unrecognized/revoked/expired credentials, 403 for
+ * a suspended partner account. `last_used_at` is updated best-effort
  * (fire-and-forget, never blocks the response) per architecture.md Section
  * 10. Also enforces the per-partner-account rate limit for the given route
  * class (Section 10) — 429 with `Retry-After` on exceed.
+ *
+ * Zero changes to callers — every existing call site keeps calling this
+ * exactly as before; only the returned context shape gained `clientId`
+ * (docs/specs/B2B-06-requirement-document.md Section 4.B.2 point 3).
  */
 export async function requirePartnerApiKey(
   request: NextRequest,
@@ -51,9 +65,67 @@ export async function requirePartnerApiKey(
   const rawKey = match?.[1]?.trim()
 
   if (!rawKey || !looksLikePartnerApiKey(rawKey)) {
+    // B2B-06 — fall through to OAuth2 access-token verification before giving up.
+    if (rawKey && looksLikeOAuthAccessToken(rawKey)) {
+      const verified = verifyAccessToken(rawKey)
+      if (verified.valid) {
+        const supabase = createSupabaseAdminClient()
+
+        const { data: clientRow } = await supabase
+          .from('partner_oauth_clients')
+          .select('id, status')
+          .eq('client_id', verified.claims.sub)
+          .maybeSingle()
+
+        const { data: accountRow } = await supabase
+          .from('partner_accounts')
+          .select('id, status')
+          .eq('id', verified.claims.partner_account_id)
+          .maybeSingle()
+
+        if (clientRow?.status === 'active' && accountRow) {
+          if (accountRow.status !== 'active') {
+            return {
+              partnerAccountId: null,
+              apiKeyId: null,
+              clientId: null,
+              mode: null,
+              error: NextResponse.json(errorEnvelope('account_suspended', 'This partner account is suspended.'), { status: 403 }),
+            }
+          }
+
+          const rateLimit = checkRateLimit(accountRow.id, routeClass)
+          if (!rateLimit.allowed) {
+            const res = NextResponse.json(errorEnvelope('rate_limit_exceeded', 'Rate limit exceeded.'), { status: 429 })
+            res.headers.set('Retry-After', String(rateLimit.retryAfterSeconds))
+            return { partnerAccountId: null, apiKeyId: null, clientId: null, mode: null, error: res }
+          }
+
+          // Best-effort, non-blocking — mirrors the static-key path's own last_used_at update.
+          supabase
+            .from('partner_oauth_clients')
+            .update({ last_used_at: new Date().toISOString() })
+            .eq('id', clientRow.id)
+            .then(undefined, (err: unknown) => console.error('[partner/auth] oauth last_used_at update failed (non-fatal):', err))
+
+          // clientId is the partner_oauth_clients row id (clientRow.id) — the FK value
+          // app/api/partner/v1/sessions/route.ts writes into partner_sessions.partner_oauth_client_id,
+          // exactly parallel to how apiKeyId already carries keyRow.id, not the raw key string.
+          return {
+            partnerAccountId: accountRow.id,
+            apiKeyId: null,
+            clientId: clientRow.id,
+            mode: verified.claims.mode,
+            error: null,
+          }
+        }
+      }
+    }
+
     return {
       partnerAccountId: null,
       apiKeyId: null,
+      clientId: null,
       mode: null,
       error: NextResponse.json(errorEnvelope('invalid_api_key', 'Missing or malformed API key.'), { status: 401 }),
     }
@@ -72,6 +144,7 @@ export async function requirePartnerApiKey(
     return {
       partnerAccountId: null,
       apiKeyId: null,
+      clientId: null,
       mode: null,
       error: NextResponse.json(errorEnvelope('invalid_api_key', 'API key not recognized.'), { status: 401 }),
     }
@@ -81,6 +154,7 @@ export async function requirePartnerApiKey(
     return {
       partnerAccountId: null,
       apiKeyId: null,
+      clientId: null,
       mode: null,
       error: NextResponse.json(errorEnvelope('revoked_api_key', 'This API key has been revoked.'), { status: 401 }),
     }
@@ -96,6 +170,7 @@ export async function requirePartnerApiKey(
     return {
       partnerAccountId: null,
       apiKeyId: null,
+      clientId: null,
       mode: null,
       error: NextResponse.json(errorEnvelope('account_suspended', 'This partner account is suspended.'), { status: 403 }),
     }
@@ -105,7 +180,7 @@ export async function requirePartnerApiKey(
   if (!rateLimit.allowed) {
     const res = NextResponse.json(errorEnvelope('rate_limit_exceeded', 'Rate limit exceeded.'), { status: 429 })
     res.headers.set('Retry-After', String(rateLimit.retryAfterSeconds))
-    return { partnerAccountId: null, apiKeyId: null, mode: null, error: res }
+    return { partnerAccountId: null, apiKeyId: null, clientId: null, mode: null, error: res }
   }
 
   // Best-effort, non-blocking — never delays or fails the response (architecture.md Section 10).
@@ -118,6 +193,7 @@ export async function requirePartnerApiKey(
   return {
     partnerAccountId: accountRow.id,
     apiKeyId: keyRow.id,
+    clientId: null,
     mode: keyRow.mode as 'test' | 'live',
     error: null,
   }

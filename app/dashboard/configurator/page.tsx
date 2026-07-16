@@ -14,10 +14,28 @@ export default async function ConfiguratorHomePage({
 }: {
   searchParams: { partner_account_id?: string; welcome?: string }
 }) {
-  const { userId } = auth()
+  const { userId, sessionClaims } = auth()
   if (!userId) redirect('/sign-in')
 
-  const accounts = await getPartnerAccountsForClerkUser(userId)
+  let accounts = await getPartnerAccountsForClerkUser(userId)
+
+  // B2B-06 Section 9 — Clerk-redirect race mitigation. A brand-new self-serve
+  // signup can land here before the async organization.created/
+  // organizationMembership.created webhooks have created the partner_accounts/
+  // partner_admin_users rows. Retry once, after a short delay, but only for a
+  // session that's plausibly "just came from signup" (proxied by session age
+  // < 60s) — a long-lived session with genuinely zero accounts must not incur
+  // an extra 2s delay on every load.
+  if (accounts.length === 0) {
+    const sessionAgeSeconds = typeof sessionClaims?.iat === 'number'
+      ? Math.floor(Date.now() / 1000) - sessionClaims.iat
+      : Infinity
+    if (sessionAgeSeconds < 60) {
+      await new Promise((resolve) => setTimeout(resolve, 2000))
+      accounts = await getPartnerAccountsForClerkUser(userId)
+    }
+  }
+
   if (accounts.length === 0) return <NoPartnerAccounts />
 
   const activeId = searchParams.partner_account_id && accounts.some((a) => a.id === searchParams.partner_account_id)

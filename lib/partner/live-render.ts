@@ -5,6 +5,7 @@ import { selectPartnerTemplate } from './custom-templates'
 import { recordBillableEvent } from './webhooks'
 import { assembleHumeNativePrompt } from '@/lib/voice/hume-native/prompt-template'
 import { provisionNativeConfig } from '@/lib/voice/hume-native/config-provisioner'
+import { inngest } from '@/inngest/client'
 import type { TemplateSection } from '@/lib/templates/types'
 import type { DraftPayload } from './content-generation'
 
@@ -23,13 +24,14 @@ export interface PartnerSessionRow {
   partnerTopicRef: string | null
   partnerEndUserRef: string | null
   status: string
+  testMode: boolean
 }
 
 export async function getPartnerSession(clioSessionRef: string): Promise<PartnerSessionRow | null> {
   const supabase = createSupabaseAdminClient()
   const { data } = await supabase
     .from('partner_sessions')
-    .select('id, partner_account_id, content_ref, partner_topic_ref, partner_end_user_ref, status')
+    .select('id, partner_account_id, content_ref, partner_topic_ref, partner_end_user_ref, status, test_mode')
     .eq('id', clioSessionRef)
     .maybeSingle()
 
@@ -41,6 +43,7 @@ export async function getPartnerSession(clioSessionRef: string): Promise<Partner
     partnerTopicRef: (data.partner_topic_ref as string | null) ?? null,
     partnerEndUserRef: (data.partner_end_user_ref as string | null) ?? null,
     status: data.status as string,
+    testMode: Boolean(data.test_mode),
   }
 }
 
@@ -180,13 +183,34 @@ function sectionTitle(section: TemplateSection): string {
  * architecture.md Section 12.6 step 9 — the call-site instrumentation
  * B2B-02's own Section 10 explicitly deferred to this brief. Called once,
  * on session end, from the render page's client component.
+ *
+ * B2B-08 — `testMode` is a required, in-scope adjacent fix (not a new
+ * feature, architecture.md Section 15.6): this function previously never
+ * read `partner_sessions.test_mode` and never passed a `testMode` argument
+ * to either `recordBillableEvent()` call, meaning `applyWalletDecrement()`'s
+ * `test_mode` skip was never actually reachable from this call site. Now
+ * threaded through from `getPartnerSession()`'s `test_mode` column, and used
+ * to (a) cancel the pending trial-cutoff job on a normal end and (b) consume
+ * the actual trial/test-block minutes for a test-mode session.
  */
-export async function handleSessionEnd(clioSessionRef: string, partnerAccountId: string, durationMinutes: number): Promise<void> {
+export async function handleSessionEnd(
+  clioSessionRef: string,
+  partnerAccountId: string,
+  durationMinutes: number,
+  testMode: boolean,
+): Promise<void> {
   const supabase = createSupabaseAdminClient()
   await supabase
     .from('partner_sessions')
     .update({ status: 'completed', ended_at: new Date().toISOString() })
     .eq('id', clioSessionRef)
+
+  // B2B-08 — cancel the trial-cutoff job so a normally-ended test session never triggers a
+  // redundant forced cutoff. Mirrors session-timer.ts's own cancelOn pattern. Fire-and-forget.
+  if (testMode) {
+    inngest.send({ name: 'clio/partner-trial.ended', data: { clioSessionRef } })
+      .catch((err) => console.error('[live-render] clio/partner-trial.ended emit failed:', err))
+  }
 
   if (durationMinutes > 0) {
     await recordBillableEvent({
@@ -195,12 +219,28 @@ export async function handleSessionEnd(clioSessionRef: string, partnerAccountId:
       clioSessionRef,
       quantity: durationMinutes,
       unit: 'minutes',
+      testMode,                     // FIX — previously always omitted/false
+      isMeteredTestUsage: testMode, // every test-mode dispatch is now gated by the B2B-08
+                                     // trial mechanism (app/api/partner/v1/sessions/route.ts),
+                                     // so there is no remaining "ordinary, unmetered" test-mode
+                                     // usage path left to distinguish.
     })
+
+    if (testMode) {
+      // Consumes the ACTUAL duration used (not availableMinutes — that figure is only for the
+      // forced-cutoff path, where the session ran its full allowance). Non-fatal on failure, same
+      // discipline recordBillableEvent()'s own wallet-decrement call already uses.
+      try {
+        const { error } = await supabase.rpc('consume_trial_and_test_minutes', {
+          p_partner_account_id: partnerAccountId,
+          p_minutes: durationMinutes,
+        })
+        if (error) console.error('[live-render] consume_trial_and_test_minutes RPC failed (non-fatal):', error.message)
+      } catch (err) {
+        console.error('[live-render] consume_trial_and_test_minutes failed (non-fatal):', err instanceof Error ? err.message : err)
+      }
+    }
   }
 
-  await recordBillableEvent({
-    partnerAccountId,
-    eventType: 'session.completed',
-    clioSessionRef,
-  })
+  await recordBillableEvent({ partnerAccountId, eventType: 'session.completed', clioSessionRef, testMode })
 }
