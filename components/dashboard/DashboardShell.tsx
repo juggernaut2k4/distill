@@ -1,7 +1,7 @@
 'use client'
 
 import { UserButton } from '@clerk/nextjs'
-import { LayoutDashboard, Settings, BookOpen, CalendarDays, Phone, Library } from 'lucide-react'
+import { Building2, LayoutTemplate, Bug } from 'lucide-react'
 import Link from 'next/link'
 
 interface ShellUser {
@@ -17,20 +17,15 @@ interface DashboardShellProps {
 }
 
 const NAV_ITEMS = [
-  { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { href: '/dashboard/plan', icon: BookOpen, label: 'My Plan' },
-  { href: '/dashboard/sessions', icon: CalendarDays, label: 'Sessions' },
-  { href: '/dashboard/knowledge-base', icon: Library, label: 'Knowledge Base' },
-  { href: '/dashboard/phone', icon: Phone, label: 'Phone Setup' },
-  { href: '/dashboard/settings', icon: Settings, label: 'Settings' },
+  { href: '/dashboard/admin/clients', icon: Building2, label: 'Clients' },
+  { href: '/dashboard/admin/templates', icon: LayoutTemplate, label: 'Templates' },
+  { href: '/dashboard/admin/glitches', icon: Bug, label: 'Glitches' },
 ]
 
 // Primary nav items shown in mobile bottom bar (most important 5)
 const MOBILE_NAV_ITEMS = NAV_ITEMS.slice(0, 5)
 
 export default function DashboardShell({ user, activeNav, children }: DashboardShellProps) {
-  const planPending = !user.plan_approved && user.plan_tier && user.plan_tier !== 'free'
-
   return (
     <div className="min-h-screen bg-[#080808] flex">
       {/* Sidebar — hidden on mobile, visible on md+ */}
@@ -45,7 +40,6 @@ export default function DashboardShell({ user, activeNav, children }: DashboardS
         <nav className="flex-1 p-4 space-y-1">
           {NAV_ITEMS.map(({ href, icon: Icon, label }) => {
             const isActive = activeNav === href
-            const hasBadge = href === '/dashboard/plan' && planPending
 
             return (
               <Link
@@ -59,9 +53,6 @@ export default function DashboardShell({ user, activeNav, children }: DashboardS
               >
                 <Icon size={18} />
                 <span className="flex-1">{label}</span>
-                {hasBadge && (
-                  <span className="w-2 h-2 rounded-full bg-[#F59E0B] flex-shrink-0" />
-                )}
               </Link>
             )
           })}
@@ -98,7 +89,6 @@ export default function DashboardShell({ user, activeNav, children }: DashboardS
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-[#111111] border-t border-[#222222] flex">
         {MOBILE_NAV_ITEMS.map(({ href, icon: Icon, label }) => {
           const isActive = activeNav === href
-          const hasBadge = href === '/dashboard/plan' && planPending
           return (
             <Link
               key={href}
@@ -109,9 +99,6 @@ export default function DashboardShell({ user, activeNav, children }: DashboardS
             >
               <Icon size={20} />
               <span className="leading-tight truncate max-w-[52px] text-center">{label}</span>
-              {hasBadge && (
-                <span className="absolute top-1.5 right-1/4 w-1.5 h-1.5 rounded-full bg-[#F59E0B]" />
-              )}
             </Link>
           )
         })}

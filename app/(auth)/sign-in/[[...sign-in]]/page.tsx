@@ -7,7 +7,7 @@ export default function SignInPage() {
     <div className="min-h-screen bg-void flex items-center justify-center">
       <SignIn
         fallbackRedirectUrl="/dashboard/configurator"
-        signUpForceRedirectUrl="/onboarding"
+        signUpForceRedirectUrl="/partner-signup/organization"
         appearance={{
           variables: {
             colorBackground: '#111111',

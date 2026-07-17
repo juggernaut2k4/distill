@@ -1,5 +1,5 @@
 import { createSupabaseAdminClient } from '@/lib/supabase'
-import WalkthroughClient from '@/app/dashboard/walkthrough/WalkthroughClient'
+import WalkthroughClient from './WalkthroughClient'
 import type { Metadata } from 'next'
 
 export const dynamic = 'force-dynamic'

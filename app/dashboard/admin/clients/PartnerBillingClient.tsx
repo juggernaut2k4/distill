@@ -174,12 +174,20 @@ export default function PartnerBillingClient() {
             <ArrowLeft className="w-4 h-4" />
             Back to Dashboard
           </Link>
-          <Link
-            href="/dashboard/admin/templates"
-            className="text-[#475569] hover:text-[#94A3B8] text-sm transition-colors"
-          >
-            Template Library →
-          </Link>
+          <div className="flex items-center gap-4">
+            <Link
+              href="/dashboard/admin/glitches"
+              className="text-[#475569] hover:text-[#94A3B8] text-sm transition-colors"
+            >
+              Glitch Dashboard →
+            </Link>
+            <Link
+              href="/dashboard/admin/templates"
+              className="text-[#475569] hover:text-[#94A3B8] text-sm transition-colors"
+            >
+              Template Library →
+            </Link>
+          </div>
         </div>
         <div className="flex items-center gap-3 mb-1">
           <CreditCard className="w-6 h-6 text-[#7C3AED]" />

@@ -28,6 +28,7 @@ interface PartnerSessionRowShape {
   status: string
   test_mode: boolean
   updated_at: string
+  attendee_joined_at?: string | null
 }
 
 const state: {
@@ -265,7 +266,10 @@ describe('POST /api/attendee/webhook — B2B-10 partner session support', () => 
     await POST(makeRequest(partnerEvent('partner-session-1', 'bot.state_change', { new_state: 'ended' })))
 
     expect(handleSessionEndMock).toHaveBeenCalledTimes(1)
-    expect(handleSessionEndMock).toHaveBeenCalledWith('partner-session-1', 'acct-1', 5, true, 'completed')
+    // B2B-19 (billing gap 2): the event carries no Attendee timestamp and the
+    // row has no attendee_joined_at, so billing falls back to webhook-receipt
+    // time, labelled 'attendee_receipt' (distinct from a real Attendee value).
+    expect(handleSessionEndMock).toHaveBeenCalledWith('partner-session-1', 'acct-1', 5, true, 'completed', 'attendee_receipt')
   })
 
   it('fatal_error triggers the fallback completer with targetStatus=failed, still billing minutes used', async () => {
@@ -284,7 +288,33 @@ describe('POST /api/attendee/webhook — B2B-10 partner session support', () => 
     await POST(makeRequest(partnerEvent('partner-session-1', 'bot.state_change', { new_state: 'fatal_error' })))
 
     expect(handleSessionEndMock).toHaveBeenCalledTimes(1)
-    expect(handleSessionEndMock).toHaveBeenCalledWith('partner-session-1', 'acct-1', 5, false, 'failed')
+    expect(handleSessionEndMock).toHaveBeenCalledWith('partner-session-1', 'acct-1', 5, false, 'failed', 'attendee_receipt')
+  })
+
+  // B2B-19 (billing gap 2, AT-11) — when Attendee carries both a join timestamp
+  // (on the row) and an end timestamp (on the event), billing uses the real
+  // (ended − joined) duration and labels it 'attendee'.
+  it('bills the real Attendee (ended − joined) duration, labelled attendee, when both timestamps are present', async () => {
+    state.partnerSessionRow = {
+      id: 'partner-session-1',
+      partner_account_id: 'acct-1',
+      status: 'bot_active',
+      test_mode: false,
+      updated_at: '2026-07-15T12:00:00.000Z',
+      attendee_joined_at: '2026-07-15T12:00:00.000Z',
+    }
+
+    await POST(
+      makeRequest(
+        partnerEvent('partner-session-1', 'bot.state_change', {
+          new_state: 'ended',
+          created_at: '2026-07-15T12:10:00.000Z', // Attendee-provided end timestamp
+        })
+      )
+    )
+
+    expect(handleSessionEndMock).toHaveBeenCalledTimes(1)
+    expect(handleSessionEndMock).toHaveBeenCalledWith('partner-session-1', 'acct-1', 10, false, 'completed', 'attendee')
   })
 
   it('transcript.update is a no-op for a partner session — no DB write, no handleSessionEnd call', async () => {

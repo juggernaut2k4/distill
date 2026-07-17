@@ -183,7 +183,7 @@ describe('RTV-03 observe-only enforcement (Section 4b) — grep-checkable guaran
 
 describe('RTV-03 observe-only enforcement — WalkthroughClient.tsx integration point', () => {
   const clientSrc = fs.readFileSync(
-    path.resolve(__dirname, '../../app/dashboard/walkthrough/WalkthroughClient.tsx'),
+    path.resolve(__dirname, '../../app/walkthrough/[userId]/WalkthroughClient.tsx'),
     'utf8',
   )
 

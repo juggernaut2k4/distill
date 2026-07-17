@@ -4,14 +4,9 @@ import { resolveTenantFromHost, isVerifiedCustomDomain } from '@/lib/partner/dom
 
 const isPublicRoute = createRouteMatcher([
   '/',
-  '/pricing(.*)',
-  '/onboarding(.*)',
   '/sign-in(.*)',
   '/sign-up(.*)',
   '/partner-signup(.*)', // B2B-06: self-serve partner signup wrapper (Clerk <SignUp/> + <CreateOrganization/>)
-  '/plan(.*)',
-  '/checkout(.*)',
-  '/topics(.*)',
   '/questionnaire',            // B2B-05: exact string, no wildcard — see middleware.ts note below
   '/api/webhooks/(.*)',
   '/api/recall/webhook(.*)',  // Recall.ai webhook — no user auth

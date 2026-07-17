@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import type { AdminPartnerAccount } from '@/lib/partner/admin-accounts'
-import { ConfiguratorShell, Card, COLORS } from './_shared'
+import { ConfiguratorNavShell, Card, COLORS, type BillingHealth } from './_shared'
 
 interface Summary {
   questionnairePublished: number
@@ -18,7 +18,7 @@ interface Summary {
   integrationLabel: string
 }
 
-export default function HomeClient({ accounts, activePartnerAccountId }: { accounts: AdminPartnerAccount[]; activePartnerAccountId: string }) {
+export default function HomeClient({ accounts, activePartnerAccountId, billingHealth }: { accounts: AdminPartnerAccount[]; activePartnerAccountId: string; billingHealth: BillingHealth }) {
   const [summary, setSummary] = useState<Summary | null>(null)
   const searchParams = useSearchParams()
   const showWelcome = searchParams?.get('welcome') === '1'
@@ -58,7 +58,7 @@ export default function HomeClient({ accounts, activePartnerAccountId }: { accou
   }, [activePartnerAccountId])
 
   return (
-    <ConfiguratorShell accounts={accounts} activePartnerAccountId={activePartnerAccountId} title="">
+    <ConfiguratorNavShell accounts={accounts} activePartnerAccountId={activePartnerAccountId} active="configurator" billingHealth={billingHealth}>
       {showWelcome && (
         <Card style={{ marginBottom: 20, borderColor: COLORS.green }}>
           <p style={{ fontSize: 13, color: COLORS.green }}>Setup complete — you&apos;re live.</p>
@@ -102,11 +102,6 @@ export default function HomeClient({ accounts, activePartnerAccountId }: { accou
           title="Integration"
           status={summary ? summary.integrationLabel : '—'}
         />
-        <DomainCard
-          href={`/dashboard/configurator/developer?partner_account_id=${activePartnerAccountId}`}
-          title="Developer"
-          status="Docs & Playground"
-        />
       </div>
 
       <Link href={`/dashboard/configurator/visualization?partner_account_id=${activePartnerAccountId}`} style={{ textDecoration: 'none' }}>
@@ -122,7 +117,7 @@ export default function HomeClient({ accounts, activePartnerAccountId }: { accou
           </div>
         </Card>
       </Link>
-    </ConfiguratorShell>
+    </ConfiguratorNavShell>
   )
 }
 

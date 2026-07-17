@@ -5,54 +5,23 @@ import TemplateRenderer from '@/components/templates/TemplateRenderer'
 import { HumeAdapter } from '@/lib/voice/hume-adapter'
 import type { TemplateSection } from '@/lib/templates/types'
 import { cssCustomPropertiesToStyleBlock, type CSSCustomProperties } from '@/lib/partner/theme-client-safe'
+import { matchesTransitionMarker } from '@/lib/content/transition-markers'
 
 /**
- * B2B-03 — Live-session render client (Requirement Doc Section 4.C Screen
- * state 2; architecture.md Section 12.6).
+ * B2B-03 / B2B-19 — Live-session render client.
  *
- * Structurally the same "stack of templates driven by a live Hume voice
- * session" experience as the existing Hume-native `WalkthroughClient.tsx`
- * flow, reused *conceptually* — a parallel, partner-scoped implementation,
- * not a fork of that 1687-line component's session-plan/feedback-tracking
- * logic, none of which applies to a partner session (Section 4.C's own
- * instruction). Audio only, no visible call-control chrome, matching the
- * existing Hume-native in-session experience.
- *
- * GAP CLOSED (follow-up to the original B2B-03 build): `resolveLiveSessionRender`
- * provisions this session's Hume config via the same `provisionNativeConfig`
- * used by `WalkthroughClient.tsx` (lib/partner/live-render.ts step 7), which
- * always attaches the `show_visual` / `advance_tab` / `end_session` custom
- * tools (lib/voice/hume-native/config-provisioner.ts) and the fixed prompt
- * template instructs Hume's own LLM to call them as it narrates
- * (lib/voice/hume-native/prompt-template.ts rules 3/5/8c) — Hume was always
- * going to *call* these tools during a partner session. The only thing
- * missing was a client-side handler map (`tools: {}` below, previously),
- * so every call silently no-op'd (HumeAdapter logs a warning and returns a
- * generic "Tool executed." ack — see lib/voice/hume-adapter.ts's `tool_call`
- * case) while the on-screen stack stayed pinned to section 0 for the whole
- * session and the call never explicitly ended.
- *
- * Fix follows the same *pattern* WalkthroughClient.tsx uses (tool-call-driven
- * section switching — the mechanism the B2B-03 requirement doc's Section 4.C
- * explicitly calls out as the one to reuse conceptually), simplified for this
- * context: no `sessionsRef`/training-scripts/split-context injection (partner
- * `sections` are fully-formed `TemplateSection`s pulled once, not separately
- * scripted), and no server-persisted `walkthrough_state` polling loop (this
- * client is the only viewer — a bare `useState` index plus `scrollIntoView`,
- * the same primitive `components/templates/SessionStack.tsx` uses for its own
- * scroll-on-activate behavior, is sufficient and keeps this component
- * server-poll-free).
- *
- * NOT using RTV-05's server-side transcript-tracker mechanism here: that
- * toggle (`NEXT_PUBLIC_RTV_DISPLAY_SWITCH_ENABLED`) defaults OFF even for
- * Clio's own product today, is explicitly scoped to Hume-native
- * *summary-mode* sessions tied to `sessions`/RTV-03's `rtv_eligible` column
- * (neither of which exist for a `partner_sessions` row), and per its own
- * requirement doc is "Hume-native summary-mode only" scope, not a
- * general-purpose replacement for tool-call-driven display. Reusing the
- * tool-call pattern already wired into this session's Hume config is the
- * smaller, already-proven mechanism — see the build report for the full
- * reasoning.
+ * Two render modes, selected by which prop is supplied:
+ *   - `sections`   → Option 2 (template/Designer). Behavior is byte-for-byte
+ *                    unchanged from B2B-03: tool-call-driven section switching,
+ *                    onMessage a no-op. Do not alter this path.
+ *   - `inlinePages`→ Option 1 (B2B-19 inline content). Renders partner HTML in a
+ *                    sandboxed iframe / images directly, and advances pages on a
+ *                    DUAL SIGNAL over one system-generated per-page marker:
+ *                    (1) transcript-watch of the bot's live `ai` speech, and
+ *                    (2) the Hume advance_tab/show_visual tool-call. Whichever
+ *                    fires first wins; the other is a no-op via a local
+ *                    idempotency set keyed on the marker (race-free — both land
+ *                    in this single client component's single-threaded runtime).
  */
 
 interface RenderedSectionProp {
@@ -60,70 +29,81 @@ interface RenderedSectionProp {
   cssCustomProperties: CSSCustomProperties
 }
 
-export interface PartnerRenderClientProps {
-  clioSessionRef: string
-  sections: RenderedSectionProp[]
-  humeConfigId: string | null
+export interface InlinePageProp {
+  mediaType: 'html' | 'image'
+  title: string | null
+  subtitle: string | null
+  transitionMarker: string
+  status: 'ok' | 'unavailable'
+  contentHtml?: string
+  imageDataUri?: string
 }
 
-export default function PartnerRenderClient({ clioSessionRef, sections, humeConfigId }: PartnerRenderClientProps) {
+export interface PartnerRenderClientProps {
+  clioSessionRef: string
+  humeConfigId: string | null
+  sections?: RenderedSectionProp[]
+  inlinePages?: InlinePageProp[]
+}
+
+export default function PartnerRenderClient({ clioSessionRef, sections, inlinePages, humeConfigId }: PartnerRenderClientProps) {
+  const isInline = Array.isArray(inlinePages)
+  const count = isInline ? inlinePages!.length : (sections?.length ?? 0)
+
   const [status, setStatus] = useState<'connecting' | 'listening' | 'speaking' | 'error' | 'ended'>('connecting')
   const adapterRef = useRef<HumeAdapter | null>(null)
   const connectStartRef = useRef<number | null>(null)
   const endedRef = useRef(false)
 
-  // Voice-triggered section advancement (gap closed — see module doc comment
-  // above). `activeIndex` drives which section TemplateRenderer marks active
-  // and re-renders on change; `activeIndexRef` mirrors it so the tool
-  // handlers (registered once, at connect time, inside a `[]`-dep effect)
-  // always read the *current* index rather than the value captured at mount.
   const [activeIndex, setActiveIndex] = useState(0)
   const activeIndexRef = useRef(0)
   const sectionEls = useRef<(HTMLDivElement | null)[]>([])
 
-  // B2B-11 (Requirement Doc Section 6.5) — join-greeting poll. Reuses
-  // WalkthroughClient.tsx's proven flag-set -> poll -> send -> clear pattern
-  // (its hume_wrapup_nudge_pending mechanism) at drastically reduced scope:
-  // this loop only reads one flag plus the pre-resolved greeting text and
-  // calls sendWrapUpNudge(), then clears the flag. Single-retry-then-give-up
-  // policy, identical to that mechanism's own documented behavior.
-  const joinGreetingRetriedRef = useRef(false)
+  // B2B-19 — dual-signal transition dedup set. Keyed on transition_marker: the
+  // first signal (transcript-watch OR tool-call) for a given marker advances;
+  // every later signal for the same marker is a no-op. Race-free by
+  // construction (single-threaded JS event loop, single client instance).
+  const firedMarkersRef = useRef<Set<string>>(new Set())
 
-  /** Moves the on-screen stack to `idx`, clamped to a valid section, and
-   *  scrolls it into view — mirrors SessionStack.tsx's scrollToSection. */
+  // B2B-11 — join-greeting poll (unchanged).
+  const joinGreetingRetriedRef = useRef(false)
+  // B2B-19 — wrap-up-nudge poll (inline only).
+  const wrapUpRetriedRef = useRef(false)
+
+  /** Moves the on-screen stack to `idx`, clamped, and scrolls it into view. */
   function goToSection(idx: number) {
-    const clamped = Math.max(0, Math.min(idx, sections.length - 1))
+    const clamped = Math.max(0, Math.min(idx, count - 1))
     activeIndexRef.current = clamped
     setActiveIndex(clamped)
     sectionEls.current[clamped]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
-  /** Resolves the target section index from a show_visual/advance_tab tool
-   *  call's params — mirrors WalkthroughClient.tsx's show_visual idx
-   *  resolution (section_index first, then a title match fallback), falling
-   *  back to the current index (never an out-of-range or negative index)
-   *  when neither param is usable. */
+  /** Option 2 — resolve target section index from a show_visual/advance_tab call. */
   function resolveSectionIndex(params: Record<string, unknown>): number {
     const sectionIndex = params.section_index as number | undefined
     const topicTitle = params.topic_title as string | undefined
     let idx = -1
     if (typeof sectionIndex === 'number') {
       idx = sectionIndex
-    } else if (topicTitle) {
+    } else if (topicTitle && sections) {
       idx = sections.findIndex(({ section }) => section.meta.subtopicTitle === topicTitle)
     }
     return idx < 0 ? activeIndexRef.current : idx
+  }
+
+  /** B2B-19 — the single idempotent forward-only advance both signals feed into. */
+  function advanceOnTransition(transitionMarker: string) {
+    if (firedMarkersRef.current.has(transitionMarker)) return // dedup — second signal is a no-op
+    firedMarkersRef.current.add(transitionMarker)
+    const next = Math.min(activeIndexRef.current + 1, count - 1)
+    goToSection(next) // forward-only: never moves backward
   }
 
   useEffect(() => {
     let cancelled = false
 
     async function connect() {
-      if (!humeConfigId) {
-        // Session proceeds without voice (Section 8's "Hume provisioning
-        // failed" degraded state) — the template stack still renders.
-        return
-      }
+      if (!humeConfigId) return // session proceeds without voice; content still renders
 
       try {
         const micStream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -136,52 +116,64 @@ export default function PartnerRenderClient({ clioSessionRef, sections, humeConf
 
         connectStartRef.current = Date.now()
 
+        // Tool handlers differ per mode. Option 2 keeps its exact prior behavior;
+        // inline routes advance_tab/show_visual through advanceOnTransition.
+        const inlineTools = {
+          show_visual: async () => {
+            const marker = inlinePages![activeIndexRef.current]?.transitionMarker
+            if (marker) advanceOnTransition(marker)
+            return 'Advanced.'
+          },
+          advance_tab: async () => {
+            const marker = inlinePages![activeIndexRef.current]?.transitionMarker
+            if (marker) advanceOnTransition(marker)
+            return 'Advanced.'
+          },
+          end_session: async () => {
+            setStatus('ended')
+            void endSessionOnce()
+            return 'Session ended.'
+          },
+        }
+
+        const templateTools = {
+          show_visual: async (params: Record<string, unknown>) => {
+            const idx = resolveSectionIndex(params)
+            goToSection(idx)
+            const title = sections?.[idx]?.section.meta.subtopicTitle ?? `section ${idx + 1}`
+            return `Visual is now showing: "${title}" (section ${idx + 1} of ${count}).`
+          },
+          advance_tab: async () => {
+            const idx = Math.min(activeIndexRef.current + 1, count - 1)
+            goToSection(idx)
+            const title = sections?.[idx]?.section.meta.subtopicTitle ?? `section ${idx + 1}`
+            return `Advanced to: "${title}" (section ${idx + 1} of ${count}).`
+          },
+          end_session: async () => {
+            setStatus('ended')
+            void endSessionOnce()
+            return 'Session ended.'
+          },
+        }
+
+        // B2B-19 transcript-watch (primary signal, inline only). Extends
+        // RTV-02/03's forward-only, single-hit-decisive pattern: on each `ai`
+        // utterance, if the CURRENT page's unique marker is present, advance.
+        const onMessage = isInline
+          ? (text: string, source: string) => {
+              if (source !== 'ai' || !text) return
+              const marker = inlinePages![activeIndexRef.current]?.transitionMarker
+              if (marker && matchesTransitionMarker(text, marker)) advanceOnTransition(marker)
+            }
+          : () => {}
+
         const adapter = await HumeAdapter.create({
           accessToken,
           configId: humeConfigId,
           userId: clioSessionRef,
           mediaStream: micStream,
           isNativeMode: true,
-          tools: {
-            // Primary trigger (prompt-template.ts rule 3) — Hume calls this
-            // at the moment it begins covering a section.
-            show_visual: async (params) => {
-              const idx = resolveSectionIndex(params)
-              goToSection(idx)
-              const title = sections[idx]?.section.meta.subtopicTitle ?? `section ${idx + 1}`
-              return `Visual is now showing: "${title}" (section ${idx + 1} of ${sections.length}).`
-            },
-            // Secondary trigger (prompt-template.ts rule 5) — Hume may call
-            // this instead of show_visual to move to the next section. No
-            // partner-session equivalent of the LIVE-01 live-conductor
-            // `advance_tab` route exists (that route is keyed on a Clerk
-            // `userId` + `walkthrough_state` row, neither of which a
-            // `partner_sessions` row has) — this is a local, session-scoped
-            // "advance by one" instead.
-            advance_tab: async () => {
-              const idx = Math.min(activeIndexRef.current + 1, sections.length - 1)
-              goToSection(idx)
-              const title = sections[idx]?.section.meta.subtopicTitle ?? `section ${idx + 1}`
-              return `Advanced to: "${title}" (section ${idx + 1} of ${sections.length}).`
-            },
-            // prompt-template.ts rule 8c — this is the only way Hume itself
-            // signals the call is over. Without a handler it previously
-            // no-op'd (HumeAdapter acks with a generic "Tool executed." and
-            // keeps the WebSocket open), leaving the session running (and
-            // billing voice minutes) after Clio had already said goodbye.
-            // Reuses this component's own existing teardown path.
-            end_session: async () => {
-              setStatus('ended')
-              void endSessionOnce()
-              return 'Session ended.'
-            },
-          },
-          // B2B-09 architecture.md §16.3 / Requirement Doc §4.B.1, §9 — capture
-          // the real Hume chat_id the instant the WebSocket connects and
-          // persist it fire-and-forget. Best-effort by design (route always
-          // returns 200): a missed write here is recoverable via the 30-minute
-          // backstop sweep (inngest/partner-session-insights-extractor.ts),
-          // so this never blocks or delays session start.
+          tools: isInline ? inlineTools : templateTools,
           onConnect: (sessionId) => {
             setStatus('listening')
             if (sessionId) {
@@ -198,7 +190,7 @@ export default function PartnerRenderClient({ clioSessionRef, sections, humeConf
             setStatus('error')
           },
           onModeChange: (mode) => setStatus(mode),
-          onMessage: () => {},
+          onMessage,
         })
 
         if (cancelled) {
@@ -222,20 +214,18 @@ export default function PartnerRenderClient({ clioSessionRef, sections, humeConf
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // B2B-11 (Requirement Doc Section 6.5) — new, independent poll effect.
-  // Does not touch, replace, or interact with the connect() effect above's
-  // tool-handler map, endSessionOnce(), or connection logic in any way.
+  // B2B-11 — join-greeting poll (unchanged).
   useEffect(() => {
     let active = true
 
     const poll = async () => {
       try {
         const res = await fetch(`/api/partner/render/join-greeting/${clioSessionRef}`)
-        if (!active || !res.ok) return // non-fatal — just skip this cycle, next 2s cycle retries
+        if (!active || !res.ok) return
 
-        const data = await res.json() as { pending: boolean; greeting_text: string | null }
+        const data = (await res.json()) as { pending: boolean; greeting_text: string | null }
         if (!data.pending || !data.greeting_text) {
-          joinGreetingRetriedRef.current = false // reset for the next occurrence
+          joinGreetingRetriedRef.current = false
           return
         }
 
@@ -251,22 +241,14 @@ export default function PartnerRenderClient({ clioSessionRef, sections, humeConf
             clearFlag()
           } else if (!joinGreetingRetriedRef.current) {
             joinGreetingRetriedRef.current = true
-            adapter.sendWrapUpNudge(data.greeting_text) // one retry, per WalkthroughClient's existing policy
-            clearFlag() // cleared either way, per the existing policy
+            adapter.sendWrapUpNudge(data.greeting_text)
+            clearFlag()
           }
-          // else: already retried once and failed again — give up silently
         } else if (!joinGreetingRetriedRef.current) {
-          // Adapter not open yet (mid-connect) — one retry window only, do
-          // NOT clear the flag, exactly mirroring WalkthroughClient.tsx's own
-          // "adapter not open" branch.
           joinGreetingRetriedRef.current = true
         }
-        // else: still not open after the retry window — give up silently. The
-        // flag stays pending; there is no billing-critical backstop for this
-        // feature (unlike the wrap-up nudge), so a permanently-missed greeting
-        // is a narrow, accepted UX gap, not a stuck session.
       } catch {
-        /* swallow — next 2s cycle retries the fetch itself */
+        /* swallow — next 2s cycle retries */
       }
     }
 
@@ -274,6 +256,54 @@ export default function PartnerRenderClient({ clioSessionRef, sections, humeConf
     const interval = setInterval(poll, 2000)
     return () => { active = false; clearInterval(interval) }
   }, [clioSessionRef])
+
+  // B2B-19 — wrap-up-nudge poll (inline only). Mirrors the join-greeting poll's
+  // proven flag-set → poll → send → clear pattern. Delivers the graceful
+  // mid-session wrap-up directive (via sendWrapUpNudge) set by the
+  // partner-live-cutoff job — NOT a hard cut. Single-retry-then-give-up; the
+  // job's clean bot-leave is the backstop so billing never overshoots.
+  useEffect(() => {
+    if (!isInline) return
+    let active = true
+
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/partner/render/wrap-up-nudge/${clioSessionRef}`)
+        if (!active || !res.ok) return
+
+        const data = (await res.json()) as { pending: boolean; nudge_text: string | null }
+        if (!data.pending || !data.nudge_text) {
+          wrapUpRetriedRef.current = false
+          return
+        }
+
+        const adapter = adapterRef.current
+        const clearFlag = () => {
+          fetch(`/api/partner/render/wrap-up-nudge/${clioSessionRef}`, { method: 'PATCH' }).catch(() => {})
+        }
+
+        if (adapter?.isOpen()) {
+          const sent = adapter.sendWrapUpNudge(data.nudge_text)
+          if (sent) {
+            wrapUpRetriedRef.current = false
+            clearFlag()
+          } else if (!wrapUpRetriedRef.current) {
+            wrapUpRetriedRef.current = true
+            adapter.sendWrapUpNudge(data.nudge_text)
+            clearFlag()
+          }
+        } else if (!wrapUpRetriedRef.current) {
+          wrapUpRetriedRef.current = true
+        }
+      } catch {
+        /* swallow — next 2s cycle retries */
+      }
+    }
+
+    poll()
+    const interval = setInterval(poll, 2000)
+    return () => { active = false; clearInterval(interval) }
+  }, [clioSessionRef, isInline])
 
   async function endSessionOnce() {
     if (endedRef.current) return
@@ -284,7 +314,7 @@ export default function PartnerRenderClient({ clioSessionRef, sections, humeConf
     try {
       await adapterRef.current?.endSession()
     } catch {
-      // best-effort — never blocks the end-session accounting call below
+      /* best-effort */
     }
 
     try {
@@ -298,17 +328,54 @@ export default function PartnerRenderClient({ clioSessionRef, sections, humeConf
     }
   }
 
+  // ─── Inline render (B2B-19) ─────────────────────────────────────────────────
+  if (isInline) {
+    return (
+      <div className="relative h-screen w-screen overflow-y-auto bg-black">
+        {inlinePages!.map((page, index) => (
+          <div
+            key={index}
+            ref={(el) => { sectionEls.current[index] = el }}
+            className="relative flex h-screen w-screen items-center justify-center bg-black"
+          >
+            {page.status === 'unavailable' ? (
+              <p className="px-6 text-center text-sm text-white/70">This page isn&apos;t available right now.</p>
+            ) : page.mediaType === 'image' ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={page.imageDataUri} alt={page.title ?? `page ${index + 1}`} className="max-h-full max-w-full object-contain" />
+            ) : (
+              // Sandboxed: allow-scripts but NOT allow-same-origin → partner
+              // script runs in a null/opaque origin and cannot read Clio's
+              // render-page origin, the Hume token, or session data (AT-SSRF-3).
+              // srcDoc, never dangerouslySetInnerHTML (CLAUDE.md rule).
+              <iframe
+                title={page.title ?? `page ${index + 1}`}
+                srcDoc={page.contentHtml}
+                sandbox="allow-scripts"
+                className="h-full w-full border-0"
+              />
+            )}
+          </div>
+        ))}
+        {status === 'error' && (
+          <div className="fixed bottom-4 right-4 rounded bg-black/60 px-3 py-2 text-xs text-white">
+            Voice connection issue — content is still visible.
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // ─── Template render (Option 2, unchanged) ──────────────────────────────────
   return (
     <div className="relative h-screen w-screen overflow-y-auto">
-      {sections.map(({ section, cssCustomProperties }, index) => (
+      {(sections ?? []).map(({ section, cssCustomProperties }, index) => (
         <div
           key={section.id}
           ref={(el) => { sectionEls.current[index] = el }}
           className="relative h-screen w-screen"
         >
           <style
-            // Values are enum/hex/short-text constrained at write time
-            // (lib/partner/theme.ts) before ever reaching this string.
             dangerouslySetInnerHTML={{
               __html: cssCustomPropertiesToStyleBlock(`[data-partner-section="${section.id}"]`, cssCustomProperties),
             }}

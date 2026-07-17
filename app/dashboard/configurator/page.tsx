@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { getPartnerAccountsForClerkUser } from '@/lib/partner/admin-accounts'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { NoPartnerAccounts } from './_shared'
+import { getBillingHealth } from './_billing-health'
 import HomeClient from './HomeClient'
 
 /**
@@ -54,5 +55,7 @@ export default async function ConfiguratorHomePage({
     redirect(`/dashboard/configurator/wizard?partner_account_id=${activeId}`)
   }
 
-  return <HomeClient accounts={accounts} activePartnerAccountId={activeId} />
+  const billingHealth = await getBillingHealth(activeId)
+
+  return <HomeClient accounts={accounts} activePartnerAccountId={activeId} billingHealth={billingHealth} />
 }

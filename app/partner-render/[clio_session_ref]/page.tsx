@@ -75,6 +75,18 @@ export default async function PartnerRenderPage({
     return <ThemedMessage primaryColor={theme.primaryColor} message="This session's content isn't available right now." />
   }
 
+  // B2B-19 — inline content mode renders partner pages/images directly; Option 2
+  // (template mode) renders the 27-type TemplateSection stack unchanged.
+  if (result.mode === 'inline') {
+    return (
+      <PartnerRenderClient
+        clioSessionRef={session.id}
+        inlinePages={result.inlinePages}
+        humeConfigId={result.humeConfigId}
+      />
+    )
+  }
+
   return (
     <PartnerRenderClient
       clioSessionRef={session.id}

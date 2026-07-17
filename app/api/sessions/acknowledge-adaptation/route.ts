@@ -4,7 +4,7 @@
  *
  * Sets users.plan_adaptation_acknowledged_at = NOW() for the authenticated user.
  * Called when the user clicks the X on the plan adaptation notification banner
- * on /dashboard/sessions. Dismisses the banner server-side so it does not
+ * on the sessions dashboard. Dismisses the banner server-side so it does not
  * reappear on future page loads or across devices.
  *
  * SCR-01 — Adaptive Plan Reordering

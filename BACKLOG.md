@@ -22,6 +22,58 @@ not paused. Full requirements, decisions, and objective-impact analysis: `docs/b
 Until B2B-01 (Core Objectives rewrite) lands, `CORE_OBJECTIVES.md` still reflects the old B2C
 framing — do not treat it as current without cross-checking the pivot status doc.
 
+**2026-07-17 — Arun restated the final core objective directly**: Clio is API-driven AI Voice
+Learning Infrastructure with an exclusive scope (initiate call → title/subtitle/content as HTML
+pages or images with transition triggers → headless-browser render during the call → bot
+explains/transitions → transcript capture → call end → post-call insights + a trackable glitches
+log). Per-minute pricing, needs real analysis (ties to F-02 below). CEO Agent dispatched for a
+CORE_OBJECTIVES.md v3 rewrite + a gap analysis of every existing B2B feature against this scope.
+See `docs/b2b-pivot-status.md` for status.
+
+---
+
+## 🅿️ BACKLOG — explicitly not to build yet, awaiting a dedicated brainstorm
+
+- **Super admin page (Arun)** — full cross-partner visibility/control, distinct from the existing
+  internal-admin pages which currently have no real role-based access control beyond generic Clerk
+  login (flagged separately in the 2026-07-17 feature audit — needs its own fix regardless of this
+  item's timeline).
+- **Sales-partner (reseller) system** — onboarding, commission % after expenses, a digital
+  agreement (e-signature) defining products sold, responsibilities, geography, and language
+  coverage per sales partner. Arun's words: "we will brainstorm more on this but keep this in the
+  backlog" — do not spec or build until he initiates that brainstorm.
+
+---
+
+## 🧹 B2B-16 — post-deletion orphan flags (confirm before delete; NOT deleted in B2B-16)
+
+B2B-16 deleted the dead B2C dashboard page surfaces (`app/dashboard/plan`, `sessions`,
+`knowledge-base`, `phone`, `settings`, `schedule-setup`, `walkthrough`). Per the spec's sweep
+discipline ("orphaned by these pages ≠ dead"), the following were left untouched and must be
+confirmed before any deletion:
+
+- **`components/dashboard/ScheduleCard.tsx`** — was imported by the deleted
+  `app/dashboard/plan/PlanClient.tsx`. Still referenced by `app/api/user/schedule-prefs/route.ts`
+  (verify whether that is a live import or a comment). Confirm sole-importer before deleting.
+- **`components/dashboard/DashboardShell.tsx` NAV_ITEMS point at now-deleted routes.** Its nav still
+  lists `/dashboard/plan`, `/dashboard/sessions`, `/dashboard/knowledge-base`, `/dashboard/phone`,
+  `/dashboard/settings` — all 404 after B2B-16. DashboardShell is KEEP (5 live admin importers), and
+  editing its nav was out of B2B-16's authorized scope, so it was left as-is. **Internal admins will
+  see 5 dead nav links.** Needs a follow-up to trim NAV_ITEMS to the admin-relevant set (owner/UX
+  decision — do not guess).
+- **Retired-B2C route/copy still linking to deleted `/dashboard/*` pages** (part of the B2C
+  signup/session chain that Q1/B2B-17 defers, out of B2B-16 scope): `app/api/topics/route.ts`,
+  `app/api/plan/approve/route.ts`, `app/api/sessions/schedule/route.ts`,
+  `app/api/checkout/topup/route.ts` (SMS/email bodies), plus stale doc comments in
+  `lib/content/live-conductor-client.ts` and `app/api/sessions/acknowledge-adaptation/route.ts`.
+  These are the same B2C chain B2B-16 deliberately left intact — sweep them when the chain is retired.
+- **`WalkthroughClient.tsx` was relocated, not deleted** — moved from `app/dashboard/walkthrough/` to
+  `app/walkthrough/[userId]/` because the surviving public bot route imports it. See the build report.
+- **General per-module sweep still owed:** other `components/dashboard/*`, `components/plan/*`,
+  `components/kb/*`, and B2C-only `app/api/*` routes that only the deleted pages called may now be
+  orphaned. `components/plan/*` is still used by the retained `app/plan/` (Q1) — do NOT delete. Run
+  the importer sweep before removing anything.
+
 ---
 
 ## 🚦 PRE-LAUNCH GATE — do not go live with real clients until this is cleared

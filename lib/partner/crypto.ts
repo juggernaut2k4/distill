@@ -61,6 +61,23 @@ export function decryptOutboundToken(ciphertext: string | null | undefined): str
 }
 
 /**
+ * B2B-19 — Content-source credential encryption.
+ *
+ * These are deliberate aliases of `encryptOutboundToken`/`decryptOutboundToken`,
+ * NOT a parallel implementation. Content-source credentials (a partner's Bearer
+ * token, or an OAuth2 `{client_id, client_secret}` blob for the partner's own
+ * server) are the same threat model as the outbound auth token: a credential
+ * Clio must replay OUTWARD to authenticate to someone else's server, so it must
+ * be encrypted-and-retrievable, never hashed (do NOT follow `hashApiKey`/
+ * `hashClientSecret`, which are for one-way verifying INCOMING secrets Clio
+ * never replays). Same AES-256-GCM path, same `PARTNER_OUTBOUND_TOKEN_ENCRYPTION_KEY`,
+ * same `v1:<iv>:<tag>:<data>` format, same null-on-corrupt-never-throws
+ * contract (Requirement Doc Section 6.1, BA decision to reuse directly).
+ */
+export const encryptContentSourceCredential = encryptOutboundToken
+export const decryptContentSourceCredential = decryptOutboundToken
+
+/**
  * Generates a new Clio-issued webhook signing secret for a partner account —
  * "shown once in the future partner Configurator UI, like Stripe's whsec_..."
  * (architecture.md Section 1's `outbound_signing_secret` comment). Distinct

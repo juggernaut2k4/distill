@@ -1,33 +1,17 @@
 import { auth } from '@clerk/nextjs/server'
 import { redirect } from 'next/navigation'
-import { headers } from 'next/headers'
-import { createSupabaseAdminClient } from '@/lib/supabase'
 
-export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
-  // welcome page is exempt — user arrives here right after Stripe checkout
-  // before the webhook has a chance to update subscription_status
-  const pathname = headers().get('x-pathname') ?? ''
-  if (pathname.startsWith('/dashboard/welcome')) {
-    return <>{children}</>
-  }
-
+/**
+ * B2B-16 Requirement Doc Section 4.7 (Approved Decision #1). The old hard
+ * billing-redirect gate here was removed — it bounced every genuine partner
+ * admin (who has no consumer subscription row) to the retired consumer pricing
+ * page. The only gate that remains is the Clerk session check below; the
+ * per-page onboarding-completion gate (redirect to the wizard) is unchanged and
+ * lives on each Configurator page. The old welcome-page path exemption is also
+ * gone — that page was deleted in B2B-14, so the branch was dead.
+ */
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { userId } = auth()
   if (!userId) redirect('/sign-in')
-
-  const supabase = createSupabaseAdminClient()
-  const { data: user } = await supabase
-    .from('users')
-    .select('subscription_status, plan_tier')
-    .eq('id', userId)
-    .single()
-
-  const hasAccess =
-    user?.subscription_status === 'active' ||
-    user?.subscription_status === 'trialing'
-
-  if (!hasAccess) {
-    redirect('/plan')
-  }
-
   return <>{children}</>
 }

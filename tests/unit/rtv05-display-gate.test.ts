@@ -443,7 +443,7 @@ describe("POST /api/walkthrough-state/[userId] — 'update_section_data' command
 
 describe('RTV-05 dual-trigger single-writer proof — WalkthroughClient.tsx grep-checkable guarantee', () => {
   const clientSrcRaw = fs.readFileSync(
-    path.resolve(__dirname, '../../app/dashboard/walkthrough/WalkthroughClient.tsx'),
+    path.resolve(__dirname, '../../app/walkthrough/[userId]/WalkthroughClient.tsx'),
     'utf8'
   )
   // Strip comments before checking write-gate invariants: the constraint is

@@ -6,6 +6,8 @@ import { selectPartnerTemplate } from './custom-templates'
 import { recordBillableEvent } from './webhooks'
 import { assembleHumeNativePrompt } from '@/lib/voice/hume-native/prompt-template'
 import { provisionNativeConfig } from '@/lib/voice/hume-native/config-provisioner'
+import { getContentSource, resolveContentSourceHeaders } from './content-sources'
+import { safeFetchPartnerPage } from './ssrf'
 import { inngest } from '@/inngest/client'
 import type { TemplateSection } from '@/lib/templates/types'
 import type { DraftPayload } from './content-generation'
@@ -23,6 +25,16 @@ import type { DraftPayload } from './content-generation'
  * gained one optional parameter instead — see its doc comment.
  */
 
+/** B2B-19 — one inline content page as stored on partner_sessions.content_pages. */
+export interface InlineContentPage {
+  url: string
+  media_type: 'html' | 'image'
+  title: string | null
+  subtitle: string | null
+  transition_trigger: string
+  transition_marker: string
+}
+
 export interface PartnerSessionRow {
   id: string
   partnerAccountId: string
@@ -31,17 +43,26 @@ export interface PartnerSessionRow {
   partnerEndUserRef: string | null
   status: string
   testMode: boolean
+  // B2B-19 — inline content mode (Option 1). Null on Option 2 template-ref sessions.
+  contentSourceId: string | null
+  contentPages: InlineContentPage[] | null
+  contentToExplain: string | null
+  contentTitle: string | null
+  contentSubtitle: string | null
 }
 
 export async function getPartnerSession(clioSessionRef: string): Promise<PartnerSessionRow | null> {
   const supabase = createSupabaseAdminClient()
   const { data } = await supabase
     .from('partner_sessions')
-    .select('id, partner_account_id, content_ref, partner_topic_ref, partner_end_user_ref, status, test_mode')
+    .select(
+      'id, partner_account_id, content_ref, partner_topic_ref, partner_end_user_ref, status, test_mode, content_source_id, content_pages, content_to_explain, content_title, content_subtitle'
+    )
     .eq('id', clioSessionRef)
     .maybeSingle()
 
   if (!data) return null
+  const rawPages = data.content_pages as InlineContentPage[] | null
   return {
     id: data.id as string,
     partnerAccountId: data.partner_account_id as string,
@@ -50,6 +71,11 @@ export async function getPartnerSession(clioSessionRef: string): Promise<Partner
     partnerEndUserRef: (data.partner_end_user_ref as string | null) ?? null,
     status: data.status as string,
     testMode: Boolean(data.test_mode),
+    contentSourceId: (data.content_source_id as string | null) ?? null,
+    contentPages: Array.isArray(rawPages) && rawPages.length > 0 ? rawPages : null,
+    contentToExplain: (data.content_to_explain as string | null) ?? null,
+    contentTitle: (data.content_title as string | null) ?? null,
+    contentSubtitle: (data.content_subtitle as string | null) ?? null,
   }
 }
 
@@ -58,12 +84,36 @@ export interface RenderedSection {
   cssCustomProperties: CSSCustomProperties
 }
 
+/** B2B-19 — one inline page prepared for the render client. Page bodies are
+ *  fetched server-side (SSRF-guarded, credentials resolved) and passed as an
+ *  inline HTML string (rendered in a sandboxed iframe) or an image data URI —
+ *  never a raw partner URL in the browser (no credential leak, no client-side
+ *  SSRF surface). A page that could not be fetched degrades to `unavailable`. */
+export interface RenderedInlinePage {
+  mediaType: 'html' | 'image'
+  title: string | null
+  subtitle: string | null
+  transitionMarker: string
+  status: 'ok' | 'unavailable'
+  contentHtml?: string
+  imageDataUri?: string
+}
+
 export type LiveRenderResult =
   | { status: 'unavailable' | 'not_configured' }
   | {
       status: 'ok'
+      mode: 'template'
       partnerAccountId: string
       sections: RenderedSection[]
+      humeConfigId: string | null
+      assistantDisplayName: string
+    }
+  | {
+      status: 'ok'
+      mode: 'inline'
+      partnerAccountId: string
+      inlinePages: RenderedInlinePage[]
       humeConfigId: string | null
       assistantDisplayName: string
     }
@@ -88,6 +138,13 @@ function formatPartnerProfileContext(profile: unknown): string {
  * page already has a defined screen state for (Section 4.C Screen state 3).
  */
 export async function resolveLiveSessionRender(session: PartnerSessionRow): Promise<LiveRenderResult> {
+  // B2B-19 — inline content mode (Option 1) takes a wholly separate render path
+  // that bypasses extractSections()/TemplateSection entirely (Requirement Doc
+  // Section 4.C-C1). Option 2 (template-ref) falls through unchanged below.
+  if (session.contentPages) {
+    return resolveInlineSessionRender(session)
+  }
+
   const contentPull = await pullPartnerContent(session.partnerAccountId, {
     contentRef: session.contentRef,
     partnerTopicRef: session.partnerTopicRef,
@@ -171,11 +228,171 @@ export async function resolveLiveSessionRender(session: PartnerSessionRow): Prom
 
   return {
     status: 'ok',
+    mode: 'template',
     partnerAccountId: session.partnerAccountId,
     sections: rendered,
     humeConfigId,
     assistantDisplayName,
   }
+}
+
+/**
+ * B2B-19 — inline-content render path (Requirement Doc Section 1.3 / 4.C).
+ * Resolves the content-source credentials, fetches each page URL SSRF-guarded,
+ * and returns HTML (for a sandboxed iframe) / image data URIs for the render
+ * client — never touching extractSections()/TemplateSection. Injects the
+ * system-generated per-page transition marker into the assembled prompt (both
+ * as text for the bot to say AND an instruction to call the advance tool — the
+ * dual signal, Requirement Doc Section 2.2). Never throws: any per-page fetch
+ * failure degrades that page to `unavailable` (mirrors pullPartnerContent).
+ */
+async function resolveInlineSessionRender(session: PartnerSessionRow): Promise<LiveRenderResult> {
+  const pages = session.contentPages ?? []
+
+  // Resolve outbound credentials for the source (if any). A resolution failure
+  // is not fatal — public/`none` sources need no headers, and a credentialed
+  // source that fails to resolve simply yields per-page `unavailable` fetches.
+  let headers: Record<string, string> = {}
+  if (session.contentSourceId) {
+    const source = await getContentSource(session.contentSourceId, session.partnerAccountId)
+    if (source) {
+      const resolved = await resolveContentSourceHeaders(source)
+      if (resolved.status === 'ok') headers = resolved.headers
+      else console.warn('[partner/live-render] content-source headers unavailable:', resolved.reason)
+    }
+  }
+
+  const rendered: RenderedInlinePage[] = []
+  for (const page of pages) {
+    const fetched = await safeFetchPartnerPage(page.url, headers, page.media_type)
+    if (fetched.status !== 'ok') {
+      rendered.push({
+        mediaType: page.media_type,
+        title: page.title,
+        subtitle: page.subtitle,
+        transitionMarker: page.transition_marker,
+        status: 'unavailable',
+      })
+      continue
+    }
+
+    if (page.media_type === 'image') {
+      const dataUri = `data:${fetched.contentType};base64,${fetched.body.toString('base64')}`
+      rendered.push({
+        mediaType: 'image',
+        title: page.title,
+        subtitle: page.subtitle,
+        transitionMarker: page.transition_marker,
+        status: 'ok',
+        imageDataUri: dataUri,
+      })
+    } else {
+      rendered.push({
+        mediaType: 'html',
+        title: page.title,
+        subtitle: page.subtitle,
+        transitionMarker: page.transition_marker,
+        status: 'ok',
+        contentHtml: fetched.body.toString('utf8'),
+      })
+    }
+  }
+
+  const theme = await getThemeConfig(session.partnerAccountId)
+  const assistantDisplayName = theme.assistantDisplayName ?? 'your AI guide'
+
+  // Assemble the prompt with per-page marker injection. Page BODIES are never
+  // sent to the bot (data boundary) — only the partner's narration inputs
+  // (content_to_explain + per-page titles/subtitles/triggers).
+  let humeConfigId: string | null = null
+  try {
+    const sessionContent = buildInlineSessionContent(session, pages)
+    const promptConfig = await getPromptConfig(session.partnerAccountId)
+    const prompt = assembleHumeNativePrompt({
+      profileContext: '',
+      intentContext: '',
+      sessionContent,
+      assistantName: assistantDisplayName,
+      promptBehavior: {
+        tonePersona: promptConfig.tonePersona,
+        deferralPhrasing: promptConfig.deferralPhrasing,
+        closingConfirmationQuestion: promptConfig.closingConfirmationQuestion,
+        goodbyeLine: promptConfig.goodbyeLine,
+        verificationQuestionStyle: promptConfig.verificationQuestionStyle,
+        interSectionRecapStyle: promptConfig.interSectionRecapStyle,
+      },
+    })
+
+    // Persist the full assembled prompt so the join-greeting AND wrap-up-nudge
+    // routes prepend it (Hume's session_settings.system_prompt fully replaces
+    // the active prompt — B2B-11 Technical Decision 6). Best-effort.
+    const supabase = createSupabaseAdminClient()
+    const { error: snapshotError } = await supabase
+      .from('partner_sessions')
+      .update({ assembled_prompt_snapshot: prompt })
+      .eq('id', session.id)
+    if (snapshotError) {
+      console.error('[partner/live-render] failed to persist assembled_prompt_snapshot (inline, non-fatal):', { sessionId: session.id, error: snapshotError })
+    }
+
+    const provisioned = await provisionNativeConfig({ sessionId: session.id, assembledPrompt: prompt })
+    humeConfigId = provisioned.configId
+  } catch (err) {
+    console.error('[partner/live-render] Hume config provisioning failed (inline session proceeds without voice):', err instanceof Error ? err.message : err)
+  }
+
+  return {
+    status: 'ok',
+    mode: 'inline',
+    partnerAccountId: session.partnerAccountId,
+    inlinePages: rendered,
+    humeConfigId,
+    assistantDisplayName,
+  }
+}
+
+/**
+ * Builds the SESSION CONTENT block for an inline session's assembled prompt.
+ * Each page gets a stage-direction (leveraging the fixed template's rule 10 —
+ * "never speak bracketed labels aloud") instructing the bot to say the page's
+ * unique transition marker naturally AND call the advance tool at the
+ * transition point — the dual signal (Requirement Doc Sections 2.2, 5.4).
+ */
+function buildInlineSessionContent(session: PartnerSessionRow, pages: InlineContentPage[]): string {
+  const blocks: string[] = []
+
+  if (session.contentTitle) blocks.push(`SESSION TITLE: ${session.contentTitle}`)
+  if (session.contentSubtitle) blocks.push(`SESSION SUBTITLE: ${session.contentSubtitle}`)
+  if (session.contentToExplain) {
+    blocks.push(`WHAT TO EXPLAIN (overall narration guidance for this session):\n${session.contentToExplain}`)
+  }
+
+  blocks.push(
+    `You will narrate ${pages.length} page(s) in order. The participant sees each page on the shared screen. ` +
+      `Cover each page's material, then move to the next at the transition point described for that page.`
+  )
+
+  pages.forEach((page, index) => {
+    const pageNo = index + 1
+    const isLast = index === pages.length - 1
+    const lines: string[] = [`[PAGE ${pageNo} of ${pages.length}${page.title ? ` — "${page.title}"` : ''}]`]
+    if (page.subtitle) lines.push(`Subtitle: ${page.subtitle}`)
+    if (isLast) {
+      lines.push(
+        `[STAGE DIRECTION — DO NOT SAY THE BRACKETED LABEL] This is the final page (transition intent: "${page.transition_trigger}"). ` +
+          `When you have finished covering it and are about to close the session, say this exact phrase naturally as part of your sentence: "${page.transition_marker}". ` +
+          `Then follow the closing sequence and call the end_session tool.`
+      )
+    } else {
+      lines.push(
+        `[STAGE DIRECTION — DO NOT SAY THE BRACKETED LABEL] When you have finished covering this page (transition intent: "${page.transition_trigger}") and are about to move to page ${pageNo + 1}, ` +
+          `say this exact phrase naturally as part of your sentence: "${page.transition_marker}". Then call the advance_tab tool.`
+      )
+    }
+    blocks.push(lines.join('\n'))
+  })
+
+  return blocks.join('\n\n')
 }
 
 /** Extracts a TemplateSection[] from a pulled content payload. Handles both Clio's own generated shape (DraftPayload, format='json') and a bare array-of-sections shape, so a partner-authored /content response using the simpler shape also renders. */
@@ -247,11 +464,12 @@ export async function handleSessionEnd(
   durationMinutes: number,
   testMode: boolean,
   targetStatus: 'completed' | 'failed' = 'completed',
+  billedDurationSource: 'attendee' | 'attendee_receipt' | 'client_reported' | 'wall_clock_fallback' = 'client_reported',
 ): Promise<void> {
   const supabase = createSupabaseAdminClient()
   await supabase
     .from('partner_sessions')
-    .update({ status: targetStatus, ended_at: new Date().toISOString() })
+    .update({ status: targetStatus, ended_at: new Date().toISOString(), billed_duration_source: billedDurationSource })
     .eq('id', clioSessionRef)
 
   // B2B-08 — cancel the trial-cutoff job so a normally-ended test session never triggers a
@@ -259,6 +477,12 @@ export async function handleSessionEnd(
   if (testMode) {
     inngest.send({ name: 'clio/partner-trial.ended', data: { clioSessionRef } })
       .catch((err) => console.error('[live-render] clio/partner-trial.ended emit failed:', err))
+  } else {
+    // B2B-19 — cancel the live-wallet mid-session cutoff on a normal live end
+    // (mirrors the test-mode cancel above). A cancel for a session that never
+    // armed a cutoff (e.g. Option 2 live, or no configured rate) is a harmless no-op.
+    inngest.send({ name: 'clio/partner-live.ended', data: { clioSessionRef } })
+      .catch((err) => console.error('[live-render] clio/partner-live.ended emit failed:', err))
   }
 
   if (durationMinutes > 0) {

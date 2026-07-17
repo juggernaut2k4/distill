@@ -1,6 +1,6 @@
 /**
  * LIVE-01 — client-side (browser) module for the live conductor path, used by
- * app/dashboard/walkthrough/WalkthroughClient.tsx.
+ * app/walkthrough/[userId]/WalkthroughClient.tsx.
  *
  * Per the spec's toggle-isolation requirement, this holds its OWN state (not
  * WalkthroughClient's shared sectionsRef / trainingScriptsRef / etc.) and is

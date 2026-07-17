@@ -86,6 +86,163 @@ export function ConfiguratorShell({
   )
 }
 
+/**
+ * B2B-16 (Requirement Doc Section 4.2 / 4.5) — billing-health state for the
+ * non-blocking banner. Computed server-side from `partner_wallets`
+ * (`_billing-health.ts`) and passed into `ConfiguratorNavShell`. `healthy`
+ * renders no banner. This is a read-only advisory; it never blocks or gates.
+ */
+export type BillingHealthState = 'past_due' | 'canceled' | 'low_balance' | 'healthy'
+export interface BillingHealth {
+  state: BillingHealthState
+}
+
+// Fixed factual copy — LOCKED by CEO (Requirement Doc Section 4.5). No dollar
+// figures. Do not edit wording without a spec change.
+const BILLING_BANNER_COPY: Record<
+  Exclude<BillingHealthState, 'healthy'>,
+  { message: string; linkLabel: string }
+> = {
+  past_due: {
+    message: 'Your plan payment is past due. Add a payment method to avoid interruption.',
+    linkLabel: 'Fix billing →',
+  },
+  canceled: {
+    message: 'Your plan has been canceled. Reactivate to keep your integration running.',
+    linkLabel: 'Fix billing →',
+  },
+  low_balance: {
+    message: 'Your usage balance is running low. Top up to avoid interruption.',
+    linkLabel: 'Add funds →',
+  },
+}
+
+/**
+ * B2B-16 Requirement Doc Section 4.5 — persistent, non-blocking billing-health
+ * banner. Renders above the page body on the three destinations; the page
+ * remains fully visible and usable. Links to the Docs billing explainer
+ * (`/dashboard/configurator/docs#billing`) — never a redirect, never an overlay.
+ */
+function BillingBanner({ billingHealth, activePartnerAccountId }: { billingHealth: BillingHealth; activePartnerAccountId: string }) {
+  if (billingHealth.state === 'healthy') return null
+  const copy = BILLING_BANNER_COPY[billingHealth.state]
+  return (
+    <div
+      role="status"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        flexWrap: 'wrap',
+        background: COLORS.raised,
+        border: `1px solid ${COLORS.amber}`,
+        borderRadius: 10,
+        padding: '10px 16px',
+        marginBottom: 20,
+      }}
+    >
+      <span style={{ color: COLORS.amber, fontSize: 13, flex: 1, minWidth: 220 }}>
+        <span aria-hidden style={{ marginRight: 8 }}>⚠</span>
+        {copy.message}
+      </span>
+      <Link
+        href={`/dashboard/configurator/docs?partner_account_id=${activePartnerAccountId}#billing`}
+        style={{ color: COLORS.amber, fontSize: 13, fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap' }}
+      >
+        {copy.linkLabel}
+      </Link>
+    </div>
+  )
+}
+
+/**
+ * B2B-16 Requirement Doc Section 4.2 — additive lean nav shell wrapping the
+ * three top-level destinations (Configurator / API / Docs). Reuses the exact
+ * top-bar chrome + account switcher of `ConfiguratorShell` and the `COLORS`
+ * design system — NO new visual language. Adds a 3-item nav row and the
+ * billing-health banner. Does NOT replace `ConfiguratorShell` (still used by
+ * the 6 sub-screens + Playground) or `DashboardShell` (admin surface).
+ */
+export function ConfiguratorNavShell({
+  accounts,
+  activePartnerAccountId,
+  active,
+  billingHealth,
+  children,
+}: {
+  accounts: AdminPartnerAccount[]
+  activePartnerAccountId: string
+  active: 'configurator' | 'api' | 'docs'
+  billingHealth: BillingHealth
+  children: React.ReactNode
+}) {
+  const router = useRouter()
+  const pathname = usePathname()
+
+  function onSwitch(id: string) {
+    router.push(`${pathname}?partner_account_id=${id}`)
+  }
+
+  const navItems: { key: 'configurator' | 'api' | 'docs'; label: string; href: string }[] = [
+    { key: 'configurator', label: 'Configurator', href: `/dashboard/configurator?partner_account_id=${activePartnerAccountId}` },
+    { key: 'api', label: 'API', href: `/dashboard/configurator/api?partner_account_id=${activePartnerAccountId}` },
+    { key: 'docs', label: 'Docs', href: `/dashboard/configurator/docs?partner_account_id=${activePartnerAccountId}` },
+  ]
+
+  return (
+    <div style={{ minHeight: '100vh', background: COLORS.bg, color: COLORS.textPrimary, fontFamily: 'Inter, system-ui, sans-serif' }}>
+      <div style={{ borderBottom: `1px solid ${COLORS.borderSubtle}`, padding: '16px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <span style={{ fontWeight: 700, fontSize: 14 }}>Clio Configurator</span>
+        </div>
+        {accounts.length > 1 ? (
+          <select
+            value={activePartnerAccountId}
+            onChange={(e) => onSwitch(e.target.value)}
+            style={{ background: COLORS.surface, color: COLORS.textPrimary, border: `1px solid ${COLORS.borderSubtle}`, borderRadius: 6, padding: '6px 10px', fontSize: 13 }}
+          >
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+        ) : accounts.length === 1 ? (
+          <span style={{ color: COLORS.textSecondary, fontSize: 13 }}>{accounts[0].name}</span>
+        ) : null}
+      </div>
+
+      <nav style={{ borderBottom: `1px solid ${COLORS.borderSubtle}`, padding: '0 32px', display: 'flex', gap: 8 }}>
+        {navItems.map((item) => {
+          const isActive = item.key === active
+          return (
+            <Link
+              key={item.key}
+              href={item.href}
+              style={{
+                padding: '12px 16px',
+                fontSize: 13,
+                fontWeight: 600,
+                textDecoration: 'none',
+                color: isActive ? COLORS.textPrimary : COLORS.textSecondary,
+                borderBottom: `2px solid ${isActive ? COLORS.purple : 'transparent'}`,
+                marginBottom: -1,
+              }}
+            >
+              {item.label}
+            </Link>
+          )
+        })}
+      </nav>
+
+      <div style={{ padding: 32, maxWidth: 960, margin: '0 auto' }}>
+        <BillingBanner billingHealth={billingHealth} activePartnerAccountId={activePartnerAccountId} />
+        {children}
+      </div>
+    </div>
+  )
+}
+
 export function Card({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
   return (
     <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.borderSubtle}`, borderRadius: 12, padding: 20, ...style }}>

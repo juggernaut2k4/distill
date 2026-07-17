@@ -277,7 +277,7 @@ async function lookupExistingDispatchLog(
  * the old row (`effective_to`) and opens a new one, so this resolves the
  * rate genuinely in effect at `occurredAt`, even after later rate changes.
  */
-async function resolveEffectiveRate(
+export async function resolveEffectiveRate(
   partnerAccountId: string,
   eventType: string,
   occurredAt: string

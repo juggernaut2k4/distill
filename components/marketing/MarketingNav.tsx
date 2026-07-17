@@ -1,13 +1,10 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { ArrowRight } from 'lucide-react'
 
 export default function MarketingNav() {
-  const pathname = usePathname()
-
   return (
     <motion.header
       initial={{ opacity: 0, y: -8 }}
@@ -30,14 +27,6 @@ export default function MarketingNav() {
             className="text-sm text-[#475569] hover:text-white transition-colors"
           >
             How it works
-          </Link>
-          <Link
-            href="/pricing"
-            className={`text-sm transition-colors ${
-              pathname === '/pricing' ? 'text-white' : 'text-[#475569] hover:text-white'
-            }`}
-          >
-            Pricing
           </Link>
         </nav>
 

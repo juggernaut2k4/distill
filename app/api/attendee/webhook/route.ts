@@ -133,7 +133,7 @@ async function handleEvent(event: AttendeeWebhookEvent) {
     // Section 4.1 — this is the only change to the pre-existing B2C miss path.
     const { data: partnerSessionRow } = await supabase
       .from('partner_sessions')
-      .select('id, partner_account_id, status, test_mode, updated_at')
+      .select('id, partner_account_id, status, test_mode, updated_at, attendee_joined_at')
       .eq('id', userId)
       .maybeSingle()
 
@@ -144,6 +144,7 @@ async function handleEvent(event: AttendeeWebhookEvent) {
         status: partnerSessionRow.status as string,
         testMode: Boolean(partnerSessionRow.test_mode),
         updatedAt: partnerSessionRow.updated_at as string,
+        attendeeJoinedAt: (partnerSessionRow.attendee_joined_at as string | null) ?? null,
       })
       return
     }
@@ -348,6 +349,43 @@ interface PartnerSessionForEvent {
   status: string
   testMode: boolean
   updatedAt: string
+  attendeeJoinedAt: string | null
+}
+
+/**
+ * B2B-19 (billing gap 2, CEO build-time condition) — attempts to read an
+ * Attendee-provided event/occurrence timestamp from the webhook payload. The
+ * `AttendeeWebhookEvent.data` shape is `Record<string, unknown>` with no
+ * confirmed timestamp field in this repo, so this probes the plausible
+ * candidate keys (Attendee.dev has never delivered an observable signed request
+ * in the log window to pin the exact field). Returns an ISO string when a
+ * genuine Attendee-carried timestamp is found; null otherwise, in which case
+ * the caller falls back to webhook-RECEIPT time and labels it distinctly
+ * (`attendee_receipt`) so real Attendee-measured timing is never silently
+ * conflated with receipt time.
+ */
+function extractAttendeeEventTimestamp(event: AttendeeWebhookEvent): string | null {
+  const candidates: unknown[] = [
+    event.data?.created_at,
+    event.data?.timestamp,
+    event.data?.occurred_at,
+    event.data?.event_time,
+    event.data?.changed_at,
+    event.data?.time,
+    (event as unknown as { created_at?: unknown }).created_at,
+    (event as unknown as { timestamp?: unknown }).timestamp,
+  ]
+  for (const c of candidates) {
+    if (typeof c === 'string' || typeof c === 'number') {
+      const d = new Date(c)
+      if (!Number.isNaN(d.getTime())) return d.toISOString()
+    }
+  }
+  return null
+}
+
+function clampDurationMinutes(ms: number): number {
+  return Math.min(600, Math.max(0, ms / 60000))
 }
 
 async function handlePartnerSessionEvent(
@@ -361,11 +399,16 @@ async function handlePartnerSessionEvent(
       const state = event.data.new_state as string | undefined
 
       if (state === 'joined_recording') {
-        // Confirmatory/observability-only — provider_bot_id was already written
-        // at dispatch time by dispatchMeetingBot() (session-init.ts), before any
-        // webhook could possibly fire, and B2B-09's transcript extraction keys
-        // off Hume's own chat_id, never off the Attendee bot id. No DB write.
-        console.log('[attendee/webhook] partner session joined_recording (confirmatory only):', { botId, partnerSessionId: row.id })
+        // B2B-19 (billing gap 2) — capture Attendee's authoritative bot-join
+        // timestamp when the payload carries one, so session end can bill the
+        // real (ended − joined) duration. Provider_bot_id is already persisted
+        // at dispatch time; this write only records timing.
+        const joinedTs = extractAttendeeEventTimestamp(event)
+        if (joinedTs) {
+          const supabase = createSupabaseAdminClient()
+          await supabase.from('partner_sessions').update({ attendee_joined_at: joinedTs }).eq('id', row.id)
+        }
+        console.log('[attendee/webhook] partner session joined_recording:', { botId, partnerSessionId: row.id, attendeeJoinedAt: joinedTs })
         break
       }
 
@@ -378,8 +421,32 @@ async function handlePartnerSessionEvent(
           break
         }
 
-        const rawMinutes = (Date.now() - new Date(row.updatedAt).getTime()) / 60000
-        const durationMinutes = Math.min(600, Math.max(0, rawMinutes))
+        // B2B-19 (billing gap 2) — prefer Attendee's own timing. If both the
+        // join (row.attendeeJoinedAt) and this end event carry real Attendee
+        // timestamps, bill (ended − joined) and label 'attendee'. Otherwise fall
+        // back to webhook-RECEIPT time, labeled 'attendee_receipt' (distinct from
+        // a true Attendee-measured value) so provenance stays honest/queryable.
+        const supabase = createSupabaseAdminClient()
+        const endedTsReal = extractAttendeeEventTimestamp(event)
+        const joinedTsReal = row.attendeeJoinedAt
+
+        let durationMinutes: number
+        let billedSource: 'attendee' | 'attendee_receipt'
+        let attendeeEndedAtToStore: string
+
+        if (endedTsReal && joinedTsReal) {
+          durationMinutes = clampDurationMinutes(new Date(endedTsReal).getTime() - new Date(joinedTsReal).getTime())
+          billedSource = 'attendee'
+          attendeeEndedAtToStore = endedTsReal
+        } else {
+          const base = joinedTsReal ? new Date(joinedTsReal).getTime() : new Date(row.updatedAt).getTime()
+          durationMinutes = clampDurationMinutes(Date.now() - base)
+          billedSource = 'attendee_receipt'
+          attendeeEndedAtToStore = new Date().toISOString()
+        }
+
+        await supabase.from('partner_sessions').update({ attendee_ended_at: attendeeEndedAtToStore }).eq('id', row.id)
+
         const targetStatus: 'completed' | 'failed' = state === 'fatal_error' ? 'failed' : 'completed'
 
         console.warn('[attendee/webhook] partner session fallback completion triggered (client-side end-session never landed):', {
@@ -388,9 +455,10 @@ async function handlePartnerSessionEvent(
           state,
           targetStatus,
           durationMinutes,
+          billedSource,
         })
 
-        await handleSessionEnd(row.id, row.partnerAccountId, durationMinutes, row.testMode, targetStatus)
+        await handleSessionEnd(row.id, row.partnerAccountId, durationMinutes, row.testMode, targetStatus, billedSource)
       }
       break
     }

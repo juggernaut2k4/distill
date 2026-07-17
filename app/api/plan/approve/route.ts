@@ -279,7 +279,7 @@ export async function POST(request: NextRequest) {
       sendSMS(
         user.phone as string,
         user.twilio_number_assigned as string,
-        `Clio: Your learning plan is approved — start your first session: ${appUrl}/dashboard/plan`
+        `Clio: Your learning plan is approved — start your first session: ${appUrl}/dashboard`
       ).catch(console.error)
     )
   }
@@ -327,7 +327,7 @@ export async function PUT(request: NextRequest) {
       sendSMS(
         user.phone,
         user.twilio_number_assigned,
-        `Your Clio learning plan is ready! Review and approve it here: ${appUrl}/dashboard/plan — Clio`
+        `Your Clio learning plan is ready! Review and approve it here: ${appUrl}/dashboard — Clio`
       ).catch(console.error)
     )
   }

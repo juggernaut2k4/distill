@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
         sendSMS(
           userRow.phone,
           userRow.twilio_number_assigned,
-          `Clio: ${parsed.data.sessions.length} sessions scheduled! First session: ${first.title} on ${firstDate}. View schedule: ${appUrl}/dashboard/sessions`
+          `Clio: ${parsed.data.sessions.length} sessions scheduled! First session: ${first.title} on ${firstDate}. View schedule: ${appUrl}/dashboard`
         ).catch(console.error)
       )
     }

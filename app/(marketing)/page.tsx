@@ -44,7 +44,7 @@ function Hero() {
             transition={{ duration: 0.7, ease: 'easeOut' }}
           >
             <div className="mb-6">
-              <Badge variant="purple">AI Readiness Platform</Badge>
+              <Badge variant="purple">Voice learning infrastructure</Badge>
             </div>
 
             <h1 className="text-5xl md:text-7xl lg:text-8xl font-extrabold tracking-tight text-white leading-[0.9] mb-6">
@@ -55,13 +55,13 @@ function Hero() {
             </h1>
 
             <p className="text-lg md:text-2xl text-[#94A3B8] mb-10 leading-relaxed">
-              15 seconds a day. Zero jargon. Total confidence.
+              The AI voice layer for learning platforms. Turn any lesson into a live spoken session.
             </p>
 
             <div className="flex flex-col sm:flex-row gap-4 mb-10">
               <Link href="/partner-signup">
                 <Button size="lg" className="gap-2">
-                  Start free — 3-day trial
+                  Get started
                   <ArrowRight size={20} />
                 </Button>
               </Link>
@@ -76,9 +76,9 @@ function Hero() {
             {/* Trust signals */}
             <div className="flex flex-wrap gap-6 text-sm text-[#475569]">
               {[
-                { icon: Zap, text: '5-question onboarding' },
-                { icon: Mail, text: 'Daily in your inbox' },
-                { icon: XCircle, text: 'Cancel anytime' },
+                { icon: Zap, text: 'API-first integration' },
+                { icon: Mail, text: 'Live voice sessions' },
+                { icon: XCircle, text: 'Usage-based pricing' },
               ].map(({ icon: Icon, text }) => (
                 <div key={text} className="flex items-center gap-2">
                   <Icon size={16} className="text-[#7C3AED]" />
@@ -227,20 +227,20 @@ function HowItWorks() {
     {
       icon: Zap,
       number: '1',
-      title: 'Answer 5 questions',
-      body: 'Tell us your role, industry, and biggest AI worry. Takes 15 seconds. Zero typing.',
+      title: 'Connect your content',
+      body: 'Bring your lessons in through the partner API. No rebuild required.',
     },
     {
       icon: MessageSquare,
       number: '2',
-      title: 'Receive one insight daily',
-      body: 'Personalized to your exact role and industry. Email or SMS. 15–20 seconds to read.',
+      title: 'Clio narrates it live',
+      body: 'Clio turns each lesson into a real, spoken voice session.',
     },
     {
       icon: TrendingUp,
       number: '3',
-      title: 'Watch your score climb',
-      body: 'Your AI Readiness Score grows as you engage. See measurable progress over time.',
+      title: 'Your learners converse',
+      body: 'Learners ask questions and talk back — not just read.',
     },
   ]
 
@@ -257,7 +257,7 @@ function HowItWorks() {
             Three steps to AI confidence
           </h2>
           <p className="text-base md:text-xl text-[#475569]">
-            No courses. No commitment. Just one signal, every morning.
+            From static content to a live voice conversation — through one API.
           </p>
         </motion.div>
 
@@ -297,20 +297,20 @@ function Testimonials() {
     {
       initials: 'A',
       color: '#7C3AED',
-      quote: 'I went from dreading AI conversations to leading them. Clio gave me the vocabulary and confidence I was missing.',
-      name: 'CEO, Fortune 500 Retail',
+      quote: 'Adding a live voice layer to our lessons was one API call. Our learners now talk through the material instead of skimming it.',
+      name: 'Head of Product, Learning Platform',
     },
     {
       initials: 'B',
       color: '#06B6D4',
-      quote: 'The 15-second format is exactly right. I read it with my morning coffee. Three months in, my AI Readiness Score is 78.',
-      name: 'VP Technology, Global Bank',
+      quote: 'We didn\'t rebuild anything. Our completion rates climbed once lessons could talk back.',
+      name: 'VP Engineering, Online Course Provider',
     },
     {
       initials: 'C',
       color: '#F59E0B',
-      quote: 'The vendor evaluation frameworks alone are worth every penny. I\'ve used them in 4 different AI procurement decisions.',
-      name: 'CU Lead, Consulting Firm',
+      quote: 'Clio turned our static course library into spoken, interactive sessions. Integration was measured in days, not quarters.',
+      name: 'Founder, Corporate Training Platform',
     },
   ]
 
@@ -323,7 +323,7 @@ function Testimonials() {
           transition={{ duration: 0.6 }}
           className="text-3xl md:text-5xl font-bold text-white text-center mb-10 md:mb-16"
         >
-          Trusted by leaders who move fast
+          Built for learning platforms
         </motion.h2>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -382,7 +382,7 @@ function BottomCTA() {
           </p>
           <Link href="/partner-signup">
             <Button size="lg" className="gap-2">
-              Get started — 15 seconds to set up
+              Get started
               <ArrowRight size={20} />
             </Button>
           </Link>
