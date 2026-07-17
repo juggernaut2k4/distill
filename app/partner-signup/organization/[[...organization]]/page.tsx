@@ -24,6 +24,17 @@ import { CreateOrganization, useAuth } from '@clerk/nextjs'
  * than via `/partner-signup`'s post-signup redirect). Send them to sign
  * in first, same destination pattern as every other auth-gated route in
  * this app, then straight back here.
+ *
+ * Catch-all route (found 2026-07-17, same bug class as `/partner-signup`
+ * itself): `<CreateOrganization>` is a multi-step Clerk component that
+ * needs to own every sub-path under its mount point for its own internal
+ * navigation, same as `<SignUp>`. The original single fixed route (no
+ * catch-all segment) caused a real, reproduced-live symptom: after
+ * successfully creating an organization, the component re-rendered the
+ * create-organization form instead of completing, because its internal
+ * post-creation navigation had nowhere valid to land. Moved to
+ * `[[...organization]]`, matching the same fix already applied to
+ * `/partner-signup`.
  */
 export default function PartnerSignUpOrganizationPage() {
   const { isLoaded, isSignedIn } = useAuth()
