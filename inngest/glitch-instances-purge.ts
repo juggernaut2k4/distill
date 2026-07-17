@@ -15,22 +15,32 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
  * would break that invariant. This sibling function achieves the identical functional outcome —
  * glitch_instances descriptions purged on the 30-day clock — with zero diff to the capture pipeline.
  *
- * The purge policy itself (whether instances attached to an OPEN/INVESTIGATING issue are exempted
- * from the 30-day purge) is decided inside the `purge_glitch_instances_full_detail` RPC and is gated
- * behind a one-line boolean pending Arun's Q1 ratification — see migration 082 and Requirement Doc
- * Section 6.4 / Section 11 Q1. This job simply calls the RPC; it carries no policy of its own.
+ * PAUSED — Arun's direct instruction, 2026-07-17: "now lets not delete the glitches we can
+ * maintain for tracking. we can decide wipe it later sometime in the future. for now no need to
+ * delete the glitch." This supersedes Q1 (Requirement Doc Section 6.4 / Section 11) — rather than
+ * the narrower "exempt only actively-tracked issues" resolution, the decision is to purge nothing
+ * at all for now. The function stays registered and the RPC/schema are untouched so this is a
+ * one-line reversal (delete the early return below) once Arun decides on a retention window.
+ * `partner_session_insights.glitches` purge (migration 078, unrelated job) is untouched by this
+ * pause — separate policy, also covers action items/psychology, not in scope of this instruction.
  */
 
 const PURGE_WINDOW_DAYS = 30
+const PURGE_PAUSED = true // Arun, 2026-07-17 — see comment above. Flip to false to resume.
 
 export const glitchInstancesPurge = inngest.createFunction(
   {
     id: 'glitch-instances-purge',
-    name: 'Glitch Instances — 30-Day Full-Detail Purge',
+    name: 'Glitch Instances — 30-Day Full-Detail Purge (PAUSED)',
     retries: 3,
     triggers: [{ cron: '0 3 * * *' }],
   },
   async ({ step }) => {
+    if (PURGE_PAUSED) {
+      console.log('[glitch-instances-purge] Paused per Arun 2026-07-17 — no rows purged this run.')
+      return { purged: 0, paused: true }
+    }
+
     const purged = await step.run('purge-expired-glitch-instance-detail', async () => {
       const supabase = createSupabaseAdminClient()
       const cutoffIso = new Date(Date.now() - PURGE_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString()
