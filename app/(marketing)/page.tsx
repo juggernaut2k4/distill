@@ -1,11 +1,11 @@
 'use client'
 
 import { motion, useInView } from 'framer-motion'
-import { useRef, useState } from 'react'
+import { useRef } from 'react'
 import Link from 'next/link'
 import {
   ArrowRight, BrainCircuit, TrendingUp, Search, Zap,
-  MessageSquare, CheckCircle, Mail, Smartphone, XCircle
+  MessageSquare, Mail, Smartphone, XCircle
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
@@ -59,7 +59,7 @@ function Hero() {
             </p>
 
             <div className="flex flex-col sm:flex-row gap-4 mb-10">
-              <Link href="/onboarding">
+              <Link href="/partner-signup">
                 <Button size="lg" className="gap-2">
                   Start free — 3-day trial
                   <ArrowRight size={20} />
@@ -356,176 +356,6 @@ function Testimonials() {
   )
 }
 
-// ─── Pricing ──────────────────────────────────────────────────────────────────
-
-function Pricing() {
-  const [annual, setAnnual] = useState(false)
-  const ref = useRef(null)
-  const inView = useInView(ref, { once: true, margin: '-100px' })
-
-  const plans = [
-    {
-      name: 'Starter',
-      price: { monthly: 12, annual: 99 },
-      period: annual ? '/year' : '/month',
-      features: [
-        'Email + SMS daily insights',
-        '30 coaching mins/month',
-        'Weekly digest (Sundays)',
-        'Feedback adaptation',
-        '$0.40/min extra',
-      ],
-      cta: 'Get Starter',
-      href: '/onboarding',
-      highlight: false,
-      trial: '3-day free trial',
-    },
-    {
-      name: 'Pro',
-      price: { monthly: 25, annual: 199 },
-      period: annual ? '/year' : '/month',
-      features: [
-        'Everything in Starter',
-        '70 coaching mins/month',
-        'AI Readiness Score',
-        'Ask Anything SMS',
-        '$0.39/min extra',
-      ],
-      cta: 'Get Pro',
-      href: '/onboarding',
-      highlight: true,
-      trial: '3-day free trial',
-    },
-    {
-      name: 'Executive',
-      price: { monthly: 49, annual: 399 },
-      period: annual ? '/year' : '/month',
-      features: [
-        'Everything in Pro',
-        '150 coaching mins/month',
-        'Dedicated phone number',
-        'Priority scheduling',
-        '$0.38/min extra',
-      ],
-      cta: 'Get Executive',
-      href: '/onboarding',
-      highlight: false,
-      trial: '3-day free trial',
-    },
-  ]
-
-  return (
-    <section id="pricing" className="py-16 md:py-32 bg-[#080808]" ref={ref}>
-      <div className="max-w-7xl mx-auto px-4 md:px-6">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={inView ? { opacity: 1, y: 0 } : {}}
-          transition={{ duration: 0.6 }}
-          className="text-center mb-12"
-        >
-          <h2 className="text-3xl md:text-5xl font-bold text-white mb-4">
-            Simple, transparent pricing
-          </h2>
-          <p className="text-base md:text-xl text-[#475569] mb-8">
-            Start free. Upgrade when you see the value.
-          </p>
-
-          {/* Monthly/Annual toggle */}
-          <div className="inline-flex items-center bg-[#111111] border border-[#222222] rounded-xl p-1">
-            {['Monthly', 'Annual'].map((label) => {
-              const isActive = (label === 'Annual') === annual
-              return (
-                <button
-                  key={label}
-                  onClick={() => setAnnual(label === 'Annual')}
-                  className={`px-5 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    isActive
-                      ? 'bg-[#7C3AED] text-white'
-                      : 'text-[#475569] hover:text-white'
-                  }`}
-                >
-                  {label}
-                  {label === 'Annual' && (
-                    <span className="ml-2 text-xs text-[#F59E0B]">Save 30%</span>
-                  )}
-                </button>
-              )
-            })}
-          </div>
-        </motion.div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          {plans.map((plan, i) => (
-            <motion.div
-              key={plan.name}
-              initial={{ opacity: 0, y: 30 }}
-              animate={inView ? { opacity: 1, y: 0 } : {}}
-              transition={{ duration: 0.6, delay: i * 0.1 }}
-              className="relative"
-            >
-              <Card
-                className={`p-6 h-full flex flex-col ${
-                  plan.highlight ? 'border-[#7C3AED] border-2' : ''
-                }`}
-              >
-                {plan.highlight && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                    <Badge variant="purple">Most popular</Badge>
-                  </div>
-                )}
-
-                <div className="mb-6">
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-sm font-semibold text-[#94A3B8]">{plan.name}</p>
-                    {annual && plan.price.monthly > 0 && (
-                      <span className="text-[10px] font-bold text-[#10B981] uppercase tracking-wide px-2 py-0.5 rounded-full bg-green-950/40 border border-green-800/30">
-                        Save ${plan.price.monthly * 12 - plan.price.annual}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-4xl font-bold text-white">
-                      {plan.price[annual ? 'annual' : 'monthly'] === 0
-                        ? 'Free'
-                        : `$${plan.price[annual ? 'annual' : 'monthly']}`}
-                    </span>
-                    {plan.price[annual ? 'annual' : 'monthly'] > 0 && (
-                      <span className="text-[#475569] text-sm">{plan.period}</span>
-                    )}
-                  </div>
-                  {annual && plan.price.monthly > 0 && (
-                    <p className="text-xs text-[#475569] mt-1">
-                      ≈ ${Math.round(plan.price.annual / 12)}/month
-                    </p>
-                  )}
-                </div>
-
-                <ul className="space-y-2.5 mb-8 flex-1">
-                  {plan.features.map((feature) => (
-                    <li key={feature} className="flex items-start gap-2 text-sm">
-                      <CheckCircle size={16} className="text-[#7C3AED] mt-0.5 flex-shrink-0" />
-                      <span className="text-[#94A3B8]">{feature}</span>
-                    </li>
-                  ))}
-                </ul>
-
-                <Link href={plan.href}>
-                  <Button
-                    variant={plan.highlight ? 'primary' : 'secondary'}
-                    className="w-full"
-                  >
-                    {plan.cta}
-                  </Button>
-                </Link>
-              </Card>
-            </motion.div>
-          ))}
-        </div>
-      </div>
-    </section>
-  )
-}
-
 // ─── Bottom CTA ───────────────────────────────────────────────────────────────
 
 function BottomCTA() {
@@ -572,7 +402,6 @@ export default function LandingPage() {
       <ProblemSection />
       <HowItWorks />
       <Testimonials />
-      <Pricing />
       <BottomCTA />
     </main>
   )

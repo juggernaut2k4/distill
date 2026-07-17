@@ -1,3 +1,29 @@
+> **SUPERSEDED 2026-07-16.** While this brief was being written, a concurrent CEO → BA → Dev chain
+> independently completed the same task under the same ID (B2B-14) and shipped it — committed as
+> `edf2222` ("feat(partner-platform): B2B-12 Get Started CTA fix, B2B-13 plan tiers + top-ups,
+> B2B-14 remove dead B2C dashboard"). See `docs/b2b-pivot-status.md`'s B2B-14 row for the canonical
+> record of what was actually built. This document is retained only for its independent reasoning
+> trail (see note below) — it is not the operative spec and should not be built from.
+>
+> **Cross-validation, for the record:** this brief's own investigation (before discovering the
+> collision) independently reached the same conclusion as the shipped chain on the hardest call in
+> scope — that the "session"-adjacent cluster (`app/dashboard/sessions/`, `knowledge-base/`,
+> `walkthrough/`, `app/onboarding/`, `app/topics/`, and the underlying voice-coaching engine) should
+> be excluded from deletion pending Arun's direct confirmation of what "session" means, rather than
+> guessed at. Two independent chains landing on the same exclusion is a useful confidence signal.
+>
+> **Confirmed error in this brief, corrected by the shipped version — do not carry forward:** the
+> "Confirmed Dead" list below originally included `app/plan/`, `app/(marketing)/pricing/page.tsx`,
+> and `app/checkout/page.tsx` as safe to delete. That is wrong. Independently re-verified directly
+> against `app/dashboard/layout.tsx`: it gates **all** of `/dashboard/*` — including the live
+> Configurator and admin pages — behind an individual-user `subscription_status`/`plan_tier` check
+> that redirects to `/plan` on failure. Deleting `/plan`, `/checkout`, or the pricing page without
+> first replacing that gate would have locked out any partner-admin whose legacy `users` row doesn't
+> satisfy it. The shipped B2B-14 chain caught this via BA review and correctly pulled those three
+> out of scope, leaving "what replaces the gate" as an open item for Arun, alongside the "session"
+> question above. **These two open items are the only real unresolved output of B2B-14 and warrant
+> direct escalation to Arun** — see the CEO Agent's final report for this dispatch.
+
 # Feature Brief: Remove Confirmed-Dead B2C Dashboard Surface
 
 From: CEO (Arun)
