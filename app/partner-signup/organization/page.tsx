@@ -1,6 +1,8 @@
 'use client'
 
-import { CreateOrganization } from '@clerk/nextjs'
+import { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { CreateOrganization, useAuth } from '@clerk/nextjs'
 
 /**
  * B2B-06 — `/partner-signup/organization` (Requirement Doc Section 4.A,
@@ -15,8 +17,28 @@ import { CreateOrganization } from '@clerk/nextjs'
  * Screen state 3 (webhook-landing race, `<NoPartnerAccounts />` on
  * `/dashboard/configurator`) is a known, expected transient state per
  * Section 9 — no handling is added on this page itself.
+ *
+ * Signed-out guard (found 2026-07-17): `<CreateOrganization>` renders
+ * nothing at all — no prompt, no redirect — for a visitor with no active
+ * Clerk session (e.g. a stale bookmark, or landing here directly rather
+ * than via `/partner-signup`'s post-signup redirect). Send them to sign
+ * in first, same destination pattern as every other auth-gated route in
+ * this app, then straight back here.
  */
 export default function PartnerSignUpOrganizationPage() {
+  const { isLoaded, isSignedIn } = useAuth()
+  const router = useRouter()
+
+  useEffect(() => {
+    if (isLoaded && !isSignedIn) {
+      router.replace('/sign-in?redirect_url=/partner-signup/organization')
+    }
+  }, [isLoaded, isSignedIn, router])
+
+  if (!isLoaded || !isSignedIn) {
+    return <div className="min-h-screen bg-void" />
+  }
+
   return (
     <div className="min-h-screen bg-void flex items-center justify-center">
       <CreateOrganization
