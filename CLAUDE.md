@@ -117,6 +117,14 @@ When building any user-facing page or flow:
 - **Technical decisions** (library, config, schema, error handling): full autonomy
 - **Product decisions** (what a screen shows, what copy says, what a flow does): implement the approved spec literally; when unclear, do the minimum and flag it
 
+### Standing rule: responsive/mobile-friendly by default, applied incrementally
+Per Arun's direct instruction (2026-07-17, tracked as an active standing story in `BACKLOG.md` under
+"🎨 STANDING STORY — Responsive/mobile-friendly by default") — no upfront app-wide audit, but **any
+future work that touches a screen for any reason must also bring that screen up to a genuinely
+responsive, smooth, mobile-friendly bar as part of the same change**, before considering the work
+done. Update `BACKLOG.md`'s tracking table the instant a screen's status changes — this is a
+perpetual policy, not a task to close out.
+
 ### When blocked, do this:
 1. Log the blocker clearly in `BACKLOG.md` under a "Blockers" section
 2. Create a working stub or placeholder so downstream agents are not affected

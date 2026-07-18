@@ -240,12 +240,28 @@ export type GoLiveResult =
   | { ok: true; onboardingCompletedAt: string; liveUrl: string }
   | { ok: false; code: 'steps_incomplete'; pendingSteps: WizardStep[] }
 
-/** `POST /api/admin/configurator/wizard/go-live` — Requirement Doc 13.4.C/14.7.3. */
+/**
+ * `POST /api/admin/configurator/wizard/go-live` — Requirement Doc 13.4.C.
+ *
+ * B2B-20 §6.3: in the non-linear surface there is no "skip" action, so the old
+ * "all six stored statuses non-pending" gate is re-expressed as a LIVE
+ * completion check over a defined REQUIRED set — Questionnaire + Payment only.
+ * Everything else is optional (working Clio defaults exist). This is a
+ * deliberate, CEO-confirmed strengthening (the old gate could pass with
+ * everything skipped); it is a single-constant change if the required set ever
+ * changes. Validation uses the same `checkStepComplete()` existence checks the
+ * nav's completion dots use, so the button-disabled state and the server gate
+ * agree.
+ */
+const GO_LIVE_REQUIRED_STEPS: WizardStep[] = ['questionnaire', 'payment']
+
 export async function goLive(partnerAccountId: string): Promise<GoLiveResult> {
   const supabase = createSupabaseAdminClient()
-  const progress = await getOrCreateWizardProgress(partnerAccountId)
 
-  const pendingSteps = STEP_ORDER.filter((step) => progress.steps[step].status === 'pending')
+  const checks = await Promise.all(
+    GO_LIVE_REQUIRED_STEPS.map((step) => checkStepComplete(partnerAccountId, step)),
+  )
+  const pendingSteps = GO_LIVE_REQUIRED_STEPS.filter((_, i) => !checks[i])
   if (pendingSteps.length > 0) {
     return { ok: false, code: 'steps_incomplete', pendingSteps }
   }

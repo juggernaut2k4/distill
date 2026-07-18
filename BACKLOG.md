@@ -32,6 +32,44 @@ See `docs/b2b-pivot-status.md` for status.
 
 ---
 
+## 🎨 STANDING STORY — Responsive/mobile-friendly by default (active, ongoing, never "done")
+
+**Arun's instruction, 2026-07-17, verbatim**: "i dont want you to audit entire application now, but
+whenever we make any future modifications in any screens, double check this and implement this while
+making other changes in the screen. this is should be a new story in the backlog with active
+tracking."
+
+**This is a standing policy, not a one-time task — do not close it.** No upfront audit of the whole
+app. Instead: every time any future work touches a screen for an unrelated reason, that screen must
+also be brought up to a genuinely responsive, smooth, mobile-friendly bar as part of the same change,
+before considering the work done. This applies to Orchestrator-dispatched builds and any direct edits
+alike.
+
+**Bar to meet, per screen, when touched:**
+- Renders correctly and usably from mobile width up through desktop (no horizontal scroll, no
+  clipped/overlapping content, tap targets sized for touch).
+- Transitions/interactions feel smooth (matches the design-quality bar set in B2B-20's Configurator
+  left-nav redesign — Framer Motion where already in use, no janky reflow).
+- No regression to desktop — this is "also make it responsive," not "redesign for mobile only."
+
+**Active tracking — update this table the instant a screen is touched for other reasons, don't batch:**
+
+| Screen / area | Responsive status | Last touched |
+|---|---|---|
+| Marketing homepage (`app/(marketing)/page.tsx`) | Not yet verified | B2B-18 (copy only, layout untouched) |
+| `/partner-signup`, `/partner-signup/organization` | Not yet verified | 2026-07-17 (route-structure fixes only) |
+| Configurator — left-nav layout | **In scope, being built now** — B2B-20 | 2026-07-17 |
+| Configurator — Questionnaire/Topics/Content/Domain/Integration screens | Not yet verified | various |
+| API page, Docs page | Not yet verified | B2B-16 |
+| Internal admin (`/dashboard/admin/*`) | Not yet verified | various |
+| `/partner-render/[clio_session_ref]` (live session view) | Not yet verified | B2B-19 |
+| `/partner-questionnaire/[partner_account_id]` (public, end-user-facing) | Not yet verified | B2B-03 |
+
+Add rows as new screens are built; update "Responsive status" to `Verified` (with the brief/commit
+that verified it) the moment a screen is confirmed to meet the bar above.
+
+---
+
 ## 🅿️ BACKLOG — explicitly not to build yet, awaiting a dedicated brainstorm
 
 - **Super admin page (Arun)** — full cross-partner visibility/control, distinct from the existing

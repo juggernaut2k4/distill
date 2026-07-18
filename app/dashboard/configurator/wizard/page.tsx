@@ -1,15 +1,14 @@
 import { auth } from '@clerk/nextjs/server'
 import { redirect } from 'next/navigation'
 import { getPartnerAccountsForClerkUser } from '@/lib/partner/admin-accounts'
-import { createSupabaseAdminClient } from '@/lib/supabase'
 import { NoPartnerAccounts } from '../_shared'
-import WizardClient from './WizardClient'
 
 /**
- * /dashboard/configurator/wizard — onboarding wizard shell (Requirement Doc
- * Section 13.4.A, architecture.md §14.7.4). Inverse of every other
- * Configurator page's entry-point check: unreachable once
- * `onboarding_completed_at` is set (Section 13.6).
+ * /dashboard/configurator/wizard — B2B-20 §3, §12. The forced-linear onboarding
+ * wizard is retired and unified into `/dashboard/configurator`. This route now
+ * redirects any bookmarked/deep link into the unified surface, preserving
+ * `partner_account_id` (AC #18). The old `WizardClient` is reduced to a
+ * redirect stub (recoverable in git), not deleted.
  */
 export default async function WizardPage({ searchParams }: { searchParams: { partner_account_id?: string } }) {
   const { userId } = auth()
@@ -22,16 +21,5 @@ export default async function WizardPage({ searchParams }: { searchParams: { par
     ? searchParams.partner_account_id
     : accounts[0].id
 
-  const supabase = createSupabaseAdminClient()
-  const { data: account } = await supabase
-    .from('partner_accounts')
-    .select('onboarding_completed_at')
-    .eq('id', activeId)
-    .single()
-
-  if (account?.onboarding_completed_at) {
-    redirect(`/dashboard/configurator?partner_account_id=${activeId}`)
-  }
-
-  return <WizardClient accounts={accounts} activePartnerAccountId={activeId} />
+  redirect(`/dashboard/configurator?partner_account_id=${activeId}`)
 }

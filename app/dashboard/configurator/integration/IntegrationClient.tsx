@@ -43,9 +43,11 @@ interface IntegrationData {
 export default function IntegrationClient({
   accounts,
   activePartnerAccountId,
+  embedded = false,
 }: {
   accounts: AdminPartnerAccount[]
   activePartnerAccountId: string
+  embedded?: boolean
 }) {
   const [data, setData] = useState<IntegrationData | null>(null)
   const [loadError, setLoadError] = useState(false)
@@ -110,6 +112,8 @@ export default function IntegrationClient({
       </>
     )
   }
+
+  if (embedded) return <>{content}</>
 
   return (
     <ConfiguratorShell
