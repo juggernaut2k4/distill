@@ -199,7 +199,7 @@ export function ConfiguratorNavShell({
 }: {
   accounts: AdminPartnerAccount[]
   activePartnerAccountId: string
-  active: 'configurator' | 'api' | 'docs'
+  active: 'configurator' | 'api' | 'docs' | 'known_bugs'
   billingHealth: BillingHealth
   children: React.ReactNode
 }) {
@@ -210,10 +210,13 @@ export function ConfiguratorNavShell({
     router.push(`${pathname}?partner_account_id=${id}`)
   }
 
-  const navItems: { key: 'configurator' | 'api' | 'docs'; label: string; href: string }[] = [
+  const navItems: { key: 'configurator' | 'api' | 'docs' | 'known_bugs'; label: string; href: string }[] = [
     { key: 'configurator', label: 'Configurator', href: `/dashboard/configurator?partner_account_id=${activePartnerAccountId}` },
     { key: 'api', label: 'API', href: `/dashboard/configurator/api?partner_account_id=${activePartnerAccountId}` },
     { key: 'docs', label: 'Docs', href: `/dashboard/configurator/docs?partner_account_id=${activePartnerAccountId}` },
+    // B2B-22 §6.6 — Known Bugs is an ongoing operational/status view, not a Configurator setup step,
+    // so it's a 4th top-nav tab rather than a left-nav step group entry.
+    { key: 'known_bugs', label: 'Known Bugs', href: `/dashboard/configurator/known-bugs?partner_account_id=${activePartnerAccountId}` },
   ]
 
   return (

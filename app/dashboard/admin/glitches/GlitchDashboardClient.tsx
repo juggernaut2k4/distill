@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, ArrowLeft, ArrowUpDown, Plus, X } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, ArrowUpDown, ChevronDown, ChevronRight, Plus, X } from 'lucide-react'
 import Link from 'next/link'
 import {
   VALID_TRANSITIONS,
@@ -1142,6 +1142,324 @@ function IssueDetailView({
           </div>
         )}
       </div>
+
+      {/* Partner visibility — B2B-22 Requirement Doc §4.B, new collapsible section, collapsed by
+          default, below the existing Notes/Attached Instances panels. No change to Panels 1/2/3 or
+          anything above this point. */}
+      <div className="mt-6">
+        <PartnerVisibilitySection issueId={issueId} />
+      </div>
+    </div>
+  )
+}
+
+// ─── Partner visibility section (B2B-22) ────────────────────────────────────────────────────────────
+
+interface PartnerVisibilityRow {
+  partner_account_id: string
+  partner_name: string
+  is_visible: boolean
+  eta: string | null
+  partner_facing_description: string | null
+  toggled_by_email: string | null
+  toggled_at: string | null
+  first_visible_at: string | null
+  comment_count: number
+}
+
+interface PartnerComment {
+  id: string
+  body: string
+  created_at: string
+  author: { name: string; email: string | null }
+}
+
+function PartnerVisibilitySection({ issueId }: { issueId: string }) {
+  const [expanded, setExpanded] = useState(false)
+  const [rows, setRows] = useState<PartnerVisibilityRow[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(false)
+  const [loadedOnce, setLoadedOnce] = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(false)
+    try {
+      const res = await fetch(`/api/admin/glitches/issues/${issueId}/partner-visibility`)
+      if (!res.ok) throw new Error('failed')
+      const data = await res.json()
+      setRows(data.partners ?? [])
+    } catch {
+      setError(true)
+    } finally {
+      setLoading(false)
+      setLoadedOnce(true)
+    }
+  }, [issueId])
+
+  function onExpand() {
+    setExpanded((prev) => {
+      const next = !prev
+      if (next && !loadedOnce) void load()
+      return next
+    })
+  }
+
+  return (
+    <div className="bg-[#111111] border border-[#222222] rounded-xl overflow-hidden">
+      <button
+        onClick={onExpand}
+        className="w-full flex items-center justify-between px-5 py-4 text-left"
+      >
+        <h3 className="text-white text-sm font-bold uppercase tracking-wide">Partner visibility</h3>
+        {expanded ? <ChevronDown className="w-4 h-4 text-[#94A3B8]" /> : <ChevronRight className="w-4 h-4 text-[#94A3B8]" />}
+      </button>
+
+      {expanded && (
+        <div className="px-5 pb-5">
+          {loading && <p className="text-[#94A3B8] text-sm">Loading…</p>}
+          {!loading && error && <p className="text-[#EF4444] text-sm">Couldn&apos;t load partner visibility. Try again.</p>}
+          {!loading && !error && rows.length === 0 && (
+            <p className="text-[#475569] text-sm">
+              No partners are eligible yet — attach a glitch instance to this issue first.
+            </p>
+          )}
+          {!loading && !error && rows.length > 0 && (
+            <div className="space-y-3">
+              {rows.map((row) => (
+                <PartnerVisibilityCard key={row.partner_account_id} issueId={issueId} row={row} onSaved={load} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function PartnerVisibilityCard({
+  issueId,
+  row,
+  onSaved,
+}: {
+  issueId: string
+  row: PartnerVisibilityRow
+  onSaved: () => void
+}) {
+  // Draft toggle state — lets flipping "on" reveal the required inputs before anything is saved
+  // (State I3), while flipping "off" saves immediately with no confirmation (State I2/I4/§9 edge case).
+  const [draftOn, setDraftOn] = useState(row.is_visible)
+  const [etaDraft, setEtaDraft] = useState(row.eta ?? '')
+  const [descriptionDraft, setDescriptionDraft] = useState(row.partner_facing_description ?? '')
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [showComments, setShowComments] = useState(false)
+  const [comments, setComments] = useState<PartnerComment[]>([])
+  const [commentsLoading, setCommentsLoading] = useState(false)
+  const [commentsError, setCommentsError] = useState(false)
+  const [commentsLoadedOnce, setCommentsLoadedOnce] = useState(false)
+
+  useEffect(() => {
+    setDraftOn(row.is_visible)
+    setEtaDraft(row.eta ?? '')
+    setDescriptionDraft(row.partner_facing_description ?? '')
+  }, [row.is_visible, row.eta, row.partner_facing_description])
+
+  const descriptionValid = descriptionDraft.trim().length >= 1 && descriptionDraft.trim().length <= 2000
+
+  async function patchVisibility(fields: Record<string, unknown>): Promise<boolean> {
+    setSaveError(null)
+    const res = await fetch(`/api/admin/glitches/issues/${issueId}/partner-visibility`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ partner_account_id: row.partner_account_id, ...fields }),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      setSaveError(body?.error?.message ?? "Couldn't save the change.")
+      return false
+    }
+    return true
+  }
+
+  async function turnOff() {
+    setSaving(true)
+    const ok = await patchVisibility({ is_visible: false })
+    setSaving(false)
+    if (ok) {
+      onSaved()
+    } else {
+      setDraftOn(true) // revert toggle visually on failure (State I5)
+    }
+  }
+
+  async function saveOn() {
+    if (!descriptionValid || saving) return
+    setSaving(true)
+    const ok = await patchVisibility({
+      is_visible: true,
+      eta: etaDraft.trim() ? etaDraft.trim() : null,
+      partner_facing_description: descriptionDraft.trim(),
+    })
+    setSaving(false)
+    if (ok) {
+      onSaved()
+    } else {
+      setDraftOn(row.is_visible) // revert toggle visually on failure (State I5)
+    }
+  }
+
+  async function saveField(fields: Record<string, unknown>) {
+    setSaving(true)
+    const ok = await patchVisibility(fields)
+    setSaving(false)
+    if (ok) onSaved()
+  }
+
+  function toggleClick() {
+    if (draftOn) {
+      setDraftOn(false)
+      // Only PATCH if the row is actually visible on the server — cancelling an unsaved "on" draft
+      // (never Saved, State I3) is purely local and needs no network round-trip.
+      if (row.is_visible) void turnOff()
+    } else {
+      // Reveal ETA/description inputs; nothing is saved until "Save" is pressed (State I3).
+      setDraftOn(true)
+    }
+  }
+
+  const loadComments = useCallback(async () => {
+    setCommentsLoading(true)
+    setCommentsError(false)
+    try {
+      const res = await fetch(
+        `/api/admin/glitches/issues/${issueId}/partner-visibility/comments?partner_account_id=${row.partner_account_id}`
+      )
+      if (!res.ok) throw new Error('failed')
+      const data = await res.json()
+      setComments(data.comments ?? [])
+    } catch {
+      setCommentsError(true)
+    } finally {
+      setCommentsLoading(false)
+      setCommentsLoadedOnce(true)
+    }
+  }, [issueId, row.partner_account_id])
+
+  function onToggleComments() {
+    setShowComments((prev) => {
+      const next = !prev
+      if (next && !commentsLoadedOnce) void loadComments()
+      return next
+    })
+  }
+
+  return (
+    <div className="border border-[#222222] rounded-lg p-4">
+      <div className="flex items-center justify-between gap-4">
+        <span className="text-white font-medium">{row.partner_name}</span>
+        <button
+          onClick={toggleClick}
+          disabled={saving}
+          className="inline-flex items-center gap-2 text-xs font-semibold disabled:opacity-40"
+        >
+          <span className={draftOn ? 'text-[#10B981]' : 'text-[#475569]'}>{draftOn ? '● Visible' : '○ Hidden'}</span>
+          <span
+            className="relative inline-block w-8 h-4 rounded-full transition-colors"
+            style={{ background: draftOn ? '#10B981' : '#333333' }}
+          >
+            <span
+              className="absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all"
+              style={{ left: draftOn ? 16 : 2 }}
+            />
+          </span>
+        </button>
+      </div>
+
+      {draftOn && (
+        <div className="mt-3 space-y-3">
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-[#94A3B8] mb-1">ETA (optional)</label>
+            <input
+              type="date"
+              value={etaDraft}
+              onChange={(e) => setEtaDraft(e.target.value)}
+              onBlur={() => {
+                if (row.is_visible) void saveField({ eta: etaDraft.trim() ? etaDraft.trim() : null })
+              }}
+              className="bg-[#0A0A0A] border border-[#333333] text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-[#7C3AED]"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-[#94A3B8] mb-1">
+              Partner-facing description <span className="text-[#EF4444]">*</span>
+            </label>
+            <textarea
+              value={descriptionDraft}
+              onChange={(e) => setDescriptionDraft(e.target.value)}
+              onBlur={() => {
+                if (row.is_visible && descriptionValid) void saveField({ partner_facing_description: descriptionDraft.trim() })
+              }}
+              rows={3}
+              maxLength={2000}
+              placeholder="A partner-safe summary of what's happening and what we're doing about it…"
+              className="w-full bg-[#0A0A0A] border border-[#333333] text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-[#7C3AED] resize-y"
+            />
+            {!descriptionValid && (
+              <p className="text-[#EF4444] text-xs mt-1">A description is required to make this bug visible.</p>
+            )}
+          </div>
+
+          {!row.is_visible && (
+            <button
+              onClick={saveOn}
+              disabled={!descriptionValid || saving}
+              className="bg-[#7C3AED] hover:bg-[#A855F7] disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg px-4 py-2 transition-colors"
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          )}
+
+          {row.is_visible && (
+            <p className="text-[#475569] text-xs">
+              Last updated by {row.toggled_by_email ?? 'unknown'} on {row.toggled_at ? formatDate(row.toggled_at) : '—'}
+            </p>
+          )}
+
+          {saveError && <p className="text-[#EF4444] text-xs">{saveError}</p>}
+
+          {row.is_visible && (
+            <div>
+              <button
+                onClick={onToggleComments}
+                className="text-xs font-semibold text-[#A855F7] hover:text-white transition-colors"
+              >
+                View comments ({row.comment_count}) {showComments ? '▾' : '▸'}
+              </button>
+              {showComments && (
+                <div className="mt-2 space-y-2">
+                  {commentsLoading && <p className="text-[#94A3B8] text-xs">Loading…</p>}
+                  {!commentsLoading && commentsError && <p className="text-[#EF4444] text-xs">Couldn&apos;t load comments.</p>}
+                  {!commentsLoading && !commentsError && comments.length === 0 && (
+                    <p className="text-[#475569] text-xs">No comments yet.</p>
+                  )}
+                  {!commentsLoading &&
+                    !commentsError &&
+                    comments.map((comment) => (
+                      <div key={comment.id} className="border-t border-[#1a1a1a] pt-2 first:border-0 first:pt-0">
+                        <p className="text-[#475569] text-xs mb-0.5">
+                          {comment.author.name}
+                          {comment.author.email ? ` (${comment.author.email})` : ''} · {formatDateTime(comment.created_at)}
+                        </p>
+                        <p className="text-[#94A3B8] text-xs whitespace-pre-wrap">{comment.body}</p>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
