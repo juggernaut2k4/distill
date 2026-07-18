@@ -1,4 +1,8 @@
 import { checkStepComplete } from './wizard'
+import { VISIBLE_SECTIONS, type ConfiguratorSection, type ConfiguratorStatus } from './configurator-sections'
+
+export { VISIBLE_SECTIONS }
+export type { ConfiguratorSection, ConfiguratorStatus }
 
 /**
  * B2B-20 §6.1 — thin aggregator for the Configurator left-nav completion dots.
@@ -18,24 +22,6 @@ import { checkStepComplete } from './wizard'
  * set, or a registered content source) rather than inbound OAuth-credential
  * issuance.
  */
-
-export type ConfiguratorSection =
-  | 'questionnaire'
-  | 'topics'
-  | 'content'
-  | 'visualization'
-  | 'domain'
-  | 'integration'
-  | 'payment'
-
-export type ConfiguratorStatus = Record<ConfiguratorSection, boolean>
-
-// B2B-23 WS-1 — the ONLY place that decides which sections are exposed in
-// the Configurator nav. Hidden sections' routes, components, and DB tables
-// remain fully intact (governance: hide, never delete) — this allowlist is
-// the single toggle. Re-enabling a hidden section later is a one-line edit
-// here; no other file needs to change.
-export const VISIBLE_SECTIONS: ConfiguratorSection[] = ['integration', 'payment']
 
 /**
  * Returns the live completion map for all seven configurable sections

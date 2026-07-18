@@ -5,10 +5,10 @@ import { format } from 'date-fns'
 import { Card, BILLING_BANNER_COPY, type BillingHealth } from './_shared'
 import {
   VISIBLE_SECTIONS,
+  GO_LIVE_REQUIRED_STEPS,
   type ConfiguratorStatus,
   type ConfiguratorSection,
-} from '@/lib/partner/configurator-status'
-import { GO_LIVE_REQUIRED_STEPS } from '@/lib/partner/wizard'
+} from '@/lib/partner/configurator-sections'
 import { REQUIRED_LABELS } from './GoLivePanel'
 import type { PanelSection } from './ConfiguratorSurface'
 

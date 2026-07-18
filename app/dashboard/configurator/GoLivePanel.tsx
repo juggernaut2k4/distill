@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { COLORS, Card, PrimaryButton } from './_shared'
-import type { ConfiguratorStatus } from '@/lib/partner/configurator-status'
+import type { ConfiguratorStatus } from '@/lib/partner/configurator-sections'
 
 /**
  * B2B-20 §4.4 / §6 — Go Live panel, extracted from the wizard's former

@@ -1,5 +1,8 @@
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { getDomainSettings } from './domain-settings'
+import { GO_LIVE_REQUIRED_STEPS } from './configurator-sections'
+
+export { GO_LIVE_REQUIRED_STEPS }
 
 /**
  * B2B-05 v1.1 — Onboarding wizard progress (Requirement Doc Section 13,
@@ -293,11 +296,6 @@ export type GoLiveResult =
  * exists — see checkStepComplete's 'integration' case above); 'payment'
  * unchanged.
  */
-// B2B-24 §6.1/§12 — exported so the Dashboard panel can read the confirmed
-// required set from this single source of truth instead of hardcoding a
-// second literal that could drift out of sync with this one.
-export const GO_LIVE_REQUIRED_STEPS: WizardStep[] = ['integration', 'payment']
-
 export async function goLive(partnerAccountId: string): Promise<GoLiveResult> {
   const supabase = createSupabaseAdminClient()
 
