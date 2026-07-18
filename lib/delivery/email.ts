@@ -1118,6 +1118,130 @@ export async function sendAdminAlert(params: {
   }
 }
 
+/**
+ * B2B-21 Requirement Doc §6.6 — sales-partner invite email. Non-blocking
+ * best-effort send, following the exact `EmailResult`-returning, Resend-based
+ * pattern already used by `sendPartnerSignupWelcomeEmail` — a failed send
+ * never blocks the underlying `internal_admin_users` row/token write; the
+ * caller surfaces `email_sent: false` so the UI can offer "Resend invite."
+ * @param email - the invitee's email address
+ * @param inviterName - the inviting super-admin's display name/email
+ * @param partnerAccountNames - the partner account(s) this sales-partner is tagged to
+ * @param acceptUrl - the full `/invite/accept?token=...` URL
+ */
+export async function sendSalesPartnerInviteEmail(
+  email: string,
+  inviterName: string,
+  partnerAccountNames: string[],
+  acceptUrl: string
+): Promise<EmailResult> {
+  if (isPlaceholder || !resend) {
+    console.log('[MOCK] sendSalesPartnerInviteEmail', { email, inviterName, partnerAccountNames, acceptUrl })
+    return { success: true, messageId: 'mock-sales-partner-invite-id' }
+  }
+
+  const accountsList = partnerAccountNames.join(', ')
+
+  try {
+    const result = await resend.emails.send({
+      from: FROM,
+      to: email,
+      subject: `You've been invited to Clio as a sales partner`,
+      html: `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="background:#080808;color:#ffffff;font-family:Inter,system-ui,sans-serif;margin:0;padding:0;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;padding:40px 24px;">
+    <tr><td>
+      <p style="color:#7C3AED;font-size:12px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin:0 0 32px;">CLIO</p>
+      <h1 style="color:#ffffff;font-size:28px;font-weight:800;margin:0 0 12px;">You've been invited to Clio.</h1>
+      <p style="color:#94A3B8;font-size:16px;line-height:1.7;margin:0 0 8px;">
+        ${inviterName} has invited you as a sales partner, scoped to: <strong style="color:#ffffff;">${accountsList}</strong>.
+      </p>
+      <p style="color:#94A3B8;font-size:16px;line-height:1.7;margin:0 0 32px;">
+        This invite expires in 7 days.
+      </p>
+      <div style="background:#111111;border:1px solid #222222;border-radius:12px;padding:32px;text-align:center;">
+        <a href="${acceptUrl}" style="background:#7C3AED;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:700;display:inline-block;">Accept invite →</a>
+      </div>
+    </td></tr>
+  </table>
+</body>
+</html>`,
+      text: `${inviterName} has invited you to Clio as a sales partner, scoped to: ${accountsList}. Accept your invite (expires in 7 days): ${acceptUrl}`,
+    })
+
+    logEmailResult('sendSalesPartnerInviteEmail', email, result)
+    if (result.error) {
+      return { success: false, error: result.error.message }
+    }
+
+    return { success: true, messageId: result.data?.id }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error(`[email:sendSalesPartnerInviteEmail] EXCEPTION to=${email}:`, message)
+    return { success: false, error: message }
+  }
+}
+
+/**
+ * B2B-21 Requirement Doc §6.6 — courtesy notification when a super-admin
+ * adds another super-admin email. Non-blocking best-effort send, same
+ * pattern as `sendSalesPartnerInviteEmail`. No token/accept step is needed
+ * for a super-admin — Clerk's own email verification during that person's
+ * sign-up/sign-in is sufficient proof of ownership, picked up by the
+ * lazy-bind in `resolveInternalAdmin()` on their next authenticated request.
+ * @param email - the newly-added super-admin's email address
+ * @param inviterName - the adding super-admin's display name/email
+ */
+export async function sendSuperAdminAddedEmail(email: string, inviterName: string): Promise<EmailResult> {
+  if (isPlaceholder || !resend) {
+    console.log('[MOCK] sendSuperAdminAddedEmail', { email, inviterName })
+    return { success: true, messageId: 'mock-super-admin-added-id' }
+  }
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
+
+  try {
+    const result = await resend.emails.send({
+      from: FROM,
+      to: email,
+      subject: `You've been added as a Clio super-admin`,
+      html: `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="background:#080808;color:#ffffff;font-family:Inter,system-ui,sans-serif;margin:0;padding:0;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;padding:40px 24px;">
+    <tr><td>
+      <p style="color:#7C3AED;font-size:12px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin:0 0 32px;">CLIO</p>
+      <h1 style="color:#ffffff;font-size:28px;font-weight:800;margin:0 0 12px;">You're a Clio super-admin.</h1>
+      <p style="color:#94A3B8;font-size:16px;line-height:1.7;margin:0 0 32px;">
+        ${inviterName} added you as a super-admin — you now have full cross-partner access. Sign in
+        with this email address to activate your access.
+      </p>
+      <div style="background:#111111;border:1px solid #222222;border-radius:12px;padding:32px;text-align:center;">
+        <a href="${appUrl}/sign-in" style="background:#7C3AED;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:700;display:inline-block;">Sign in →</a>
+      </div>
+    </td></tr>
+  </table>
+</body>
+</html>`,
+      text: `${inviterName} added you as a Clio super-admin. Sign in with this email address to activate your access: ${appUrl}/sign-in`,
+    })
+
+    logEmailResult('sendSuperAdminAddedEmail', email, result)
+    if (result.error) {
+      return { success: false, error: result.error.message }
+    }
+
+    return { success: true, messageId: result.data?.id }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error(`[email:sendSuperAdminAddedEmail] EXCEPTION to=${email}:`, message)
+    return { success: false, error: message }
+  }
+}
+
 function buildAgendaEmailHtml(
   session: SessionSummary,
   subSessions: AgendaEmailSubSession[],

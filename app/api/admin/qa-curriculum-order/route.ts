@@ -11,8 +11,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
 import { createSupabaseAdminClient } from '@/lib/supabase'
+import { requireSuperAdmin } from '@/lib/internal-admin/auth'
 
 export const maxDuration = 30
 
@@ -25,9 +25,11 @@ interface SessionRow {
   curriculum_session_id: string | null
 }
 
+/** B2B-21 Requirement Doc §7 — gated `requireSuperAdmin()` (previously bare `auth()`). */
 export async function GET(request: NextRequest) {
-  const { userId: authUserId } = auth()
-  if (!authUserId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const admin = await requireSuperAdmin()
+  if (admin.error) return admin.error
+  const authUserId = admin.clerkUserId
 
   const supabase = createSupabaseAdminClient()
   const targetUserId = request.nextUrl.searchParams.get('userId') ?? authUserId

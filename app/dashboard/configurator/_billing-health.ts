@@ -19,16 +19,23 @@ export async function getBillingHealth(partnerAccountId: string): Promise<Billin
     const supabase = createSupabaseAdminClient()
     const { data, error } = await supabase
       .from('partner_wallets')
-      .select('plan_status, low_balance_alert_fired_at')
+      .select('plan_status, low_balance_alert_fired_at, balance_usd, next_billing_date')
       .eq('partner_account_id', partnerAccountId)
       .maybeSingle()
 
-    if (error || !data) return { state: 'healthy' }
-    if (data.plan_status === 'past_due') return { state: 'past_due' }
-    if (data.plan_status === 'canceled') return { state: 'canceled' }
-    if (data.low_balance_alert_fired_at) return { state: 'low_balance' }
-    return { state: 'healthy' }
+    // B2B-24 §6.3 — no wallet row yet (fail-open branch) is the "No wallet
+    // yet" case the Dashboard's Area 3 must render distinctly from a real
+    // $0.00 balance: both new fields stay `null` here specifically.
+    if (error || !data) return { state: 'healthy', balance_usd: null, next_billing_date: null }
+
+    const balance_usd = data.balance_usd != null ? Number(data.balance_usd) : null
+    const next_billing_date = data.next_billing_date ?? null
+
+    if (data.plan_status === 'past_due') return { state: 'past_due', balance_usd, next_billing_date }
+    if (data.plan_status === 'canceled') return { state: 'canceled', balance_usd, next_billing_date }
+    if (data.low_balance_alert_fired_at) return { state: 'low_balance', balance_usd, next_billing_date }
+    return { state: 'healthy', balance_usd, next_billing_date }
   } catch {
-    return { state: 'healthy' }
+    return { state: 'healthy', balance_usd: null, next_billing_date: null }
   }
 }

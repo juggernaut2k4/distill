@@ -33,6 +33,24 @@ export const COLORS = {
   textMuted: '#475569',
 }
 
+// B2B-23 WS-2 — Clio's standard fluid responsive pattern for shell content
+// columns, replacing a hard maxWidth: 960 cap. Padding and max-width scale
+// continuously via clamp() rather than jumping at fixed breakpoints; the
+// 1900px ceiling exists only to bound line length on ultrawide monitors — it
+// never binds on ordinary desktop widths. Exposed as a CSS custom property
+// (not a bare inline value) so consumers that need to cancel this padding
+// (see ConfiguratorSurface.tsx's full-bleed nav wrapper) reference the SAME
+// live value via calc(), instead of hardcoding an assumed pixel amount that
+// would silently drift out of sync at any viewport where the clamp()'d
+// padding isn't exactly 32px. Future screens needing this exact fluid-column
+// behavior should reuse this constant rather than re-hardcoding a cap.
+export const SHELL_CONTENT_STYLE: React.CSSProperties = {
+  ['--cfg-shell-px' as string]: 'clamp(16px, 4vw, 32px)',
+  padding: 'var(--cfg-shell-px)',
+  maxWidth: 'clamp(640px, 96vw, 1900px)',
+  margin: '0 auto',
+}
+
 export function ConfiguratorShell({
   accounts,
   activePartnerAccountId,
@@ -81,7 +99,7 @@ export function ConfiguratorShell({
           <span style={{ color: COLORS.textSecondary, fontSize: 13 }}>{accounts[0].name}</span>
         ) : null}
       </div>
-      <div style={{ padding: 32, maxWidth: 960, margin: '0 auto' }}>{children}</div>
+      <div style={SHELL_CONTENT_STYLE}>{children}</div>
     </div>
   )
 }
@@ -95,11 +113,20 @@ export function ConfiguratorShell({
 export type BillingHealthState = 'past_due' | 'canceled' | 'low_balance' | 'healthy'
 export interface BillingHealth {
   state: BillingHealthState
+  // B2B-24 §6.3 — extends the existing read/shape (one extra `select()` on
+  // the already-executed `getBillingHealth()` query) so the Dashboard's
+  // wallet snapshot (Area 3) needs no new query or endpoint. `balance_usd`
+  // is `null` specifically for "no wallet row yet" (distinct from a real
+  // `0` balance) — see `_billing-health.ts`.
+  balance_usd: number | null
+  next_billing_date: string | null
 }
 
 // Fixed factual copy — LOCKED by CEO (Requirement Doc Section 4.5). No dollar
 // figures. Do not edit wording without a spec change.
-const BILLING_BANNER_COPY: Record<
+// Exported (B2B-24 §6.3) so the Dashboard's wallet snapshot (Area 3) reuses
+// this exact copy verbatim rather than inventing a second warning string.
+export const BILLING_BANNER_COPY: Record<
   Exclude<BillingHealthState, 'healthy'>,
   { message: string; linkLabel: string }
 > = {
@@ -235,7 +262,7 @@ export function ConfiguratorNavShell({
         })}
       </nav>
 
-      <div style={{ padding: 32, maxWidth: 960, margin: '0 auto' }}>
+      <div style={SHELL_CONTENT_STYLE}>
         <BillingBanner billingHealth={billingHealth} activePartnerAccountId={activePartnerAccountId} />
         {children}
       </div>

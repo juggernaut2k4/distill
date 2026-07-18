@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
+import { requireSuperAdmin } from '@/lib/internal-admin/auth'
 import Anthropic from '@anthropic-ai/sdk'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { ALL_DOMAINS, ROLES } from '@/lib/learning/taxonomy'
@@ -105,21 +105,23 @@ async function runBatch(
 /**
  * POST /api/admin/seed-topics
  * Seeds the topic_catalog table with 6 topics per domain (57 domains × 6 ≈ 342 rows).
- * Protected by x-admin-secret header.
+ * Protected by x-admin-secret header OR `requireSuperAdmin()` (B2B-21
+ * Requirement Doc §7 — the previous Clerk leg was bare `auth()`, an
+ * internal/cross-partner defect).
  * Pass body { replace: true } to clear existing non-custom topics first.
  */
 export async function POST(request: NextRequest) {
-  // Accept either Clerk session auth OR the shared admin secret header
-  // (the latter allows server-to-server calls without a browser session).
-  // Reuses ELEVENLABS_CUSTOM_LLM_SECRET's env var name for historical
-  // reasons — it is a generic shared secret, not ElevenLabs-specific.
-  const { userId } = auth()
+  // Accept either the shared admin secret header (server-to-server calls
+  // without a browser session) OR requireSuperAdmin(). Reuses
+  // ELEVENLABS_CUSTOM_LLM_SECRET's env var name for historical reasons — it
+  // is a generic shared secret, not ElevenLabs-specific.
   const secret = process.env.ELEVENLABS_CUSTOM_LLM_SECRET
   const providedSecret = request.headers.get('x-admin-secret')
-  const secretOk = secret && providedSecret === secret
+  const secretOk = Boolean(secret) && providedSecret === secret
 
-  if (!userId && !secretOk) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!secretOk) {
+    const admin = await requireSuperAdmin()
+    if (admin.error) return admin.error
   }
 
   const body = await request.json().catch(() => ({})) as {

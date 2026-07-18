@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/clerk'
+import { requireSuperAdmin } from '@/lib/internal-admin/auth'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { computeBurnRateProjection } from '@/lib/billing/metrics'
 
@@ -7,9 +7,11 @@ import { computeBurnRateProjection } from '@/lib/billing/metrics'
  * GET /api/admin/billing/clients
  *
  * B2B-04 Requirement Doc Section 4.B.1 — backs the `/dashboard/admin/clients`
- * cross-partner billing/health rollup. Clerk-authenticated only, matching the
- * exact authorization boundary of the existing `/dashboard/admin/templates`
- * precedent (any signed-in Clerk user, not partner-scoped).
+ * cross-partner billing/health rollup.
+ *
+ * B2B-21 Requirement Doc §7 / §11 Q2 — this surface reads revenue/balance/
+ * payment-method detail, which brushes the frozen commission topic; gated
+ * super-admin-only (a sales-partner is not a valid credential here at all).
  *
  * One row per `partner_accounts` row, even for partners with no
  * `partner_wallets` row yet (a wallet is only lazily created on first credit
@@ -39,7 +41,7 @@ interface LedgerRow {
 }
 
 export async function GET() {
-  const { error } = requireAuth()
+  const { error } = await requireSuperAdmin()
   if (error) return error
 
   const supabase = createSupabaseAdminClient()

@@ -7,7 +7,9 @@ import { getConfiguratorStatus } from '@/lib/partner/configurator-status'
  *
  * Thin aggregator returning the live completion map for the Configurator
  * left-nav dots. Composes the existing `checkStepComplete()` existence checks
- * plus the Integration OAuth-count rule (`lib/partner/configurator-status.ts`).
+ * for all seven sections (`lib/partner/configurator-status.ts`) — Integration
+ * reads through the same `checkStepComplete()` case the Go-Live gate uses
+ * (B2B-23 §6.3), so the nav dot and the server gate can never drift apart.
  * Auth is `requirePartnerAdmin`, identical to every other configurator admin
  * route.
  */

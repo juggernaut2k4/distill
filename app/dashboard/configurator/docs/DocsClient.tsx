@@ -9,12 +9,18 @@ import { PLAN_TIERS } from '@/lib/billing/plan-tiers'
 /**
  * B2B-16 — /dashboard/configurator/docs (Requirement Doc Section 4.4). A new,
  * fully HAND-AUTHORED documentation page — no AI generation, no network fetch
- * (B2B-07 convention). Three sections:
+ * (B2B-07 convention). Four sections:
  *   1. Getting-started quickstart (reuses the auth recipe from the API page).
- *   2. API / webhook reference — sourced from the single hand-authored module
+ *   2. Content & image auth (B2B-23 WS-3) — exactly what a partner must send
+ *      per content-source auth type, and Clio's fetch constraints. Every
+ *      field/default/constraint is copied verbatim from the approved B2B-23
+ *      spec, itself fact-checked against content-sources.ts, the
+ *      POST /api/partner/v1/content-sources Zod schemas, crypto.ts,
+ *      live-render.ts, and ssrf.ts — no AI invention.
+ *   3. API / webhook reference — sourced from the single hand-authored module
  *      `../api/content` (ENDPOINTS / WEBHOOK_DOC); the data itself is not
  *      duplicated, both API and Docs import the one source.
- *   3. Plain-language billing explainer (anchor `#billing`, the target of the
+ *   4. Plain-language billing explainer (anchor `#billing`, the target of the
  *      billing-health banner's "Fix billing" / "Add funds" link). Facts only —
  *      Plan-tier figures render directly from the codified `PLAN_TIERS` module
  *      so no dollar figure is hand-typed or can drift; no invented pricing.
@@ -155,7 +161,198 @@ Content-Type: application/json
         </ol>
       </Card>
 
-      {/* 2 — API / webhook reference */}
+      {/* 2 — Content & image auth (B2B-23 WS-3). Hand-authored, no AI
+          generation, no network fetch — matches this file's existing B2B-07
+          convention. Every field name/requiredness/default below is copied
+          verbatim from the approved spec (B2B-23 Requirement Doc §6.4),
+          itself fact-checked against content-sources.ts, the
+          POST /api/partner/v1/content-sources Zod schemas, crypto.ts,
+          live-render.ts, and ssrf.ts. */}
+      <h2 style={sectionHeadingStyle}>Content &amp; image auth</h2>
+      <Card style={{ marginBottom: 16 }}>
+        <p style={bodyStyle}>
+          Register a content source once via{' '}
+          <code style={monoInline}>POST /api/partner/v1/content-sources</code>, then reference its{' '}
+          <code style={monoInline}>content_source_id</code> when you trigger a session with inline content. Clio
+          uses the registered auth to fetch every HTML page and image URL you pass at trigger time — the same
+          auth, applied identically to every page in that session.
+        </p>
+
+        <p style={subHeadingStyle}>
+          <code style={monoInline}>auth_type: &apos;none&apos;</code>
+        </p>
+        <table style={tableStyle}>
+          <thead>
+            <tr>
+              <th style={thStyle}>Field</th>
+              <th style={thStyle}>Required</th>
+              <th style={thStyle}>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style={{ ...tdStyle, ...monoInline }}>label</td>
+              <td style={tdStyle}>No</td>
+              <td style={tdStyle}>Optional name for your reference</td>
+            </tr>
+          </tbody>
+        </table>
+        <p style={{ ...bodyStyle, marginBottom: 16 }}>No auth header is sent when fetching this source&apos;s URLs.</p>
+
+        <p style={subHeadingStyle}>
+          <code style={monoInline}>auth_type: &apos;static_bearer&apos;</code>
+        </p>
+        <table style={tableStyle}>
+          <thead>
+            <tr>
+              <th style={thStyle}>Field</th>
+              <th style={thStyle}>Required</th>
+              <th style={thStyle}>Default</th>
+              <th style={thStyle}>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style={{ ...tdStyle, ...monoInline }}>token</td>
+              <td style={tdStyle}>Yes</td>
+              <td style={tdStyle}>—</td>
+              <td style={tdStyle}>
+                Your API token/key. Encrypted at rest (AES-256-GCM); never returned after registration.
+              </td>
+            </tr>
+            <tr>
+              <td style={{ ...tdStyle, ...monoInline }}>header_name</td>
+              <td style={tdStyle}>No</td>
+              <td style={{ ...tdStyle, ...monoInline }}>Authorization</td>
+              <td style={tdStyle}>The HTTP header Clio sends the token in</td>
+            </tr>
+            <tr>
+              <td style={{ ...tdStyle, ...monoInline }}>header_scheme</td>
+              <td style={tdStyle}>No</td>
+              <td style={{ ...tdStyle, ...monoInline }}>Bearer</td>
+              <td style={tdStyle}>
+                Prefix before the token. Set to an empty string to send the raw token with no prefix.
+              </td>
+            </tr>
+            <tr>
+              <td style={{ ...tdStyle, ...monoInline }}>label</td>
+              <td style={tdStyle}>No</td>
+              <td style={tdStyle}>—</td>
+              <td style={tdStyle}>Optional name</td>
+            </tr>
+          </tbody>
+        </table>
+        <p style={{ ...bodyStyle, marginBottom: 16 }}>
+          Clio sends: <code style={monoInline}>{'{header_name}: {header_scheme} {token}'}</code> (or just the
+          bare token if <code style={monoInline}>header_scheme</code> is empty).
+        </p>
+
+        <p style={subHeadingStyle}>
+          <code style={monoInline}>auth_type: &apos;oauth2_client_credentials&apos;</code>
+        </p>
+        <table style={tableStyle}>
+          <thead>
+            <tr>
+              <th style={thStyle}>Field</th>
+              <th style={thStyle}>Required</th>
+              <th style={thStyle}>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style={{ ...tdStyle, ...monoInline }}>token_url</td>
+              <td style={tdStyle}>Yes</td>
+              <td style={tdStyle}>Your OAuth2 token endpoint — must be a valid, publicly reachable HTTPS URL</td>
+            </tr>
+            <tr>
+              <td style={{ ...tdStyle, ...monoInline }}>client_id</td>
+              <td style={tdStyle}>Yes</td>
+              <td style={tdStyle}>—</td>
+            </tr>
+            <tr>
+              <td style={{ ...tdStyle, ...monoInline }}>client_secret</td>
+              <td style={tdStyle}>Yes</td>
+              <td style={tdStyle}>Encrypted at rest; never returned after registration</td>
+            </tr>
+            <tr>
+              <td style={{ ...tdStyle, ...monoInline }}>scope</td>
+              <td style={tdStyle}>No</td>
+              <td style={tdStyle}>—</td>
+            </tr>
+            <tr>
+              <td style={{ ...tdStyle, ...monoInline }}>audience</td>
+              <td style={tdStyle}>No</td>
+              <td style={tdStyle}>—</td>
+            </tr>
+            <tr>
+              <td style={{ ...tdStyle, ...monoInline }}>label</td>
+              <td style={tdStyle}>No</td>
+              <td style={tdStyle}>—</td>
+            </tr>
+          </tbody>
+        </table>
+        <p style={{ ...bodyStyle, marginBottom: 16 }}>
+          Clio performs an RFC 6749 §4.4 Client Credentials Grant against <code style={monoInline}>token_url</code>{' '}
+          (HTTP Basic auth, <code style={monoInline}>grant_type=client_credentials</code>, plus{' '}
+          <code style={monoInline}>scope</code>/<code style={monoInline}>audience</code> if set), caches the
+          resulting token, and sends <code style={monoInline}>Authorization: Bearer &lt;token&gt;</code> when
+          fetching your content/image URLs.
+        </p>
+
+        <p style={subHeadingStyle}>Not yet supported</p>
+        <p style={bodyStyle}>
+          <code style={monoInline}>presigned_url</code> and <code style={monoInline}>mtls</code> are documented{' '}
+          <code style={monoInline}>auth_type</code> values but are <strong style={{ color: COLORS.textPrimary }}>rejected
+          at registration</strong> (HTTP 422, <code style={monoInline}>content_source_auth_type_not_supported</code>)
+          — no row is ever stored for them.
+        </p>
+        <p style={bodyStyle}>
+          If your images already carry a presigned/expiring signature <strong style={{ color: COLORS.textPrimary }}>in
+          the URL itself</strong> (e.g. an S3 presigned GET URL), this is <strong style={{ color: COLORS.textPrimary }}>not
+          a gap</strong> — register that content source with <code style={monoInline}>auth_type: &apos;none&apos;</code>.
+          Clio fetches the URL exactly as given, with no extra auth header, and the embedded signature
+          authenticates it. Only a mechanism where Clio itself generates or refreshes presigned URLs on your
+          behalf is unsupported.
+        </p>
+        <p style={{ ...bodyStyle, marginBottom: 16 }}>
+          Also not yet supported: <strong style={{ color: COLORS.textPrimary }}>API-key-in-query-string auth</strong>{' '}
+          (e.g. <code style={monoInline}>?api_key=...</code>) and <strong style={{ color: COLORS.textPrimary }}>multiple
+          custom headers</strong> per content source — only a single configurable header (
+          <code style={monoInline}>static_bearer</code>) or an <code style={monoInline}>Authorization: Bearer</code>{' '}
+          token (OAuth2) is supported today. Both are logged as candidate enhancements (<code style={monoInline}>BACKLOG.md</code>).
+        </p>
+
+        <p style={subHeadingStyle}>Fetch constraints</p>
+        <p style={{ ...bodyStyle, marginBottom: 4 }}>
+          Apply to every content/image URL Clio fetches, regardless of auth type:
+        </p>
+        <ul style={{ fontSize: 13, color: COLORS.textSecondary, lineHeight: 1.7, paddingLeft: 20, margin: 0, marginBottom: 0 }}>
+          <li>HTTPS only.</li>
+          <li>
+            Must be publicly reachable. Clio blocks loopback addresses, private IP ranges, link-local addresses
+            (including cloud metadata endpoints), and <code style={monoInline}>.internal</code>/
+            <code style={monoInline}>.local</code>/<code style={monoInline}>.localhost</code> hostnames — checked
+            against every DNS address your hostname resolves to, not just the first.
+          </li>
+          <li>15-second timeout per request.</li>
+          <li>
+            Redirects are followed up to 3 hops; each redirect target is independently re-validated against the
+            same reachability rules before being fetched (never blindly followed).
+          </li>
+          <li>
+            The response <code style={monoInline}>Content-Type</code> must match what you declared: HTML pages
+            must return <code style={monoInline}>text/html</code>; images must return an{' '}
+            <code style={monoInline}>image/*</code> type. A mismatch is treated as a fetch failure for that page.
+          </li>
+          <li>Size limits: 5MB for HTML pages, 10MB for images.</li>
+          <li>
+            Images are fetched server-side and re-hosted to the meeting bot as a data URI — your image URL is
+            never exposed to the browser, so no CORS configuration is needed on your end.
+          </li>
+        </ul>
+      </Card>
+
+      {/* 3 — API / webhook reference */}
       <h2 style={sectionHeadingStyle}>API &amp; webhook reference</h2>
       <p style={bodyStyle}>
         Full request/response details, rate limits, and example payloads live on the{' '}
@@ -205,7 +402,7 @@ Content-Type: application/json
         <p style={{ ...bodyStyle, marginBottom: 0 }}>{WEBHOOK_DOC.retrySchedule}</p>
       </Card>
 
-      {/* 3 — Billing explained (anchor target of the billing-health banner) */}
+      {/* 4 — Billing explained (anchor target of the billing-health banner) */}
       <h2 id="billing" style={{ ...sectionHeadingStyle, scrollMarginTop: 24 }}>
         Billing explained
       </h2>

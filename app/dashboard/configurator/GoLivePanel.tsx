@@ -11,10 +11,11 @@ import type { ConfiguratorStatus } from '@/lib/partner/configurator-status'
  * "extract-and-verify" component: fully functional standalone, hosted inside
  * `ConfiguratorSurface`.
  *
- * Required-to-go-live set (B2B-20 §6.3): Questionnaire + Payment. Everything
- * else is optional (working Clio defaults exist). The confirm button is
- * disabled until both required sections pass; the server-side `goLive()`
- * re-validates the same required set via live `checkStepComplete`.
+ * Required-to-go-live set (B2B-23 §6.1, updated from B2B-20 §6.3): Integration
+ * + Payment. Everything else is optional (working Clio defaults exist). The
+ * confirm button is disabled until both required sections pass; the
+ * server-side `goLive()` re-validates the same required set via live
+ * `checkStepComplete`.
  *
  * Retains the section-internal inline-style aesthetic (§8 note — out of the
  * new-shell grep scope).
@@ -28,8 +29,11 @@ interface DomainSettingsResponse {
   custom_domain_url: string | null
 }
 
-const REQUIRED_LABELS: { key: 'questionnaire' | 'payment'; label: string; requirement: string }[] = [
-  { key: 'questionnaire', label: 'Questionnaire', requirement: 'publish a questionnaire' },
+// B2B-24 §6.1/§9 — exported so the Dashboard panel's setup glimpse (Area 1)
+// reuses this exact label/requirement copy instead of inventing separate
+// wording that could visibly disagree with this panel (Known Constraint 1).
+export const REQUIRED_LABELS: { key: 'integration' | 'payment'; label: string; requirement: string }[] = [
+  { key: 'integration', label: 'Integration', requirement: 'configure your API base URL (Integration) or register a content source via the API' },
   { key: 'payment', label: 'Payment', requirement: 'add a funding method' },
 ]
 
@@ -73,7 +77,7 @@ export default function GoLivePanel({
       ? domainSettings.subdomain_url
       : `${appUrl}/partner-questionnaire/${partnerAccountId}`
 
-  const requiredReady = status !== null && status.questionnaire && status.payment
+  const requiredReady = status !== null && status.integration && status.payment
 
   async function onGoLive() {
     setBusy(true)
@@ -150,9 +154,6 @@ export default function GoLivePanel({
             </div>
           )
         })}
-        <p style={{ fontSize: 12, color: COLORS.textMuted, marginTop: 12 }}>
-          Optional (can be done later): Topics, Content, Visualization, Domain, Integration — Clio defaults apply until you set them.
-        </p>
       </Card>
 
       <p style={{ fontSize: 13, color: COLORS.textSecondary, marginBottom: 6 }}>Your end users will reach you at:</p>

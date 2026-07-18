@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { requireAuth } from '@/lib/clerk'
+import { requireInternalAdmin, internalAdminErrorEnvelope } from '@/lib/internal-admin/auth'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 
 /**
@@ -8,12 +8,17 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
  *
  * B2B-17 Requirement Doc §4.B / §6.6 — backs Panel 2 ("All Glitches"). REPOINTED from the JSONB
  * unnest (B2B-09) to the durable `glitch_instances` table so each row has a stable id and an
- * inherited issue status. Clerk-authenticated only, same boundary as `/api/admin/glitches/summary`
- * and the `/api/admin/billing/clients` precedent.
+ * inherited issue status.
  *
  * One row per glitch instance. Each row's Status is INHERITED from its linked issue (or 'untriaged'
  * if unattached) — instances have no independent status. Partner + type filters run in SQL (indexed);
  * the inherited-status filter runs in application code because it depends on the left-joined issue.
+ *
+ * B2B-21 Requirement Doc §6.3 — a scoped sales-partner's reads are forced to
+ * their tagged partner accounts regardless of a client-supplied
+ * ?partner_account_id=; if the client-supplied id is in scope it further
+ * narrows to that one id (existing behavior preserved); if out of scope,
+ * 403 (never a silently-empty 200). A super-admin's behavior is unchanged.
  */
 
 const QuerySchema = z.object({
@@ -36,8 +41,8 @@ interface InstanceRow {
 }
 
 export async function GET(request: NextRequest) {
-  const { error } = requireAuth()
-  if (error) return error
+  const admin = await requireInternalAdmin()
+  if (admin.error) return admin.error
 
   const parsed = QuerySchema.safeParse({
     partner_account_id: request.nextUrl.searchParams.get('partner_account_id') ?? undefined,
@@ -49,6 +54,16 @@ export async function GET(request: NextRequest) {
   }
   const { partner_account_id: partnerAccountId, type: typeFilter, status: statusFilter } = parsed.data
 
+  // B2B-21 §6.3 — force-scope a sales-partner's read to their tagged accounts.
+  if (admin.role === 'sales_partner') {
+    if (partnerAccountId && !admin.scopedPartnerAccountIds.includes(partnerAccountId)) {
+      return NextResponse.json(internalAdminErrorEnvelope('forbidden', 'This partner account is outside your assigned scope.'), { status: 403 })
+    }
+    if (admin.scopedPartnerAccountIds.length === 0) {
+      return NextResponse.json({ glitches: [] })
+    }
+  }
+
   const supabase = createSupabaseAdminClient()
 
   let query = supabase
@@ -58,7 +73,13 @@ export async function GET(request: NextRequest) {
     )
     .order('extracted_at', { ascending: false })
 
-  if (partnerAccountId) query = query.eq('partner_account_id', partnerAccountId)
+  if (admin.role === 'sales_partner') {
+    query = partnerAccountId
+      ? query.eq('partner_account_id', partnerAccountId)
+      : query.in('partner_account_id', admin.scopedPartnerAccountIds)
+  } else if (partnerAccountId) {
+    query = query.eq('partner_account_id', partnerAccountId)
+  }
   if (typeFilter) query = query.eq('glitch_type', typeFilter)
 
   const { data, error: queryError } = await query

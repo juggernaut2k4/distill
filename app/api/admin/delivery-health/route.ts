@@ -1,7 +1,7 @@
-import { auth } from '@clerk/nextjs/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createSupabaseAdminClient } from '@/lib/supabase'
+import { requireSuperAdmin } from '@/lib/internal-admin/auth'
 
 // ─── Response schema (Zod) ────────────────────────────────────────────────────
 
@@ -57,26 +57,14 @@ type DeliveryHealthResponse = z.infer<typeof DeliveryHealthResponseSchema>
 
 /**
  * Returns true if the request is from an authorised admin.
- * Priority:
- *  1. Header x-admin-secret matching ADMIN_SECRET env var (if set)
- *  2. Clerk userId matching ADMIN_CLERK_USER_ID env var (fallback)
+ * Returns true if the x-admin-secret header matches ADMIN_SECRET. B2B-21
+ * Requirement Doc §7 — the Clerk-userId fallback is replaced by
+ * `requireSuperAdmin()`, checked separately in the route handler below.
  */
-function isAdmin(request: NextRequest): boolean {
+function hasAdminSecret(request: NextRequest): boolean {
   const adminSecret = process.env.ADMIN_SECRET
-  const adminClerkUserId = process.env.ADMIN_CLERK_USER_ID
-
-  if (adminSecret) {
-    const headerSecret = request.headers.get('x-admin-secret')
-    return headerSecret === adminSecret
-  }
-
-  if (adminClerkUserId) {
-    const { userId } = auth()
-    return userId === adminClerkUserId
-  }
-
-  // No admin config set — deny all
-  return false
+  if (!adminSecret) return false
+  return request.headers.get('x-admin-secret') === adminSecret
 }
 
 // ─── Query helpers ────────────────────────────────────────────────────────────
@@ -262,7 +250,7 @@ async function fetchUserStats(supabase: ReturnType<typeof createSupabaseAdminCli
  * GET /api/admin/delivery-health
  *
  * Returns delivery stats for the last 24 hours.
- * Auth: x-admin-secret header (preferred) OR Clerk userId matching ADMIN_CLERK_USER_ID.
+ * Auth: x-admin-secret header (preferred) OR `requireSuperAdmin()`.
  *
  * Schema note: delivery_log has no "error" column. Only successful sends are
  * written to the table, so "failed" counts are always 0 in this response.
@@ -270,8 +258,9 @@ async function fetchUserStats(supabase: ReturnType<typeof createSupabaseAdminCli
  * proxy for delivery issues.
  */
 export async function GET(request: NextRequest) {
-  if (!isAdmin(request)) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  if (!hasAdminSecret(request)) {
+    const admin = await requireSuperAdmin()
+    if (admin.error) return admin.error
   }
 
   const supabase = createSupabaseAdminClient()

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { requireAuth } from '@/lib/clerk'
+import { requireInternalAdmin } from '@/lib/internal-admin/auth'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import {
   GLITCH_ISSUE_STATUSES,
@@ -43,7 +43,7 @@ interface AttachedInstanceRow {
 }
 
 export async function GET(_request: NextRequest, { params }: { params: { id: string } }) {
-  const { error } = requireAuth()
+  const { error } = await requireInternalAdmin()
   if (error) return error
 
   const supabase = createSupabaseAdminClient()
@@ -104,7 +104,7 @@ export async function GET(_request: NextRequest, { params }: { params: { id: str
 }
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
-  const { error } = requireAuth()
+  const { error } = await requireInternalAdmin()
   if (error) return error
 
   let body: unknown

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { type Subtopic } from '@/lib/curriculum/session-designer'
+import { requireSuperAdmin } from '@/lib/internal-admin/auth'
 
 /**
  * POST /api/admin/backfill-sub-sessions
@@ -15,7 +15,9 @@ import { type Subtopic } from '@/lib/curriculum/session-designer'
  *
  * Response: { repaired: number; skipped: number; orphaned: string[]; errors: string[] }
  *
- * Protected by Clerk session auth OR x-admin-secret header.
+ * Protected by `requireSuperAdmin()` OR x-admin-secret header (B2B-21
+ * Requirement Doc §7 — this was previously any authenticated Clerk session,
+ * an internal/cross-partner defect; the x-admin-secret path is unchanged).
  * Idempotent: rows already populated are counted in `skipped` and not overwritten.
  */
 
@@ -54,14 +56,14 @@ function mapStringsToSubtopics(
 // ── Route handler ─────────────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
-  // Admin auth: Clerk session OR x-admin-secret header
-  const { userId: callerUserId } = auth()
+  // Admin auth: requireSuperAdmin() OR x-admin-secret header
   const secret        = process.env.ADMIN_SECRET
   const providedSecret = request.headers.get('x-admin-secret')
-  const secretOk      = secret && providedSecret === secret
+  const secretOk      = Boolean(secret) && providedSecret === secret
 
-  if (!callerUserId && !secretOk) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!secretOk) {
+    const admin = await requireSuperAdmin()
+    if (admin.error) return admin.error
   }
 
   // Optional: limit to a single user for targeted repair

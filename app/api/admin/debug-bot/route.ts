@@ -1,15 +1,17 @@
-import { auth } from '@clerk/nextjs/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseAdminClient } from '@/lib/supabase'
+import { requireSuperAdmin } from '@/lib/internal-admin/auth'
 
 /**
  * GET /api/admin/debug-bot?botId=xxx
  * Fetches the full bot object from Recall.ai + walkthrough_state from Supabase.
- * For debugging only.
+ * For debugging only. B2B-21 Requirement Doc §7 — gated `requireSuperAdmin()`
+ * (previously any authenticated Clerk session, an internal/cross-partner defect).
  */
 export async function GET(request: NextRequest) {
-  const { userId } = auth()
-  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const admin = await requireSuperAdmin()
+  if (admin.error) return admin.error
+  const userId = admin.clerkUserId
 
   const botId = request.nextUrl.searchParams.get('botId')
   if (!botId) return NextResponse.json({ error: 'botId required' }, { status: 400 })

@@ -4,7 +4,7 @@ import { getPartnerAccountsForClerkUser } from '@/lib/partner/admin-accounts'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { NoPartnerAccounts } from './_shared'
 import { getBillingHealth } from './_billing-health'
-import { getConfiguratorStatus, type ConfiguratorSection } from '@/lib/partner/configurator-status'
+import { VISIBLE_SECTIONS, type ConfiguratorSection } from '@/lib/partner/configurator-status'
 import ConfiguratorSurface from './ConfiguratorSurface'
 
 /**
@@ -15,29 +15,16 @@ import ConfiguratorSurface from './ConfiguratorSurface'
  * B2B-20 §3, §12).
  */
 
-type PanelSection = ConfiguratorSection | 'go_live'
+type PanelSection = ConfiguratorSection | 'go_live' | 'dashboard'
 
-const VALID_SECTIONS: PanelSection[] = [
-  'questionnaire',
-  'topics',
-  'content',
-  'visualization',
-  'domain',
-  'integration',
-  'payment',
-  'go_live',
-]
-
-// Canonical order for the not-yet-live first-incomplete default (§3).
-const CANONICAL_ORDER: ConfiguratorSection[] = [
-  'questionnaire',
-  'topics',
-  'content',
-  'visualization',
-  'domain',
-  'integration',
-  'payment',
-]
+// B2B-23 §6.1 — narrowed to only the currently-visible sections + go_live.
+// B2B-24 §12 — 'dashboard' added; it is now also the fallback default when
+// `?section=` is absent/invalid (see initialSection below). Any `?section=`
+// value outside this list (including every hidden section's key) is treated
+// as absent → the default-section rule below applies. This is the entire
+// mechanism behind the deep-link-to-a-hidden-section fallback (§4.4) — no
+// separate "hidden section" branch is needed.
+const VALID_SECTIONS: PanelSection[] = [...VISIBLE_SECTIONS, 'go_live', 'dashboard']
 
 export default async function ConfiguratorHomePage({
   searchParams,
@@ -77,21 +64,21 @@ export default async function ConfiguratorHomePage({
     .single()
 
   const isLive = !!account?.onboarding_completed_at
+  const onboardingCompletedAt = (account?.onboarding_completed_at as string | null) ?? null
 
-  // Resolve the default section (§3). An explicit, valid `?section=` always
-  // wins. Otherwise: live → Questionnaire (first item); not-live → first
-  // incomplete section, or Go Live if everything is already complete.
+  // Resolve the default section (§3, updated B2B-24 §4.6/§12). An explicit,
+  // valid `?section=` always wins. Otherwise every partner — brand-new,
+  // returning-not-live, or live — lands on Dashboard (Option A). The prior
+  // isLive/first-incomplete branching (and the getConfiguratorStatus() call
+  // that existed only to support it) is removed: the Dashboard panel
+  // computes its own "what's next" CTA client-side from the `status`
+  // ConfiguratorSurface already fetches, so no server-side status read is
+  // needed just to pick a landing section anymore. A `?section=` naming a
+  // hidden section falls outside VALID_SECTIONS and is treated identically
+  // to an absent/invalid value — no error, transparently resolved here.
   const requested = searchParams.section as PanelSection | undefined
-  let initialSection: PanelSection
-  if (requested && VALID_SECTIONS.includes(requested)) {
-    initialSection = requested
-  } else if (isLive) {
-    initialSection = 'questionnaire'
-  } else {
-    const status = await getConfiguratorStatus(activeId)
-    const firstIncomplete = CANONICAL_ORDER.find((k) => !status[k])
-    initialSection = firstIncomplete ?? 'go_live'
-  }
+  const initialSection: PanelSection =
+    requested && VALID_SECTIONS.includes(requested) ? requested : 'dashboard'
 
   const billingHealth = await getBillingHealth(activeId)
 
@@ -101,6 +88,7 @@ export default async function ConfiguratorHomePage({
       activePartnerAccountId={activeId}
       billingHealth={billingHealth}
       isLive={isLive}
+      onboardingCompletedAt={onboardingCompletedAt}
       initialSection={initialSection}
     />
   )

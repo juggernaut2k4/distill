@@ -1,8 +1,8 @@
-import { auth } from '@clerk/nextjs/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { getMeetingBotProvider } from '@/lib/meeting-bot/provider'
 import { isTestSessionEnabled } from '@/lib/admin-access'
+import { requireSuperAdmin } from '@/lib/internal-admin/auth'
 
 /**
  * POST /api/admin/test-session
@@ -10,6 +10,7 @@ import { isTestSessionEnabled } from '@/lib/admin-access'
  * (Recall.ai or Attendee, per MEETING_BOT_PROVIDER) into an existing meeting URL.
  * For testing only — bypasses the 25-35 min cron window.
  * Body: { title?, meetingUrl, durationMins? }
+ * B2B-21 Requirement Doc §7 — gated `requireSuperAdmin()` (previously bare `auth()`).
  */
 export async function POST(request: NextRequest) {
   if (!isTestSessionEnabled()) {
@@ -19,10 +20,9 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const { userId } = auth()
-  if (!userId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const admin = await requireSuperAdmin()
+  if (admin.error) return admin.error
+  const userId = admin.clerkUserId
 
   let body: { title?: string; meetingUrl?: string; durationMins?: number } = {}
   try {

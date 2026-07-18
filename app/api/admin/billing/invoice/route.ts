@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { requireAuth } from '@/lib/clerk'
+import { requireSuperAdmin } from '@/lib/internal-admin/auth'
 import { createEnterpriseInvoice, getOrCreateStripeCustomer } from '@/lib/stripe'
 
 /**
@@ -8,11 +8,16 @@ import { createEnterpriseInvoice, getOrCreateStripeCustomer } from '@/lib/stripe
  *
  * B2B-04 Requirement Doc Section 4.B.5 / 5.B.4 — enterprise invoicing.
  * NOT partner-self-serve — enterprise deals are negotiated manually, so this
- * route is called by Clio's own ops (Arun), gated the same way as
- * `GET /api/admin/billing/clients` (any signed-in Clerk user, matching the
- * `/dashboard/admin/templates` authorization boundary — a stricter
- * internal-staff-only gate is a cross-cutting future enhancement, not
- * unique to this route, per Requirement Doc Section 4.B.5).
+ * route is called by Clio's own ops (Arun).
+ *
+ * B2B-21 Requirement Doc §7 — not itself named in the route-classification
+ * table (an apparent gap in that table's otherwise-exhaustive inventory: it
+ * shared the exact bare-`requireAuth()` "any signed-in Clerk user" defect as
+ * `GET /api/admin/billing/clients`, which the table DOES cover, and creates
+ * real Stripe invoices against any partner account). Closed under the same
+ * P0 as the two other routes the spec itself found beyond its initial list
+ * (`repair-session-titles`, `seed-topic-cache`) — same reasoning, same fix:
+ * `requireSuperAdmin()`.
  */
 
 const InvoiceSchema = z.object({
@@ -23,7 +28,7 @@ const InvoiceSchema = z.object({
 })
 
 export async function POST(request: NextRequest) {
-  const { error: authError } = requireAuth()
+  const { error: authError } = await requireSuperAdmin()
   if (authError) return authError
 
   const body = await request.json().catch(() => null)

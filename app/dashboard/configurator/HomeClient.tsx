@@ -28,6 +28,7 @@ export default function HomeClient({
       activePartnerAccountId={activePartnerAccountId}
       billingHealth={billingHealth}
       isLive
+      onboardingCompletedAt={null}
       initialSection="questionnaire"
     />
   )

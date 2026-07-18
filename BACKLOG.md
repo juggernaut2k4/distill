@@ -59,14 +59,34 @@ alike.
 | Marketing homepage (`app/(marketing)/page.tsx`) | Not yet verified | B2B-18 (copy only, layout untouched) |
 | `/partner-signup`, `/partner-signup/organization` | Not yet verified | 2026-07-17 (route-structure fixes only) |
 | Configurator — left-nav layout | **In scope, being built now** — B2B-20 | 2026-07-17 |
-| Configurator — Questionnaire/Topics/Content/Domain/Integration screens | Not yet verified | various |
-| API page, Docs page | Not yet verified | B2B-16 |
+| Configurator shared shell (`_shared.tsx` `ConfiguratorShell`/`ConfiguratorNavShell`) | **Fluid-width mechanism fixed** — hard `maxWidth: 960` cap replaced with `clamp()`-based `SHELL_CONTENT_STYLE` (16–32px padding, 640–1900px width), shared via CSS custom property so `ConfiguratorSurface.tsx`'s padding-cancel composes correctly at every width. This is the reusable pattern going forward for any new shell wrapper needing fluid columns. Typography/spacing-rhythm/type-scale polish is explicitly deferred to the follow-on `/design-review` pass (not in scope for B2B-23). | B2B-23 |
+| Configurator — Questionnaire/Topics/Content/Domain/Integration screens | Shell-level fluid width inherited from the fix above (their standalone routes still render inside `ConfiguratorShell`); section-internal responsiveness not yet audited | B2B-23 (shell only) |
+| API page, Docs page | Shell-level fluid width inherited from the fix above (both render inside `ConfiguratorNavShell`); section-internal responsiveness not yet audited | B2B-23 (shell only) / B2B-16 |
 | Internal admin (`/dashboard/admin/*`) | Not yet verified | various |
 | `/partner-render/[clio_session_ref]` (live session view) | Not yet verified | B2B-19 |
 | `/partner-questionnaire/[partner_account_id]` (public, end-user-facing) | Not yet verified | B2B-03 |
 
 Add rows as new screens are built; update "Responsive status" to `Verified` (with the brief/commit
 that verified it) the moment a screen is confirmed to meet the bar above.
+
+---
+
+## 🔌 B2B-23 WS-3 — content-source auth gaps (documented, not built)
+
+Identified during the B2B-23 content-auth documentation/gap audit (`app/dashboard/configurator/docs/DocsClient.tsx`
+"Content & image auth" section). Both are real gaps, confirmed against `lib/partner/content-sources.ts` and the
+`POST /api/partner/v1/content-sources` Zod schemas — documented on the Docs page as "not yet supported," not
+silently absorbed, and not built in B2B-23 (out of scope per the approved spec §10):
+
+- **API-key-in-query-string auth** (e.g. `?api_key=...`) — `static_bearer` only supports header-based keys today.
+  Some partner content/image APIs use query-param keys instead. Candidate fast-follow: a new `auth_type` (e.g.
+  `query_param`) or an extension to `static_bearer` supporting a query-param placement mode.
+- **Multiple/custom static headers per content source** — only a single configurable header name/value pair
+  (`static_bearer`'s `header_name`/`header_scheme`) is supported; some partner APIs require more than one custom
+  header. Candidate fast-follow: a `headers: Record<string,string>[]` shape on `static_bearer` (or a new auth type).
+
+Neither gap blocks the API-driven milestone's viability (most content/image URLs use header-based bearer auth or
+no auth), so neither required CEO escalation — both are logged here as candidate engineering work only.
 
 ---
 

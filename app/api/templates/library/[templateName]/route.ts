@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import crypto from 'crypto'
 import { requireSessionAuth } from '@/lib/session-auth'
+import { requireSuperAdmin } from '@/lib/internal-admin/auth'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { isConfiguredApprover } from '@/lib/templates/approval'
 import { isFixLoopTemplate } from '@/lib/templates/styleOverrideSlots'
@@ -40,10 +41,18 @@ const STATUS_MAP: Record<z.infer<typeof Body>['action'], string> = {
  * `reviewed_by` is always set from the authenticated session — the request
  * body has no such field, so it is structurally impossible for a client to
  * spoof it.
+ *
+ * B2B-21 Requirement Doc §7 note — `requireSuperAdmin()` is layered ON TOP
+ * of the existing `requireSessionAuth` + `isConfiguredApprover` gate below,
+ * as an additional, orthogonal check (who may reach this page/route at all),
+ * distinct from `isConfiguredApprover` (who may actually approve).
  */
 export async function PATCH(request: NextRequest, { params }: Params) {
   const { userId, error } = await requireSessionAuth(request)
   if (error) return error
+
+  const admin = await requireSuperAdmin()
+  if (admin.error) return admin.error
 
   const supabase = createSupabaseAdminClient()
   const { data: user } = await supabase

@@ -4,11 +4,17 @@
  * Use when sessions were created with the wrong title (plan topic title verbatim).
  *
  * Body: { userId: string, dryRun?: boolean }
+ *
+ * B2B-21 Requirement Doc §7 — this route previously had NO auth check at all
+ * (reachable by the public internet), a P0 finding beyond the brief's own
+ * initial list, closed under the same gate as every other internal/
+ * cross-partner route: `requireSuperAdmin()`.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { designSessionsForTopic, getSessionDuration } from '@/lib/curriculum/session-designer'
+import { requireSuperAdmin } from '@/lib/internal-admin/auth'
 
 interface SubSession {
   title: string
@@ -18,6 +24,9 @@ interface SubSession {
 }
 
 export async function POST(req: NextRequest) {
+  const admin = await requireSuperAdmin()
+  if (admin.error) return admin.error
+
   const body = await req.json() as { userId?: string; dryRun?: boolean }
   const { userId, dryRun = false } = body
 

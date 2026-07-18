@@ -8,7 +8,9 @@ import { ConfiguratorShell, Card, PrimaryButton, SecondaryButton, COLORS } from 
  * B2B-06 — `/dashboard/configurator/integration` (Requirement Doc Section
  * 4.C). Two cards, matching the Domain screen's own two-card layout
  * precedent: "API credentials" (self-serve OAuth2 client generation/listing)
- * and "Outbound webhooks" (base URL + auth token + signing secret).
+ * and "API base URL" (base URL + auth token + signing secret; component name
+ * `OutboundWebhooksCard` kept for now — B2B-23 §4.3 relabeled only the
+ * user-facing copy, not the internal identifier).
  */
 
 interface OAuthClient {
@@ -401,10 +403,14 @@ function OutboundWebhooksCard({
     return (
       <Card>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <p style={{ fontSize: 14, fontWeight: 600 }}>Outbound webhooks</p>
+          <p style={{ fontSize: 14, fontWeight: 600 }}>API base URL</p>
           {configured && <StatusBadge color={COLORS.green} label="Configured" />}
         </div>
-        <p style={{ fontSize: 13, color: COLORS.textSecondary, marginBottom: 16 }}>Clio delivers usage events to your own system.</p>
+        <p style={{ fontSize: 13, color: COLORS.textSecondary, marginBottom: 16 }}>
+          The base URL Clio uses to reach your systems — for delivering usage events and any future integration
+          calls, e.g. <code style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>https://api.yourcompany.com</code> →{' '}
+          <code style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>https://api.yourcompany.com/webhooks/usage</code>.
+        </p>
         <div style={{ marginBottom: 12 }}>
           <p style={{ fontSize: 12, color: COLORS.textSecondary, marginBottom: 6 }}>Your base URL</p>
           <input
@@ -452,7 +458,7 @@ function OutboundWebhooksCard({
   return (
     <Card>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <p style={{ fontSize: 14, fontWeight: 600 }}>Outbound webhooks</p>
+        <p style={{ fontSize: 14, fontWeight: 600 }}>API base URL</p>
         <StatusBadge color={COLORS.green} label="Configured" />
       </div>
       {justSavedSecret && (
@@ -468,7 +474,11 @@ function OutboundWebhooksCard({
         </div>
       )}
       <p style={{ fontSize: 12, color: COLORS.textSecondary, marginBottom: 4 }}>Your base URL:</p>
-      <p style={{ fontSize: 14, marginBottom: 12 }}>{outbound.outbound_base_url}</p>
+      <p style={{ fontSize: 14, marginBottom: 4 }}>{outbound.outbound_base_url}</p>
+      <p style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 12 }}>
+        Clio appends a path per integration point (e.g. <code style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>/webhooks/usage</code>) — you don&apos;t need to
+        register each path separately.
+      </p>
       <p style={{ fontSize: 13, color: COLORS.textSecondary, marginBottom: 4 }}>
         Your API token: {outbound.outbound_auth_token_set ? '●●●●●●●● (set)' : 'Not set'}
       </p>

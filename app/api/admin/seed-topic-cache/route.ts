@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { generateCuratedCatalog } from '@/lib/curriculum/catalog-curator'
+import { requireSuperAdmin } from '@/lib/internal-admin/auth'
 
 const TOP_COMBINATIONS = [
   { role: 'ceo', industry: 'financial-services', maturity: 'beginner' },
@@ -15,12 +16,18 @@ const TOP_COMBINATIONS = [
  *
  * Seeds the role_topic_cache table with pre-computed curated topic lists
  * for the top 5 role×industry×maturity combinations.
- * Protected — must be called with service role credentials server-side.
+ *
+ * B2B-21 Requirement Doc §7 — this route previously had NO auth check at all
+ * (reachable by the public internet), a P0 finding beyond the brief's own
+ * initial list, closed under the same gate as every other internal/
+ * cross-partner route: `requireSuperAdmin()`.
  *
  * Response: { results: Array<{ combination: string; status: 'ok' | 'error'; error?: string }> }
  */
 export async function POST() {
-  // Simple auth check — must be called with service role key
+  const admin = await requireSuperAdmin()
+  if (admin.error) return admin.error
+
   const supabase = createSupabaseAdminClient()
 
   const results: Array<{ combination: string; status: 'ok' | 'error'; error?: string }> = []

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { requirePartnerAdmin } from '@/lib/partner/auth'
+import { requireSuperAdmin } from '@/lib/internal-admin/auth'
 import { createTestBlockCheckoutSession } from '@/lib/stripe'
 
 /**
@@ -11,6 +12,16 @@ import { createTestBlockCheckoutSession } from '@/lib/stripe'
  * Clerk-authenticated, requires a `partner_admin_users` row for the target
  * account — identical auth pattern to the sibling
  * `POST /api/admin/billing/checkout` route (wallet top-up).
+ *
+ * B2B-21 Requirement Doc §7 note — now also accepts `requireSuperAdmin()` as
+ * an alternate passing credential: this route is invoked from the
+ * now-super-admin-gated `/dashboard/admin/clients` page by a super-admin who
+ * is not necessarily a `partner_admin_users` member of the target account.
+ * Safe per the CEO review — a super-admin is already maximally privileged,
+ * and `requireSuperAdmin()` itself hard-rejects a scoped `sales_partner`.
+ * `requirePartnerAdmin`'s own body/behavior is untouched (§12 hardest
+ * constraint) — this is a pure OR-alternate, checked first, falling through
+ * to the existing check unchanged.
  *
  * `createTestBlockCheckoutSession()` (lib/stripe.ts) and the webhook
  * completion branch that credits `partner_wallets.test_minutes_balance`
@@ -31,8 +42,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Validation failed', details: parsed.error.flatten() }, { status: 422 })
   }
 
-  const admin = await requirePartnerAdmin(parsed.data.partner_account_id)
-  if (admin.error) return admin.error
+  // Try requireSuperAdmin() first (§7 note); fall through to the existing,
+  // byte-for-byte-unchanged requirePartnerAdmin() check if that fails.
+  const superAdmin = await requireSuperAdmin()
+  if (superAdmin.error) {
+    const admin = await requirePartnerAdmin(parsed.data.partner_account_id)
+    if (admin.error) return admin.error
+  }
 
   try {
     const checkoutUrl = await createTestBlockCheckoutSession(

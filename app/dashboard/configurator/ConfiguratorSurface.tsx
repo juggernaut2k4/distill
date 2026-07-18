@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import type { AdminPartnerAccount } from '@/lib/partner/admin-accounts'
 import type { ConfiguratorStatus, ConfiguratorSection } from '@/lib/partner/configurator-status'
+import { VISIBLE_SECTIONS } from '@/lib/partner/configurator-status'
 import { ConfiguratorNavShell, type BillingHealth } from './_shared'
 import QuestionnaireBuilderClient from './questionnaire/QuestionnaireBuilderClient'
 import TopicsConfigClient from './topics/TopicsConfigClient'
@@ -14,6 +15,7 @@ import DomainConfigClient from './domain/DomainConfigClient'
 import IntegrationClient from './integration/IntegrationClient'
 import PaymentConfigClient from './PaymentConfigClient'
 import GoLivePanel from './GoLivePanel'
+import DashboardPanel from './DashboardPanel'
 
 /**
  * B2B-20 — the unified Configurator surface. A persistent, responsive left-nav
@@ -33,7 +35,9 @@ import GoLivePanel from './GoLivePanel'
  * motion` fallbacks (§12). No new dependency.
  */
 
-type PanelSection = ConfiguratorSection | 'go_live'
+// Exported (B2B-24 §12) so DashboardPanel.tsx can reuse this exact union
+// instead of redeclaring a duplicate type that could drift out of sync.
+export type PanelSection = ConfiguratorSection | 'go_live' | 'dashboard'
 
 interface NavItemDef {
   key: ConfiguratorSection
@@ -77,30 +81,22 @@ const SECTION_LABEL: Record<PanelSection, string> = {
   integration: 'Integration',
   payment: 'Payment',
   go_live: 'Go Live',
+  dashboard: 'Dashboard',
 }
-
-// Canonical order for the first-incomplete default (§3).
-const CANONICAL_ORDER: ConfiguratorSection[] = [
-  'questionnaire',
-  'topics',
-  'content',
-  'visualization',
-  'domain',
-  'integration',
-  'payment',
-]
 
 export default function ConfiguratorSurface({
   accounts,
   activePartnerAccountId,
   billingHealth,
   isLive,
+  onboardingCompletedAt,
   initialSection,
 }: {
   accounts: AdminPartnerAccount[]
   activePartnerAccountId: string
   billingHealth: BillingHealth
   isLive: boolean
+  onboardingCompletedAt: string | null
   initialSection: PanelSection
 }) {
   const router = useRouter()
@@ -151,23 +147,37 @@ export default function ConfiguratorSurface({
     [pathname, router, searchParams],
   )
 
-  const requiredReady = status !== null && status.questionnaire && status.payment
-  const firstIncomplete = status
-    ? CANONICAL_ORDER.find((k) => !status[k]) ?? null
-    : null
+  const requiredReady = status !== null && status.integration && status.payment
 
-  const panel = renderPanel({ activeSection, accounts, activePartnerAccountId, isLive, status, refetchStatus })
+  // B2B-23 §4.5/§6.1 — group headings are computed by filtering, never
+  // hardcoded per group. NAV_GROUPS stays the complete seven-item taxonomy;
+  // this filtered view is what actually renders. Any group whose filtered
+  // `items` array is empty is dropped entirely (heading and all) — this is
+  // why hiding/unhiding a section is a one-line change to VISIBLE_SECTIONS,
+  // never a second code change here.
+  const visibleGroups = NAV_GROUPS
+    .map((g) => ({ ...g, items: g.items.filter((i) => VISIBLE_SECTIONS.includes(i.key)) }))
+    .filter((g) => g.items.length > 0)
+
+  const panel = renderPanel({
+    activeSection,
+    accounts,
+    activePartnerAccountId,
+    isLive,
+    status,
+    refetchStatus,
+    billingHealth,
+    onboardingCompletedAt,
+    onSelect: selectSection,
+  })
 
   const nav = (
     <ConfiguratorNav
-      groups={NAV_GROUPS}
+      groups={visibleGroups}
       status={status}
       activeSection={activeSection}
       isLive={isLive}
       requiredReady={requiredReady}
-      firstIncompleteLabel={
-        !isLive ? SECTION_LABEL[(firstIncomplete ?? 'questionnaire') as PanelSection] : null
-      }
       onSelect={selectSection}
     />
   )
@@ -179,9 +189,14 @@ export default function ConfiguratorSurface({
       active="configurator"
       billingHealth={billingHealth}
     >
-      {/* Cancel the untouchable NavShell's fixed 32px content padding so the
-          surface uses the full content column, then own responsive padding. */}
-      <div className="-mx-8 -mb-8">
+      {/* Cancel the NavShell's fluid content padding (SHELL_CONTENT_STYLE's
+          --cfg-shell-px custom property, _shared.tsx) so the surface uses the
+          full content column, then own responsive padding. Referencing the
+          SAME live CSS custom property via calc() — rather than a hardcoded
+          -mx-8/-mb-8 assuming a fixed 32px — keeps this composition correct
+          at every viewport width instead of drifting out of sync (B2B-23
+          §4.6/§6.1/§6.2). */}
+      <div className="mx-[calc(-1*var(--cfg-shell-px))] mb-[calc(-1*var(--cfg-shell-px))]">
         {/* Mobile / tablet hamburger header row (<lg). */}
         <div className="flex items-center justify-between gap-3 border-b border-[#222222] px-4 py-3 md:px-6 lg:hidden">
           <button
@@ -269,6 +284,9 @@ function renderPanel({
   isLive,
   status,
   refetchStatus,
+  billingHealth,
+  onboardingCompletedAt,
+  onSelect,
 }: {
   activeSection: PanelSection
   accounts: AdminPartnerAccount[]
@@ -276,8 +294,22 @@ function renderPanel({
   isLive: boolean
   status: ConfiguratorStatus | null
   refetchStatus: () => void
+  billingHealth: BillingHealth
+  onboardingCompletedAt: string | null
+  onSelect: (key: PanelSection) => void
 }) {
   switch (activeSection) {
+    case 'dashboard':
+      return (
+        <DashboardPanel
+          status={status}
+          isLive={isLive}
+          onboardingCompletedAt={onboardingCompletedAt}
+          billingHealth={billingHealth}
+          activePartnerAccountId={activePartnerAccountId}
+          onSelect={onSelect}
+        />
+      )
     case 'questionnaire':
       return <QuestionnaireBuilderClient accounts={accounts} activePartnerAccountId={activePartnerAccountId} embedded />
     case 'topics':
@@ -318,7 +350,6 @@ function ConfiguratorNav({
   activeSection,
   isLive,
   requiredReady,
-  firstIncompleteLabel,
   onSelect,
 }: {
   groups: NavGroupDef[]
@@ -326,16 +357,17 @@ function ConfiguratorNav({
   activeSection: PanelSection
   isLive: boolean
   requiredReady: boolean
-  firstIncompleteLabel: string | null
   onSelect: (key: PanelSection) => void
 }) {
   return (
     <nav className="flex flex-1 flex-col gap-1 py-3">
-      {firstIncompleteLabel && (
-        <p className="px-4 pb-2 text-xs text-[#94A3B8]">
-          Start here → <span className="font-semibold text-white">{firstIncompleteLabel}</span>
-        </p>
-      )}
+      {/* B2B-24 §4.1/§4.6 — pinned top entry, the single front door. The old
+          nav-level "Start here" hint is removed entirely (not moved): Area 1
+          of the Dashboard now absorbs that nudge as its own primary CTA, so
+          keeping both would show the same "what's next" info twice at once. */}
+      <div className="mb-1 border-b border-[#222222] pb-2">
+        <DashboardNavRow active={activeSection === 'dashboard'} onClick={() => onSelect('dashboard')} />
+      </div>
 
       {groups.map((group) => (
         <div key={group.heading} className="mb-2">
@@ -364,6 +396,27 @@ function ConfiguratorNav({
         />
       </div>
     </nav>
+  )
+}
+
+/** B2B-24 §4.1 — pinned "Dashboard" nav row. Styled like `NavRow`, minus the
+ * completion dot (Dashboard has no complete/incomplete state — it isn't a
+ * configurable section). */
+function DashboardNavRow({ active, onClick }: { active: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-current={active ? 'true' : undefined}
+      className={
+        'flex w-full items-center gap-3 border-l-[3px] px-4 py-2 text-left text-sm font-semibold transition-colors ' +
+        (active
+          ? 'border-[#7C3AED] bg-[#7C3AED]/10 text-white'
+          : 'border-transparent text-[#94A3B8] hover:bg-[#1A1A1A] hover:text-white')
+      }
+    >
+      Dashboard
+    </button>
   )
 }
 

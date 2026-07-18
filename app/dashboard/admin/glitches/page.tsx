@@ -1,6 +1,7 @@
 import { currentUser } from '@clerk/nextjs/server'
-import { redirect } from 'next/navigation'
+import { redirect, notFound } from 'next/navigation'
 import { createSupabaseAdminClient } from '@/lib/supabase'
+import { requireInternalAdmin } from '@/lib/internal-admin/auth'
 import DashboardShell from '@/components/dashboard/DashboardShell'
 import GlitchDashboardClient from './GlitchDashboardClient'
 
@@ -10,10 +11,19 @@ import GlitchDashboardClient from './GlitchDashboardClient'
  * app/dashboard/admin/clients/page.tsx (Clerk `currentUser()` gate, redirect
  * to /sign-in, DashboardShell wrapper), substituting GlitchDashboardClient
  * for PartnerBillingClient. No new visual direction invented.
+ *
+ * B2B-21 Requirement Doc §4.A State G4 — a scoped sales-partner may also
+ * view this page (glitches has no dollar amounts and is genuinely
+ * cross-partner); `requireInternalAdmin()` allows both roles through, with
+ * the actual data narrowing to the sales-partner's tagged accounts happening
+ * server-side in GET /api/admin/glitches (§6.3).
  */
 export default async function GlitchDashboardPage() {
   const clerkUser = await currentUser()
   if (!clerkUser) redirect('/sign-in')
+
+  const admin = await requireInternalAdmin()
+  if (admin.error) notFound()
 
   const supabase = createSupabaseAdminClient()
   const { data: user } = await supabase

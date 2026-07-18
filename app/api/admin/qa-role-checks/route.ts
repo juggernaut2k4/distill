@@ -16,9 +16,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { getRoleTier, type RoleTier } from '@/lib/curriculum/role-utils'
+import { requireSuperAdmin } from '@/lib/internal-admin/auth'
 
 export const maxDuration = 30
 
@@ -230,8 +230,9 @@ function runCheck5C(
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
 export async function GET(request: NextRequest) {
-  const { userId: authUserId } = auth()
-  if (!authUserId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const admin = await requireSuperAdmin()
+  if (admin.error) return admin.error
+  const authUserId = admin.clerkUserId
 
   const supabase = createSupabaseAdminClient()
   const targetUserId = request.nextUrl.searchParams.get('userId') ?? authUserId

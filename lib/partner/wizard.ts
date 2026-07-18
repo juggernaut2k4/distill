@@ -6,16 +6,28 @@ import { getDomainSettings } from './domain-settings'
  * architecture.md §14.7). Backs `/api/admin/configurator/wizard/*`.
  */
 
-export type WizardStep = 'questionnaire' | 'topics' | 'content' | 'visualization' | 'domain' | 'payment'
-export type WizardCurrentStep = WizardStep | 'go_live'
+// The 6 steps actually backed by partner_onboarding_progress's stored status
+// columns — unchanged from B2B-05/B2B-20. The (already-unused-by-the-current-
+// UI, per B2B-20) advance/progress-row mechanism is NOT extended to
+// Integration — no integration_status column exists and none is added; no
+// migration is needed for B2B-23.
+export type StoredWizardStep = 'questionnaire' | 'topics' | 'content' | 'visualization' | 'domain' | 'payment'
+
+// B2B-23 — the live-completion-check surface consumed by checkStepComplete()
+// and GO_LIVE_REQUIRED_STEPS. Adds 'integration', which — like every other
+// step's "complete" state — is checked purely live against real config, never
+// against a stored progress column.
+export type WizardStep = StoredWizardStep | 'integration'
+
+export type WizardCurrentStep = StoredWizardStep | 'go_live'
 export type StepStatus = 'pending' | 'completed' | 'skipped'
 
-export const STEP_ORDER: WizardStep[] = ['questionnaire', 'topics', 'content', 'visualization', 'domain', 'payment']
+export const STEP_ORDER: StoredWizardStep[] = ['questionnaire', 'topics', 'content', 'visualization', 'domain', 'payment']
 
 export interface WizardProgress {
   currentStep: WizardCurrentStep
   onboardingCompletedAt: string | null
-  steps: Record<WizardStep, { status: StepStatus; statusAt: string | null }>
+  steps: Record<StoredWizardStep, { status: StepStatus; statusAt: string | null }>
 }
 
 interface ProgressRow {
@@ -34,7 +46,7 @@ interface ProgressRow {
   payment_status_at: string | null
 }
 
-const STEP_COLUMN: Record<WizardStep, { status: keyof ProgressRow; statusAt: keyof ProgressRow }> = {
+const STEP_COLUMN: Record<StoredWizardStep, { status: keyof ProgressRow; statusAt: keyof ProgressRow }> = {
   questionnaire: { status: 'questionnaire_status', statusAt: 'questionnaire_status_at' },
   topics: { status: 'topics_status', statusAt: 'topics_status_at' },
   content: { status: 'content_status', statusAt: 'content_status_at' },
@@ -131,6 +143,27 @@ export async function checkStepComplete(partnerAccountId: string, step: WizardSt
   const supabase = createSupabaseAdminClient()
 
   switch (step) {
+    case 'integration': {
+      // B2B-23 §6.3 — resolves the brief's C5 finding literally: "the
+      // load-bearing thing for the API-driven milestone is that the partner
+      // has configured how Clio reaches them / authenticates outward — which
+      // today lives in Integration (outbound_base_url) and in the
+      // content-source registration (B2B-19)." Either signal is sufficient.
+      const { data: account } = await supabase
+        .from('partner_accounts')
+        .select('outbound_base_url')
+        .eq('id', partnerAccountId)
+        .maybeSingle()
+      if (account?.outbound_base_url) return true
+
+      const { data: source } = await supabase
+        .from('partner_content_sources')
+        .select('id')
+        .eq('partner_account_id', partnerAccountId)
+        .limit(1)
+        .maybeSingle()
+      return !!source
+    }
     case 'questionnaire': {
       // architecture.md §14.7.2 cites a `questionnaires` table; the live
       // schema (migration 074) names it `partner_questionnaires` — this
@@ -187,7 +220,7 @@ export async function checkStepComplete(partnerAccountId: string, step: WizardSt
   }
 }
 
-function nextStepAfter(step: WizardStep): WizardCurrentStep {
+function nextStepAfter(step: StoredWizardStep): WizardCurrentStep {
   const idx = STEP_ORDER.indexOf(step)
   return idx === STEP_ORDER.length - 1 ? 'go_live' : STEP_ORDER[idx + 1]
 }
@@ -200,7 +233,9 @@ export type AdvanceResult =
 /** `POST /api/admin/configurator/wizard/advance` — Requirement Doc 13.4.C/14.7.3. */
 export async function advanceWizardStep(
   partnerAccountId: string,
-  step: WizardStep,
+  step: StoredWizardStep,   // narrowed from WizardStep — 'integration' has no stored column and was
+                            // never a valid input to this (already-unused-by-the-UI) function; narrowing
+                            // the type makes that a compile-time guarantee instead of a latent runtime bug.
   action: 'complete' | 'skip'
 ): Promise<AdvanceResult> {
   const supabase = createSupabaseAdminClient()
@@ -245,15 +280,23 @@ export type GoLiveResult =
  *
  * B2B-20 §6.3: in the non-linear surface there is no "skip" action, so the old
  * "all six stored statuses non-pending" gate is re-expressed as a LIVE
- * completion check over a defined REQUIRED set — Questionnaire + Payment only.
- * Everything else is optional (working Clio defaults exist). This is a
- * deliberate, CEO-confirmed strengthening (the old gate could pass with
- * everything skipped); it is a single-constant change if the required set ever
- * changes. Validation uses the same `checkStepComplete()` existence checks the
- * nav's completion dots use, so the button-disabled state and the server gate
- * agree.
+ * completion check over a defined REQUIRED set. Everything else is optional
+ * (working Clio defaults exist). This is a deliberate, CEO-confirmed
+ * strengthening (the old gate could pass with everything skipped); it is a
+ * single-constant change if the required set ever changes. Validation uses
+ * the same `checkStepComplete()` existence checks the nav's completion dots
+ * use, so the button-disabled state and the server gate agree.
+ *
+ * B2B-23 §8 CEO resolution: required set updated for the API-driven
+ * milestone. 'questionnaire' removed (hidden, milestone-irrelevant);
+ * 'integration' added (outbound_base_url set, or a registered content source
+ * exists — see checkStepComplete's 'integration' case above); 'payment'
+ * unchanged.
  */
-const GO_LIVE_REQUIRED_STEPS: WizardStep[] = ['questionnaire', 'payment']
+// B2B-24 §6.1/§12 — exported so the Dashboard panel can read the confirmed
+// required set from this single source of truth instead of hardcoding a
+// second literal that could drift out of sync with this one.
+export const GO_LIVE_REQUIRED_STEPS: WizardStep[] = ['integration', 'payment']
 
 export async function goLive(partnerAccountId: string): Promise<GoLiveResult> {
   const supabase = createSupabaseAdminClient()

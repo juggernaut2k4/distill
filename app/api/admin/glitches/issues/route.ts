@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { requireAuth } from '@/lib/clerk'
+import { requireInternalAdmin } from '@/lib/internal-admin/auth'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { GLITCH_ISSUE_STATUSES } from '@/lib/glitches/issue-status'
 
@@ -36,7 +36,7 @@ interface IssueRow {
 }
 
 export async function GET(request: NextRequest) {
-  const { error } = requireAuth()
+  const { error } = await requireInternalAdmin()
   if (error) return error
 
   const parsed = ListQuerySchema.safeParse({
@@ -110,7 +110,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const { userId, error } = requireAuth()
+  const { clerkUserId: userId, error } = await requireInternalAdmin()
   if (error) return error
 
   let body: unknown

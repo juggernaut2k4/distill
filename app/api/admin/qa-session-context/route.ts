@@ -12,17 +12,19 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { getAllReadySections, type SessionPlan } from '@/lib/session-plan'
 import { buildAllClioDocs } from '@/lib/clio-context-builder'
 import { generateTopicContextDoc } from '@/lib/content/topic-context-generator'
+import { requireSuperAdmin } from '@/lib/internal-admin/auth'
 
 export const maxDuration = 60
 
+/** B2B-21 Requirement Doc §7 — gated `requireSuperAdmin()` (previously bare `auth()`). */
 export async function GET(request: NextRequest) {
-  const { userId } = auth()
-  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const admin = await requireSuperAdmin()
+  if (admin.error) return admin.error
+  const userId = admin.clerkUserId
 
   const supabase = createSupabaseAdminClient()
   const sessionIdParam = request.nextUrl.searchParams.get('sessionId')

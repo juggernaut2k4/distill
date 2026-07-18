@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { requireAuth } from '@/lib/clerk'
+import { requireInternalAdmin } from '@/lib/internal-admin/auth'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 
 /**
@@ -15,7 +15,7 @@ const NoteSchema = z.object({
 })
 
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
-  const { userId, error } = requireAuth()
+  const { clerkUserId: userId, error } = await requireInternalAdmin()
   if (error) return error
 
   let payload: unknown

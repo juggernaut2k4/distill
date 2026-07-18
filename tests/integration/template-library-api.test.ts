@@ -78,6 +78,29 @@ vi.mock('@/lib/supabase', () => ({
           }),
         }
       }
+      if (table === 'internal_admin_users') {
+        // B2B-21 — backs the requireSuperAdmin() gate now layered on top of
+        // requireSessionAuth/isConfiguredApprover (see route.ts). This suite
+        // tests the pre-existing approver logic, not the new gate, so every
+        // signed-in mockUserId resolves to an active super-admin — a
+        // pass-through, not a new behavior under test here.
+        return {
+          select: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              neq: vi.fn(() => ({
+                maybeSingle: vi.fn(() =>
+                  Promise.resolve({
+                    data: mockUserId
+                      ? { id: 'internal-admin-1', clerk_user_id: mockUserId, role: 'super_admin', status: 'active', email: mockUserEmail }
+                      : null,
+                    error: null,
+                  })
+                ),
+              })),
+            })),
+          })),
+        }
+      }
       return { select: vi.fn(() => ({ data: null, error: null })) }
     }),
   })),

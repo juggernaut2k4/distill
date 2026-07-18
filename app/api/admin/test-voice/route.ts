@@ -1,6 +1,6 @@
-import { auth } from '@clerk/nextjs/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseAdminClient } from '@/lib/supabase'
+import { requireSuperAdmin } from '@/lib/internal-admin/auth'
 
 /**
  * POST /api/admin/test-voice
@@ -8,10 +8,12 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
  * the bot's headless browser) fetches TTS audio and plays it — which the bot
  * captures and outputs to the meeting.
  * Body: { text? }
+ * B2B-21 Requirement Doc §7 — gated `requireSuperAdmin()` (previously bare `auth()`).
  */
 export async function POST(request: NextRequest) {
-  const { userId } = auth()
-  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const admin = await requireSuperAdmin()
+  if (admin.error) return admin.error
+  const userId = admin.clerkUserId
 
   const body = await request.json().catch(() => ({})) as { text?: string }
   const message = body.text ?? "Hello! I'm Clio, your AI coach. If you can hear this, voice is working perfectly."

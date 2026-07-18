@@ -1,13 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireSessionAuth } from '@/lib/session-auth'
+import { requireSuperAdmin } from '@/lib/internal-admin/auth'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { isConfiguredApprover } from '@/lib/templates/approval'
 
 /**
  * GET /api/templates/library
  * RTV-04 — lists every template_library row for the admin approval UI.
- * Any authenticated user may read (read-only for everyone except the
- * configured approver — see PATCH /api/templates/library/[templateName]).
+ *
+ * B2B-21 Requirement Doc §7 note — template_library is global (no
+ * partner_account_id column at all), Clio's own content-approval queue.
+ * `requireSuperAdmin()` is layered ON TOP of the existing `requireSessionAuth`
+ * check (which still resolves `userId` for the `viewerIsApprover` calc below)
+ * as an additional, orthogonal gate — who may VIEW this page at all is now
+ * super-admin-only, a separate, untouched concern from who may approve
+ * (`isConfiguredApprover`, governed by PATCH below).
  *
  * Also returns `viewerIsApprover` so the client can disable Approve/Request
  * Changes buttons for everyone but the configured approver, without ever
@@ -16,6 +23,9 @@ import { isConfiguredApprover } from '@/lib/templates/approval'
 export async function GET(request: NextRequest) {
   const { userId, error } = await requireSessionAuth(request)
   if (error) return error
+
+  const admin = await requireSuperAdmin()
+  if (admin.error) return admin.error
 
   const supabase = createSupabaseAdminClient()
 

@@ -125,6 +125,26 @@ responsive, smooth, mobile-friendly bar as part of the same change**, before con
 done. Update `BACKLOG.md`'s tracking table the instant a screen's status changes — this is a
 perpetual policy, not a task to close out.
 
+**Responsive implementation pattern (set 2026-07-18, applies going forward)**: no hardcoded
+pixel-width caps (e.g. `maxWidth: 960`) on layout containers. Use a fluid, tiered system instead —
+Tailwind responsive classes plus `clamp()` for spacing/typography so values scale smoothly between
+breakpoints rather than jumping at fixed points, with a hard ceiling only far out (~1800-2000px) to
+keep line-lengths sane on ultrawide monitors, never a cap that bites on ordinary desktop screens.
+
+### Standing rule: CEO/BA chain vs. `/design-review` — division of labor
+Per Arun's direct instruction (2026-07-18), these two tools own different layers and must not step
+on each other:
+- **CEO → BA → Dev** owns *product-shape* decisions — new screens, what data appears where, business
+  logic, information architecture. This is where "what should exist" gets decided. No code for a
+  new screen or a change to what a screen shows/does without this chain, per the existing gate above.
+- **`/design-review`** owns *presentation* of screens the CEO/BA chain has already approved and
+  built — spacing, typography, contrast, hierarchy, responsive mechanics, AI-slop patterns. It never
+  invents new sections, data, or functionality. Run it as a polish pass *after* a CEO/BA-approved
+  screen is built, not instead of that chain. It commits locally in small atomic per-finding commits
+  (each independently revertible) but **every push still needs Arun's explicit go-ahead** — report a
+  brief visual before/after summary per fix rather than pushing unprompted, same push-approval rule
+  as everything else in this file.
+
 ### When blocked, do this:
 1. Log the blocker clearly in `BACKLOG.md` under a "Blockers" section
 2. Create a working stub or placeholder so downstream agents are not affected

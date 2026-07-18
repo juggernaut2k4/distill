@@ -1,7 +1,7 @@
 'use client'
 
 import { UserButton } from '@clerk/nextjs'
-import { Building2, LayoutTemplate, Bug } from 'lucide-react'
+import { Building2, LayoutTemplate, Bug, Shield } from 'lucide-react'
 import Link from 'next/link'
 
 interface ShellUser {
@@ -20,6 +20,12 @@ const NAV_ITEMS = [
   { href: '/dashboard/admin/clients', icon: Building2, label: 'Clients' },
   { href: '/dashboard/admin/templates', icon: LayoutTemplate, label: 'Templates' },
   { href: '/dashboard/admin/glitches', icon: Bug, label: 'Glitches' },
+  // B2B-21 — Team is super-admin-only; the nav array is not conditionally
+  // rendered per-role today (no per-item auth check exists in this client
+  // component), so this link's own page-level requireSuperAdmin() gate is
+  // what actually enforces access. Visible-but-404-on-click to a
+  // sales-partner, matching the existing pattern for the other 3 items.
+  { href: '/dashboard/admin/team', icon: Shield, label: 'Team' },
 ]
 
 // Primary nav items shown in mobile bottom bar (most important 5)

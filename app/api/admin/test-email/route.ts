@@ -1,15 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireSessionAuth } from '@/lib/session-auth'
+import { requireSuperAdmin } from '@/lib/internal-admin/auth'
 import { Resend } from 'resend'
 
 /**
  * GET /api/admin/test-email?to=you@example.com
  * Sends a test email via Resend. Logs the full result so you can diagnose delivery issues.
  * Remove before production.
+ * B2B-21 Requirement Doc §7 — `requireSuperAdmin()` layered on top of the
+ * existing `requireSessionAuth` check (previously any authenticated session).
  */
 export async function GET(request: NextRequest) {
   const { userId, error } = await requireSessionAuth(request)
   if (error) return error
+
+  const admin = await requireSuperAdmin()
+  if (admin.error) return admin.error
 
   const apiKey = process.env.RESEND_API_KEY
   const fromEmail = process.env.RESEND_FROM_EMAIL ?? 'hello@distill-peach.vercel.app'

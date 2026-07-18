@@ -1,31 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
 import { createSupabaseAdminClient } from '@/lib/supabase'
+import { requireSuperAdmin } from '@/lib/internal-admin/auth'
 
-// ─── Admin auth helper (matches delivery-health pattern) ─────────────────────
+// ─── Admin auth helper ─────────────────────────────────────────────────────────
 
 /**
- * Returns true if the request is from an authorised admin.
- * Priority:
- *  1. Header x-admin-secret matching ADMIN_SECRET env var (if set)
- *  2. Clerk userId matching ADMIN_CLERK_USER_ID env var (fallback)
+ * Returns true if the request carries the x-admin-secret header matching
+ * ADMIN_SECRET. B2B-21 Requirement Doc §7 — the Clerk-userId fallback
+ * (previously "any Clerk user matching ADMIN_CLERK_USER_ID," effectively
+ * bare-any-session in practice) is replaced by `requireSuperAdmin()` below.
  */
-function isAdmin(request: NextRequest): boolean {
+function hasAdminSecret(request: NextRequest): boolean {
   const adminSecret = process.env.ADMIN_SECRET
-  const adminClerkUserId = process.env.ADMIN_CLERK_USER_ID
-
-  if (adminSecret) {
-    const headerSecret = request.headers.get('x-admin-secret')
-    return headerSecret === adminSecret
-  }
-
-  if (adminClerkUserId) {
-    const { userId } = auth()
-    return userId === adminClerkUserId
-  }
-
-  // No admin config set — deny all
-  return false
+  if (!adminSecret) return false
+  return request.headers.get('x-admin-secret') === adminSecret
 }
 
 // ─── Route handler ────────────────────────────────────────────────────────────
@@ -40,7 +28,7 @@ function isAdmin(request: NextRequest): boolean {
  *                       combination and deletes the rest.
  *                       Omit (default) — deletes ALL rows for this topic_id.
  *
- * Auth: x-admin-secret header (preferred) OR Clerk userId matching ADMIN_CLERK_USER_ID.
+ * Auth: x-admin-secret header (preferred) OR `requireSuperAdmin()`.
  *
  * Response: { deleted: number, topicId: string }
  */
@@ -49,8 +37,9 @@ export async function DELETE(
   { params }: { params: { topicId: string } }
 ) {
   // 1. Admin guard
-  if (!isAdmin(request)) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  if (!hasAdminSecret(request)) {
+    const admin = await requireSuperAdmin()
+    if (admin.error) return admin.error
   }
 
   // 2. Validate topicId
