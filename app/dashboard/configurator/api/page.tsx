@@ -1,6 +1,6 @@
 import { auth } from '@clerk/nextjs/server'
 import { redirect } from 'next/navigation'
-import { getPartnerAccountsForClerkUser } from '@/lib/partner/admin-accounts'
+import { getConfiguratorAccountsForClerkUser } from '@/lib/partner/admin-accounts'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { NoPartnerAccounts } from '../_shared'
 import { getBillingHealth } from '../_billing-health'
@@ -17,7 +17,7 @@ export default async function ApiPage({ searchParams }: { searchParams: { partne
   const { userId } = auth()
   if (!userId) redirect('/sign-in')
 
-  const accounts = await getPartnerAccountsForClerkUser(userId)
+  const accounts = await getConfiguratorAccountsForClerkUser(userId)
   if (accounts.length === 0) return <NoPartnerAccounts />
 
   const activeId = searchParams.partner_account_id && accounts.some((a) => a.id === searchParams.partner_account_id)

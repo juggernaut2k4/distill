@@ -114,12 +114,18 @@ export async function POST(request: Request) {
     const companyName = typeof event.data.unsafe_metadata.company_name === 'string'
       ? event.data.unsafe_metadata.company_name.trim()
       : ''
+    // B2B-26 (docs/specs/B2B-26-requirement-document.md §6.4) — strict
+    // `=== true` check: a missing/non-boolean value degrades to the safe
+    // default (direct partner), never silently creates a sales-partner
+    // account from ambiguous input.
+    const managesMultipleClients = event.data.unsafe_metadata.manages_multiple_clients === true
+    const accountKind = managesMultipleClients ? 'channel_partner' : 'partner'
     if (!companyName) {
       console.error('[clerk-webhook] partner signup_intent with missing/empty company_name for', id)
       // No partner_accounts row is created — see B2B-25 §8 Edge Cases for why
       // this is treated as a hard-stop rather than a fallback name.
     } else {
-      const result = await createOrClaimPartnerAccount(id, companyName, primaryEmail)
+      const result = await createOrClaimPartnerAccount(id, companyName, primaryEmail, accountKind)
       if (!result.success) {
         console.error('[clerk-webhook] createOrClaimPartnerAccount failed:', result.error)
       }

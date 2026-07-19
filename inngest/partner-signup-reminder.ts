@@ -48,12 +48,25 @@ export const partnerSignupReminder = inngest.createFunction(
 
       const { data: account } = await supabase
         .from('partner_accounts')
-        .select('onboarding_completed_at')
+        .select('onboarding_completed_at, account_kind')
         .eq('id', partnerAccountId)
         .maybeSingle()
 
       if (!account) {
         console.log(`[partner-signup-reminder] Account ${partnerAccountId} not found — skipping`)
+        return
+      }
+
+      // B2B-26 (docs/specs/B2B-26-requirement-document.md §6.10) — this
+      // brief's minimal scope defines no "onboarding completion" milestone
+      // for a sales-partner (no Integration/Payment steps exist for a
+      // channel_partner-kind account under this brief). Sending the existing
+      // reminder email — whose copy says "finish setting up the Configurator
+      // wizard" and links to /dashboard/configurator — would be actively
+      // wrong for this population, not just unnecessary. Skipped entirely,
+      // not deferred.
+      if (account.account_kind === 'channel_partner') {
+        console.log(`[partner-signup-reminder] Account ${partnerAccountId} is a sales-partner account — no onboarding-completion concept in this brief, skipping.`)
         return
       }
 

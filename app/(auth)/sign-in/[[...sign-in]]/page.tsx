@@ -6,7 +6,7 @@ export default function SignInPage() {
   return (
     <div className="min-h-screen bg-void flex items-center justify-center">
       <SignIn
-        fallbackRedirectUrl="/dashboard/configurator"
+        fallbackRedirectUrl="/dashboard"
         signUpForceRedirectUrl="/partner-signup"
         appearance={{
           variables: {

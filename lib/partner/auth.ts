@@ -5,6 +5,7 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
 import { hashApiKey, looksLikePartnerApiKey } from './api-keys'
 import { checkRateLimit, type RateLimitClass } from './rate-limit'
 import { looksLikeOAuthAccessToken, verifyAccessToken } from './oauth'
+import { getChannelPartnerAccountForClerkUser } from './admin-accounts'
 
 /**
  * B2B-02 — Two Auth Systems, kept structurally separate (architecture.md
@@ -231,5 +232,65 @@ export async function requirePartnerAdmin(partnerAccountId: string): Promise<Par
     }
   }
 
+  // B2B-26 §6.14 (v1.2 chokepoint fix) — runs only after the existing
+  // membership check succeeds (adds exactly one query on the
+  // already-authorized path, none on the unauthorized path). Provably a
+  // no-op for every account_kind='partner' row — the column's own default,
+  // i.e. every direct partner past and future — since only account_kind=
+  // 'channel_partner' is newly rejected here, and only from this one place.
+  // Same 403 shape as the missing-membership case above, deliberately
+  // indistinguishable (no info leak about *why*, matching this codebase's
+  // existing no-info-leak convention). This closes the entire 42-route
+  // `requirePartnerAdmin`-gated surface (billing, go-live, content
+  // generation, API keys, OAuth clients, and any future route that adopts
+  // this function) to a channel-partner-kind account id, present and future
+  // — see docs/specs/B2B-26-requirement-document.md §6.14/§9 Edge Case 3 for
+  // the full reasoning behind fixing this at the chokepoint.
+  const { data: account } = await supabase
+    .from('partner_accounts')
+    .select('account_kind')
+    .eq('id', partnerAccountId)
+    .maybeSingle()
+
+  if (account?.account_kind === 'channel_partner') {
+    return {
+      clerkUserId: null,
+      error: NextResponse.json(errorEnvelope('forbidden', 'You do not administer this partner account.'), { status: 403 }),
+    }
+  }
+
   return { clerkUserId: userId, error: null }
+}
+
+type ChannelPartnerAdminResult =
+  | { clerkUserId: string; partnerAccountId: string; error: null }
+  | { clerkUserId: null; partnerAccountId: null; error: NextResponse }
+
+/**
+ * B2B-26 (docs/specs/B2B-26-requirement-document.md §6.6). Parallel to
+ * `requirePartnerAdmin`, not a variant of it — requires the caller to
+ * administer a `partner_accounts` row that is SPECIFICALLY
+ * `account_kind='channel_partner'`. 401 no session, 403 no membership OR the
+ * membership exists but the account is `account_kind='partner'` (a direct
+ * partner's own admin can never reach a channel-partner-only route, even for
+ * their own account — these are disjoint route trees). Takes no
+ * `partnerAccountId` parameter, unlike `requirePartnerAdmin` — every
+ * `/api/channel-partner/*` route acts on "the caller's own channel-partner
+ * account," resolved from the session, never from a client-supplied id
+ * (there is exactly one such account per user).
+ */
+export async function requireChannelPartnerAdmin(): Promise<ChannelPartnerAdminResult> {
+  const { userId } = clerkAuth()
+  if (!userId) {
+    return { clerkUserId: null, partnerAccountId: null, error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
+  }
+  const account = await getChannelPartnerAccountForClerkUser(userId)
+  if (!account) {
+    return {
+      clerkUserId: null,
+      partnerAccountId: null,
+      error: NextResponse.json(errorEnvelope('forbidden', 'You do not administer a sales-partner account.'), { status: 403 }),
+    }
+  }
+  return { clerkUserId: userId, partnerAccountId: account.id, error: null }
 }

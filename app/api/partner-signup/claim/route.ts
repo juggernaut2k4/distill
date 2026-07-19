@@ -16,6 +16,12 @@ import { createOrClaimPartnerAccount } from '@/lib/partner/signup'
 
 const ClaimSchema = z.object({
   companyName: z.string().trim().min(1).max(200),
+  // B2B-26 (docs/specs/B2B-26-requirement-document.md §6.3) — required, not
+  // defaulted: this route only ever receives a request from this brief's own
+  // client code, which always sends a real boolean; a malformed body here
+  // indicates a client bug worth surfacing loudly via a 422, not silently
+  // defaulting (unlike the webhook branch's lenient `=== true` fallback).
+  managesMultipleClients: z.boolean(),
 })
 
 export async function POST(request: NextRequest) {
@@ -44,11 +50,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'Failed to set up your account.' }, { status: 500 })
   }
 
-  const result = await createOrClaimPartnerAccount(userId, parsed.data.companyName, primaryEmail)
+  const accountKind = parsed.data.managesMultipleClients ? 'channel_partner' : 'partner'
+  const result = await createOrClaimPartnerAccount(userId, parsed.data.companyName, primaryEmail, accountKind)
   if (!result.success) {
     console.error('[partner-signup/claim] createOrClaimPartnerAccount failed:', result.error)
     return NextResponse.json({ success: false, error: 'Failed to set up your account.' }, { status: 500 })
   }
 
-  return NextResponse.json({ success: true, alreadyMember: result.alreadyMember })
+  return NextResponse.json({ success: true, alreadyMember: result.alreadyMember, accountKind: result.accountKind })
 }

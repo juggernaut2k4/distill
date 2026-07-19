@@ -11,7 +11,7 @@ import { NextRequest } from 'next/server'
 
 const state: {
   keyRow: { id: string; partner_account_id: string; mode: string; status: string } | null
-  accountRow: { id: string; status: string } | null
+  accountRow: { id: string; status: string; account_kind?: string } | null
   membershipRow: { id: string } | null
   oauthClientRow: { id: string; status: string } | null
   oauthAccountRow: { id: string; status: string } | null
@@ -239,6 +239,7 @@ describe('requirePartnerAdmin', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     state.membershipRow = null
+    state.accountRow = null
     mockClerkAuth.mockReturnValue({ userId: null })
   })
 
@@ -258,8 +259,63 @@ describe('requirePartnerAdmin', () => {
   it('accepts a Clerk user with a matching partner_admin_users row', async () => {
     mockClerkAuth.mockReturnValue({ userId: 'clerk-user-1' })
     state.membershipRow = { id: 'membership-1' }
+    state.accountRow = { id: 'acct-1', status: 'active', account_kind: 'partner' }
     const result = await requirePartnerAdmin('acct-1')
     expect(result.error).toBeNull()
     expect(result.clerkUserId).toBe('clerk-user-1')
+  })
+
+  // B2B-26 §6.14 (v1.2 chokepoint fix) / §7 AT-9d — the guard clause added
+  // to requirePartnerAdmin itself. A genuine partner_admin_users membership
+  // on a channel_partner-kind account must still be rejected with the same
+  // 403 shape as a missing membership — this is the fix that closes all 42
+  // requirePartnerAdmin-gated routes to direct API calls using a
+  // sales-partner's own account id, not just UI navigation.
+  it('rejects a genuine member of a channel_partner-kind account with the same 403 shape as a missing membership (AT-9d)', async () => {
+    mockClerkAuth.mockReturnValue({ userId: 'clerk-user-1' })
+    state.membershipRow = { id: 'membership-1' } // a REAL partner_admin_users row exists for this pair
+    state.accountRow = { id: 'acct-channel-partner-1', status: 'active', account_kind: 'channel_partner' }
+
+    const result = await requirePartnerAdmin('acct-channel-partner-1')
+
+    expect(result.clerkUserId).toBeNull()
+    expect(result.error?.status).toBe(403)
+    const body = await result.error!.json()
+    expect(body.error.code).toBe('forbidden')
+    expect(body.error.message).toBe('You do not administer this partner account.')
+
+    // Same shape as the missing-membership case above — no info leak about *why*.
+    state.membershipRow = null
+    const missingMembershipResult = await requirePartnerAdmin('some-other-acct')
+    const missingMembershipBody = await missingMembershipResult.error!.json()
+    expect(missingMembershipBody.error.code).toBe(body.error.code)
+    expect(missingMembershipBody.error.message).toBe(body.error.message)
+  })
+
+  // B2B-26 §7 AT-9e — the guard clause is a provable no-op for every
+  // account_kind='partner' row, the population every pre-existing
+  // acceptance test (B2B-02 through B2B-25) already depends on.
+  it('succeeds unchanged for a genuine member of an account_kind=partner account (AT-9e, no-op confirmation)', async () => {
+    mockClerkAuth.mockReturnValue({ userId: 'clerk-user-1' })
+    state.membershipRow = { id: 'membership-1' }
+    state.accountRow = { id: 'acct-1', status: 'active', account_kind: 'partner' }
+
+    const result = await requirePartnerAdmin('acct-1')
+
+    expect(result.error).toBeNull()
+    expect(result.clerkUserId).toBe('clerk-user-1')
+  })
+
+  // Defensive: an account row with no account_kind at all (pre-migration
+  // shape, or a lookup miss) must not be treated as channel_partner — only
+  // the literal string 'channel_partner' triggers the new branch.
+  it('succeeds when the account row has no account_kind set (defaults safely, never mistaken for channel_partner)', async () => {
+    mockClerkAuth.mockReturnValue({ userId: 'clerk-user-1' })
+    state.membershipRow = { id: 'membership-1' }
+    state.accountRow = null
+
+    const result = await requirePartnerAdmin('acct-1')
+
+    expect(result.error).toBeNull()
   })
 })

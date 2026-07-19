@@ -1,6 +1,6 @@
 import { auth } from '@clerk/nextjs/server'
 import { redirect } from 'next/navigation'
-import { getPartnerAccountsForClerkUser } from '@/lib/partner/admin-accounts'
+import { getConfiguratorAccountsForClerkUser } from '@/lib/partner/admin-accounts'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { NoPartnerAccounts } from './_shared'
 import { getBillingHealth } from './_billing-health'
@@ -34,7 +34,7 @@ export default async function ConfiguratorHomePage({
   const { userId, sessionClaims } = auth()
   if (!userId) redirect('/sign-in')
 
-  let accounts = await getPartnerAccountsForClerkUser(userId)
+  let accounts = await getConfiguratorAccountsForClerkUser(userId)
 
   // B2B-06 Section 9 — Clerk-redirect race mitigation (unchanged). A brand-new
   // self-serve signup can land here before the async webhooks have created the
@@ -46,7 +46,7 @@ export default async function ConfiguratorHomePage({
       : Infinity
     if (sessionAgeSeconds < 60) {
       await new Promise((resolve) => setTimeout(resolve, 2000))
-      accounts = await getPartnerAccountsForClerkUser(userId)
+      accounts = await getConfiguratorAccountsForClerkUser(userId)
     }
   }
 

@@ -1185,6 +1185,67 @@ export async function sendSalesPartnerInviteEmail(
 }
 
 /**
+ * B2B-26 (docs/specs/B2B-26-requirement-document.md §6.11) — a sales-partner's
+ * own team invite email. Same dark-void/#7C3AED-CTA HTML skeleton as
+ * `sendSalesPartnerInviteEmail`, different copy and no partner-account-tagging
+ * list (this invite is scoped to one account only). Non-blocking best-effort
+ * send, same `EmailResult`-returning pattern as every other function here.
+ * @param email - the invitee's email address
+ * @param inviterEmail - the inviting sales-partner admin's email
+ * @param companyName - the sales-partner's own account name
+ * @param acceptUrl - the full `/team-invite/accept?token=...` URL
+ */
+export async function sendPartnerTeamInviteEmail(
+  email: string,
+  inviterEmail: string,
+  companyName: string,
+  acceptUrl: string
+): Promise<EmailResult> {
+  if (isPlaceholder || !resend) {
+    console.log('[MOCK] sendPartnerTeamInviteEmail', { email, inviterEmail, companyName, acceptUrl })
+    return { success: true, messageId: 'mock-partner-team-invite-id' }
+  }
+
+  try {
+    const result = await resend.emails.send({
+      from: FROM,
+      to: email,
+      subject: `You've been invited to join ${companyName}'s team on Clio`,
+      html: `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="background:#080808;color:#ffffff;font-family:Inter,system-ui,sans-serif;margin:0;padding:0;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;padding:40px 24px;">
+    <tr><td>
+      <p style="color:#7C3AED;font-size:12px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin:0 0 32px;">CLIO</p>
+      <h1 style="color:#ffffff;font-size:28px;font-weight:800;margin:0 0 12px;">You've been invited to join ${companyName}'s team.</h1>
+      <p style="color:#94A3B8;font-size:16px;line-height:1.7;margin:0 0 32px;">
+        ${inviterEmail} has invited you to join ${companyName}'s team on Clio. This invite expires in 7 days.
+      </p>
+      <div style="background:#111111;border:1px solid #222222;border-radius:12px;padding:32px;text-align:center;">
+        <a href="${acceptUrl}" style="background:#7C3AED;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:700;display:inline-block;">Accept invite →</a>
+      </div>
+    </td></tr>
+  </table>
+</body>
+</html>`,
+      text: `${inviterEmail} has invited you to join ${companyName}'s team on Clio. This invite expires in 7 days. Accept your invite: ${acceptUrl}`,
+    })
+
+    logEmailResult('sendPartnerTeamInviteEmail', email, result)
+    if (result.error) {
+      return { success: false, error: result.error.message }
+    }
+
+    return { success: true, messageId: result.data?.id }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error(`[email:sendPartnerTeamInviteEmail] EXCEPTION to=${email}:`, message)
+    return { success: false, error: message }
+  }
+}
+
+/**
  * B2B-21 Requirement Doc §6.6 — courtesy notification when a super-admin
  * adds another super-admin email. Non-blocking best-effort send, same
  * pattern as `sendSalesPartnerInviteEmail`. No token/accept step is needed
