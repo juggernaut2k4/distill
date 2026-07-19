@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useRouter, usePathname } from 'next/navigation'
 import type { AdminPartnerAccount } from '@/lib/partner/admin-accounts'
+import { COLORS, SHELL_CONTENT_STYLE } from './design-tokens'
 
 /**
  * B2B-03 — Configurator shared UI (Requirement Doc Section 4.A). Internal
@@ -17,39 +18,12 @@ import type { AdminPartnerAccount } from '@/lib/partner/admin-accounts'
  * server-side session.
  */
 
-export const COLORS = {
-  bg: '#080808',
-  surface: '#111111',
-  raised: '#1A1A1A',
-  borderSubtle: '#222222',
-  borderStrong: '#333333',
-  purple: '#7C3AED',
-  cyan: '#06B6D4',
-  amber: '#F59E0B',
-  green: '#10B981',
-  red: '#EF4444',
-  textPrimary: '#FFFFFF',
-  textSecondary: '#94A3B8',
-  textMuted: '#475569',
-}
-
-// B2B-23 WS-2 — Clio's standard fluid responsive pattern for shell content
-// columns, replacing a hard maxWidth: 960 cap. Padding and max-width scale
-// continuously via clamp() rather than jumping at fixed breakpoints; the
-// 1900px ceiling exists only to bound line length on ultrawide monitors — it
-// never binds on ordinary desktop widths. Exposed as a CSS custom property
-// (not a bare inline value) so consumers that need to cancel this padding
-// (see ConfiguratorSurface.tsx's full-bleed nav wrapper) reference the SAME
-// live value via calc(), instead of hardcoding an assumed pixel amount that
-// would silently drift out of sync at any viewport where the clamp()'d
-// padding isn't exactly 32px. Future screens needing this exact fluid-column
-// behavior should reuse this constant rather than re-hardcoding a cap.
-export const SHELL_CONTENT_STYLE: React.CSSProperties = {
-  ['--cfg-shell-px' as string]: 'clamp(16px, 4vw, 32px)',
-  padding: 'var(--cfg-shell-px)',
-  maxWidth: 'clamp(640px, 96vw, 1900px)',
-  margin: '0 auto',
-}
+// B2B-29 hotfix — COLORS and SHELL_CONTENT_STYLE now live in ./design-tokens
+// (no 'use client' directive, zero dependencies) so Server Components can dot
+// into them directly. Re-exported here so every existing
+// `from '../configurator/_shared'` / `from './_shared'` import site keeps
+// working unchanged.
+export { COLORS, SHELL_CONTENT_STYLE }
 
 export function ConfiguratorShell({
   accounts,

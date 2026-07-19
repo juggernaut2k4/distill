@@ -1,5 +1,6 @@
 import Link from 'next/link'
-import { COLORS, Card, PrimaryButton, SecondaryButton, SHELL_CONTENT_STYLE } from '../configurator/_shared'
+import { Card, PrimaryButton, SecondaryButton } from '../configurator/_shared'
+import { COLORS, SHELL_CONTENT_STYLE } from '../configurator/design-tokens'
 
 /**
  * B2B-26 (docs/specs/B2B-26-requirement-document.md §4, §12) — the
@@ -11,6 +12,22 @@ import { COLORS, Card, PrimaryButton, SecondaryButton, SHELL_CONTENT_STYLE } fro
  * specific nav items — this tree has no Configurator/API/Docs/Known-Bugs
  * tabs (§ Judgment Call — a sales-partner's own account is strictly a
  * management shell, never a direct-partner target).
+ *
+ * B2B-29 hotfix (prod digest 2779826077) — COLORS/SHELL_CONTENT_STYLE are
+ * now imported directly from '../configurator/design-tokens' (no 'use
+ * client' directive), not via '../configurator/_shared' (which has one).
+ * This file has no directive of its own, so when it's reached from a Server
+ * Component (app/dashboard/channel-partner/page.tsx renders
+ * <ChannelPartnerShell>), its own code — including this module's top-level
+ * COLORS.x property access below — runs in the server bundle. Importing a
+ * plain-object export through a 'use client' file makes it an opaque client
+ * reference there, and dotting into it on the server throws "Cannot access
+ * X on the server." This bug was latent since B2B-26 (ChannelPartnerShell
+ * itself reads COLORS.borderSubtle) and only surfaced once a real self-serve
+ * signup finally reached this page in production. `Card`/`PrimaryButton`/
+ * `SecondaryButton` are unaffected — they're real components used as JSX
+ * elements, which is exactly the "pass the imported name through" pattern
+ * Next.js allows across this boundary.
  */
 export { COLORS, Card, PrimaryButton, SecondaryButton, SHELL_CONTENT_STYLE }
 
