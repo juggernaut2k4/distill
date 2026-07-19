@@ -6,8 +6,12 @@ import { sendPartnerSignupReminderEmail } from '@/lib/delivery/email'
 /**
  * B2B-06 — Partner Signup Reminder.
  *
- * Triggered by `clio/partner-org.created`, emitted from
- * `app/api/webhooks/clerk-organization/route.ts` on `organization.created`.
+ * Triggered by `clio/partner-account.created`, emitted from the shared
+ * `createOrClaimPartnerAccount()` helper (`lib/partner/signup.ts`) on
+ * successful partner-account creation. Renamed from `clio/partner-org.created`
+ * as part of B2B-25 (Clerk Organizations removal,
+ * docs/specs/B2B-25-requirement-document.md §6.5) — same trigger semantics,
+ * new event name, `orgName` payload field renamed to `companyName`.
  *
  * Sleeps 24h, then re-checks whether the partner has completed onboarding
  * (`partner_accounts.onboarding_completed_at IS NOT NULL`). If not, sends one
@@ -17,21 +21,20 @@ import { sendPartnerSignupReminderEmail } from '@/lib/delivery/email'
  * Mirrors inngest/abandoned-onboarding-cleanup.ts's durable-sleep + re-check +
  * act-or-skip shape. Never fails loudly on an email-send failure — logged and
  * swallowed, matching this codebase's non-fatal-side-effect convention for
- * delivery functions (e.g. the webhook-emit `.catch()` pattern in
- * app/api/webhooks/clerk-organization/route.ts).
+ * delivery functions (e.g. the `.catch()` pattern in `lib/partner/signup.ts`).
  */
 export const partnerSignupReminder = inngest.createFunction(
   {
     id: 'partner-signup-reminder',
     name: 'Partner Signup Reminder',
-    triggers: [{ event: 'clio/partner-org.created' }],
+    triggers: [{ event: 'clio/partner-account.created' }],
     retries: 2,
   },
   async ({
     event,
     step,
   }: {
-    event: { data: { partnerAccountId: string; orgName: string; createdAt: string } }
+    event: { data: { partnerAccountId: string; companyName: string; createdAt: string } }
     step: {
       sleep: (id: string, duration: string) => Promise<void>
       run: <T>(id: string, fn: () => Promise<T>) => Promise<T>
@@ -40,7 +43,7 @@ export const partnerSignupReminder = inngest.createFunction(
     await step.sleep('wait-24h', '24h')
 
     await step.run('check-and-remind', async () => {
-      const { partnerAccountId, orgName } = event.data
+      const { partnerAccountId, companyName } = event.data
       const supabase = createSupabaseAdminClient()
 
       const { data: account } = await supabase
@@ -82,7 +85,7 @@ export const partnerSignupReminder = inngest.createFunction(
           return
         }
 
-        await sendPartnerSignupReminderEmail(email, orgName)
+        await sendPartnerSignupReminderEmail(email, companyName)
       } catch (err) {
         // Never fail the job over an email-send/lookup error — log and continue,
         // matching this codebase's established non-fatal-side-effect convention.

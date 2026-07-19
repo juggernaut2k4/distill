@@ -5,6 +5,7 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
 import { sendSignupWelcomeEmail } from '@/lib/delivery/email'
 import { inngest } from '@/inngest/client'
 import { OnboardingSchema, saveOnboardingProfile } from '@/lib/onboarding'
+import { createOrClaimPartnerAccount } from '@/lib/partner/signup'
 
 interface ClerkEmailAddress {
   email_address: string
@@ -103,6 +104,27 @@ export async function POST(request: Request) {
       name: 'clio/user.created',
       data: { userId: id, email: primaryEmail, createdAt: new Date().toISOString() },
     }).catch((err: unknown) => console.error('[clerk-webhook] Failed to emit clio/user.created:', err))
+  }
+
+  // B2B-25: partner self-serve signup — new branch, sibling to the existing
+  // ONBOARD-DATA-01 unsafeMetadata branch below, checked first since the two
+  // are mutually exclusive by signup_intent. Replaces the retired
+  // Clerk-Organizations flow (docs/specs/B2B-25-requirement-document.md §6.3).
+  if (event.data.unsafe_metadata?.signup_intent === 'partner') {
+    const companyName = typeof event.data.unsafe_metadata.company_name === 'string'
+      ? event.data.unsafe_metadata.company_name.trim()
+      : ''
+    if (!companyName) {
+      console.error('[clerk-webhook] partner signup_intent with missing/empty company_name for', id)
+      // No partner_accounts row is created — see B2B-25 §8 Edge Cases for why
+      // this is treated as a hard-stop rather than a fallback name.
+    } else {
+      const result = await createOrClaimPartnerAccount(id, companyName, primaryEmail)
+      if (!result.success) {
+        console.error('[clerk-webhook] createOrClaimPartnerAccount failed:', result.error)
+      }
+    }
+    return NextResponse.json({ received: true })
   }
 
   // ONBOARD-DATA-01: if onboarding answers were attached to the sign-up via

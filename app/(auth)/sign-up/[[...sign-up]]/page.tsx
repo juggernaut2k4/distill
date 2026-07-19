@@ -6,7 +6,7 @@ export default function SignUpPage() {
   return (
     <div className="min-h-screen bg-void flex items-center justify-center">
       <SignUp
-        forceRedirectUrl="/partner-signup/organization"
+        forceRedirectUrl="/partner-signup"
         appearance={{
           variables: {
             colorBackground: '#111111',

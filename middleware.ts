@@ -6,7 +6,7 @@ const isPublicRoute = createRouteMatcher([
   '/',
   '/sign-in(.*)',
   '/sign-up(.*)',
-  '/partner-signup(.*)', // B2B-06: self-serve partner signup wrapper (Clerk <SignUp/> + <CreateOrganization/>)
+  '/partner-signup(.*)', // B2B-25: self-serve partner signup wrapper (Clio company-name step + Clerk <SignUp/>, no Clerk Organizations)
   '/invite/accept(.*)', // B2B-21: internal-admin invite acceptance — renders its own sign-in prompt (mirrors /partner-signup precedent)
   '/questionnaire',            // B2B-05: exact string, no wildcard — see middleware.ts note below
   '/api/webhooks/(.*)',
