@@ -1,7 +1,7 @@
 'use client'
 
 import { UserButton } from '@clerk/nextjs'
-import { Building2, LayoutTemplate, Bug, Shield } from 'lucide-react'
+import { Building2, LayoutTemplate, Bug, Shield, Link2, Users } from 'lucide-react'
 import Link from 'next/link'
 
 interface ShellUser {
@@ -26,6 +26,10 @@ const NAV_ITEMS = [
   // what actually enforces access. Visible-but-404-on-click to a
   // sales-partner, matching the existing pattern for the other 3 items.
   { href: '/dashboard/admin/team', icon: Shield, label: 'Team' },
+  // B2B-28 — same visible-but-404-on-click pattern; both new pages are
+  // super-admin-only, enforced by their own requireSuperAdmin() server gate.
+  { href: '/dashboard/admin/partner-invites', icon: Link2, label: 'Partner invites' },
+  { href: '/dashboard/admin/sales-partners', icon: Users, label: 'Sales-partners' },
 ]
 
 // Primary nav items shown in mobile bottom bar (most important 5)

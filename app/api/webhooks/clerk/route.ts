@@ -6,6 +6,7 @@ import { sendSignupWelcomeEmail } from '@/lib/delivery/email'
 import { inngest } from '@/inngest/client'
 import { OnboardingSchema, saveOnboardingProfile } from '@/lib/onboarding'
 import { createOrClaimPartnerAccount } from '@/lib/partner/signup'
+import { lookupDirectPartnerInviteByToken, markDirectPartnerInviteAccepted } from '@/lib/internal-admin/direct-partner-invites'
 
 interface ClerkEmailAddress {
   email_address: string
@@ -110,25 +111,67 @@ export async function POST(request: Request) {
   // ONBOARD-DATA-01 unsafeMetadata branch below, checked first since the two
   // are mutually exclusive by signup_intent. Replaces the retired
   // Clerk-Organizations flow (docs/specs/B2B-25-requirement-document.md §6.3).
+  // B2B-28 (docs/specs/B2B-28-requirement-document.md §6.8) — simplified:
+  // manages_multiple_clients is no longer read at all; every completed
+  // /partner-signup signup now produces a sales-partner (channel_partner)
+  // account, no exceptions.
   if (event.data.unsafe_metadata?.signup_intent === 'partner') {
     const companyName = typeof event.data.unsafe_metadata.company_name === 'string'
       ? event.data.unsafe_metadata.company_name.trim()
       : ''
-    // B2B-26 (docs/specs/B2B-26-requirement-document.md §6.4) — strict
-    // `=== true` check: a missing/non-boolean value degrades to the safe
-    // default (direct partner), never silently creates a sales-partner
-    // account from ambiguous input.
-    const managesMultipleClients = event.data.unsafe_metadata.manages_multiple_clients === true
-    const accountKind = managesMultipleClients ? 'channel_partner' : 'partner'
     if (!companyName) {
       console.error('[clerk-webhook] partner signup_intent with missing/empty company_name for', id)
       // No partner_accounts row is created — see B2B-25 §8 Edge Cases for why
       // this is treated as a hard-stop rather than a fallback name.
     } else {
-      const result = await createOrClaimPartnerAccount(id, companyName, primaryEmail, accountKind)
+      const result = await createOrClaimPartnerAccount(id, companyName, primaryEmail, 'channel_partner')
       if (!result.success) {
         console.error('[clerk-webhook] createOrClaimPartnerAccount failed:', result.error)
       }
+    }
+    return NextResponse.json({ received: true })
+  }
+
+  // B2B-28 (docs/specs/B2B-28-requirement-document.md §6.8) — new sibling
+  // branch, mutually exclusive by signup_intent, for the invite-only
+  // direct-partner flow (/partner-invite/accept). Same discipline as the
+  // 'partner' branch above: a hard-stop on missing data, never a silent
+  // fallback to ambiguous input.
+  if (event.data.unsafe_metadata?.signup_intent === 'direct_partner_invite') {
+    const companyName = typeof event.data.unsafe_metadata.company_name === 'string'
+      ? event.data.unsafe_metadata.company_name.trim()
+      : ''
+    const token = typeof event.data.unsafe_metadata.direct_partner_invite_token === 'string'
+      ? event.data.unsafe_metadata.direct_partner_invite_token
+      : null
+
+    if (!companyName || !token) {
+      console.error('[clerk-webhook] direct_partner_invite signup_intent with missing company_name or token for', id)
+      return NextResponse.json({ received: true })
+    }
+
+    const { valid, inviteId } = await lookupDirectPartnerInviteByToken(token)
+    if (!valid || !inviteId) {
+      // Extremely unlikely in practice (token was validated by the GET lookup
+      // moments before signup began, 7-day expiry) — logged for manual
+      // investigation, not surfaced to the user (the webhook has no user-facing
+      // channel). The visitor sees the accepted, precedented NoPartnerAccounts-
+      // style race placeholder on /dashboard/configurator, resolved the same
+      // way every other webhook race in this codebase is (manual refresh).
+      console.error(`[clerk-webhook] direct_partner_invite token no longer valid at webhook time for Clerk user ${id}`)
+      return NextResponse.json({ received: true })
+    }
+
+    const result = await createOrClaimPartnerAccount(id, companyName, primaryEmail, 'partner')
+    if (result.success && !result.alreadyMember) {
+      await markDirectPartnerInviteAccepted(inviteId, result.partnerAccountId as string)
+    }
+    // alreadyMember here would mean the same Clerk user's OWN prior signup
+    // already exists (re-triggering user.created is not a realistic Clerk
+    // scenario, but the guard costs nothing and matches the POST route's own
+    // handling for symmetry).
+    if (!result.success) {
+      console.error('[clerk-webhook] direct_partner_invite createOrClaimPartnerAccount failed:', result.error)
     }
     return NextResponse.json({ received: true })
   }

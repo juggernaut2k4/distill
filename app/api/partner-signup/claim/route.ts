@@ -12,16 +12,16 @@ import { createOrClaimPartnerAccount } from '@/lib/partner/signup'
  * cannot usefully re-render Clerk's `<SignUp>`, so this authenticated route
  * runs the identical account-creation logic keyed off the current session's
  * userId instead of `unsafeMetadata`.
+ *
+ * B2B-28 (docs/specs/B2B-28-requirement-document.md §6.7) — `managesMultipleClients`
+ * removed from the schema/body entirely (the Yes/No question no longer
+ * exists); `accountKind` is now a literal `'channel_partner'`, not a ternary
+ * on a removed field. Every completed `/partner-signup` claim now produces a
+ * sales-partner account, no exceptions.
  */
 
 const ClaimSchema = z.object({
   companyName: z.string().trim().min(1).max(200),
-  // B2B-26 (docs/specs/B2B-26-requirement-document.md §6.3) — required, not
-  // defaulted: this route only ever receives a request from this brief's own
-  // client code, which always sends a real boolean; a malformed body here
-  // indicates a client bug worth surfacing loudly via a 422, not silently
-  // defaulting (unlike the webhook branch's lenient `=== true` fallback).
-  managesMultipleClients: z.boolean(),
 })
 
 export async function POST(request: NextRequest) {
@@ -50,8 +50,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'Failed to set up your account.' }, { status: 500 })
   }
 
-  const accountKind = parsed.data.managesMultipleClients ? 'channel_partner' : 'partner'
-  const result = await createOrClaimPartnerAccount(userId, parsed.data.companyName, primaryEmail, accountKind)
+  const result = await createOrClaimPartnerAccount(userId, parsed.data.companyName, primaryEmail, 'channel_partner')
   if (!result.success) {
     console.error('[partner-signup/claim] createOrClaimPartnerAccount failed:', result.error)
     return NextResponse.json({ success: false, error: 'Failed to set up your account.' }, { status: 500 })

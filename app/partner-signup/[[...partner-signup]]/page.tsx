@@ -20,19 +20,23 @@ import { Loader2 } from 'lucide-react'
  *   skips Clerk's `<SignUp>` entirely and calls the authenticated claim
  *   route instead. Closes the dead-end identified in CEO review (§9 Edge
  *   Case 2).
- * State 3 — post-signup landing on `/dashboard/configurator` or
- *   `/dashboard/channel-partner` (B2B-26), handled outside this page.
+ * State 3 — post-signup landing on `/dashboard/channel-partner`, handled
+ *   outside this page.
  *
  * Catch-all route: unchanged reasoning from the prior version of this file —
  * Clerk's `<SignUp>` needs to own every sub-path under its mount point for
  * its own internal step navigation (e.g. `/partner-signup/verify-email-address`).
  *
- * B2B-26 (docs/specs/B2B-26-requirement-document.md §4) — State 1 gains a
- * "Do you manage multiple clients?" Yes/No toggle, default "No" (byte-
- * identical outcome to B2B-25 for anyone who doesn't touch it). The answer
- * travels the same way `companyName` already does — plain client-component
- * state, never persisted — through both write paths: State 2's
- * `unsafeMetadata.manages_multiple_clients` and State 2b's claim-route body.
+ * B2B-28 (docs/specs/B2B-28-requirement-document.md §4) — the "Do you manage
+ * multiple clients?" Yes/No toggle B2B-26 added is REMOVED entirely (not
+ * hardcoded — see the spec's diff-shape reasoning). Direct partners are now
+ * invite-only via `/partner-invite/accept`; every completed `/partner-signup`
+ * signup unconditionally produces `account_kind='channel_partner'` and lands
+ * on `/dashboard/channel-partner`. State 1 is back to byte-identical to
+ * B2B-25's original shape. State 2b's redirect ternary is KEPT — it is now
+ * the only way a signed-in visitor who already administers a direct-partner
+ * account (self-serve-era or invite-created) reaches `/dashboard/configurator`
+ * from this page (non-regression, §4/§9 Edge Case).
  */
 
 type Step = 'capture' | 'signup' | 'claiming' | 'claim-error'
@@ -58,10 +62,6 @@ export default function PartnerSignUpPage() {
   const [step, setStep] = useState<Step>('capture')
   const [companyName, setCompanyName] = useState('')
   const [showValidationError, setShowValidationError] = useState(false)
-  // B2B-26 §4 State 1 — defaults to "No", the common case (existing B2B-25
-  // traffic is 100% direct partners today); a visitor who doesn't notice the
-  // new question at all still gets today's exact behavior.
-  const [managesMultipleClients, setManagesMultipleClients] = useState(false)
 
   async function submitClaim() {
     setStep('claiming')
@@ -69,16 +69,18 @@ export default function PartnerSignUpPage() {
       const res = await fetch('/api/partner-signup/claim', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ companyName: companyName.trim(), managesMultipleClients }),
+        body: JSON.stringify({ companyName: companyName.trim() }),
       })
       const data = await res.json()
       if (!res.ok) {
         setStep('claim-error')
         return
       }
-      // B2B-26 §4 State 2b/§9 Edge Case 2 — the redirect destination is taken
-      // from the API response's accountKind, never from the local toggle: an
-      // already-existing account's real kind always wins.
+      // B2B-26 §4 State 2b/§9 Edge Case 2, re-verified by B2B-28 §4 — the
+      // redirect destination is taken from the API response's accountKind,
+      // never from a local toggle: an already-existing account's real kind
+      // always wins. This is now the ONLY way a signed-in /partner-signup
+      // visitor ever reaches /dashboard/configurator.
       router.push(data.accountKind === 'channel_partner' ? '/dashboard/channel-partner' : '/dashboard/configurator')
     } catch {
       setStep('claim-error')
@@ -110,11 +112,10 @@ export default function PartnerSignUpPage() {
     return (
       <div className="min-h-screen bg-void flex items-center justify-center">
         <SignUp
-          forceRedirectUrl={managesMultipleClients ? '/dashboard/channel-partner' : '/dashboard/configurator'}
+          forceRedirectUrl="/dashboard/channel-partner"
           unsafeMetadata={{
             signup_intent: 'partner',
             company_name: companyName.trim(),
-            manages_multiple_clients: managesMultipleClients,
           }}
           appearance={clerkAppearance}
         />
@@ -167,36 +168,6 @@ export default function PartnerSignUpPage() {
               {showValidationError && (
                 <p className="text-[#EF4444] text-xs mt-1.5">Company name is required.</p>
               )}
-            </div>
-
-            <div className="mt-5">
-              <label className="block text-[#94A3B8] text-sm font-medium mb-1.5">
-                Do you manage multiple clients?
-              </label>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setManagesMultipleClients(false)}
-                  className={`flex-1 h-11 rounded-lg text-sm font-semibold border transition-colors ${
-                    !managesMultipleClients
-                      ? 'border-2 border-[#7C3AED] bg-[#7C3AED]/10 text-white'
-                      : 'bg-[#0A0A0A] border-[#333333] text-[#94A3B8]'
-                  }`}
-                >
-                  No
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setManagesMultipleClients(true)}
-                  className={`flex-1 h-11 rounded-lg text-sm font-semibold border transition-colors ${
-                    managesMultipleClients
-                      ? 'border-2 border-[#7C3AED] bg-[#7C3AED]/10 text-white'
-                      : 'bg-[#0A0A0A] border-[#333333] text-[#94A3B8]'
-                  }`}
-                >
-                  Yes
-                </button>
-              </div>
             </div>
 
             <button

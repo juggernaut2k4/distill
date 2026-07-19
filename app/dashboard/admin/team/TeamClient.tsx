@@ -310,7 +310,7 @@ export default function TeamClient() {
           <h1 className="text-white text-2xl font-bold">Team &amp; Access</h1>
         </div>
         <p className="text-[#94A3B8] text-sm">
-          Manage Clio super-admins and invite sales-partners scoped to specific partner accounts.
+          Manage Clio super-admins and invite internal sales staff scoped to specific partner accounts.
         </p>
       </div>
 
@@ -378,10 +378,10 @@ export default function TeamClient() {
         </div>
       </div>
 
-      {/* Sales-partners panel */}
+      {/* Internal sales staff panel */}
       <div className="bg-[#111111] border border-[#222222] rounded-xl p-4 md:p-6">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-white text-lg font-semibold">Sales-partners</h2>
+          <h2 className="text-white text-lg font-semibold">Internal sales staff</h2>
           <button
             onClick={() => setInviteFormOpen((v) => !v)}
             className="inline-flex items-center gap-1.5 text-sm font-semibold px-3 py-1.5 rounded-lg bg-[#7C3AED] text-white hover:bg-[#A855F7] transition-colors"
@@ -394,7 +394,7 @@ export default function TeamClient() {
         {inviteFormOpen && (
           <div className="bg-[#0A0A0A] border border-[#222222] rounded-lg p-4 mb-4">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-white text-sm font-semibold">Invite sales-partner</h3>
+              <h3 className="text-white text-sm font-semibold">Invite internal sales staff</h3>
               <button onClick={() => setInviteFormOpen(false)} className="text-[#475569] hover:text-white text-xs">
                 Cancel
               </button>
@@ -446,12 +446,12 @@ export default function TeamClient() {
           </div>
         )}
 
-        {salesPartnersLoading && <p className="text-[#94A3B8] text-sm py-4">Loading sales-partners…</p>}
+        {salesPartnersLoading && <p className="text-[#94A3B8] text-sm py-4">Loading internal sales staff…</p>}
         {!salesPartnersLoading && salesPartnersError && (
-          <p className="text-[#EF4444] text-sm py-4">Couldn&apos;t load sales-partners. Try refreshing.</p>
+          <p className="text-[#EF4444] text-sm py-4">Couldn&apos;t load internal sales staff. Try refreshing.</p>
         )}
         {!salesPartnersLoading && !salesPartnersError && salesPartners.length === 0 && (
-          <p className="text-[#475569] text-sm py-4">No sales-partners yet.</p>
+          <p className="text-[#475569] text-sm py-4">No internal sales staff yet.</p>
         )}
 
         {!salesPartnersLoading && !salesPartnersError && (

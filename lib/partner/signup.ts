@@ -21,11 +21,14 @@ export interface ClaimResult {
 /**
  * Creates a partner_accounts + partner_admin_users (role='owner') pair for a
  * Clerk user, or no-ops if they already administer a partner account.
- * Called from two places: the unsafeMetadata branch in the `user.created`
- * webhook (§6.3, keyed off the newly-created Clerk user id) and the
- * authenticated claim route (§6.4, keyed off an existing session's userId).
- * Idempotent: never creates a second partner_accounts row for a Clerk user
- * who already administers one.
+ * Called from three places (B2B-28 adds the third): the unsafeMetadata
+ * branch in the `user.created` webhook (§6.3, keyed off the newly-created
+ * Clerk user id — both the /partner-signup signup_intent='partner' branch,
+ * always accountKind='channel_partner' as of B2B-28, and the new
+ * signup_intent='direct_partner_invite' branch, always accountKind='partner'),
+ * and the two authenticated claim routes (§6.4's /api/partner-signup/claim
+ * and, new in B2B-28, /api/partner-invite/accept). Idempotent: never creates
+ * a second partner_accounts row for a Clerk user who already administers one.
  *
  * B2B-26 §6.2/§9 Edge Case 2 — when the caller already administers an
  * account (`alreadyMember: true`), the account's ACTUAL `account_kind` is
