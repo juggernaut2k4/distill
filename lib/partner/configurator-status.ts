@@ -1,5 +1,6 @@
 import { checkStepComplete } from './wizard'
 import { VISIBLE_SECTIONS, type ConfiguratorSection, type ConfiguratorStatus } from './configurator-sections'
+import { createSupabaseAdminClient } from '@/lib/supabase'
 
 export { VISIBLE_SECTIONS }
 export type { ConfiguratorSection, ConfiguratorStatus }
@@ -40,4 +41,24 @@ export async function getConfiguratorStatus(partnerAccountId: string): Promise<C
   ])
 
   return { questionnaire, topics, content, visualization, domain, integration, payment }
+}
+
+/**
+ * B2B-27 — true when a verified card is on file for this account
+ * (partner_wallets.stripe_default_payment_method_id IS NOT NULL). This is
+ * NOT the same signal as checkStepComplete('payment') (which reads
+ * funding_mechanism, a committed funding path) — see Section 3 of the
+ * Requirement Document for why these two signals are deliberately kept
+ * separate. Deliberately not part of ConfiguratorStatus/ConfiguratorSection —
+ * this is not a nav section or a Go-Live requirement, just a status flag the
+ * Payment screen's new card-verification block reads directly.
+ */
+export async function checkCardOnFile(partnerAccountId: string): Promise<boolean> {
+  const supabase = createSupabaseAdminClient()
+  const { data } = await supabase
+    .from('partner_wallets')
+    .select('stripe_default_payment_method_id')
+    .eq('partner_account_id', partnerAccountId)
+    .maybeSingle()
+  return !!data?.stripe_default_payment_method_id
 }

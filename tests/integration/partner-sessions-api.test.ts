@@ -182,15 +182,99 @@ describe('POST /api/partner/v1/sessions', () => {
     expect(dispatchMock).not.toHaveBeenCalled()
   })
 
-  it('never evaluates the funding guardrail for a test-mode request, regardless of wallet funding state', async () => {
+  // NOTE (B2B-27, 2026-07-19): this test's original premise ("unfunded — must not matter in test
+  // mode", asserting a bare `{ data: null }` wallet still dispatches in test mode) is superseded by
+  // the approved B2B-27 Requirement Document Section 7, which requires exactly that condition (no
+  // partner_wallets row, test mode) to now return 402 card_required — see the dedicated card-on-file
+  // tests below. Updated in place (not deleted) to keep covering this test's real remaining intent:
+  // the live-mode-only funding_required/balance_usd concept still doesn't apply to test mode once the
+  // new card-on-file prerequisite is satisfied.
+  it('does not apply the live-mode funding_required/balance_usd guardrail to a test-mode request once a card is on file', async () => {
     authMock.mockResolvedValue({ partnerAccountId: 'acct-1', apiKeyId: 'key-1', clientId: null, mode: 'test', error: null })
     dispatchMock.mockResolvedValue({ status: 'bot_active' })
-    walletMaybeSingleMock.mockResolvedValueOnce({ data: null }) // unfunded — must not matter in test mode
+    // Card on file (satisfies B2B-27's new gate), but no funding_mechanism/balance_usd at all —
+    // the live-mode-only funding/balance concept must still not matter in test mode.
+    walletMaybeSingleMock.mockResolvedValueOnce({
+      data: { trial_minutes_used: 0, test_minutes_balance: 0, stripe_default_payment_method_id: 'pm_card_on_file' },
+    })
 
     const res = await POST(makeRequest({ meeting_url: 'https://meet.google.com/abc-defg-hij', partner_topic_ref: 'ai-101' }))
 
     expect(res.status).toBe(201)
     expect(dispatchMock).toHaveBeenCalled()
+  })
+
+  // B2B-27 — card-on-file gate (docs/specs/B2B-27-requirement-document.md Section 7 acceptance tests).
+  it('rejects a test-mode request with 402 card_required when no partner_wallets row exists, and never dispatches the bot', async () => {
+    authMock.mockResolvedValue({ partnerAccountId: 'acct-1', apiKeyId: 'key-1', clientId: null, mode: 'test', error: null })
+    walletMaybeSingleMock.mockResolvedValueOnce({ data: null })
+
+    const res = await POST(makeRequest({ meeting_url: 'https://meet.google.com/abc-defg-hij', partner_topic_ref: 'ai-101' }))
+    const json = await res.json()
+
+    expect(res.status).toBe(402)
+    expect(json.error.code).toBe('card_required')
+    expect(dispatchMock).not.toHaveBeenCalled()
+    expect(sessionsUpdateMock).toHaveBeenCalledWith({ status: 'failed', end_reason: 'card_required' })
+  })
+
+  it('rejects a test-mode request with 402 card_required even with a full, fresh 20-minute trial allowance and no card on file', async () => {
+    authMock.mockResolvedValue({ partnerAccountId: 'acct-1', apiKeyId: 'key-1', clientId: null, mode: 'test', error: null })
+    walletMaybeSingleMock.mockResolvedValueOnce({
+      data: { trial_minutes_used: 0, test_minutes_balance: 0, stripe_default_payment_method_id: null },
+    })
+
+    const res = await POST(makeRequest({ meeting_url: 'https://meet.google.com/abc-defg-hij', partner_topic_ref: 'ai-101' }))
+    const json = await res.json()
+
+    expect(res.status).toBe(402)
+    expect(json.error.code).toBe('card_required')
+    expect(dispatchMock).not.toHaveBeenCalled()
+  })
+
+  it('proceeds normally (201, bot dispatched) for a test-mode request when a card is on file, with full trial minutes remaining', async () => {
+    authMock.mockResolvedValue({ partnerAccountId: 'acct-1', apiKeyId: 'key-1', clientId: null, mode: 'test', error: null })
+    dispatchMock.mockResolvedValue({ status: 'bot_active' })
+    walletMaybeSingleMock.mockResolvedValueOnce({
+      data: { trial_minutes_used: 0, test_minutes_balance: 0, stripe_default_payment_method_id: 'pm_card_on_file' },
+    })
+
+    const res = await POST(makeRequest({ meeting_url: 'https://meet.google.com/abc-defg-hij', partner_topic_ref: 'ai-101' }))
+    const json = await res.json()
+
+    expect(res.status).toBe(201)
+    expect(json.status).toBe('bot_active')
+    expect(dispatchMock).toHaveBeenCalled()
+  })
+
+  it('returns 402 trial_exhausted (not card_required) when a card is on file but the trial+test-block allowance is used up', async () => {
+    authMock.mockResolvedValue({ partnerAccountId: 'acct-1', apiKeyId: 'key-1', clientId: null, mode: 'test', error: null })
+    walletMaybeSingleMock.mockResolvedValueOnce({
+      data: { trial_minutes_used: 20, test_minutes_balance: 0, stripe_default_payment_method_id: 'pm_card_on_file' },
+    })
+
+    const res = await POST(makeRequest({ meeting_url: 'https://meet.google.com/abc-defg-hij', partner_topic_ref: 'ai-101' }))
+    const json = await res.json()
+
+    expect(res.status).toBe(402)
+    expect(json.error.code).toBe('trial_exhausted')
+    expect(dispatchMock).not.toHaveBeenCalled()
+    expect(sessionsUpdateMock).toHaveBeenCalledWith({ status: 'failed', end_reason: 'trial_exhausted' })
+  })
+
+  it('leaves live-mode dispatch completely unaffected by the card-on-file gate either way (test-mode-only check)', async () => {
+    authMock.mockResolvedValue({ partnerAccountId: 'acct-1', apiKeyId: 'key-1', clientId: null, mode: 'live', error: null })
+    dispatchMock.mockResolvedValue({ status: 'bot_active' })
+    // live-mode reads stripe_default_payment_method_id via its own B2B-06 guardrail, not the
+    // B2B-27 test-mode gate — this wallet has a card on file so the existing live-mode path proceeds.
+    walletMaybeSingleMock.mockResolvedValueOnce({ data: { stripe_default_payment_method_id: 'pm_123' } })
+
+    const res = await POST(makeRequest({ meeting_url: 'https://meet.google.com/abc-defg-hij', partner_topic_ref: 'ai-101' }))
+    const json = await res.json()
+
+    expect(res.status).toBe(201)
+    expect(json.status).toBe('bot_active')
+    expect(json.error).toBeUndefined()
   })
 
   // B2B-06 v1.1 — end-to-end write-path test for an OAuth2-authenticated session-create call

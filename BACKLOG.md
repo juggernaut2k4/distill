@@ -96,10 +96,18 @@ no auth), so neither required CEO escalation — both are logged here as candida
   internal-admin pages which currently have no real role-based access control beyond generic Clerk
   login (flagged separately in the 2026-07-17 feature audit — needs its own fix regardless of this
   item's timeline).
-- **Sales-partner (reseller) system** — onboarding, commission % after expenses, a digital
-  agreement (e-signature) defining products sold, responsibilities, geography, and language
-  coverage per sales partner. Arun's words: "we will brainstorm more on this but keep this in the
-  backlog" — do not spec or build until he initiates that brainstorm.
+- **Sales-partner legal agreement + e-signature (DocuSign)** — **UPDATED 2026-07-19**: the rest of
+  "Sales-partner (reseller) system" this item originally referred to is now built (B2B-21/25/26/27/28
+  — onboarding, revenue-share % tracking, invite-only direct partners). Only the legal-document piece
+  remains deferred, and now has a written CEO Feature Brief ready to resume from:
+  `.claude/agents/clio/feature-briefs/B2B-30-sales-partner-agreement-document-generation-esignature.md`.
+  Arun's 2026-07-19 instruction: "we can prioritize later. keep it in the backlog. we will brainstorm
+  and generate the content and then i can review with a lawyer and give you the final document which
+  we will continue to use it while onboarding the sales partner or partner. integration with docusign
+  or any other tool you recommend, we can brainstorm and build it later." Do not dispatch a BA against
+  B2B-30, and do not build any document-generation/e-signature mechanism, until Arun explicitly
+  restarts this thread. `docusign-esign` was pre-approved in `CLAUDE.md`'s library list for whenever
+  this resumes.
 
 ---
 

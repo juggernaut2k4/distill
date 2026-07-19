@@ -182,6 +182,7 @@ Only use packages that are:
 - `@dagrejs/dagre`, `@xyflow/react` — flow diagram layout and rendering (used in template system)
 - `svix` — Clerk webhook signature verification (official Svix SDK, used by Clerk)
 - `@vercel/sdk` — Vercel Domains API client for partner custom-domain registration/verification (official Vercel SDK, approved 2026-07-13 as part of B2B-05)
+- `docusign-esign` — official DocuSign eSignature Node.js SDK, for sales-partner legal agreement e-signature (approved 2026-07-19, per Arun's direct instruction — the generated agreement content itself is a non-binding draft requiring attorney review before use, this approval covers only the e-signature/document mechanism)
 
 **Removed from the approved list under the pivot** (do not use; flag if found in new code):
 - `twilio` — SMS delivery, killed with B2C (no more direct-to-consumer messaging)

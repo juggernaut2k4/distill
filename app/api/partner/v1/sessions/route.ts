@@ -149,13 +149,35 @@ export async function POST(request: NextRequest) {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
   const renderUrl = `${appUrl}/partner-render/${clioSessionRef}`
 
-  // B2B-08 — trial/test-block gate check, test-mode keys only (unchanged).
+  // B2B-08 — trial/test-block gate check, test-mode keys only.
   if (auth.mode === 'test') {
     const { data: wallet } = await supabase
       .from('partner_wallets')
-      .select('trial_minutes_used, test_minutes_balance')
+      .select('trial_minutes_used, test_minutes_balance, stripe_default_payment_method_id')
       .eq('partner_account_id', auth.partnerAccountId)
       .maybeSingle()
+
+    // B2B-27 — card-on-file prerequisite, checked BEFORE trial-minutes math.
+    // A card is a hard prerequisite independent of remaining allowance — even a
+    // full, fresh 20-minute trial is blocked with no card on file. No
+    // grandfathering: applies to every account immediately, mirroring B2B-06's
+    // live-mode funding guardrail's own unconditional rollout.
+    if (!wallet?.stripe_default_payment_method_id) {
+      await supabase
+        .from('partner_sessions')
+        .update({ status: 'failed', end_reason: 'card_required' })
+        .eq('id', clioSessionRef)
+
+      return NextResponse.json(
+        {
+          error: {
+            code: 'card_required',
+            message: 'Add a payment method to start testing. No charge — this only verifies the card is valid.',
+          },
+        },
+        { status: 402 }
+      )
+    }
 
     const trialMinutesUsed = wallet ? Number(wallet.trial_minutes_used) : 0
     const testMinutesBalance = wallet ? Number(wallet.test_minutes_balance) : 0

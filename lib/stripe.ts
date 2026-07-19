@@ -413,4 +413,57 @@ export async function getOrCreateStripeCustomer(partnerAccountId: string, billin
   return customerId
 }
 
+// ─── B2B-27 — Card-on-File Required for Trial/Test-Mode Access ───────────────
+
+/**
+ * Card-on-file verification — Stripe Checkout, `mode: "setup"`. Proves a card
+ * is valid and saves it for future off-session use; structurally cannot
+ * charge anything (Checkout setup-mode sessions carry no `amount` field at
+ * all). Requirement Doc Section 4.A/6.1 (B2B-27).
+ *
+ * Resolves/creates the Stripe Customer via getOrCreateStripeCustomer() FIRST
+ * and persists stripe_customer_id onto partner_wallets before creating the
+ * Checkout Session — required, not optional: the existing, unmodified
+ * payment_method.attached webhook handler (app/api/webhooks/stripe/route.ts,
+ * applyPaymentMethodToWallet) matches purely on
+ * `.eq('stripe_customer_id', customerId)` and silently no-ops if no
+ * partner_wallets row carries that customer ID yet.
+ *
+ * @param partnerAccountId - partner_accounts.id (stored in Checkout Session metadata)
+ * @param successUrl - optional override for the post-verification redirect
+ * @param cancelUrl - optional override for the cancel redirect
+ * @returns Stripe Checkout URL
+ */
+export async function createCardVerificationCheckoutSession(
+  partnerAccountId: string,
+  successUrl?: string,
+  cancelUrl?: string
+): Promise<string> {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
+  const resolvedSuccess = successUrl ?? `${appUrl}/dashboard/admin/clients?card_verification=success`
+  const resolvedCancel = cancelUrl ?? `${appUrl}/dashboard/admin/clients?card_verification=cancelled`
+
+  const customerId = await getOrCreateStripeCustomer(partnerAccountId)
+
+  if (isPlaceholder || !stripeClient) {
+    console.log('[MOCK] createCardVerificationCheckoutSession', { partnerAccountId, customerId })
+    return `${appUrl}/dashboard?mock_card_verification=1&partner_account_id=${partnerAccountId}`
+  }
+
+  const session = await stripeClient.checkout.sessions.create({
+    mode: 'setup',
+    payment_method_types: ['card'],
+    customer: customerId,
+    metadata: { partner_account_id: partnerAccountId, purpose: 'card_verification' },
+    success_url: resolvedSuccess,
+    cancel_url: resolvedCancel,
+  })
+
+  if (!session.url) {
+    throw new Error('Stripe did not return a checkout URL for the card verification session.')
+  }
+
+  return session.url
+}
+
 export { stripeClient as stripe }

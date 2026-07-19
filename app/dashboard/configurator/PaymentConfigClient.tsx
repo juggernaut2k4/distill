@@ -49,12 +49,66 @@ export default function PaymentConfigClient({
   const router = useRouter()
   const searchParams = useSearchParams()
 
-  const [busy, setBusy] = useState<PlanTierKey | 'topup' | null>(null)
+  const [busy, setBusy] = useState<PlanTierKey | 'topup' | 'card_verification' | null>(null)
   const [billingPeriod, setBillingPeriod] = useState<PlanBillingPeriod>('monthly')
   const [topupAmount, setTopupAmount] = useState('')
   const [selectedPreset, setSelectedPreset] = useState<number | null>(null)
   const [returnMessage, setReturnMessage] = useState<string | null>(null)
   const handledFundedRef = useRef(false)
+
+  // B2B-27 — card-on-file verification status. `null` = not yet loaded.
+  const [cardOnFile, setCardOnFile] = useState<boolean | null>(null)
+  const [cardReturnMessage, setCardReturnMessage] = useState<string | null>(null)
+  const handledCardVerifiedRef = useRef(false)
+
+  // Always-run mount-time status fetch — populates cardOnFile on first load,
+  // independent of any Stripe return param. Failure leaves cardOnFile null
+  // ("Checking…" persists), matching this component's existing catch{}
+  // discipline on its other fetch calls.
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/admin/configurator/status?partner_account_id=${partnerAccountId}`)
+        if (res.ok) {
+          const status = await res.json()
+          setCardOnFile(status.card_on_file === true)
+        }
+      } catch {
+        // leave cardOnFile null — block keeps showing "Checking…"
+      }
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [partnerAccountId])
+
+  // Card verification return (mirrors the funded=1 handler exactly, kept
+  // structurally separate — the two query params gate two independent Stripe
+  // flows that can each fire on their own return trip).
+  useEffect(() => {
+    const cardVerified = searchParams?.get('card_verified')
+    if (cardVerified === '1' && !handledCardVerifiedRef.current) {
+      handledCardVerifiedRef.current = true
+      ;(async () => {
+        let confirmed = false
+        try {
+          const res = await fetch(`/api/admin/configurator/status?partner_account_id=${partnerAccountId}`)
+          if (res.ok) {
+            const status = await res.json()
+            confirmed = status.card_on_file === true
+            setCardOnFile(confirmed)
+          }
+        } catch {
+          confirmed = false
+        }
+        router.replace(`/dashboard/configurator?partner_account_id=${partnerAccountId}&section=payment`)
+        if (!confirmed) {
+          setCardReturnMessage(
+            "We couldn't confirm your card yet — this can take a few seconds if Stripe hasn't finished processing. Refresh in a moment to check again.",
+          )
+        }
+      })()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
 
   const trimmedAmount = topupAmount.trim()
   const amountNum = trimmedAmount === '' ? NaN : Number(trimmedAmount)
@@ -137,6 +191,29 @@ export default function PaymentConfigClient({
     }
   }
 
+  function cardVerificationUrls() {
+    return {
+      successUrl: `${window.location.origin}/dashboard/configurator?partner_account_id=${partnerAccountId}&section=payment&card_verified=1`,
+      cancelUrl: `${window.location.origin}/dashboard/configurator?partner_account_id=${partnerAccountId}&section=payment`,
+    }
+  }
+
+  async function startCardVerification() {
+    setBusy('card_verification')
+    const { successUrl, cancelUrl } = cardVerificationUrls()
+    try {
+      const res = await fetch('/api/admin/billing/card-verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ partner_account_id: partnerAccountId, success_url: successUrl, cancel_url: cancelUrl }),
+      })
+      const data = await res.json()
+      if (data.checkout_url) window.location.href = data.checkout_url
+    } finally {
+      setBusy(null)
+    }
+  }
+
   function onPresetClick(amount: number) {
     setSelectedPreset(amount)
     setTopupAmount(String(amount))
@@ -153,6 +230,30 @@ export default function PaymentConfigClient({
       <p style={{ fontSize: 13, color: COLORS.textSecondary, marginBottom: 20 }}>Choose how you&apos;ll fund usage.</p>
 
       {returnMessage && <p style={{ fontSize: 12, color: COLORS.red, marginBottom: 12 }}>{returnMessage}</p>}
+      {cardReturnMessage && <p style={{ fontSize: 12, color: COLORS.red, marginBottom: 12 }}>{cardReturnMessage}</p>}
+
+      <Card style={{ marginBottom: 20 }}>
+        <p style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>Card verification</p>
+        {cardOnFile === null && (
+          <p style={{ fontSize: 12, color: COLORS.textSecondary }}>Checking…</p>
+        )}
+        {cardOnFile === false && (
+          <>
+            <p style={{ fontSize: 12, color: COLORS.textSecondary, marginBottom: 12 }}>
+              Verify a card to unlock test-mode access. This never charges you — it only confirms the card is valid.
+            </p>
+            <PrimaryButton disabled={busy !== null} onClick={startCardVerification}>
+              {busy === 'card_verification' ? 'Redirecting…' : 'Add a card'}
+            </PrimaryButton>
+          </>
+        )}
+        {cardOnFile === true && (
+          <p style={{ fontSize: 13 }}>
+            <span style={{ color: COLORS.green }}>✓</span>{' '}
+            <span style={{ color: COLORS.textPrimary }}>Card on file — testing unlocked.</span>
+          </p>
+        )}
+      </Card>
 
       <p style={{ fontSize: 13, fontWeight: 600, color: COLORS.textPrimary, marginBottom: 8 }}>Plans</p>
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
