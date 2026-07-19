@@ -46,10 +46,13 @@ export default function IntegrationClient({
   accounts,
   activePartnerAccountId,
   embedded = false,
+  basePath = '/dashboard/configurator',
 }: {
   accounts: AdminPartnerAccount[]
   activePartnerAccountId: string
   embedded?: boolean
+  /** B2B-29 (docs/specs/B2B-29-requirement-document.md §6.1) — see ConfiguratorSurface.tsx. */
+  basePath?: string
 }) {
   const [data, setData] = useState<IntegrationData | null>(null)
   const [loadError, setLoadError] = useState(false)
@@ -122,7 +125,7 @@ export default function IntegrationClient({
       accounts={accounts}
       activePartnerAccountId={activePartnerAccountId}
       title="Integration"
-      backHref={`/dashboard/configurator?partner_account_id=${activePartnerAccountId}`}
+      backHref={`${basePath}?partner_account_id=${activePartnerAccountId}`}
     >
       {content}
     </ConfiguratorShell>

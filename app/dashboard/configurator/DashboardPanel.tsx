@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { format } from 'date-fns'
 import { Card, BILLING_BANNER_COPY, type BillingHealth } from './_shared'
@@ -50,6 +51,8 @@ export default function DashboardPanel({
   billingHealth,
   activePartnerAccountId,
   onSelect,
+  basePath = '/dashboard/configurator',
+  navLabel = 'Configurator',
 }: {
   status: ConfiguratorStatus | null
   isLive: boolean
@@ -57,6 +60,9 @@ export default function DashboardPanel({
   billingHealth: BillingHealth
   activePartnerAccountId: string
   onSelect: (key: PanelSection) => void
+  /** B2B-29 (docs/specs/B2B-29-requirement-document.md §6.1) — see ConfiguratorSurface.tsx. */
+  basePath?: string
+  navLabel?: string
 }) {
   return (
     <>
@@ -65,9 +71,118 @@ export default function DashboardPanel({
         <SetupArea status={status} isLive={isLive} onSelect={onSelect} />
         <LiveStatusArea status={status} isLive={isLive} onboardingCompletedAt={onboardingCompletedAt} onSelect={onSelect} />
         <WalletArea billingHealth={billingHealth} onSelect={onSelect} />
-        <QuickNavArea status={status} activePartnerAccountId={activePartnerAccountId} onSelect={onSelect} />
+        <QuickNavArea status={status} activePartnerAccountId={activePartnerAccountId} onSelect={onSelect} basePath={basePath} navLabel={navLabel} />
+        {/* B2B-29 (docs/specs/B2B-29-requirement-document.md §0 point 2, §4) —
+            "Company info" card, always visible, not gated by VISIBLE_SECTIONS.
+            Reused verbatim by the client-scoped Configure surface (Scope C),
+            editing the CLIENT's name/URL there — additive, a direct
+            consequence of true component reuse (§4 callout). */}
+        <CompanyInfoArea activePartnerAccountId={activePartnerAccountId} />
       </div>
     </>
+  )
+}
+
+/** B2B-29 (docs/specs/B2B-29-requirement-document.md §0 point 2). "Company
+ * info" card — lets a direct partner (or, via the client-scoped Configure
+ * surface, a sales-partner acting on a client) set the account's real name
+ * post-signup, replacing the fixed placeholder 'Unnamed partner'. */
+function CompanyInfoArea({ activePartnerAccountId }: { activePartnerAccountId: string }) {
+  const [name, setName] = useState('')
+  const [companyUrl, setCompanyUrl] = useState('')
+  const [loaded, setLoaded] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [validationError, setValidationError] = useState<string | null>(null)
+  const [savedFlash, setSavedFlash] = useState(false)
+  const [original, setOriginal] = useState<{ name: string; companyUrl: string } | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/admin/configurator/account?partner_account_id=${activePartnerAccountId}`)
+        if (!res.ok) return
+        const data = await res.json()
+        if (cancelled) return
+        setName(data.name ?? '')
+        setCompanyUrl(data.company_url ?? '')
+        setOriginal({ name: data.name ?? '', companyUrl: data.company_url ?? '' })
+      } catch {
+        // §8 — a failed load leaves the card blank rather than crashing.
+      } finally {
+        if (!cancelled) setLoaded(true)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [activePartnerAccountId])
+
+  const unchanged = original !== null && name === original.name && companyUrl === original.companyUrl
+
+  async function handleSave() {
+    if (!name.trim()) {
+      setValidationError('Company name is required.')
+      return
+    }
+    setValidationError(null)
+    setSaveError(null)
+    setSaving(true)
+    try {
+      const res = await fetch('/api/admin/configurator/account', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ partner_account_id: activePartnerAccountId, name: name.trim(), companyUrl: companyUrl.trim() || null }),
+      })
+      if (!res.ok) {
+        setSaveError("Couldn't save. Try again.")
+        return
+      }
+      setOriginal({ name: name.trim(), companyUrl: companyUrl.trim() })
+      setSavedFlash(true)
+      setTimeout(() => setSavedFlash(false), 1500)
+    } catch {
+      setSaveError("Couldn't save. Try again.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Card>
+      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-[#475569]">Company info</h2>
+      <label className="mb-1.5 block text-xs font-medium text-[#94A3B8]">Company name</label>
+      <input
+        type="text"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        maxLength={200}
+        disabled={!loaded}
+        className="mb-3 w-full rounded-lg border border-[#333333] bg-[#1A1A1A] px-3 py-2 text-sm text-white placeholder-[#475569] focus:border-[#7C3AED] focus:outline-none"
+      />
+      {validationError && <p className="-mt-2 mb-3 text-xs text-[#EF4444]">{validationError}</p>}
+      <label className="mb-1.5 block text-xs font-medium text-[#94A3B8]">Company URL</label>
+      <input
+        type="text"
+        value={companyUrl}
+        onChange={(e) => setCompanyUrl(e.target.value)}
+        maxLength={500}
+        placeholder="acme.com"
+        disabled={!loaded}
+        className="mb-3 w-full rounded-lg border border-[#333333] bg-[#1A1A1A] px-3 py-2 text-sm text-white placeholder-[#475569] focus:border-[#7C3AED] focus:outline-none"
+      />
+      {saveError && <p className="mb-2 text-xs text-[#EF4444]">{saveError}</p>}
+      {savedFlash && <p className="mb-2 text-xs text-[#10B981]">Saved.</p>}
+      <button
+        type="button"
+        disabled={!loaded || unchanged || saving}
+        onClick={handleSave}
+        className="rounded-lg bg-[#7C3AED] px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#A855F7] disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        {saving ? 'Saving…' : 'Save'}
+      </button>
+    </Card>
   )
 }
 
@@ -279,10 +394,14 @@ function QuickNavArea({
   status,
   activePartnerAccountId,
   onSelect,
+  basePath,
+  navLabel,
 }: {
   status: ConfiguratorStatus | null
   activePartnerAccountId: string
   onSelect: (key: PanelSection) => void
+  basePath: string
+  navLabel: string
 }) {
   const incomplete = status ? VISIBLE_SECTIONS.filter((k) => !status[k]) : []
 
@@ -290,9 +409,9 @@ function QuickNavArea({
     <Card>
       <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-[#475569]">Quick links</h2>
       <div className="grid grid-cols-1 gap-1 md:grid-cols-2">
-        <QuickLink href={`/dashboard/configurator?partner_account_id=${activePartnerAccountId}`}>Configurator →</QuickLink>
-        <QuickLink href={`/dashboard/configurator/api?partner_account_id=${activePartnerAccountId}`}>API →</QuickLink>
-        <QuickLink href={`/dashboard/configurator/docs?partner_account_id=${activePartnerAccountId}`}>Docs →</QuickLink>
+        <QuickLink href={`${basePath}?partner_account_id=${activePartnerAccountId}`}>{navLabel} →</QuickLink>
+        <QuickLink href={`${basePath}/api?partner_account_id=${activePartnerAccountId}`}>API →</QuickLink>
+        <QuickLink href={`${basePath}/docs?partner_account_id=${activePartnerAccountId}`}>Docs →</QuickLink>
       </div>
       {incomplete.length > 0 && (
         <>

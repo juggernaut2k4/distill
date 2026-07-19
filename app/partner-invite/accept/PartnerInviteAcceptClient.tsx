@@ -7,20 +7,20 @@ import { Loader2 } from 'lucide-react'
 
 /**
  * B2B-28 (docs/specs/B2B-28-requirement-document.md §4) — drives
- * `/partner-invite/accept`. Structurally mirrors
- * `app/team-invite/accept/TeamInviteAcceptClient.tsx`'s state machine as
- * closely as the different problem shape allows — this flow creates a
- * BRAND-NEW account, not a membership on an existing one, so it needs a
- * company-name-capture step `/team-invite/accept` never had. Reuses
- * `/partner-signup` State 1's capture UI verbatim as a sibling render branch,
- * not a new design.
+ * `/partner-invite/accept`.
  *
- * 7-state machine (§4): loading / invalid / capture / signup (signed-out
- * only) / claiming+claim-error (signed-in only) / already-member (terminal,
- * distinct from claim-error) / post-signup landing (Clerk mechanism / router.push).
+ * B2B-29 (docs/specs/B2B-29-requirement-document.md §4, §6.7) — the
+ * pre-acceptance 'capture' step (a Clio-owned "Company name" form) is
+ * REMOVED entirely, same principle as `/partner-signup`. `Step` shrinks from
+ * 7 states to 6: `loading | invalid | signup | claiming | claim-error |
+ * already-member`. The `loading` effect's `load()` function, on
+ * `data.valid === true`, now itself decides `signup` vs. auto-firing
+ * `submitClaim()` based on `isSignedIn` — previously this decision lived in
+ * `handleContinue`, now unreachable since there's no button left to wire it
+ * to.
  */
 
-type Step = 'loading' | 'invalid' | 'capture' | 'signup' | 'claiming' | 'claim-error' | 'already-member'
+type Step = 'loading' | 'invalid' | 'signup' | 'claiming' | 'claim-error' | 'already-member'
 
 const clerkAppearance = {
   variables: {
@@ -41,30 +41,6 @@ export default function PartnerInviteAcceptClient({ token }: { token: string }) 
   const { isLoaded, isSignedIn } = useAuth()
   const router = useRouter()
   const [step, setStep] = useState<Step>('loading')
-  const [companyName, setCompanyName] = useState('')
-  const [showValidationError, setShowValidationError] = useState(false)
-
-  useEffect(() => {
-    let cancelled = false
-    async function load() {
-      if (!token) {
-        setStep('invalid')
-        return
-      }
-      try {
-        const res = await fetch(`/api/partner-invite/accept?token=${encodeURIComponent(token)}`)
-        const data = await res.json()
-        if (cancelled) return
-        setStep(data.valid ? 'capture' : 'invalid')
-      } catch {
-        if (!cancelled) setStep('invalid')
-      }
-    }
-    load()
-    return () => {
-      cancelled = true
-    }
-  }, [token])
 
   async function submitClaim() {
     setStep('claiming')
@@ -72,7 +48,7 @@ export default function PartnerInviteAcceptClient({ token }: { token: string }) 
       const res = await fetch('/api/partner-invite/accept', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, companyName: companyName.trim() }),
+        body: JSON.stringify({ token }),
       })
       if (res.status === 422) {
         setStep('invalid')
@@ -93,19 +69,39 @@ export default function PartnerInviteAcceptClient({ token }: { token: string }) 
     }
   }
 
-  function handleContinue() {
-    const trimmed = companyName.trim()
-    if (!trimmed) {
-      setShowValidationError(true)
-      return
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      if (!token) {
+        setStep('invalid')
+        return
+      }
+      if (!isLoaded) return
+      try {
+        const res = await fetch(`/api/partner-invite/accept?token=${encodeURIComponent(token)}`)
+        const data = await res.json()
+        if (cancelled) return
+        if (!data.valid) {
+          setStep('invalid')
+          return
+        }
+        // B2B-29 §6.7 — no click needed: decide signup vs. auto-claim
+        // immediately, based on the sign-in state now known.
+        if (isSignedIn) {
+          void submitClaim()
+        } else {
+          setStep('signup')
+        }
+      } catch {
+        if (!cancelled) setStep('invalid')
+      }
     }
-    setShowValidationError(false)
-    if (isSignedIn) {
-      void submitClaim()
-    } else {
-      setStep('signup')
+    load()
+    return () => {
+      cancelled = true
     }
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, isLoaded, isSignedIn])
 
   if (!isLoaded || step === 'loading') {
     return <div className="min-h-screen bg-void" />
@@ -142,12 +138,17 @@ export default function PartnerInviteAcceptClient({ token }: { token: string }) 
 
   if (step === 'signup') {
     return (
-      <div className="min-h-screen bg-void flex items-center justify-center">
+      <div
+        className="min-h-screen bg-void flex flex-col items-center justify-center"
+        style={{ padding: 'clamp(1rem, 5vw, 2rem)' }}
+      >
+        <p className="text-white text-lg font-semibold mb-4 text-center">
+          You&apos;ve been invited to set up a Clio partner account.
+        </p>
         <SignUp
           forceRedirectUrl="/dashboard/configurator"
           unsafeMetadata={{
             signup_intent: 'direct_partner_invite',
-            company_name: companyName.trim(),
             direct_partner_invite_token: token,
           }}
           appearance={clerkAppearance}
@@ -162,11 +163,9 @@ export default function PartnerInviteAcceptClient({ token }: { token: string }) 
       style={{ padding: 'clamp(1rem, 5vw, 2rem)' }}
     >
       <div className="max-w-sm w-full">
-        {step === 'capture' && (
-          <p className="text-white text-lg font-semibold mb-4 text-center">
-            You&apos;ve been invited to set up a Clio partner account.
-          </p>
-        )}
+        <p className="text-white text-lg font-semibold mb-4 text-center">
+          You&apos;ve been invited to set up a Clio partner account.
+        </p>
 
         <div className="bg-[#111111] border border-[#222222] rounded-xl p-6">
           {step === 'claiming' && (
@@ -184,39 +183,6 @@ export default function PartnerInviteAcceptClient({ token }: { token: string }) 
                 className="mt-4 w-full inline-flex items-center justify-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-lg bg-[#7C3AED] text-white hover:bg-[#A855F7] transition-colors"
               >
                 Try again
-              </button>
-            </div>
-          )}
-
-          {step === 'capture' && (
-            <div>
-              <h1 className="text-xl font-semibold text-white">Let&apos;s set up your Clio partner account</h1>
-
-              <div className="mt-4">
-                <label htmlFor="company-name" className="block text-[#94A3B8] text-sm font-medium mb-1.5">
-                  Company name
-                </label>
-                <input
-                  id="company-name"
-                  type="text"
-                  value={companyName}
-                  onChange={(e) => setCompanyName(e.target.value)}
-                  placeholder="Acme Corp"
-                  maxLength={200}
-                  className="w-full bg-[#0A0A0A] border border-[#333333] rounded-lg px-3 py-2 text-sm text-white placeholder-[#475569] focus:outline-none focus:border-[#7C3AED]"
-                />
-                {showValidationError && (
-                  <p className="text-[#EF4444] text-xs mt-1.5">Company name is required.</p>
-                )}
-              </div>
-
-              <button
-                onClick={handleContinue}
-                className={`mt-4 w-full inline-flex items-center justify-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-lg bg-[#7C3AED] text-white hover:bg-[#A855F7] transition-colors ${
-                  !companyName.trim() ? 'opacity-50 cursor-not-allowed' : ''
-                }`}
-              >
-                Continue
               </button>
             </div>
           )}

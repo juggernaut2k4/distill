@@ -205,6 +205,22 @@ type PartnerAdminResult =
   | { clerkUserId: null; error: NextResponse }
 
 /**
+ * B2B-29 (docs/specs/B2B-29-requirement-document.md §6.2). Resolves the
+ * `owning_channel_partner_id` for a target `partner_accounts` row — used
+ * ONLY by `requirePartnerAdmin`'s chokepoint fallback below, on the
+ * already-failing (no direct membership) path.
+ */
+async function findOwningChannelPartnerAccountId(targetAccountId: string): Promise<string | null> {
+  const supabase = createSupabaseAdminClient()
+  const { data } = await supabase
+    .from('partner_accounts')
+    .select('owning_channel_partner_id')
+    .eq('id', targetAccountId)
+    .maybeSingle()
+  return (data?.owning_channel_partner_id as string | null) ?? null
+}
+
+/**
  * Authenticates a Clerk-authenticated partner-admin human and verifies they
  * administer the given `partner_account_id` (a `partner_admin_users` row
  * must exist for the pair). 401 if no Clerk session at all, 403 if the
@@ -226,6 +242,27 @@ export async function requirePartnerAdmin(partnerAccountId: string): Promise<Par
     .maybeSingle()
 
   if (!membership) {
+    // B2B-29 (docs/specs/B2B-29-requirement-document.md §6.2) — chokepoint
+    // fallback. No DIRECT membership on this account, but the caller may
+    // administer the channel-partner account that OWNS it (a client of
+    // theirs, B2B-26's owning_channel_partner_id relationship). Two extra
+    // queries, ONLY on the already-failing path — zero cost added to the
+    // existing direct-partner success path above. Covers every
+    // requirePartnerAdmin-gated route (§6.9, 43 files) with zero per-route
+    // changes, mirroring the B2B-26 §6.14 chokepoint precedent already in
+    // this file.
+    const owningId = await findOwningChannelPartnerAccountId(partnerAccountId)
+    if (owningId) {
+      const { data: ownerMembership } = await supabase
+        .from('partner_admin_users')
+        .select('id')
+        .eq('clerk_user_id', userId)
+        .eq('partner_account_id', owningId)
+        .maybeSingle()
+      if (ownerMembership) {
+        return { clerkUserId: userId, error: null }
+      }
+    }
     return {
       clerkUserId: null,
       error: NextResponse.json(errorEnvelope('forbidden', 'You do not administer this partner account.'), { status: 403 }),
@@ -293,4 +330,56 @@ export async function requireChannelPartnerAdmin(): Promise<ChannelPartnerAdminR
     }
   }
   return { clerkUserId: userId, partnerAccountId: account.id, error: null }
+}
+
+type ChannelPartnerClientAccessResult =
+  | {
+      clerkUserId: string
+      channelPartnerAccountId: string
+      client: { id: string; name: string; company_url: string | null; status: 'active' | 'suspended' }
+      error: null
+    }
+  | { clerkUserId: null; channelPartnerAccountId: null; client: null; error: NextResponse }
+
+/**
+ * B2B-29 (docs/specs/B2B-29-requirement-document.md §6.3). Page-level (SSR)
+ * gate for the `/dashboard/channel-partner/clients/[id]/...` route tree.
+ * Resolves the caller's OWN channel-partner account from the session (via
+ * `requireChannelPartnerAdmin` — no client-supplied id for that half), then
+ * verifies the requested client's `owning_channel_partner_id` matches it.
+ * Same indistinguishable-403 convention as every other auth function here —
+ * a client that doesn't exist and a client that exists but isn't the
+ * caller's return the identical error, no info leak about which.
+ */
+export async function requireChannelPartnerClientAccess(clientAccountId: string): Promise<ChannelPartnerClientAccessResult> {
+  const cp = await requireChannelPartnerAdmin()
+  if (cp.error) return { clerkUserId: null, channelPartnerAccountId: null, client: null, error: cp.error }
+
+  const supabase = createSupabaseAdminClient()
+  const { data } = await supabase
+    .from('partner_accounts')
+    .select('id, name, company_url, status, owning_channel_partner_id')
+    .eq('id', clientAccountId)
+    .maybeSingle()
+
+  if (!data || data.owning_channel_partner_id !== cp.partnerAccountId) {
+    return {
+      clerkUserId: null,
+      channelPartnerAccountId: null,
+      client: null,
+      error: NextResponse.json(errorEnvelope('forbidden', 'You do not manage this client.'), { status: 403 }),
+    }
+  }
+
+  return {
+    clerkUserId: cp.clerkUserId,
+    channelPartnerAccountId: cp.partnerAccountId,
+    client: {
+      id: data.id as string,
+      name: data.name as string,
+      company_url: (data.company_url as string | null) ?? null,
+      status: data.status as 'active' | 'suspended',
+    },
+    error: null,
+  }
 }

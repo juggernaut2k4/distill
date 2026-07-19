@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { Loader2 } from 'lucide-react'
 import { COLORS, PrimaryButton, SecondaryButton, Card } from '../_shared'
 
@@ -9,6 +10,12 @@ import { COLORS, PrimaryButton, SecondaryButton, Card } from '../_shared'
  * client component. Fetches `GET /api/channel-partner/clients` on mount
  * (mirrors `TeamClient.tsx`'s `loadX()` pattern exactly — useState +
  * useEffect + try/catch/finally).
+ *
+ * B2B-29 (docs/specs/B2B-29-requirement-document.md §4) — each client row
+ * becomes a `<Link>` to `/dashboard/channel-partner/clients/{client.id}`,
+ * mirroring the exact `<Link>`-not-`<tr>`-click-handler pattern
+ * `SalesPartnersClient.tsx` established in B2B-28, for the same
+ * keyboard/screen-reader-navigable reason.
  */
 
 interface ClientRow {
@@ -19,7 +26,10 @@ interface ClientRow {
   created_at: string
 }
 
-function StatusBadge({ status }: { status: 'active' | 'suspended' }) {
+// B2B-29 (docs/specs/B2B-29-requirement-document.md §4) — exported so the new
+// client detail page (`clients/[id]/ClientDetailClient.tsx`) imports this
+// exact component rather than re-implementing it.
+export function StatusBadge({ status }: { status: 'active' | 'suspended' }) {
   const styles: Record<'active' | 'suspended', string> = {
     active: 'bg-[#10B981]/20 text-[#10B981]',
     suspended: 'bg-[#475569]/20 text-[#94A3B8]',
@@ -151,17 +161,19 @@ export default function ClientsClient({ initialFormOpen }: { initialFormOpen: bo
       {!loading && !loadError && clients.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {clients.map((client) => (
-            <Card key={client.id}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-                <div>
-                  <p style={{ color: COLORS.textPrimary, fontWeight: 600, margin: 0 }}>{client.name}</p>
-                  {client.company_url && (
-                    <p style={{ color: COLORS.textSecondary, fontSize: 13, margin: '2px 0 0' }}>{client.company_url}</p>
-                  )}
+            <Link key={client.id} href={`/dashboard/channel-partner/clients/${client.id}`} style={{ textDecoration: 'none', display: 'block' }}>
+              <Card>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                  <div>
+                    <p style={{ color: COLORS.textPrimary, fontWeight: 600, margin: 0 }}>{client.name}</p>
+                    {client.company_url && (
+                      <p style={{ color: COLORS.textSecondary, fontSize: 13, margin: '2px 0 0' }}>{client.company_url}</p>
+                    )}
+                  </div>
+                  <StatusBadge status={client.status} />
                 </div>
-                <StatusBadge status={client.status} />
-              </div>
-            </Card>
+              </Card>
+            </Link>
           ))}
         </div>
       )}

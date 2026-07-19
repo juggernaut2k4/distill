@@ -38,13 +38,16 @@ export function ChannelPartnerShell({
   children,
 }: {
   companyName: string
-  active: 'dashboard' | 'clients' | 'team'
+  active: 'dashboard' | 'clients' | 'team' | 'settings'
   children: React.ReactNode
 }) {
-  const navItems: { key: 'dashboard' | 'clients' | 'team'; label: string; href: string }[] = [
+  // B2B-29 (docs/specs/B2B-29-requirement-document.md §6.8) — 4th nav tab,
+  // "Settings", for the new Company info + Payment page.
+  const navItems: { key: 'dashboard' | 'clients' | 'team' | 'settings'; label: string; href: string }[] = [
     { key: 'dashboard', label: 'Dashboard', href: '/dashboard/channel-partner' },
     { key: 'clients', label: 'Clients', href: '/dashboard/channel-partner/clients' },
     { key: 'team', label: 'Team', href: '/dashboard/channel-partner/team' },
+    { key: 'settings', label: 'Settings', href: '/dashboard/channel-partner/settings' },
   ]
 
   return (

@@ -597,11 +597,19 @@ export async function sendPartnerSignupWelcomeEmail(email: string, orgName: stri
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
 
+  // B2B-29 (docs/specs/B2B-29-requirement-document.md §6.5) — company info is
+  // no longer captured before signup; a fresh account's `orgName` may still
+  // be the fixed placeholder 'Unnamed partner'. This function stays
+  // placeholder-agnostic everywhere else — only the subject line and the
+  // one inline body reference below swap in a generic phrase instead of
+  // literally greeting "Unnamed partner."
+  const displayName = orgName === 'Unnamed partner' ? 'your account' : orgName
+
   try {
     const result = await resend.emails.send({
       from: FROM,
       to: email,
-      subject: `Welcome to Clio — let's get ${orgName} set up`,
+      subject: `Welcome to Clio — let's get ${displayName} set up`,
       html: `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -609,7 +617,7 @@ export async function sendPartnerSignupWelcomeEmail(email: string, orgName: stri
   <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;padding:40px 24px;">
     <tr><td>
       <p style="color:#7C3AED;font-size:12px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin:0 0 32px;">CLIO</p>
-      <h1 style="color:#ffffff;font-size:28px;font-weight:800;margin:0 0 12px;">Welcome to Clio, ${orgName}.</h1>
+      <h1 style="color:#ffffff;font-size:28px;font-weight:800;margin:0 0 12px;">Welcome to Clio, ${displayName}.</h1>
       <p style="color:#94A3B8;font-size:16px;line-height:1.7;margin:0 0 32px;">
         Your Clio partner account is live. Head into the Configurator to generate your API credentials,
         configure outbound delivery, and finish setting up your integration.
@@ -621,7 +629,7 @@ export async function sendPartnerSignupWelcomeEmail(email: string, orgName: stri
   </table>
 </body>
 </html>`,
-      text: `Welcome to Clio, ${orgName}. Your partner account is live — head into the Configurator to generate your API credentials and finish setting up your integration: ${appUrl}/dashboard/configurator`,
+      text: `Welcome to Clio, ${displayName}. Your partner account is live — head into the Configurator to generate your API credentials and finish setting up your integration: ${appUrl}/dashboard/configurator`,
     })
 
     logEmailResult('sendPartnerSignupWelcomeEmail', email, result)

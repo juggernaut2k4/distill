@@ -91,6 +91,8 @@ export default function ConfiguratorSurface({
   isLive,
   onboardingCompletedAt,
   initialSection,
+  basePath = '/dashboard/configurator',
+  navLabel = 'Configurator',
 }: {
   accounts: AdminPartnerAccount[]
   activePartnerAccountId: string
@@ -98,6 +100,16 @@ export default function ConfiguratorSurface({
   isLive: boolean
   onboardingCompletedAt: string | null
   initialSection: PanelSection
+  /**
+   * B2B-29 (docs/specs/B2B-29-requirement-document.md §6.1) — optional,
+   * defaults to the exact literal every existing direct-partner caller
+   * already renders. Threaded down to `ConfiguratorNavShell` and every
+   * section client rendered by `renderPanel()` so the client-scoped Configure
+   * surface (`/dashboard/channel-partner/clients/[id]/configure`) never
+   * leaks a `/dashboard/configurator` link.
+   */
+  basePath?: string
+  navLabel?: string
 }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -169,6 +181,8 @@ export default function ConfiguratorSurface({
     billingHealth,
     onboardingCompletedAt,
     onSelect: selectSection,
+    basePath,
+    navLabel,
   })
 
   const nav = (
@@ -188,6 +202,8 @@ export default function ConfiguratorSurface({
       activePartnerAccountId={activePartnerAccountId}
       active="configurator"
       billingHealth={billingHealth}
+      basePath={basePath}
+      navLabel={navLabel}
     >
       {/* Cancel the NavShell's fluid content padding (SHELL_CONTENT_STYLE's
           --cfg-shell-px custom property, _shared.tsx) so the surface uses the
@@ -287,6 +303,8 @@ function renderPanel({
   billingHealth,
   onboardingCompletedAt,
   onSelect,
+  basePath,
+  navLabel,
 }: {
   activeSection: PanelSection
   accounts: AdminPartnerAccount[]
@@ -297,6 +315,8 @@ function renderPanel({
   billingHealth: BillingHealth
   onboardingCompletedAt: string | null
   onSelect: (key: PanelSection) => void
+  basePath: string
+  navLabel: string
 }) {
   switch (activeSection) {
     case 'dashboard':
@@ -308,6 +328,8 @@ function renderPanel({
           billingHealth={billingHealth}
           activePartnerAccountId={activePartnerAccountId}
           onSelect={onSelect}
+          basePath={basePath}
+          navLabel={navLabel}
         />
       )
     case 'questionnaire':
@@ -321,7 +343,7 @@ function renderPanel({
     case 'domain':
       return <DomainConfigClient accounts={accounts} activePartnerAccountId={activePartnerAccountId} embedded />
     case 'integration':
-      return <IntegrationClient accounts={accounts} activePartnerAccountId={activePartnerAccountId} embedded />
+      return <IntegrationClient accounts={accounts} activePartnerAccountId={activePartnerAccountId} embedded basePath={basePath} />
     case 'payment':
       return (
         <PaymentConfigClient
@@ -329,6 +351,7 @@ function renderPanel({
           activePartnerAccountId={activePartnerAccountId}
           embedded
           onFunded={refetchStatus}
+          basePath={basePath}
         />
       )
     case 'go_live':

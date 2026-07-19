@@ -115,38 +115,33 @@ export async function POST(request: Request) {
   // manages_multiple_clients is no longer read at all; every completed
   // /partner-signup signup now produces a sales-partner (channel_partner)
   // account, no exceptions.
+  // B2B-29 (docs/specs/B2B-29-requirement-document.md §6.5.1) — no company
+  // name is captured before signup anymore; there is nothing left to be
+  // missing, so the prior hard-stop-on-empty-name branch is removed. Every
+  // account created here is seeded with the fixed placeholder name
+  // 'Unnamed partner'.
   if (event.data.unsafe_metadata?.signup_intent === 'partner') {
-    const companyName = typeof event.data.unsafe_metadata.company_name === 'string'
-      ? event.data.unsafe_metadata.company_name.trim()
-      : ''
-    if (!companyName) {
-      console.error('[clerk-webhook] partner signup_intent with missing/empty company_name for', id)
-      // No partner_accounts row is created — see B2B-25 §8 Edge Cases for why
-      // this is treated as a hard-stop rather than a fallback name.
-    } else {
-      const result = await createOrClaimPartnerAccount(id, companyName, primaryEmail, 'channel_partner')
-      if (!result.success) {
-        console.error('[clerk-webhook] createOrClaimPartnerAccount failed:', result.error)
-      }
+    const result = await createOrClaimPartnerAccount(id, 'Unnamed partner', primaryEmail, 'channel_partner')
+    if (!result.success) {
+      console.error('[clerk-webhook] createOrClaimPartnerAccount failed:', result.error)
     }
     return NextResponse.json({ received: true })
   }
 
   // B2B-28 (docs/specs/B2B-28-requirement-document.md §6.8) — new sibling
   // branch, mutually exclusive by signup_intent, for the invite-only
-  // direct-partner flow (/partner-invite/accept). Same discipline as the
-  // 'partner' branch above: a hard-stop on missing data, never a silent
-  // fallback to ambiguous input.
+  // direct-partner flow (/partner-invite/accept).
+  // B2B-29 (docs/specs/B2B-29-requirement-document.md §6.5.2) — same
+  // simplification: company_name is no longer read at all here. The `token`
+  // presence check is KEPT — the invite relationship, not the company name,
+  // is what this branch validates.
   if (event.data.unsafe_metadata?.signup_intent === 'direct_partner_invite') {
-    const companyName = typeof event.data.unsafe_metadata.company_name === 'string'
-      ? event.data.unsafe_metadata.company_name.trim()
-      : ''
     const token = typeof event.data.unsafe_metadata.direct_partner_invite_token === 'string'
       ? event.data.unsafe_metadata.direct_partner_invite_token
       : null
 
-    if (!companyName || !token) {
-      console.error('[clerk-webhook] direct_partner_invite signup_intent with missing company_name or token for', id)
+    if (!token) {
+      console.error('[clerk-webhook] direct_partner_invite signup_intent with missing token for', id)
       return NextResponse.json({ received: true })
     }
 
@@ -162,7 +157,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ received: true })
     }
 
-    const result = await createOrClaimPartnerAccount(id, companyName, primaryEmail, 'partner')
+    const result = await createOrClaimPartnerAccount(id, 'Unnamed partner', primaryEmail, 'partner')
     if (result.success && !result.alreadyMember) {
       await markDirectPartnerInviteAccepted(inviteId, result.partnerAccountId as string)
     }

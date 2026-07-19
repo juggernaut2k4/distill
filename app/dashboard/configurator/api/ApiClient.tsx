@@ -52,10 +52,13 @@ export default function ApiClient({
   accounts,
   activePartnerAccountId,
   billingHealth,
+  basePath = '/dashboard/configurator',
 }: {
   accounts: AdminPartnerAccount[]
   activePartnerAccountId: string
   billingHealth: BillingHealth
+  /** B2B-29 (docs/specs/B2B-29-requirement-document.md §6.1) — see ConfiguratorSurface.tsx. */
+  basePath?: string
 }) {
   return (
     <ConfiguratorNavShell
@@ -63,10 +66,11 @@ export default function ApiClient({
       activePartnerAccountId={activePartnerAccountId}
       active="api"
       billingHealth={billingHealth}
+      basePath={basePath}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         <h1 style={{ fontSize: 18, fontWeight: 700 }}>API</h1>
-        <Link href={`/dashboard/configurator/api/playground?partner_account_id=${activePartnerAccountId}`} style={{ textDecoration: 'none' }}>
+        <Link href={`${basePath}/api/playground?partner_account_id=${activePartnerAccountId}`} style={{ textDecoration: 'none' }}>
           <PrimaryButton>Open Playground →</PrimaryButton>
         </Link>
       </div>
@@ -75,7 +79,7 @@ export default function ApiClient({
         Reference documentation for the four partner-facing Clio API endpoints and the outbound usage webhook.
       </p>
 
-      <AuthenticationCard partnerAccountId={activePartnerAccountId} />
+      <AuthenticationCard partnerAccountId={activePartnerAccountId} basePath={basePath} />
 
       <h2 style={sectionHeadingStyle}>Endpoints</h2>
       {ENDPOINTS.map((endpoint) => (
@@ -88,7 +92,7 @@ export default function ApiClient({
   )
 }
 
-function AuthenticationCard({ partnerAccountId }: { partnerAccountId: string }) {
+function AuthenticationCard({ partnerAccountId, basePath }: { partnerAccountId: string; basePath: string }) {
   return (
     <Card style={{ marginBottom: 16 }}>
       <p style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Authentication</p>
@@ -109,7 +113,7 @@ grant_type=client_credentials&client_id=...&client_secret=...
         Tokens expire after 1 hour — re-authenticate to get a new one. A static API key mechanism also exists as a
         secondary, internal-operator recovery path; new integrations should use OAuth2.
       </p>
-      <Link href={`/dashboard/configurator/integration?partner_account_id=${partnerAccountId}`} style={{ textDecoration: 'none' }}>
+      <Link href={`${basePath}/integration?partner_account_id=${partnerAccountId}`} style={{ textDecoration: 'none' }}>
         <PrimaryButton>Generate credentials →</PrimaryButton>
       </Link>
     </Card>

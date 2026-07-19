@@ -85,10 +85,13 @@ export default function DocsClient({
   accounts,
   activePartnerAccountId,
   billingHealth,
+  basePath = '/dashboard/configurator',
 }: {
   accounts: AdminPartnerAccount[]
   activePartnerAccountId: string
   billingHealth: BillingHealth
+  /** B2B-29 (docs/specs/B2B-29-requirement-document.md §6.1) — see ConfiguratorSurface.tsx. */
+  basePath?: string
 }) {
   return (
     <ConfiguratorNavShell
@@ -96,6 +99,7 @@ export default function DocsClient({
       activePartnerAccountId={activePartnerAccountId}
       active="docs"
       billingHealth={billingHealth}
+      basePath={basePath}
     >
       <h1 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>Docs</h1>
       <p style={{ fontSize: 13, color: COLORS.textSecondary, marginBottom: 8 }}>
@@ -111,7 +115,7 @@ export default function DocsClient({
             <strong style={{ color: COLORS.textPrimary }}>Generate credentials.</strong> Create an OAuth2
             client on the{' '}
             <Link
-              href={`/dashboard/configurator/integration?partner_account_id=${activePartnerAccountId}`}
+              href={`${basePath}/integration?partner_account_id=${activePartnerAccountId}`}
               style={{ color: COLORS.cyan, textDecoration: 'none' }}
             >
               Integration page
@@ -151,7 +155,7 @@ Content-Type: application/json
             live status, and subscribe to the outbound usage webhook for billing events. Try any of these live in
             the{' '}
             <Link
-              href={`/dashboard/configurator/api/playground?partner_account_id=${activePartnerAccountId}`}
+              href={`${basePath}/api/playground?partner_account_id=${activePartnerAccountId}`}
               style={{ color: COLORS.cyan, textDecoration: 'none' }}
             >
               Playground
@@ -357,7 +361,7 @@ Content-Type: application/json
       <p style={bodyStyle}>
         Full request/response details, rate limits, and example payloads live on the{' '}
         <Link
-          href={`/dashboard/configurator/api?partner_account_id=${activePartnerAccountId}`}
+          href={`${basePath}/api?partner_account_id=${activePartnerAccountId}`}
           style={{ color: COLORS.cyan, textDecoration: 'none' }}
         >
           API page

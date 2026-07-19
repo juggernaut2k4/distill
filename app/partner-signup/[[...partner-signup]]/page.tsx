@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { SignUp, useAuth } from '@clerk/nextjs'
 import { Loader2 } from 'lucide-react'
@@ -8,19 +8,22 @@ import { Loader2 } from 'lucide-react'
 /**
  * B2B-25 — `/partner-signup` (docs/specs/B2B-25-requirement-document.md §4).
  * Replaces the old two-step Clerk `<SignUp>` → `<CreateOrganization>` flow.
- * Now a single client component with four render branches:
  *
- * State 1 ('capture') — Clio-owned company-name form, rendered before any
- *   Clerk component mounts.
- * State 2 ('signup') — Clerk's `<SignUp>`, unchanged mechanics, with the
- *   captured company name attached via `unsafeMetadata`. Reached only when
- *   the visitor is signed out.
- * State 2b ('claiming' / 'claim-error') — an already-signed-in visitor (e.g.
+ * B2B-29 (docs/specs/B2B-29-requirement-document.md §4, §6.6) — the
+ * pre-signup 'capture' step (a Clio-owned "Company name" form rendered before
+ * Clerk mounts) is REMOVED entirely. Company info is now collected
+ * post-signup from the dashboard (`/dashboard/channel-partner/settings`).
+ * `Step` shrinks from 4 states to 3. On mount: an already-signed-in visitor
+ * auto-fires `submitClaim()` immediately (no click); a signed-out visitor
+ * goes straight to `signup` (Clerk `<SignUp>`), also with no click.
+ *
+ * State 1 ('signup') — Clerk's `<SignUp>`, mounted immediately for a signed-
+ *   out visitor, no interstitial of any kind above it.
+ * State 1b ('claiming' / 'claim-error') — an already-signed-in visitor (e.g.
  *   one who reached this page via `/sign-in`'s built-in "Sign up" link)
  *   skips Clerk's `<SignUp>` entirely and calls the authenticated claim
- *   route instead. Closes the dead-end identified in CEO review (§9 Edge
- *   Case 2).
- * State 3 — post-signup landing on `/dashboard/channel-partner`, handled
+ *   route instead, automatically on mount.
+ * State 2 — post-signup landing on `/dashboard/channel-partner`, handled
  *   outside this page.
  *
  * Catch-all route: unchanged reasoning from the prior version of this file —
@@ -28,18 +31,16 @@ import { Loader2 } from 'lucide-react'
  * its own internal step navigation (e.g. `/partner-signup/verify-email-address`).
  *
  * B2B-28 (docs/specs/B2B-28-requirement-document.md §4) — the "Do you manage
- * multiple clients?" Yes/No toggle B2B-26 added is REMOVED entirely (not
- * hardcoded — see the spec's diff-shape reasoning). Direct partners are now
- * invite-only via `/partner-invite/accept`; every completed `/partner-signup`
- * signup unconditionally produces `account_kind='channel_partner'` and lands
- * on `/dashboard/channel-partner`. State 1 is back to byte-identical to
- * B2B-25's original shape. State 2b's redirect ternary is KEPT — it is now
- * the only way a signed-in visitor who already administers a direct-partner
- * account (self-serve-era or invite-created) reaches `/dashboard/configurator`
- * from this page (non-regression, §4/§9 Edge Case).
+ * multiple clients?" Yes/No toggle B2B-26 added is REMOVED entirely. Direct
+ * partners are now invite-only via `/partner-invite/accept`; every completed
+ * `/partner-signup` signup unconditionally produces `account_kind='channel_partner'`
+ * and lands on `/dashboard/channel-partner`. State 1b's redirect ternary is
+ * KEPT — it is now the only way a signed-in visitor who already administers a
+ * direct-partner account (self-serve-era or invite-created) reaches
+ * `/dashboard/configurator` from this page (non-regression, §4/§9 Edge Case).
  */
 
-type Step = 'capture' | 'signup' | 'claiming' | 'claim-error'
+type Step = 'signup' | 'claiming' | 'claim-error'
 
 const clerkAppearance = {
   variables: {
@@ -59,9 +60,7 @@ const clerkAppearance = {
 export default function PartnerSignUpPage() {
   const { isLoaded, isSignedIn } = useAuth()
   const router = useRouter()
-  const [step, setStep] = useState<Step>('capture')
-  const [companyName, setCompanyName] = useState('')
-  const [showValidationError, setShowValidationError] = useState(false)
+  const [step, setStep] = useState<Step>('signup')
 
   async function submitClaim() {
     setStep('claiming')
@@ -69,41 +68,39 @@ export default function PartnerSignUpPage() {
       const res = await fetch('/api/partner-signup/claim', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ companyName: companyName.trim() }),
+        body: JSON.stringify({}),
       })
       const data = await res.json()
       if (!res.ok) {
         setStep('claim-error')
         return
       }
-      // B2B-26 §4 State 2b/§9 Edge Case 2, re-verified by B2B-28 §4 — the
-      // redirect destination is taken from the API response's accountKind,
-      // never from a local toggle: an already-existing account's real kind
-      // always wins. This is now the ONLY way a signed-in /partner-signup
-      // visitor ever reaches /dashboard/configurator.
+      // B2B-26 §4 State 2b/§9 Edge Case 2, re-verified by B2B-28 §4 and
+      // B2B-29 §6.6 — the redirect destination is taken from the API
+      // response's accountKind, never from a local toggle: an already-
+      // existing account's real kind always wins. This is now the ONLY way a
+      // signed-in /partner-signup visitor ever reaches /dashboard/configurator.
       router.push(data.accountKind === 'channel_partner' ? '/dashboard/channel-partner' : '/dashboard/configurator')
     } catch {
       setStep('claim-error')
     }
   }
 
-  function handleContinue() {
-    const trimmed = companyName.trim()
-    if (!trimmed) {
-      setShowValidationError(true)
-      return
-    }
-    setShowValidationError(false)
+  // B2B-29 §4/§6.6 — auto-fires on mount, no click required: an
+  // already-signed-in visitor claims immediately, a signed-out visitor goes
+  // straight to Clerk's <SignUp>.
+  useEffect(() => {
+    if (!isLoaded) return
     if (isSignedIn) {
       void submitClaim()
     } else {
       setStep('signup')
     }
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoaded, isSignedIn])
 
   // Page-load gate — mirrors the !isLoaded guard idiom this app already uses
-  // for auth-dependent renders (previously on the now-deleted
-  // /partner-signup/organization page).
+  // for auth-dependent renders.
   if (!isLoaded) {
     return <div className="min-h-screen bg-void" />
   }
@@ -115,7 +112,6 @@ export default function PartnerSignUpPage() {
           forceRedirectUrl="/dashboard/channel-partner"
           unsafeMetadata={{
             signup_intent: 'partner',
-            company_name: companyName.trim(),
           }}
           appearance={clerkAppearance}
         />
@@ -144,39 +140,6 @@ export default function PartnerSignUpPage() {
               className="mt-4 w-full inline-flex items-center justify-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-lg bg-[#7C3AED] text-white hover:bg-[#A855F7] transition-colors"
             >
               Try again
-            </button>
-          </div>
-        )}
-
-        {step === 'capture' && (
-          <div>
-            <h1 className="text-xl font-semibold text-white">Let&apos;s set up your Clio partner account</h1>
-
-            <div className="mt-4">
-              <label htmlFor="company-name" className="block text-[#94A3B8] text-sm font-medium mb-1.5">
-                Company name
-              </label>
-              <input
-                id="company-name"
-                type="text"
-                value={companyName}
-                onChange={(e) => setCompanyName(e.target.value)}
-                placeholder="Acme Corp"
-                maxLength={200}
-                className="w-full bg-[#0A0A0A] border border-[#333333] rounded-lg px-3 py-2 text-sm text-white placeholder-[#475569] focus:outline-none focus:border-[#7C3AED]"
-              />
-              {showValidationError && (
-                <p className="text-[#EF4444] text-xs mt-1.5">Company name is required.</p>
-              )}
-            </div>
-
-            <button
-              onClick={handleContinue}
-              className={`mt-4 w-full inline-flex items-center justify-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-lg bg-[#7C3AED] text-white hover:bg-[#A855F7] transition-colors ${
-                !companyName.trim() ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
-            >
-              Continue
             </button>
           </div>
         )}

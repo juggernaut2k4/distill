@@ -149,8 +149,22 @@ export const BILLING_BANNER_COPY: Record<
  * banner. Renders above the page body on the three destinations; the page
  * remains fully visible and usable. Links to the Docs billing explainer
  * (`/dashboard/configurator/docs#billing`) — never a redirect, never an overlay.
+ *
+ * B2B-29 (docs/specs/B2B-29-requirement-document.md §6.1) — gains `basePath`,
+ * default `'/dashboard/configurator'`, so the "Fix billing"/"Add funds" link
+ * stays inside a client-scoped Configure surface instead of always pointing
+ * at the direct-partner route. Every existing call site passes no prop, so
+ * it renders the exact literal it already renders today.
  */
-function BillingBanner({ billingHealth, activePartnerAccountId }: { billingHealth: BillingHealth; activePartnerAccountId: string }) {
+function BillingBanner({
+  billingHealth,
+  activePartnerAccountId,
+  basePath = '/dashboard/configurator',
+}: {
+  billingHealth: BillingHealth
+  activePartnerAccountId: string
+  basePath?: string
+}) {
   if (billingHealth.state === 'healthy') return null
   const copy = BILLING_BANNER_COPY[billingHealth.state]
   return (
@@ -173,7 +187,7 @@ function BillingBanner({ billingHealth, activePartnerAccountId }: { billingHealt
         {copy.message}
       </span>
       <Link
-        href={`/dashboard/configurator/docs?partner_account_id=${activePartnerAccountId}#billing`}
+        href={`${basePath}/docs?partner_account_id=${activePartnerAccountId}#billing`}
         style={{ color: COLORS.amber, fontSize: 13, fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap' }}
       >
         {copy.linkLabel}
@@ -189,6 +203,15 @@ function BillingBanner({ billingHealth, activePartnerAccountId }: { billingHealt
  * design system — NO new visual language. Adds a 3-item nav row and the
  * billing-health banner. Does NOT replace `ConfiguratorShell` (still used by
  * the 6 sub-screens + Playground) or `DashboardShell` (admin surface).
+ *
+ * B2B-29 (docs/specs/B2B-29-requirement-document.md §6.1) — gains two new
+ * optional props, `basePath` (default `'/dashboard/configurator'`) and
+ * `navLabel` (default `'Configurator'`), so this exact component can be
+ * reused verbatim for the client-scoped Configure surface
+ * (`/dashboard/channel-partner/clients/[id]/configure`). Every existing
+ * `/dashboard/configurator/**` caller passes neither prop, so it renders the
+ * exact literal it already renders today — zero behavior or copy change for
+ * any direct partner.
  */
 export function ConfiguratorNavShell({
   accounts,
@@ -196,12 +219,16 @@ export function ConfiguratorNavShell({
   active,
   billingHealth,
   children,
+  basePath = '/dashboard/configurator',
+  navLabel = 'Configurator',
 }: {
   accounts: AdminPartnerAccount[]
   activePartnerAccountId: string
   active: 'configurator' | 'api' | 'docs' | 'known_bugs'
   billingHealth: BillingHealth
   children: React.ReactNode
+  basePath?: string
+  navLabel?: string
 }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -211,12 +238,12 @@ export function ConfiguratorNavShell({
   }
 
   const navItems: { key: 'configurator' | 'api' | 'docs' | 'known_bugs'; label: string; href: string }[] = [
-    { key: 'configurator', label: 'Configurator', href: `/dashboard/configurator?partner_account_id=${activePartnerAccountId}` },
-    { key: 'api', label: 'API', href: `/dashboard/configurator/api?partner_account_id=${activePartnerAccountId}` },
-    { key: 'docs', label: 'Docs', href: `/dashboard/configurator/docs?partner_account_id=${activePartnerAccountId}` },
+    { key: 'configurator', label: navLabel, href: `${basePath}?partner_account_id=${activePartnerAccountId}` },
+    { key: 'api', label: 'API', href: `${basePath}/api?partner_account_id=${activePartnerAccountId}` },
+    { key: 'docs', label: 'Docs', href: `${basePath}/docs?partner_account_id=${activePartnerAccountId}` },
     // B2B-22 §6.6 — Known Bugs is an ongoing operational/status view, not a Configurator setup step,
     // so it's a 4th top-nav tab rather than a left-nav step group entry.
-    { key: 'known_bugs', label: 'Known Bugs', href: `/dashboard/configurator/known-bugs?partner_account_id=${activePartnerAccountId}` },
+    { key: 'known_bugs', label: 'Known Bugs', href: `${basePath}/known-bugs?partner_account_id=${activePartnerAccountId}` },
   ]
 
   return (
@@ -266,7 +293,7 @@ export function ConfiguratorNavShell({
       </nav>
 
       <div style={SHELL_CONTENT_STYLE}>
-        <BillingBanner billingHealth={billingHealth} activePartnerAccountId={activePartnerAccountId} />
+        <BillingBanner billingHealth={billingHealth} activePartnerAccountId={activePartnerAccountId} basePath={basePath} />
         {children}
       </div>
     </div>

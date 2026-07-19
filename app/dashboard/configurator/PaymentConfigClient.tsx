@@ -38,12 +38,15 @@ export default function PaymentConfigClient({
   activePartnerAccountId,
   embedded = false,
   onFunded,
+  basePath = '/dashboard/configurator',
 }: {
   accounts: AdminPartnerAccount[]
   activePartnerAccountId: string
   embedded?: boolean
   /** Called after a Stripe return so the host surface can refetch completion status. */
   onFunded?: () => void
+  /** B2B-29 (docs/specs/B2B-29-requirement-document.md §6.1) — see ConfiguratorSurface.tsx. */
+  basePath?: string
 }) {
   const partnerAccountId = activePartnerAccountId
   const router = useRouter()
@@ -99,7 +102,7 @@ export default function PaymentConfigClient({
         } catch {
           confirmed = false
         }
-        router.replace(`/dashboard/configurator?partner_account_id=${partnerAccountId}&section=payment`)
+        router.replace(`${basePath}?partner_account_id=${partnerAccountId}&section=payment`)
         if (!confirmed) {
           setCardReturnMessage(
             "We couldn't confirm your card yet — this can take a few seconds if Stripe hasn't finished processing. Refresh in a moment to check again.",
@@ -133,7 +136,7 @@ export default function PaymentConfigClient({
         } catch {
           confirmed = false
         }
-        router.replace(`/dashboard/configurator?partner_account_id=${partnerAccountId}&section=payment`)
+        router.replace(`${basePath}?partner_account_id=${partnerAccountId}&section=payment`)
         if (!confirmed) {
           setReturnMessage(
             "We couldn't confirm your payment yet — this can take a few seconds if Stripe hasn't finished processing. Refresh in a moment to check again.",
@@ -147,8 +150,8 @@ export default function PaymentConfigClient({
 
   function successAndCancelUrls() {
     return {
-      successUrl: `${window.location.origin}/dashboard/configurator?partner_account_id=${partnerAccountId}&section=payment&funded=1`,
-      cancelUrl: `${window.location.origin}/dashboard/configurator?partner_account_id=${partnerAccountId}&section=payment`,
+      successUrl: `${window.location.origin}${basePath}?partner_account_id=${partnerAccountId}&section=payment&funded=1`,
+      cancelUrl: `${window.location.origin}${basePath}?partner_account_id=${partnerAccountId}&section=payment`,
     }
   }
 
@@ -193,8 +196,8 @@ export default function PaymentConfigClient({
 
   function cardVerificationUrls() {
     return {
-      successUrl: `${window.location.origin}/dashboard/configurator?partner_account_id=${partnerAccountId}&section=payment&card_verified=1`,
-      cancelUrl: `${window.location.origin}/dashboard/configurator?partner_account_id=${partnerAccountId}&section=payment`,
+      successUrl: `${window.location.origin}${basePath}?partner_account_id=${partnerAccountId}&section=payment&card_verified=1`,
+      cancelUrl: `${window.location.origin}${basePath}?partner_account_id=${partnerAccountId}&section=payment`,
     }
   }
 
@@ -341,7 +344,7 @@ export default function PaymentConfigClient({
       accounts={accounts}
       activePartnerAccountId={activePartnerAccountId}
       title="Payment"
-      backHref={`/dashboard/configurator?partner_account_id=${activePartnerAccountId}`}
+      backHref={`${basePath}?partner_account_id=${activePartnerAccountId}`}
     >
       {content}
     </ConfiguratorShell>

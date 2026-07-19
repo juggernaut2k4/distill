@@ -46,9 +46,12 @@ const codeBlockStyle: React.CSSProperties = {
 export default function PlaygroundClient({
   accounts,
   activePartnerAccountId,
+  basePath = '/dashboard/configurator',
 }: {
   accounts: AdminPartnerAccount[]
   activePartnerAccountId: string
+  /** B2B-29 (docs/specs/B2B-29-requirement-document.md §6.1) — see ConfiguratorSurface.tsx. */
+  basePath?: string
 }) {
   const [apiKey, setApiKey] = useState('')
   const [selectedId, setSelectedId] = useState<PlaygroundEndpointId>('sessions_get')
@@ -122,7 +125,7 @@ export default function PlaygroundClient({
       accounts={accounts}
       activePartnerAccountId={activePartnerAccountId}
       title="API › Playground"
-      backHref={`/dashboard/configurator/api?partner_account_id=${activePartnerAccountId}`}
+      backHref={`${basePath}/api?partner_account_id=${activePartnerAccountId}`}
     >
       <h1 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20 }}>Playground</h1>
 
@@ -171,7 +174,7 @@ export default function PlaygroundClient({
           <div>
             <p style={{ fontSize: 13, color: COLORS.textSecondary, marginBottom: 12 }}>{endpoint.playgroundDisabledReason}</p>
             <Link
-              href={`/dashboard/configurator/api?partner_account_id=${activePartnerAccountId}`}
+              href={`${basePath}/api?partner_account_id=${activePartnerAccountId}`}
               style={{ fontSize: 13, color: COLORS.cyan }}
             >
               See the full request/response reference on the API page →

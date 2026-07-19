@@ -12,11 +12,16 @@ import { lookupDirectPartnerInviteByToken, markDirectPartnerInviteAccepted } fro
  * response, since unlike a team invite there is nothing pre-known about the
  * invitee to show them. POST is the authenticated accept, third caller of
  * createOrClaimPartnerAccount.
+ *
+ * B2B-29 (docs/specs/B2B-29-requirement-document.md §6.5.4) — `companyName`
+ * dropped from the schema entirely; no company name is captured before
+ * signup. Every account created through this route is seeded with the fixed
+ * placeholder name `'Unnamed partner'`, correctable later from the direct
+ * partner's own Configurator Dashboard tab (`PATCH /api/admin/configurator/account`).
  */
 
 const AcceptSchema = z.object({
   token: z.string().min(1),
-  companyName: z.string().trim().min(1).max(200),
 })
 
 export async function GET(request: NextRequest) {
@@ -53,7 +58,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'Failed to set up your account.' }, { status: 500 })
   }
 
-  const result = await createOrClaimPartnerAccount(userId, parsed.data.companyName, primaryEmail, 'partner')
+  const result = await createOrClaimPartnerAccount(userId, 'Unnamed partner', primaryEmail, 'partner')
   if (!result.success) {
     console.error('[partner-invite/accept] createOrClaimPartnerAccount failed:', result.error)
     return NextResponse.json({ success: false, error: 'Failed to set up your account.' }, { status: 500 })
