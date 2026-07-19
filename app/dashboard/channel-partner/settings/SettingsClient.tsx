@@ -9,10 +9,19 @@ import { COLORS, Card, PrimaryButton } from '../_shared'
  * B2B-29 (docs/specs/B2B-29-requirement-document.md §4). Two cards: Company
  * info (name + company_url, `PATCH /api/channel-partner/account`) and
  * Payment (card-on-file verification, reusing the B2B-27 Stripe `setup`-mode
- * mechanism via `/api/channel-partner/billing/card-verification`). Fetches
- * `GET /api/channel-partner/account` on mount — the same
- * useState+useEffect+try/catch/finally pattern every other client component
- * in this codebase uses.
+ * mechanism via `/api/channel-partner/billing/card-verification`).
+ *
+ * Hotfix (2026-07-19, live-tested by Arun): Company info and Payment now
+ * load via two fully independent fetches (`GET /api/channel-partner/account`
+ * and `GET /api/channel-partner/billing/card-status`), each with its own
+ * useState+useEffect+try/catch/finally. They used to share one combined
+ * endpoint, which meant the name/company_url inputs (disabled until that
+ * response resolved) sat disabled for as long as the slower card-on-file
+ * check took, even though the two are unrelated data. Company info now
+ * enables the moment its own (single-table-select, always-fast) fetch
+ * resolves, regardless of how long the Payment card's "Checking…" state
+ * lasts. Both cards remain permanently editable after their first save —
+ * this is not a one-time setup form, per Arun's explicit requirement.
  */
 
 const UNNAMED_PLACEHOLDER = 'Unnamed partner'
@@ -20,7 +29,6 @@ const UNNAMED_PLACEHOLDER = 'Unnamed partner'
 interface AccountData {
   name: string
   company_url: string | null
-  card_on_file: boolean
 }
 
 export default function SettingsClient() {
@@ -38,11 +46,12 @@ export default function SettingsClient() {
   const [savedFlash, setSavedFlash] = useState(false)
 
   const [cardOnFile, setCardOnFile] = useState<boolean | null>(null)
+  const [cardLoadError, setCardLoadError] = useState(false)
   const [cardBusy, setCardBusy] = useState(false)
   const [cardReturnMessage, setCardReturnMessage] = useState<string | null>(null)
   const handledCardVerifiedRef = useRef(false)
 
-  async function load() {
+  async function loadAccount() {
     setLoadError(false)
     try {
       const res = await fetch('/api/channel-partner/account')
@@ -51,14 +60,26 @@ export default function SettingsClient() {
       setAccount(data)
       setName(data.name)
       setCompanyUrl(data.company_url ?? '')
-      setCardOnFile(data.card_on_file)
     } catch {
       setLoadError(true)
     }
   }
 
+  async function loadCardStatus() {
+    setCardLoadError(false)
+    try {
+      const res = await fetch('/api/channel-partner/billing/card-status')
+      if (!res.ok) throw new Error('load failed')
+      const data: { card_on_file: boolean } = await res.json()
+      setCardOnFile(data.card_on_file)
+    } catch {
+      setCardLoadError(true)
+    }
+  }
+
   useEffect(() => {
-    load()
+    loadAccount()
+    loadCardStatus()
   }, [])
 
   // Card-verification Stripe return — identical pattern to
@@ -70,9 +91,9 @@ export default function SettingsClient() {
       ;(async () => {
         let confirmed = false
         try {
-          const res = await fetch('/api/channel-partner/account')
+          const res = await fetch('/api/channel-partner/billing/card-status')
           if (res.ok) {
-            const data: AccountData = await res.json()
+            const data: { card_on_file: boolean } = await res.json()
             confirmed = data.card_on_file === true
             setCardOnFile(confirmed)
           }
@@ -197,7 +218,11 @@ export default function SettingsClient() {
 
         {cardReturnMessage && <p style={{ color: COLORS.red, fontSize: 12, marginBottom: 12 }}>{cardReturnMessage}</p>}
 
-        {cardOnFile === null && <p style={{ color: COLORS.textSecondary, fontSize: 13 }}>Checking…</p>}
+        {cardLoadError && (
+          <p style={{ color: COLORS.red, fontSize: 13 }}>Couldn&apos;t check your card status. Try refreshing the page.</p>
+        )}
+
+        {!cardLoadError && cardOnFile === null && <p style={{ color: COLORS.textSecondary, fontSize: 13 }}>Checking…</p>}
 
         {cardOnFile === false && (
           <>

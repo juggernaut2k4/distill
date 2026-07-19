@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { requireChannelPartnerAdmin } from '@/lib/partner/auth'
 import { createSupabaseAdminClient } from '@/lib/supabase'
-import { checkCardOnFile } from '@/lib/partner/configurator-status'
 
 /**
  * GET/PATCH /api/channel-partner/account
@@ -11,9 +10,18 @@ import { checkCardOnFile } from '@/lib/partner/configurator-status'
  * `/api/admin/configurator/account` (§6.10), but gated by
  * `requireChannelPartnerAdmin()` — no `partner_account_id` param, acts on
  * the caller's own account, matching every other `/api/channel-partner/*`
- * route's convention. `GET` additionally includes `card_on_file: boolean`
- * (reuses `checkCardOnFile`, already fully generic over any
- * `partner_account_id`).
+ * route's convention.
+ *
+ * Hotfix (2026-07-19, live-tested by Arun): GET no longer includes
+ * `card_on_file`. It used to run `checkCardOnFile()` in the same
+ * `Promise.all` as the name/company_url read, which meant the Company-info
+ * form's inputs (disabled until this single combined response resolved)
+ * sat disabled for as long as the slower Stripe/wallet card check took —
+ * observed live as "the company name field became editable after a few
+ * seconds [of] checking the payment field." Card status now has its own
+ * endpoint (`GET /api/channel-partner/billing/card-status`) so the two
+ * loads are genuinely independent — this read is a single-table select and
+ * should always be fast.
  */
 
 const PatchSchema = z.object({
@@ -26,12 +34,9 @@ export async function GET() {
   if (admin.error) return admin.error
 
   const supabase = createSupabaseAdminClient()
-  const [{ data }, cardOnFile] = await Promise.all([
-    supabase.from('partner_accounts').select('name, company_url').eq('id', admin.partnerAccountId).maybeSingle(),
-    checkCardOnFile(admin.partnerAccountId),
-  ])
+  const { data } = await supabase.from('partner_accounts').select('name, company_url').eq('id', admin.partnerAccountId).maybeSingle()
 
-  return NextResponse.json({ name: data?.name ?? '', company_url: data?.company_url ?? null, card_on_file: cardOnFile })
+  return NextResponse.json({ name: data?.name ?? '', company_url: data?.company_url ?? null })
 }
 
 export async function PATCH(request: NextRequest) {
