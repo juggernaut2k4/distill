@@ -52,20 +52,36 @@ export function NoChannelPartnerAccount() {
 export function ChannelPartnerShell({
   companyName,
   active,
+  showShowcaseTab = false,
   children,
 }: {
   companyName: string
-  active: 'dashboard' | 'clients' | 'team' | 'settings'
+  active: 'dashboard' | 'clients' | 'team' | 'settings' | 'showcase'
+  /**
+   * B2B-31 (docs/specs/B2B-31-requirement-document.md §4) — gates the 5th
+   * "Showcase" nav tab. Defaults to `false` so every existing caller
+   * (page.tsx, clients/page.tsx, team/page.tsx, settings/page.tsx) is
+   * completely unaffected unless it explicitly passes `true` after reading
+   * `showcase_access_enabled` itself (`getShowcaseAccessEnabled`,
+   * lib/partner/auth.ts). A non-allowlisted admin never sees a 5th tab at
+   * all — an absent tab, not a visible-but-403 one.
+   */
+  showShowcaseTab?: boolean
   children: React.ReactNode
 }) {
   // B2B-29 (docs/specs/B2B-29-requirement-document.md §6.8) — 4th nav tab,
   // "Settings", for the new Company info + Payment page.
-  const navItems: { key: 'dashboard' | 'clients' | 'team' | 'settings'; label: string; href: string }[] = [
+  const navItems: { key: 'dashboard' | 'clients' | 'team' | 'settings' | 'showcase'; label: string; href: string }[] = [
     { key: 'dashboard', label: 'Dashboard', href: '/dashboard/channel-partner' },
     { key: 'clients', label: 'Clients', href: '/dashboard/channel-partner/clients' },
     { key: 'team', label: 'Team', href: '/dashboard/channel-partner/team' },
     { key: 'settings', label: 'Settings', href: '/dashboard/channel-partner/settings' },
   ]
+
+  // B2B-31 (§4) — 5th nav tab, conditionally rendered only for allowlisted accounts.
+  if (showShowcaseTab) {
+    navItems.push({ key: 'showcase', label: 'Showcase', href: '/dashboard/channel-partner/showcase' })
+  }
 
   return (
     <div style={{ minHeight: '100vh', background: COLORS.bg, color: COLORS.textPrimary, fontFamily: 'Inter, system-ui, sans-serif' }}>

@@ -4,6 +4,7 @@ import { getChannelPartnerAccountForClerkUser } from '@/lib/partner/admin-accoun
 import { listClientsForChannelPartner } from '@/lib/partner/clients'
 import { listTeamAndInvites } from '@/lib/partner/team-invites'
 import { checkCardOnFile } from '@/lib/partner/configurator-status'
+import { getShowcaseAccessEnabled } from '@/lib/partner/auth'
 import { ChannelPartnerShell, NoChannelPartnerAccount, Card, SecondaryButton, COLORS } from './_shared'
 
 const UNNAMED_PLACEHOLDER = 'Unnamed partner'
@@ -68,10 +69,11 @@ export default async function ChannelPartnerDashboardPage() {
   const account = await getChannelPartnerAccountForClerkUser(userId)
   if (!account) return <NoChannelPartnerAccount />
 
-  const [clients, team, cardOnFile] = await Promise.all([
+  const [clients, team, cardOnFile, showShowcaseTab] = await Promise.all([
     listClientsForChannelPartner(account.id),
     listTeamAndInvites(account.id),
     checkCardOnFile(account.id),
+    getShowcaseAccessEnabled(account.id),
   ])
 
   const recentClientNames = clients.slice(0, 3).map((c) => c.name)
@@ -80,7 +82,7 @@ export default async function ChannelPartnerDashboardPage() {
   const totalPeople = activeCount + pendingCount
 
   return (
-    <ChannelPartnerShell companyName={account.name} active="dashboard">
+    <ChannelPartnerShell companyName={account.name} active="dashboard" showShowcaseTab={showShowcaseTab}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <SetupBanner companyName={account.name} cardOnFile={cardOnFile} />
         <Card>

@@ -1,6 +1,7 @@
 import { auth } from '@clerk/nextjs/server'
 import { redirect } from 'next/navigation'
 import { getChannelPartnerAccountForClerkUser } from '@/lib/partner/admin-accounts'
+import { getShowcaseAccessEnabled } from '@/lib/partner/auth'
 import { ChannelPartnerShell, NoChannelPartnerAccount } from '../_shared'
 import SettingsClient from './SettingsClient'
 
@@ -18,8 +19,10 @@ export default async function ChannelPartnerSettingsPage() {
   const account = await getChannelPartnerAccountForClerkUser(userId)
   if (!account) return <NoChannelPartnerAccount />
 
+  const showShowcaseTab = await getShowcaseAccessEnabled(account.id)
+
   return (
-    <ChannelPartnerShell companyName={account.name} active="settings">
+    <ChannelPartnerShell companyName={account.name} active="settings" showShowcaseTab={showShowcaseTab}>
       <SettingsClient />
     </ChannelPartnerShell>
   )

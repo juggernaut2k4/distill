@@ -383,3 +383,59 @@ export async function requireChannelPartnerClientAccess(clientAccountId: string)
     error: null,
   }
 }
+
+/**
+ * B2B-31 (docs/specs/B2B-31-requirement-document.md §6.2). Reads the
+ * `showcase_access_enabled` column directly for a caller-resolved
+ * `partner_accounts` row — used by `requireShowcaseAccess()` below AND by
+ * every `/dashboard/channel-partner/*` page's own server-side account
+ * resolution (Dashboard/Clients/Team/Settings/Showcase*) to decide whether
+ * `ChannelPartnerShell`'s `showShowcaseTab` prop should be `true`. A cheap,
+ * single-column, already-open `partner_accounts` read — never a 403 on its
+ * own (that would gate an entire page load for something that should just
+ * hide/show one nav tab).
+ */
+export async function getShowcaseAccessEnabled(partnerAccountId: string): Promise<boolean> {
+  const supabase = createSupabaseAdminClient()
+  const { data } = await supabase
+    .from('partner_accounts')
+    .select('showcase_access_enabled')
+    .eq('id', partnerAccountId)
+    .maybeSingle()
+  return Boolean(data?.showcase_access_enabled)
+}
+
+type ShowcaseAccessResult =
+  | { clerkUserId: string; partnerAccountId: string; error: null }
+  | { clerkUserId: null; partnerAccountId: null; error: NextResponse }
+
+/**
+ * B2B-31 (docs/specs/B2B-31-requirement-document.md §6.2). Gate for every
+ * /dashboard/channel-partner/showcase* API route (`app/api/channel-partner/
+ * showcase/**`). Calls `requireChannelPartnerAdmin()` first (same account
+ * resolution as every other channel-partner route), THEN checks the new
+ * `showcase_access_enabled` column — in that order, so even a genuine
+ * channel-partner admin who isn't allowlisted gets the same 403 shape a
+ * non-channel-partner caller would. Same indistinguishable-403 convention as
+ * every other auth function in this file (no info leak about *why*).
+ *
+ * Page-level (SSR) gating for the Showcase pages themselves uses the same
+ * `getShowcaseAccessEnabled` check directly (page components return JSX/call
+ * `redirect()`, they cannot return this function's `NextResponse` shape) —
+ * see `app/dashboard/channel-partner/showcase/page.tsx`.
+ */
+export async function requireShowcaseAccess(): Promise<ShowcaseAccessResult> {
+  const cp = await requireChannelPartnerAdmin()
+  if (cp.error) return { clerkUserId: null, partnerAccountId: null, error: cp.error }
+
+  const enabled = await getShowcaseAccessEnabled(cp.partnerAccountId)
+  if (!enabled) {
+    return {
+      clerkUserId: null,
+      partnerAccountId: null,
+      error: NextResponse.json(errorEnvelope('forbidden', 'Showcase is not enabled for this account.'), { status: 403 }),
+    }
+  }
+
+  return { clerkUserId: cp.clerkUserId, partnerAccountId: cp.partnerAccountId, error: null }
+}

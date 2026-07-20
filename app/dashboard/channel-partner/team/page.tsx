@@ -1,6 +1,7 @@
 import { auth } from '@clerk/nextjs/server'
 import { redirect } from 'next/navigation'
 import { getChannelPartnerAccountForClerkUser } from '@/lib/partner/admin-accounts'
+import { getShowcaseAccessEnabled } from '@/lib/partner/auth'
 import { ChannelPartnerShell, NoChannelPartnerAccount } from '../_shared'
 import TeamClient from './TeamClient'
 
@@ -21,8 +22,10 @@ export default async function ChannelPartnerTeamPage({ searchParams }: { searchP
   const account = await getChannelPartnerAccountForClerkUser(userId)
   if (!account) return <NoChannelPartnerAccount />
 
+  const showShowcaseTab = await getShowcaseAccessEnabled(account.id)
+
   return (
-    <ChannelPartnerShell companyName={account.name} active="team">
+    <ChannelPartnerShell companyName={account.name} active="team" showShowcaseTab={showShowcaseTab}>
       <TeamClient initialFormOpen={searchParams.action === 'invite'} />
     </ChannelPartnerShell>
   )
