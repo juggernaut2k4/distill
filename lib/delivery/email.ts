@@ -1,4 +1,5 @@
 import { Resend } from 'resend'
+import { UNNAMED_PARTNER_PLACEHOLDER } from '@/lib/partner/signup-constants'
 
 const isPlaceholder = !process.env.RESEND_API_KEY ||
   process.env.RESEND_API_KEY.startsWith('PLACEHOLDER_')
@@ -599,11 +600,11 @@ export async function sendPartnerSignupWelcomeEmail(email: string, orgName: stri
 
   // B2B-29 (docs/specs/B2B-29-requirement-document.md §6.5) — company info is
   // no longer captured before signup; a fresh account's `orgName` may still
-  // be the fixed placeholder 'Unnamed partner'. This function stays
-  // placeholder-agnostic everywhere else — only the subject line and the
-  // one inline body reference below swap in a generic phrase instead of
-  // literally greeting "Unnamed partner."
-  const displayName = orgName === 'Unnamed partner' ? 'your account' : orgName
+  // be the fixed placeholder. This function stays placeholder-agnostic
+  // everywhere else — only the subject line and the one inline body
+  // reference below swap in a generic phrase instead of literally greeting
+  // the placeholder text.
+  const displayName = orgName === UNNAMED_PARTNER_PLACEHOLDER ? 'your account' : orgName
 
   try {
     const result = await resend.emails.send({

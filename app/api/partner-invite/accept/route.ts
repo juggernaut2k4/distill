@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { auth as clerkAuth, currentUser } from '@clerk/nextjs/server'
-import { createOrClaimPartnerAccount } from '@/lib/partner/signup'
+import { createOrClaimPartnerAccount, UNNAMED_PARTNER_PLACEHOLDER } from '@/lib/partner/signup'
 import { lookupDirectPartnerInviteByToken, markDirectPartnerInviteAccepted } from '@/lib/internal-admin/direct-partner-invites'
 
 /**
@@ -16,7 +16,7 @@ import { lookupDirectPartnerInviteByToken, markDirectPartnerInviteAccepted } fro
  * B2B-29 (docs/specs/B2B-29-requirement-document.md §6.5.4) — `companyName`
  * dropped from the schema entirely; no company name is captured before
  * signup. Every account created through this route is seeded with the fixed
- * placeholder name `'Unnamed partner'`, correctable later from the direct
+ * placeholder name (`UNNAMED_PARTNER_PLACEHOLDER`, `lib/partner/signup-constants.ts`), correctable later from the direct
  * partner's own Configurator Dashboard tab (`PATCH /api/admin/configurator/account`).
  */
 
@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'Failed to set up your account.' }, { status: 500 })
   }
 
-  const result = await createOrClaimPartnerAccount(userId, 'Unnamed partner', primaryEmail, 'partner')
+  const result = await createOrClaimPartnerAccount(userId, UNNAMED_PARTNER_PLACEHOLDER, primaryEmail, 'partner')
   if (!result.success) {
     console.error('[partner-invite/accept] createOrClaimPartnerAccount failed:', result.error)
     return NextResponse.json({ success: false, error: 'Failed to set up your account.' }, { status: 500 })

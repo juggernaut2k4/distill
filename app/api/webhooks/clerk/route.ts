@@ -5,7 +5,7 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
 import { sendSignupWelcomeEmail } from '@/lib/delivery/email'
 import { inngest } from '@/inngest/client'
 import { OnboardingSchema, saveOnboardingProfile } from '@/lib/onboarding'
-import { createOrClaimPartnerAccount } from '@/lib/partner/signup'
+import { createOrClaimPartnerAccount, UNNAMED_PARTNER_PLACEHOLDER } from '@/lib/partner/signup'
 import { lookupDirectPartnerInviteByToken, markDirectPartnerInviteAccepted } from '@/lib/internal-admin/direct-partner-invites'
 
 interface ClerkEmailAddress {
@@ -118,10 +118,10 @@ export async function POST(request: Request) {
   // B2B-29 (docs/specs/B2B-29-requirement-document.md §6.5.1) — no company
   // name is captured before signup anymore; there is nothing left to be
   // missing, so the prior hard-stop-on-empty-name branch is removed. Every
-  // account created here is seeded with the fixed placeholder name
-  // 'Unnamed partner'.
+  // account created here is seeded with UNNAMED_PARTNER_PLACEHOLDER
+  // (lib/partner/signup-constants.ts).
   if (event.data.unsafe_metadata?.signup_intent === 'partner') {
-    const result = await createOrClaimPartnerAccount(id, 'Unnamed partner', primaryEmail, 'channel_partner')
+    const result = await createOrClaimPartnerAccount(id, UNNAMED_PARTNER_PLACEHOLDER, primaryEmail, 'channel_partner')
     if (!result.success) {
       console.error('[clerk-webhook] createOrClaimPartnerAccount failed:', result.error)
     }
@@ -157,7 +157,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ received: true })
     }
 
-    const result = await createOrClaimPartnerAccount(id, 'Unnamed partner', primaryEmail, 'partner')
+    const result = await createOrClaimPartnerAccount(id, UNNAMED_PARTNER_PLACEHOLDER, primaryEmail, 'partner')
     if (result.success && !result.alreadyMember) {
       await markDirectPartnerInviteAccepted(inviteId, result.partnerAccountId as string)
     }

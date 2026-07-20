@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 import { COLORS, Card, PrimaryButton } from '../_shared'
+import { UNNAMED_PARTNER_PLACEHOLDER } from '@/lib/partner/signup-constants'
 
 /**
  * B2B-29 (docs/specs/B2B-29-requirement-document.md §4). Two cards: Company
@@ -23,8 +24,6 @@ import { COLORS, Card, PrimaryButton } from '../_shared'
  * lasts. Both cards remain permanently editable after their first save —
  * this is not a one-time setup form, per Arun's explicit requirement.
  */
-
-const UNNAMED_PLACEHOLDER = 'Unnamed partner'
 
 interface AccountData {
   name: string
@@ -183,7 +182,7 @@ export default function SettingsClient() {
           value={name}
           onChange={(e) => setName(e.target.value)}
           maxLength={200}
-          placeholder={UNNAMED_PLACEHOLDER}
+          placeholder={UNNAMED_PARTNER_PLACEHOLDER}
           disabled={account === null}
           style={{ width: '100%', boxSizing: 'border-box', background: COLORS.raised, border: `1px solid ${COLORS.borderStrong}`, borderRadius: 8, padding: 10, color: COLORS.textPrimary, fontSize: 13, marginBottom: 12 }}
         />

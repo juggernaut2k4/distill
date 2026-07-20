@@ -5,9 +5,8 @@ import { listClientsForChannelPartner } from '@/lib/partner/clients'
 import { listTeamAndInvites } from '@/lib/partner/team-invites'
 import { checkCardOnFile } from '@/lib/partner/configurator-status'
 import { getShowcaseAccessEnabled } from '@/lib/partner/auth'
+import { UNNAMED_PARTNER_PLACEHOLDER } from '@/lib/partner/signup'
 import { ChannelPartnerShell, NoChannelPartnerAccount, Card, SecondaryButton, COLORS } from './_shared'
-
-const UNNAMED_PLACEHOLDER = 'Unnamed partner'
 
 /**
  * B2B-29 (docs/specs/B2B-29-requirement-document.md §4) — the non-blocking
@@ -15,7 +14,7 @@ const UNNAMED_PLACEHOLDER = 'Unnamed partner'
  * one of the two items is incomplete; never blocks anything below it.
  */
 function SetupBanner({ companyName, cardOnFile }: { companyName: string; cardOnFile: boolean }) {
-  const companyInfoDone = companyName !== UNNAMED_PLACEHOLDER
+  const companyInfoDone = companyName !== UNNAMED_PARTNER_PLACEHOLDER
   if (companyInfoDone && cardOnFile) return null
 
   return (

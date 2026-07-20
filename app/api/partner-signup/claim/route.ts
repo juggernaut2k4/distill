@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { auth as clerkAuth, currentUser } from '@clerk/nextjs/server'
-import { createOrClaimPartnerAccount } from '@/lib/partner/signup'
+import { createOrClaimPartnerAccount, UNNAMED_PARTNER_PLACEHOLDER } from '@/lib/partner/signup'
 
 /**
  * POST /api/partner-signup/claim
@@ -17,7 +17,7 @@ import { createOrClaimPartnerAccount } from '@/lib/partner/signup'
  * name is captured before signup anymore. `ClaimSchema` accepts an empty
  * body (still parses a JSON body for forward-compatibility, but validates
  * nothing from it). Every account created through this route is seeded with
- * the fixed placeholder name `'Unnamed partner'`, corrected later from
+ * the fixed placeholder name (`UNNAMED_PARTNER_PLACEHOLDER`, `lib/partner/signup-constants.ts`), corrected later from
  * `/dashboard/channel-partner/settings`.
  *
  * B2B-28 (docs/specs/B2B-28-requirement-document.md §6.7) — `managesMultipleClients`
@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'Failed to set up your account.' }, { status: 500 })
   }
 
-  const result = await createOrClaimPartnerAccount(userId, 'Unnamed partner', primaryEmail, 'channel_partner')
+  const result = await createOrClaimPartnerAccount(userId, UNNAMED_PARTNER_PLACEHOLDER, primaryEmail, 'channel_partner')
   if (!result.success) {
     console.error('[partner-signup/claim] createOrClaimPartnerAccount failed:', result.error)
     return NextResponse.json({ success: false, error: 'Failed to set up your account.' }, { status: 500 })

@@ -86,7 +86,7 @@ export default function DashboardPanel({
 /** B2B-29 (docs/specs/B2B-29-requirement-document.md §0 point 2). "Company
  * info" card — lets a direct partner (or, via the client-scoped Configure
  * surface, a sales-partner acting on a client) set the account's real name
- * post-signup, replacing the fixed placeholder 'Unnamed partner'. */
+ * post-signup, replacing the fixed placeholder (lib/partner/signup-constants.ts). */
 function CompanyInfoArea({ activePartnerAccountId }: { activePartnerAccountId: string }) {
   const [name, setName] = useState('')
   const [companyUrl, setCompanyUrl] = useState('')
