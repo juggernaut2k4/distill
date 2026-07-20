@@ -69,10 +69,25 @@ export default function KnownBugsClient({
   accounts,
   activePartnerAccountId,
   billingHealth,
+  basePath,
+  navLabel,
 }: {
   accounts: AdminPartnerAccount[]
   activePartnerAccountId: string
   billingHealth: BillingHealth
+  /**
+   * Hotfix (2026-07-19/20, live-tested by Arun): this component has no
+   * hardcoded '/dashboard/configurator' literal of its own, but it renders
+   * <ConfiguratorNavShell> without forwarding basePath/navLabel — so that
+   * shared component's own defaults silently took over, sending the client-
+   * scoped Configure surface's nav tabs to the unscoped direct-partner
+   * routes (where the sales-partner has no membership, surfacing "You don't
+   * administer any partner accounts"). Optional + undefined-safe so every
+   * existing direct-partner caller (unchanged) keeps ConfiguratorNavShell's
+   * own defaults exactly as before.
+   */
+  basePath?: string
+  navLabel?: string
 }) {
   const [bugs, setBugs] = useState<KnownBug[]>([])
   const [bugsLoading, setBugsLoading] = useState(true)
@@ -125,6 +140,8 @@ export default function KnownBugsClient({
       activePartnerAccountId={activePartnerAccountId}
       active="known_bugs"
       billingHealth={billingHealth}
+      basePath={basePath}
+      navLabel={navLabel}
     >
       <h1 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Known Bugs</h1>
       <p style={{ fontSize: 13, color: COLORS.textSecondary, marginBottom: 20 }}>
