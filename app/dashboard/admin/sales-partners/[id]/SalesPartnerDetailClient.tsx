@@ -1,15 +1,16 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { ArrowLeft, Loader2 } from 'lucide-react'
+import { ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
 
 /**
  * B2B-28 (docs/specs/B2B-28-requirement-document.md §4) — super-admin-only
- * sales-partner detail: revenue-share editor, client roster (reused,
- * `listClientsForChannelPartner`'s exact shape), team glimpse (reused,
- * `listTeamAndInvites`'s exact shape), and a forward-reference-only,
- * non-functional "Legal agreement" placeholder card.
+ * sales-partner detail: client roster (reused, `listClientsForChannelPartner`'s
+ * exact shape), team glimpse (reused, `listTeamAndInvites`'s exact shape), and
+ * a forward-reference-only, non-functional "Legal agreement" placeholder card.
+ * Revenue-share editing removed per Arun's direct instruction (2026-07-21) —
+ * the feature is fully dropped, not deferred.
  */
 
 interface ClientRow {
@@ -26,7 +27,6 @@ interface DetailData {
     name: string
     status: 'active' | 'suspended'
     created_at: string
-    revenue_share_percent: number | null
   }
   clients: ClientRow[]
   team: { active_count: number; pending_count: number }
@@ -41,11 +41,6 @@ export default function SalesPartnerDetailClient({ id }: { id: string }) {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
 
-  const [shareInput, setShareInput] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [saveError, setSaveError] = useState<string | null>(null)
-  const [saved, setSaved] = useState(false)
-
   async function load() {
     setLoading(true)
     setLoadError(false)
@@ -54,7 +49,6 @@ export default function SalesPartnerDetailClient({ id }: { id: string }) {
       if (!res.ok) throw new Error('failed')
       const json = await res.json()
       setData(json)
-      setShareInput(json.sales_partner.revenue_share_percent === null ? '' : String(json.sales_partner.revenue_share_percent))
     } catch {
       setLoadError(true)
     } finally {
@@ -66,40 +60,6 @@ export default function SalesPartnerDetailClient({ id }: { id: string }) {
     load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
-
-  const currentValue = data?.sales_partner.revenue_share_percent
-  const currentValueStr = currentValue === null || currentValue === undefined ? '' : String(currentValue)
-  const isUnchanged = shareInput === currentValueStr
-
-  async function handleSave() {
-    setSaveError(null)
-    const trimmed = shareInput.trim()
-    const value = trimmed === '' ? null : Number(trimmed)
-    if (value !== null && (Number.isNaN(value) || value < 0 || value > 100)) {
-      setSaveError('Enter a value between 0 and 100.')
-      return
-    }
-    setSaving(true)
-    try {
-      const res = await fetch(`/api/admin/sales-partners/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ revenue_share_percent: value }),
-      })
-      const json = await res.json()
-      if (!res.ok) {
-        setSaveError(json?.error ?? "Couldn't save. Try again.")
-        return
-      }
-      setSaved(true)
-      setTimeout(() => setSaved(false), 1500)
-      await load()
-    } catch {
-      setSaveError("Couldn't save. Try again.")
-    } finally {
-      setSaving(false)
-    }
-  }
 
   if (loading) {
     return (
@@ -144,36 +104,6 @@ export default function SalesPartnerDetailClient({ id }: { id: string }) {
       </div>
 
       <div className="space-y-4">
-        <div className="bg-[#111111] border border-[#222222] rounded-xl p-4 md:p-6">
-          <h2 className="text-white text-lg font-semibold mb-3">Sales-partner share</h2>
-          {sales_partner.revenue_share_percent === null && (
-            <p className="text-[#475569] text-sm mb-3">No revenue share set.</p>
-          )}
-          <div className="flex items-center gap-2 flex-wrap">
-            <label className="text-[#94A3B8] text-sm">Sales-partner share:</label>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              step={0.01}
-              value={shareInput}
-              onChange={(e) => setShareInput(e.target.value)}
-              className="w-24 bg-[#0A0A0A] border border-[#333333] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#7C3AED]"
-            />
-            <span className="text-[#94A3B8] text-sm">%</span>
-            <button
-              onClick={handleSave}
-              disabled={saving || isUnchanged}
-              className="inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-lg bg-[#7C3AED] text-white hover:bg-[#A855F7] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {saving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-              Save
-            </button>
-            {saved && <span className="text-[#10B981] text-sm">Saved.</span>}
-          </div>
-          {saveError && <p className="text-[#EF4444] text-xs mt-2">{saveError}</p>}
-        </div>
-
         <div className="bg-[#111111] border border-[#222222] rounded-xl p-4 md:p-6">
           <h2 className="text-white text-lg font-semibold mb-3">Clients</h2>
           {clients.length === 0 ? (

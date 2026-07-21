@@ -4,10 +4,7 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
 
 /**
  * GET /api/admin/sales-partners — the sales-partner roster.
- * B2B-28 (docs/specs/B2B-28-requirement-document.md §6.9). `requireSuperAdmin()`
- * only — this is the exact enforcement mechanism that keeps
- * `revenue_share_percent` out of a sales-partner's own reach (§6.9's
- * "Enforcement statement").
+ * B2B-28 (docs/specs/B2B-28-requirement-document.md §6.9). `requireSuperAdmin()` only.
  */
 export async function GET() {
   const admin = await requireSuperAdmin()
@@ -16,7 +13,7 @@ export async function GET() {
   const supabase = createSupabaseAdminClient()
   const { data: accounts, error } = await supabase
     .from('partner_accounts')
-    .select('id, name, status, created_at, revenue_share_percent')
+    .select('id, name, status, created_at')
     .eq('account_kind', 'channel_partner')
     .order('created_at', { ascending: false })
 
@@ -53,7 +50,6 @@ export async function GET() {
     name: row.name as string,
     status: row.status as 'active' | 'suspended',
     created_at: row.created_at as string,
-    revenue_share_percent: (row.revenue_share_percent as number | null) ?? null,
     client_count: clientCountById.get(row.id as string) ?? 0,
     team_count: teamCountById.get(row.id as string) ?? 0,
   }))

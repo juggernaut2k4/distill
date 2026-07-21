@@ -17,18 +17,16 @@ interface SalesPartnerRow {
   name: string
   status: 'active' | 'suspended'
   created_at: string
-  revenue_share_percent: number | null
   client_count: number
   team_count: number
 }
 
-type SortColumn = 'name' | 'client_count' | 'team_count' | 'revenue_share_percent' | 'status' | 'created_at'
+type SortColumn = 'name' | 'client_count' | 'team_count' | 'status' | 'created_at'
 
 const COLUMNS: Array<{ key: SortColumn; label: string }> = [
   { key: 'name', label: 'Name' },
   { key: 'client_count', label: 'Clients' },
   { key: 'team_count', label: 'Team' },
-  { key: 'revenue_share_percent', label: 'Revenue share' },
   { key: 'status', label: 'Status' },
   { key: 'created_at', label: 'Signed up' },
 ]
@@ -44,13 +42,6 @@ function sortRows(rows: SalesPartnerRow[], column: SortColumn, direction: 'asc' 
       cmp = a[column].localeCompare(b[column])
     } else if (column === 'created_at') {
       cmp = a.created_at.localeCompare(b.created_at)
-    } else if (column === 'revenue_share_percent') {
-      // null sorts last regardless of direction — matches
-      // PartnerBillingClient.tsx's own balance_usd-style numeric-sort precedent.
-      if (a.revenue_share_percent === null && b.revenue_share_percent === null) return 0
-      if (a.revenue_share_percent === null) return 1
-      if (b.revenue_share_percent === null) return -1
-      cmp = a.revenue_share_percent - b.revenue_share_percent
     } else {
       cmp = a[column] - b[column]
     }
@@ -174,9 +165,6 @@ export default function SalesPartnersClient() {
                     </td>
                     <td className="px-4 py-3 text-[#94A3B8] whitespace-nowrap">{row.client_count}</td>
                     <td className="px-4 py-3 text-[#94A3B8] whitespace-nowrap">{row.team_count}</td>
-                    <td className="px-4 py-3 text-[#94A3B8] whitespace-nowrap">
-                      {row.revenue_share_percent === null ? '—' : `${row.revenue_share_percent}%`}
-                    </td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       <span
                         className={`text-xs font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full ${

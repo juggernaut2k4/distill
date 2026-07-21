@@ -102,45 +102,6 @@ describe('AT-23 — getConfiguratorAccountsForClerkUser includes an invite-creat
   })
 })
 
-// ─── AT-24 — revenue_share_percent must never be referenced anywhere under
-// the sales-partner's own route trees. Source-grep confirms this at the
-// exact granularity the spec's Known Constraints call for. ────────────────
-describe('AT-24 — revenue_share_percent never referenced under channel-partner-facing routes', () => {
-  function walk(dir: string): string[] {
-    const entries = fs.readdirSync(dir, { withFileTypes: true })
-    let files: string[] = []
-    for (const entry of entries) {
-      const full = path.join(dir, entry.name)
-      if (entry.isDirectory()) {
-        files = files.concat(walk(full))
-      } else if (/\.(ts|tsx)$/.test(entry.name)) {
-        files.push(full)
-      }
-    }
-    return files
-  }
-
-  it('is absent from every file under app/dashboard/channel-partner/**', () => {
-    const dir = path.resolve(__dirname, '../../app/dashboard/channel-partner')
-    const files = walk(dir)
-    expect(files.length).toBeGreaterThan(0)
-    for (const file of files) {
-      const contents = fs.readFileSync(file, 'utf8')
-      expect(contents.includes('revenue_share_percent')).toBe(false)
-    }
-  })
-
-  it('is absent from every file under app/api/channel-partner/**', () => {
-    const dir = path.resolve(__dirname, '../../app/api/channel-partner')
-    const files = walk(dir)
-    expect(files.length).toBeGreaterThan(0)
-    for (const file of files) {
-      const contents = fs.readFileSync(file, 'utf8')
-      expect(contents.includes('revenue_share_percent')).toBe(false)
-    }
-  })
-})
-
 // ─── AT-25 — a sales-partner's own session hitting the super-admin
 // sales-partners API directly gets 403 via requireSuperAdmin, not a
 // screen-content omission. ─────────────────────────────────────────────────
@@ -187,26 +148,6 @@ describe('AT-25 — /api/admin/sales-partners* routes 403 a non-super-admin call
     const { GET } = await import('@/app/api/admin/sales-partners/[id]/route')
     const res = await GET(new Request('http://localhost/api/admin/sales-partners/acct-1') as never, { params: { id: 'acct-1' } })
     expect((res as Response).status).toBe(403)
-  })
-})
-
-// ─── AT-26 — the two pre-existing enforce_account_kind_invariants clauses
-// (B2B-26) survive this brief's extension byte-for-byte, plus the new third
-// clause and the trigger's extended watched-column list. ───────────────────
-describe('AT-26 — enforce_account_kind_invariants trigger extension preserves both pre-existing clauses', () => {
-  it('migration 088 keeps both B2B-26 RAISE EXCEPTION clauses verbatim and adds exactly one new clause', () => {
-    const migrationPath = path.resolve(
-      __dirname,
-      '../../supabase/migrations/088_b2b28_direct_partner_invites_and_revenue_share.sql'
-    )
-    const sql = fs.readFileSync(migrationPath, 'utf8')
-
-    expect(sql).toContain(
-      'A channel_partner-kind partner_accounts row cannot itself have an owning_channel_partner_id (no nested sales-partner chains)'
-    )
-    expect(sql).toContain('owning_channel_partner_id must reference a partner_accounts row with account_kind = channel_partner')
-    expect(sql).toContain('revenue_share_percent may only be set on a channel_partner-kind partner_accounts row')
-    expect(sql).toContain('BEFORE INSERT OR UPDATE OF account_kind, owning_channel_partner_id, revenue_share_percent ON partner_accounts')
   })
 })
 
