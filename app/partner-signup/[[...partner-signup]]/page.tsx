@@ -26,6 +26,18 @@ import { Loader2 } from 'lucide-react'
  * State 2 — post-signup landing on `/dashboard/channel-partner`, handled
  *   outside this page.
  *
+ * Hotfix (2026-07-20, live-tested by Arun): `<SignUp>`'s `forceRedirectUrl`
+ * now points back to `/partner-signup` itself, not straight to
+ * `/dashboard/channel-partner`. Clerk applies the `unsafeMetadata` prop via
+ * `signUp.create()`, which only fires for the email/password strategy — an
+ * OAuth (Google) signup goes through `authenticateWithRedirect` instead, so
+ * the `user.created` webhook never saw `signup_intent: 'partner'` and no
+ * account was created, landing the user on a dead-end "You don't administer
+ * a sales-partner account" page. Redirecting back here re-triggers State 1b's
+ * existing `submitClaim()` on mount for every signup path (OAuth or
+ * email/password), which reuses the idempotent authenticated claim route
+ * instead of depending on webhook metadata timing at all.
+ *
  * Catch-all route: unchanged reasoning from the prior version of this file —
  * Clerk's `<SignUp>` needs to own every sub-path under its mount point for
  * its own internal step navigation (e.g. `/partner-signup/verify-email-address`).
@@ -109,7 +121,7 @@ export default function PartnerSignUpPage() {
     return (
       <div className="min-h-screen bg-void flex items-center justify-center">
         <SignUp
-          forceRedirectUrl="/dashboard/channel-partner"
+          forceRedirectUrl="/partner-signup"
           unsafeMetadata={{
             signup_intent: 'partner',
           }}

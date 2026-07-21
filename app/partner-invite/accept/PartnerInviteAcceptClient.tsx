@@ -18,6 +18,16 @@ import { Loader2 } from 'lucide-react'
  * `submitClaim()` based on `isSignedIn` — previously this decision lived in
  * `handleContinue`, now unreachable since there's no button left to wire it
  * to.
+ *
+ * Hotfix (2026-07-20): `<SignUp>`'s `forceRedirectUrl` points back to this
+ * same page (with `token` preserved in the query string) instead of straight
+ * to `/dashboard/configurator` — same root cause and fix as
+ * `/partner-signup`'s (see that file's header comment): Clerk's
+ * `unsafeMetadata` prop only survives the email/password strategy, not an
+ * OAuth redirect, so an OAuth signup here would otherwise skip the
+ * `signup_intent`/token metadata the webhook needs and never claim the
+ * invite. Landing back here re-triggers `load()`'s existing `submitClaim()`
+ * on mount, which claims via the authenticated route instead.
  */
 
 type Step = 'loading' | 'invalid' | 'signup' | 'claiming' | 'claim-error' | 'already-member'
@@ -146,7 +156,7 @@ export default function PartnerInviteAcceptClient({ token }: { token: string }) 
           You&apos;ve been invited to set up a Clio partner account.
         </p>
         <SignUp
-          forceRedirectUrl="/dashboard/configurator"
+          forceRedirectUrl={`/partner-invite/accept?token=${encodeURIComponent(token)}`}
           unsafeMetadata={{
             signup_intent: 'direct_partner_invite',
             direct_partner_invite_token: token,
