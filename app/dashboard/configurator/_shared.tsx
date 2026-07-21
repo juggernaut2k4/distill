@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useRouter, usePathname } from 'next/navigation'
+import { UserButton } from '@clerk/nextjs'
 import type { AdminPartnerAccount } from '@/lib/partner/admin-accounts'
 import { COLORS, SHELL_CONTENT_STYLE } from './design-tokens'
 
@@ -16,6 +17,12 @@ import { COLORS, SHELL_CONTENT_STYLE } from './design-tokens'
  * (Section 9's "no implicit current-partner server-side state") — this
  * switcher writes the selection into the URL's query string, never a
  * server-side session.
+ *
+ * Hotfix (2026-07-20, live-tested by Arun): both `ConfiguratorShell` and
+ * `ConfiguratorNavShell` gained a Clerk `<UserButton>` in the top bar — no
+ * sign-out control existed anywhere in the app (grepped every dashboard
+ * shell; zero `UserButton`/`SignOutButton` usage). Same fix applied to
+ * `ChannelPartnerShell` (app/dashboard/channel-partner/_shared.tsx).
  */
 
 // B2B-29 hotfix — COLORS and SHELL_CONTENT_STYLE now live in ./design-tokens
@@ -57,21 +64,24 @@ export function ConfiguratorShell({
           <span style={{ fontWeight: 700, fontSize: 14 }}>Clio Configurator</span>
           <span style={{ color: COLORS.textMuted, fontSize: 13 }}>{title}</span>
         </div>
-        {accounts.length > 1 ? (
-          <select
-            value={activePartnerAccountId ?? ''}
-            onChange={(e) => onSwitch(e.target.value)}
-            style={{ background: COLORS.surface, color: COLORS.textPrimary, border: `1px solid ${COLORS.borderSubtle}`, borderRadius: 6, padding: '6px 10px', fontSize: 13 }}
-          >
-            {accounts.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-          </select>
-        ) : accounts.length === 1 ? (
-          <span style={{ color: COLORS.textSecondary, fontSize: 13 }}>{accounts[0].name}</span>
-        ) : null}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {accounts.length > 1 ? (
+            <select
+              value={activePartnerAccountId ?? ''}
+              onChange={(e) => onSwitch(e.target.value)}
+              style={{ background: COLORS.surface, color: COLORS.textPrimary, border: `1px solid ${COLORS.borderSubtle}`, borderRadius: 6, padding: '6px 10px', fontSize: 13 }}
+            >
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          ) : accounts.length === 1 ? (
+            <span style={{ color: COLORS.textSecondary, fontSize: 13 }}>{accounts[0].name}</span>
+          ) : null}
+          <UserButton afterSignOutUrl="/sign-in" />
+        </div>
       </div>
       <div style={SHELL_CONTENT_STYLE}>{children}</div>
     </div>
@@ -226,21 +236,24 @@ export function ConfiguratorNavShell({
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
           <span style={{ fontWeight: 700, fontSize: 14 }}>Clio Configurator</span>
         </div>
-        {accounts.length > 1 ? (
-          <select
-            value={activePartnerAccountId}
-            onChange={(e) => onSwitch(e.target.value)}
-            style={{ background: COLORS.surface, color: COLORS.textPrimary, border: `1px solid ${COLORS.borderSubtle}`, borderRadius: 6, padding: '6px 10px', fontSize: 13 }}
-          >
-            {accounts.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-          </select>
-        ) : accounts.length === 1 ? (
-          <span style={{ color: COLORS.textSecondary, fontSize: 13 }}>{accounts[0].name}</span>
-        ) : null}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {accounts.length > 1 ? (
+            <select
+              value={activePartnerAccountId}
+              onChange={(e) => onSwitch(e.target.value)}
+              style={{ background: COLORS.surface, color: COLORS.textPrimary, border: `1px solid ${COLORS.borderSubtle}`, borderRadius: 6, padding: '6px 10px', fontSize: 13 }}
+            >
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          ) : accounts.length === 1 ? (
+            <span style={{ color: COLORS.textSecondary, fontSize: 13 }}>{accounts[0].name}</span>
+          ) : null}
+          <UserButton afterSignOutUrl="/sign-in" />
+        </div>
       </div>
 
       <nav style={{ borderBottom: `1px solid ${COLORS.borderSubtle}`, padding: '0 32px', display: 'flex', gap: 8 }}>

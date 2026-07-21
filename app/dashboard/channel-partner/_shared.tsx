@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { UserButton } from '@clerk/nextjs'
 import { Card, PrimaryButton, SecondaryButton } from '../configurator/_shared'
 import { COLORS, SHELL_CONTENT_STYLE } from '../configurator/design-tokens'
 
@@ -27,7 +28,10 @@ import { COLORS, SHELL_CONTENT_STYLE } from '../configurator/design-tokens'
  * signup finally reached this page in production. `Card`/`PrimaryButton`/
  * `SecondaryButton` are unaffected — they're real components used as JSX
  * elements, which is exactly the "pass the imported name through" pattern
- * Next.js allows across this boundary.
+ * Next.js allows across this boundary. `UserButton` (added below, 2026-07-20
+ * hotfix — no sign-out control existed anywhere in the app) is the same
+ * pattern: a Client Component from `@clerk/nextjs` used as a JSX element,
+ * safe from this dependency-free file even though it has no directive.
  */
 export { COLORS, Card, PrimaryButton, SecondaryButton, SHELL_CONTENT_STYLE }
 
@@ -87,7 +91,10 @@ export function ChannelPartnerShell({
     <div style={{ minHeight: '100vh', background: COLORS.bg, color: COLORS.textPrimary, fontFamily: 'Inter, system-ui, sans-serif' }}>
       <div style={{ borderBottom: `1px solid ${COLORS.borderSubtle}`, padding: '16px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <span style={{ fontWeight: 700, fontSize: 14 }}>Clio — Sales-partner dashboard</span>
-        <span style={{ color: COLORS.textSecondary, fontSize: 13 }}>{companyName}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ color: COLORS.textSecondary, fontSize: 13 }}>{companyName}</span>
+          <UserButton afterSignOutUrl="/sign-in" />
+        </div>
       </div>
 
       <nav style={{ borderBottom: `1px solid ${COLORS.borderSubtle}`, padding: '0 32px', display: 'flex', gap: 8 }}>
