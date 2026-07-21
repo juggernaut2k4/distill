@@ -253,6 +253,46 @@ export async function POST(request: NextRequest) {
           break
         }
 
+        // ── B2B-27 — card-on-file verification (mode: "setup") ─────────────
+        // Requirement Doc Section 4.A/6.1. lib/stripe.ts's own comment on
+        // createCardVerificationCheckoutSession assumed the existing
+        // payment_method.attached/customer.updated handlers below would sync
+        // the card — live-tested 2026-07-21: Stripe only ever sent
+        // checkout.session.completed for this flow, never those two events,
+        // so the settings page was stuck on "couldn't confirm your card yet"
+        // indefinitely. A `mode: 'setup'` session's `setup_intent` isn't
+        // expanded in the webhook payload, so it's retrieved explicitly to
+        // get the resulting payment_method, then synced the same way the
+        // other two handlers already do via applyPaymentMethodToWallet.
+        if (session.metadata?.purpose === 'card_verification') {
+          const customerId = typeof session.customer === 'string' ? session.customer : session.customer?.id
+          const setupIntentId = typeof session.setup_intent === 'string' ? session.setup_intent : session.setup_intent?.id
+
+          if (!customerId || !setupIntentId || !stripe) {
+            console.warn('[stripe-webhook] card_verification checkout.session.completed missing customer/setup_intent:', session.id)
+            break
+          }
+
+          try {
+            const setupIntent = await stripe.setupIntents.retrieve(setupIntentId)
+            const paymentMethodId = typeof setupIntent.payment_method === 'string' ? setupIntent.payment_method : setupIntent.payment_method?.id
+
+            if (!paymentMethodId) {
+              console.warn('[stripe-webhook] card_verification setup_intent has no payment_method:', setupIntentId)
+              break
+            }
+
+            const paymentMethod = await stripe.paymentMethods.retrieve(paymentMethodId)
+            await applyPaymentMethodToWallet(supabase, customerId, paymentMethod)
+
+            console.log(`[stripe-webhook] B2B-27 card verification synced: customer ${customerId}, payment_method ${paymentMethodId}`)
+          } catch (err) {
+            console.error('[stripe-webhook] card_verification: failed to retrieve/sync payment method:', err)
+          }
+
+          break
+        }
+
         break
       }
 
