@@ -89,8 +89,21 @@ export function ChannelPartnerShell({
 
   return (
     <div style={{ minHeight: '100vh', background: COLORS.bg, color: COLORS.textPrimary, fontFamily: 'Inter, system-ui, sans-serif' }}>
-      <div style={{ borderBottom: `1px solid ${COLORS.borderSubtle}`, padding: '16px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontWeight: 700, fontSize: 14 }}>Clio — Sales-partner dashboard</span>
+      <div
+        style={{
+          borderBottom: `1px solid ${COLORS.borderSubtle}`,
+          padding: 'clamp(12px, 2.5vw, 16px) clamp(16px, 4vw, 32px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 8,
+        }}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+          <span style={{ fontWeight: 700, fontSize: 15, color: COLORS.textPrimary }}>Clio</span>
+          <span style={{ fontSize: 11, color: COLORS.textMuted, fontWeight: 500 }}>Sales-partner dashboard</span>
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{ color: COLORS.textSecondary, fontSize: 13 }}>{companyName}</span>
           <UserButton afterSignOutUrl="/sign-in" />

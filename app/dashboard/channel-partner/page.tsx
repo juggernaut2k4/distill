@@ -18,7 +18,7 @@ function SetupBanner({ companyName, cardOnFile }: { companyName: string; cardOnF
   if (companyInfoDone && cardOnFile) return null
 
   return (
-    <Card>
+    <Card style={{ borderColor: COLORS.amber, borderLeftWidth: 3 }}>
       <h2 style={{ fontSize: 16, fontWeight: 600, color: COLORS.textPrimary, margin: '0 0 12px' }}>
         Finish setting up your account
       </h2>
@@ -82,12 +82,18 @@ export default async function ChannelPartnerDashboardPage() {
 
   return (
     <ChannelPartnerShell companyName={account.name} active="dashboard" showShowcaseTab={showShowcaseTab}>
+      <h1 style={{ fontSize: 'clamp(22px, 3vw, 28px)', fontWeight: 700, color: COLORS.textPrimary, margin: '0 0 20px' }}>
+        Dashboard
+      </h1>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <SetupBanner companyName={account.name} cardOnFile={cardOnFile} />
-        <Card>
-          <h2 style={{ fontSize: 18, fontWeight: 600, color: COLORS.textPrimary, margin: '0 0 12px' }}>Clients</h2>
+
+        <Card style={{ borderColor: COLORS.borderStrong, borderTop: `2px solid ${COLORS.cyan}` }}>
+          <h2 style={{ fontSize: 14, fontWeight: 600, color: COLORS.textSecondary, textTransform: 'uppercase', letterSpacing: 0.4, margin: '0 0 12px' }}>
+            Clients
+          </h2>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
-            <span style={{ fontSize: 30, fontWeight: 700, color: COLORS.cyan }}>{clients.length}</span>
+            <span style={{ fontSize: 40, fontWeight: 700, color: COLORS.cyan, lineHeight: 1 }}>{clients.length}</span>
             <span style={{ color: COLORS.textSecondary, fontSize: 14 }}>clients</span>
           </div>
           {recentClientNames.length > 0 ? (
@@ -100,10 +106,12 @@ export default async function ChannelPartnerDashboardPage() {
           </a>
         </Card>
 
-        <Card>
-          <h2 style={{ fontSize: 18, fontWeight: 600, color: COLORS.textPrimary, margin: '0 0 12px' }}>Team</h2>
+        <Card style={{ borderTop: `2px solid ${COLORS.purple}` }}>
+          <h2 style={{ fontSize: 14, fontWeight: 600, color: COLORS.textSecondary, textTransform: 'uppercase', letterSpacing: 0.4, margin: '0 0 12px' }}>
+            Team
+          </h2>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
-            <span style={{ fontSize: 30, fontWeight: 700, color: COLORS.purple }}>{totalPeople}</span>
+            <span style={{ fontSize: 30, fontWeight: 700, color: COLORS.purple, lineHeight: 1 }}>{totalPeople}</span>
             <span style={{ color: COLORS.textSecondary, fontSize: 14 }}>people</span>
           </div>
           <p style={{ color: COLORS.textSecondary, fontSize: 14, margin: '0 0 16px' }}>
@@ -114,13 +122,15 @@ export default async function ChannelPartnerDashboardPage() {
           </a>
         </Card>
 
-        <Card>
-          <h2 style={{ fontSize: 18, fontWeight: 600, color: COLORS.textPrimary, margin: '0 0 12px' }}>Billing</h2>
-          <p style={{ color: COLORS.textMuted, fontSize: 14, margin: 0 }}>Shared wallet billing for your clients is coming soon.</p>
+        <Card style={{ background: 'transparent', border: `1px dashed ${COLORS.borderSubtle}` }}>
+          <h2 style={{ fontSize: 13, fontWeight: 600, color: COLORS.textMuted, margin: '0 0 8px' }}>Billing</h2>
+          <p style={{ color: COLORS.textMuted, fontSize: 13, margin: 0 }}>Shared wallet billing for your clients is coming soon.</p>
         </Card>
 
         <Card>
-          <h2 style={{ fontSize: 18, fontWeight: 600, color: COLORS.textPrimary, margin: '0 0 12px' }}>Quick links</h2>
+          <h2 style={{ fontSize: 14, fontWeight: 600, color: COLORS.textSecondary, textTransform: 'uppercase', letterSpacing: 0.4, margin: '0 0 12px' }}>
+            Quick links
+          </h2>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <a href="/dashboard/channel-partner/clients?action=add" style={{ textDecoration: 'none' }}>
               <SecondaryButton>Add a client</SecondaryButton>
