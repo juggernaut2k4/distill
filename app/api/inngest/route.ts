@@ -22,7 +22,6 @@ import { rtv03AccuracyEvaluator } from '@/inngest/rtv03-accuracy-evaluator'
 import { scheduleSetupNudge } from '@/inngest/schedule-setup-nudge'
 import { analyzeIceBreakerResponse } from '@/inngest/ice-breaker-analyzer'
 import { adaptPlan } from '@/inngest/adapt-plan'
-import { abandonedOnboardingCleanup } from '@/inngest/abandoned-onboarding-cleanup'
 import { sessionTimerJob } from '@/inngest/session-timer'
 import { voiceGapWatchdog } from '@/inngest/voice-gap-watchdog'
 import { humeNativeNightlyCleanup } from '@/inngest/hume-native-nightly-cleanup'
@@ -44,8 +43,19 @@ import { glitchInstancesPurge } from '@/inngest/glitch-instances-purge'
  * POST /api/inngest
  * Serves all Inngest functions for registration and invocation.
  * Required by Inngest SDK to register functions with the Inngest platform.
+ *
+ * `abandonedOnboardingCleanup` (inngest/abandoned-onboarding-cleanup.ts) is
+ * deliberately NOT registered here. It's B2C-era logic that fires on every
+ * `clio/user.created` event — which the Clerk webhook emits for ALL Clerk
+ * signups, partner accounts included — and deletes the Clerk user 75 minutes
+ * later unless `users.subscription_status`/`stripe_customer_id` (B2C-only
+ * columns partner accounts never populate) look "converted". Confirmed live
+ * 2026-07-21: every partner test signup was silently deleted 75m after
+ * creation, orphaning its populated partner_accounts/wallet/client data and
+ * forcing a fresh blank account on next login. File left in place, not
+ * deleted, pending a decision on whether any of it is worth salvaging.
  */
 export const { GET, POST, PUT } = serve({
   client: inngest,
-  functions: [dailyDelivery, weeklyDigest, feedbackProcessor, sessionReminder, sessionMeetingSetup, sessionPlanGenerator, sessionAgendaEmail, trialExpiryJob, sessionContentPipeline, sessionContentCron, updateLearningProfile, catalogRefresh, curriculumQueueRegenerate, curriculumRecommendationAccepted, curriculumQueueCron, curriculumGenerator, sessionDesignerAuto, sessionQualityEvaluator, scheduleSetupNudge, analyzeIceBreakerResponse, adaptPlan, abandonedOnboardingCleanup, sessionTimerJob, voiceGapWatchdog, humeNativeNightlyCleanup, rtv03AccuracyEvaluator, templateFixGenerator, humeActionItemExtractor, humeActionItemBackstopSweep, partnerWebhookDispatcher, partnerContentGeneration, partnerContentCleanup, partnerTrialCutoffJob, partnerLiveCutoffJob, partnerSessionInsightsExtractor, partnerSessionInsightsBackstopSweep, partnerSessionInsightsPurge, partnerSignupReminder, glitchInstancesPurge],
+  functions: [dailyDelivery, weeklyDigest, feedbackProcessor, sessionReminder, sessionMeetingSetup, sessionPlanGenerator, sessionAgendaEmail, trialExpiryJob, sessionContentPipeline, sessionContentCron, updateLearningProfile, catalogRefresh, curriculumQueueRegenerate, curriculumRecommendationAccepted, curriculumQueueCron, curriculumGenerator, sessionDesignerAuto, sessionQualityEvaluator, scheduleSetupNudge, analyzeIceBreakerResponse, adaptPlan, sessionTimerJob, voiceGapWatchdog, humeNativeNightlyCleanup, rtv03AccuracyEvaluator, templateFixGenerator, humeActionItemExtractor, humeActionItemBackstopSweep, partnerWebhookDispatcher, partnerContentGeneration, partnerContentCleanup, partnerTrialCutoffJob, partnerLiveCutoffJob, partnerSessionInsightsExtractor, partnerSessionInsightsBackstopSweep, partnerSessionInsightsPurge, partnerSignupReminder, glitchInstancesPurge],
 })
