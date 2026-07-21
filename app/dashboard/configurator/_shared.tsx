@@ -61,7 +61,7 @@ export function ConfiguratorShell({
               ←
             </Link>
           )}
-          <span style={{ fontWeight: 700, fontSize: 14 }}>Clio Configurator</span>
+          <span style={{ fontWeight: 700, fontSize: 14 }}>Clio Configure</span>
           <span style={{ color: COLORS.textMuted, fontSize: 13 }}>{title}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -190,7 +190,8 @@ function BillingBanner({
  *
  * B2B-29 (docs/specs/B2B-29-requirement-document.md §6.1) — gains two new
  * optional props, `basePath` (default `'/dashboard/configurator'`) and
- * `navLabel` (default `'Configurator'`), so this exact component can be
+ * `navLabel` (default `'Configure'`, renamed 2026-07-21 per Arun's direct
+ * instruction — the label previously read "Configurator"), so this exact component can be
  * reused verbatim for the client-scoped Configure surface
  * (`/dashboard/channel-partner/clients/[id]/configure`). Every existing
  * `/dashboard/configurator/**` caller passes neither prop, so it renders the
@@ -204,7 +205,7 @@ export function ConfiguratorNavShell({
   billingHealth,
   children,
   basePath = '/dashboard/configurator',
-  navLabel = 'Configurator',
+  navLabel = 'Configure',
 }: {
   accounts: AdminPartnerAccount[]
   activePartnerAccountId: string
@@ -234,7 +235,7 @@ export function ConfiguratorNavShell({
     <div style={{ minHeight: '100vh', background: COLORS.bg, color: COLORS.textPrimary, fontFamily: 'Inter, system-ui, sans-serif' }}>
       <div style={{ borderBottom: `1px solid ${COLORS.borderSubtle}`, padding: '16px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <span style={{ fontWeight: 700, fontSize: 14 }}>Clio Configurator</span>
+          <span style={{ fontWeight: 700, fontSize: 14 }}>Clio Configure</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {accounts.length > 1 ? (

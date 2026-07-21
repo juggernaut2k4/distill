@@ -52,7 +52,7 @@ export default function DashboardPanel({
   activePartnerAccountId,
   onSelect,
   basePath = '/dashboard/configurator',
-  navLabel = 'Configurator',
+  navLabel = 'Configure',
 }: {
   status: ConfiguratorStatus | null
   isLive: boolean

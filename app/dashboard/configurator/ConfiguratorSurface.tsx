@@ -92,7 +92,7 @@ export default function ConfiguratorSurface({
   onboardingCompletedAt,
   initialSection,
   basePath = '/dashboard/configurator',
-  navLabel = 'Configurator',
+  navLabel = 'Configure',
 }: {
   accounts: AdminPartnerAccount[]
   activePartnerAccountId: string
