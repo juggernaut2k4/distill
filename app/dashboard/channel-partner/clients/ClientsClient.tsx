@@ -161,29 +161,30 @@ export default function ClientsClient({ initialFormOpen }: { initialFormOpen: bo
       {!loading && !loadError && clients.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {clients.map((client) => (
-            <Card key={client.id} style={{ padding: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-                <Link
-                  href={`/dashboard/channel-partner/clients/${client.id}`}
-                  style={{ textDecoration: 'none', display: 'block', flex: 1, minWidth: 0, padding: 20 }}
-                >
-                  <p style={{ color: COLORS.textPrimary, fontWeight: 600, margin: 0 }}>{client.name}</p>
-                  {client.company_url && (
-                    <p style={{ color: COLORS.textSecondary, fontSize: 13, margin: '2px 0 0' }}>{client.company_url}</p>
-                  )}
-                </Link>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 16, paddingRight: 20, flexShrink: 0 }}>
-                  <StatusBadge status={client.status} />
-                  {/* Direct one-click path to Configure — previously required detail page -> Configure card -> button (3 clicks). */}
-                  <Link
-                    href={`/dashboard/channel-partner/clients/${client.id}/configure`}
-                    style={{ color: COLORS.purple, fontSize: 13, fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap' }}
-                  >
-                    Configure →
-                  </Link>
+            // Arun: "why do you need the inbetween screen" — the old detail page did nothing but
+            // show a single "Configure" card/button, so the whole row now links straight to
+            // Configure. The row-level "Configure →" label (not hover-only) is the affordance
+            // that answers his follow-up — how does the user know clicking here means configure.
+            <Link
+              key={client.id}
+              href={`/dashboard/channel-partner/clients/${client.id}/configure`}
+              style={{ textDecoration: 'none', display: 'block' }}
+            >
+              <Card>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                  <div style={{ minWidth: 0 }}>
+                    <p style={{ color: COLORS.textPrimary, fontWeight: 600, margin: 0 }}>{client.name}</p>
+                    {client.company_url && (
+                      <p style={{ color: COLORS.textSecondary, fontSize: 13, margin: '2px 0 0' }}>{client.company_url}</p>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexShrink: 0 }}>
+                    <StatusBadge status={client.status} />
+                    <span style={{ color: COLORS.purple, fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap' }}>Configure →</span>
+                  </div>
                 </div>
-              </div>
-            </Card>
+              </Card>
+            </Link>
           ))}
         </div>
       )}
