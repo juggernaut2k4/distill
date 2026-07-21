@@ -53,12 +53,17 @@ export default function ApiClient({
   activePartnerAccountId,
   billingHealth,
   basePath = '/dashboard/configurator',
+  navLabel,
 }: {
   accounts: AdminPartnerAccount[]
   activePartnerAccountId: string
   billingHealth: BillingHealth
   /** B2B-29 (docs/specs/B2B-29-requirement-document.md §6.1) — see ConfiguratorSurface.tsx. */
   basePath?: string
+  /** Hotfix (2026-07-21, live-tested by Arun) — see KnownBugsClient's identical fix. Forwarded to
+   * ConfiguratorNavShell so the client-scoped Configure surface's nav tab reads "Configure", not the
+   * direct-partner default "Configurator". */
+  navLabel?: string
 }) {
   return (
     <ConfiguratorNavShell
@@ -67,6 +72,7 @@ export default function ApiClient({
       active="api"
       billingHealth={billingHealth}
       basePath={basePath}
+      navLabel={navLabel}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         <h1 style={{ fontSize: 18, fontWeight: 700 }}>API</h1>

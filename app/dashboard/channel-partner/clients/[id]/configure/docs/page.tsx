@@ -26,6 +26,7 @@ export default async function ClientDocsPage({ params }: { params: { id: string 
       activePartnerAccountId={access.client.id}
       billingHealth={billingHealth}
       basePath={`/dashboard/channel-partner/clients/${params.id}/configure`}
+      navLabel="Configure"
     />
   )
 }

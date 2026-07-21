@@ -86,12 +86,15 @@ export default function DocsClient({
   activePartnerAccountId,
   billingHealth,
   basePath = '/dashboard/configurator',
+  navLabel,
 }: {
   accounts: AdminPartnerAccount[]
   activePartnerAccountId: string
   billingHealth: BillingHealth
   /** B2B-29 (docs/specs/B2B-29-requirement-document.md §6.1) — see ConfiguratorSurface.tsx. */
   basePath?: string
+  /** Hotfix (2026-07-21, live-tested by Arun) — see KnownBugsClient's identical fix. */
+  navLabel?: string
 }) {
   return (
     <ConfiguratorNavShell
@@ -100,6 +103,7 @@ export default function DocsClient({
       active="docs"
       billingHealth={billingHealth}
       basePath={basePath}
+      navLabel={navLabel}
     >
       <h1 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>Docs</h1>
       <p style={{ fontSize: 13, color: COLORS.textSecondary, marginBottom: 8 }}>

@@ -28,6 +28,7 @@ export default async function ClientApiPage({ params }: { params: { id: string }
       activePartnerAccountId={access.client.id}
       billingHealth={billingHealth}
       basePath={`/dashboard/channel-partner/clients/${params.id}/configure`}
+      navLabel="Configure"
     />
   )
 }
