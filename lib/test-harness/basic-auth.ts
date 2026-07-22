@@ -1,4 +1,3 @@
-import crypto from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 
 /**
@@ -8,22 +7,31 @@ import { NextRequest, NextResponse } from 'next/server'
  * Clerk-allowlist pattern (see requirement doc §0 point 5 for the explicit trade-off note): this
  * is a single-user, internal tool with no partner account, no admin-invite concept, and exactly
  * one intended user, so a shared-credential Basic Auth check checked in `middleware.ts` is
- * proportionate. Constant-time compared (`crypto.timingSafeEqual`, length-padded so the comparison
- * never leaks timing information about the credential's length) — never a plain `===`.
+ * proportionate. Constant-time compared — a manual byte-XOR loop over the full padded length, never
+ * an early-exit `===` or Node's `crypto.timingSafeEqual` (that's a Node.js-only API; `middleware.ts`
+ * runs in the Edge runtime, which doesn't have Node's `crypto` module — confirmed live 2026-07-22,
+ * every request supplying a well-formed `Basic <base64>` header 500'd with MIDDLEWARE_INVOCATION_FAILED
+ * / "The edge runtime does not support Node.js 'crypto' module" until this was rewritten).
  */
 
 export type TestHarnessAuthResult = { ok: true } | { ok: false; challengeResponse: NextResponse }
 
-/** Constant-time string comparison, padded to equal length first so length itself leaks nothing. */
+/**
+ * Constant-time string comparison usable in the Edge runtime: encodes both strings to bytes, pads
+ * to equal length, then XORs every byte (loop never exits early) so neither content nor length is
+ * leaked via timing.
+ */
 function timingSafeEqualStrings(a: string, b: string): boolean {
-  const aBuf = Buffer.from(a, 'utf-8')
-  const bBuf = Buffer.from(b, 'utf-8')
+  const aBuf = new TextEncoder().encode(a)
+  const bBuf = new TextEncoder().encode(b)
   const maxLen = Math.max(aBuf.length, bBuf.length, 1)
-  const aPadded = Buffer.concat([aBuf], maxLen)
-  const bPadded = Buffer.concat([bBuf], maxLen)
-  // crypto.timingSafeEqual requires equal-length buffers; both are padded to maxLen above.
-  const bytesEqual = crypto.timingSafeEqual(aPadded, bPadded)
-  return bytesEqual && aBuf.length === bBuf.length
+  let diff = aBuf.length === bBuf.length ? 0 : 1
+  for (let i = 0; i < maxLen; i++) {
+    const x = i < aBuf.length ? aBuf[i] : 0
+    const y = i < bBuf.length ? bBuf[i] : 0
+    diff |= x ^ y
+  }
+  return diff === 0
 }
 
 function challenge(): NextResponse {
