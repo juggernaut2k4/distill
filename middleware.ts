@@ -2,7 +2,7 @@ import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 import { resolveTenantFromHost, isVerifiedCustomDomain } from '@/lib/partner/domain-resolution'
 import { checkTestHarnessBasicAuth } from '@/lib/test-harness/basic-auth'
-import { isTestHarnessAuthoringPath } from '@/lib/test-harness/paths'
+import { isTestHarnessAuthoringPath, isDemoPath } from '@/lib/test-harness/paths'
 
 const isPublicRoute = createRouteMatcher([
   '/',
@@ -24,6 +24,8 @@ const isPublicRoute = createRouteMatcher([
   '/partner-render/(.*)',     // B2B-02: placeholder render stub, loaded headlessly by the meeting bot on a partner's behalf — no Clerk session available
   '/partner-questionnaire/(.*)', // B2B-05 fix: pre-existing gap — this end-user-facing, no-auth route (B2B-03) was missing from this list; see build report
   '/test-harness-render/(.*)', // B2B-32: public, unauthenticated — fetched by the real safeFetchPartnerPage() pipeline, mirrors /partner-render and /showcase-render
+  '/demo', // "Learn with AI" demo catalog on test.hello-clio.com — public, no sign-in, per Arun's direct instruction
+  '/demo/(.*)',
 ])
 
 // B2B-05 — Host-header tenant resolution (Requirement Doc Section 5.B.5,
@@ -71,6 +73,12 @@ export default clerkMiddleware(async (auth, request) => {
   // docs/specs/B2B-32-requirement-document.md §0 point 4/§6.6.
   const testHarnessHost = process.env.TEST_HARNESS_HOST ?? ''
   if (testHarnessHost.length > 0 && host === testHarnessHost) {
+    // "Learn with AI" demo catalog — fully public, no Basic Auth, no Clerk session. Separate from
+    // the harness's own Basic-Auth-gated authoring surface below; checked first so it's never
+    // accidentally swept into that gate.
+    if (isDemoPath(pathname)) {
+      return NextResponse.next()
+    }
     if (pathname === '/' || isTestHarnessAuthoringPath(pathname)) {
       const authResult = checkTestHarnessBasicAuth(request)
       if (!authResult.ok) return authResult.challengeResponse
@@ -91,6 +99,14 @@ export default clerkMiddleware(async (auth, request) => {
   // isTestHarnessAuthoringPath (must stay public on the main app origin, §0 point 2, added to
   // isPublicRoute above).
   if (isTestHarnessAuthoringPath(pathname)) {
+    return neutralNotFoundResponse()
+  }
+
+  // Same defense-in-depth for the "Learn with AI" demo catalog: it's in the global
+  // `isPublicRoute` list (so Clerk never redirects it to sign-in), but per Arun's own framing
+  // ("separately not part of hello-clio... build the page in test.hello-clio.com") it must not
+  // actually render anywhere except the test-harness host.
+  if (isDemoPath(pathname)) {
     return neutralNotFoundResponse()
   }
 

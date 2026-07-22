@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isTestHarnessAuthoringPath } from '@/lib/test-harness/paths'
+import { isTestHarnessAuthoringPath, isDemoPath } from '@/lib/test-harness/paths'
 
 /**
  * B2B-32 (docs/specs/B2B-32-requirement-document.md AT-1). Covers the exact path-matching logic
@@ -32,5 +32,25 @@ describe('isTestHarnessAuthoringPath', () => {
     expect(isTestHarnessAuthoringPath('/dashboard')).toBe(false)
     expect(isTestHarnessAuthoringPath('/')).toBe(false)
     expect(isTestHarnessAuthoringPath('/api/partner/v1/sessions')).toBe(false)
+  })
+})
+
+/**
+ * "Learn with AI" demo catalog isolation — public/no-auth, but must still be scoped to
+ * test.hello-clio.com only via the defense-in-depth 404 in middleware.ts, since it's in the
+ * global isPublicRoute list (which makes it Clerk-reachable on every host by default).
+ */
+describe('isDemoPath', () => {
+  it('matches the catalog root and nested topic routes', () => {
+    expect(isDemoPath('/demo')).toBe(true)
+    expect(isDemoPath('/demo/claude-ai')).toBe(true)
+    expect(isDemoPath('/demo/oop-fundamentals')).toBe(true)
+  })
+
+  it('does not match unrelated paths, including other test-harness paths', () => {
+    expect(isDemoPath('/')).toBe(false)
+    expect(isDemoPath('/dashboard')).toBe(false)
+    expect(isDemoPath('/test-harness')).toBe(false)
+    expect(isDemoPath('/demonstration')).toBe(false)
   })
 })

@@ -21,3 +21,15 @@ export function isTestHarnessAuthoringPath(pathname: string): boolean {
     pathname.startsWith('/api/test-harness/')
   )
 }
+
+/**
+ * The "Learn with AI" demo catalog (`/demo`, `/demo/[slug]`) — public and unauthenticated, but,
+ * per Arun's own framing ("build the page in test.hello-clio.com... separately not part of
+ * hello-clio"), scoped to the test-harness subdomain only. Global `isPublicRoute` in
+ * `middleware.ts` makes `/demo` reachable to Clerk on every host, so this needs the same
+ * defense-in-depth 404 the authoring surface gets: without it, `/demo` would also render on
+ * hello-clio.com/distill-peach.vercel.app since the route physically exists in the app.
+ */
+export function isDemoPath(pathname: string): boolean {
+  return pathname === '/demo' || pathname.startsWith('/demo/')
+}
