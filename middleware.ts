@@ -1,6 +1,8 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 import { resolveTenantFromHost, isVerifiedCustomDomain } from '@/lib/partner/domain-resolution'
+import { checkTestHarnessBasicAuth } from '@/lib/test-harness/basic-auth'
+import { isTestHarnessAuthoringPath } from '@/lib/test-harness/paths'
 
 const isPublicRoute = createRouteMatcher([
   '/',
@@ -21,6 +23,7 @@ const isPublicRoute = createRouteMatcher([
   '/walkthrough/(.*)',        // Public walkthrough page shared by Recall.ai bot
   '/partner-render/(.*)',     // B2B-02: placeholder render stub, loaded headlessly by the meeting bot on a partner's behalf — no Clerk session available
   '/partner-questionnaire/(.*)', // B2B-05 fix: pre-existing gap — this end-user-facing, no-auth route (B2B-03) was missing from this list; see build report
+  '/test-harness-render/(.*)', // B2B-32: public, unauthenticated — fetched by the real safeFetchPartnerPage() pipeline, mirrors /partner-render and /showcase-render
 ])
 
 // B2B-05 — Host-header tenant resolution (Requirement Doc Section 5.B.5,
@@ -59,6 +62,37 @@ export default clerkMiddleware(async (auth, request) => {
   const host = (request.headers.get('host') ?? '').toLowerCase().split(':')[0]
   const pathname = request.nextUrl.pathname
   const rootDomain = process.env.CLIO_ROOT_DOMAIN ?? ''
+
+  // B2B-32 — static, single-host routing for the internal test harness (test.hello-clio.com).
+  // Inserted BEFORE the isTenantHost check below so B2B-05's dynamic per-partner subdomain
+  // resolution never runs for this host — "test" is not a partner's subdomain_slug, so without
+  // this early branch it would fall into B2B-05's tenant-resolution logic, find no matching
+  // account, and 404 before ever reaching this brief's own routes. See
+  // docs/specs/B2B-32-requirement-document.md §0 point 4/§6.6.
+  const testHarnessHost = process.env.TEST_HARNESS_HOST ?? ''
+  if (testHarnessHost.length > 0 && host === testHarnessHost) {
+    if (pathname === '/' || isTestHarnessAuthoringPath(pathname)) {
+      const authResult = checkTestHarnessBasicAuth(request)
+      if (!authResult.ok) return authResult.challengeResponse
+      if (pathname === '/') {
+        const rewritten = request.nextUrl.clone()
+        rewritten.pathname = '/test-harness'
+        return NextResponse.rewrite(rewritten)
+      }
+      return NextResponse.next()
+    }
+    // Any other path on this host — never leaks the rest of the app.
+    return neutralNotFoundResponse()
+  }
+
+  // Defense in depth (Known Constraint 2, AT-1): the harness's authoring pages/APIs never resolve
+  // on any OTHER host, including the main hello-clio.com/distill-peach.vercel.app origin —
+  // regardless of Basic Auth headers supplied. /test-harness-render/* is deliberately excluded by
+  // isTestHarnessAuthoringPath (must stay public on the main app origin, §0 point 2, added to
+  // isPublicRoute above).
+  if (isTestHarnessAuthoringPath(pathname)) {
+    return neutralNotFoundResponse()
+  }
 
   const isTenantHost =
     rootDomain.length > 0 &&
