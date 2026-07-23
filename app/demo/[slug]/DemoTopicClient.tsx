@@ -31,12 +31,22 @@ import {
 const TABS = ['Course Overview', 'Transcript', 'Visuals', 'Resources', 'Discussion', 'Learning Check'] as const
 type Tab = (typeof TABS)[number]
 
+/** Both demo topics now have a full set of static visual pages under /demo/{slug}/visuals/{chapterId}. */
+const VISUAL_TOPICS = new Set(['claude-ai', 'oop-fundamentals'])
+
 const VISUAL_BLURBS: Record<string, string> = {
-  'what-is-claude': 'Watch input become output — an animated flow diagram.',
-  'model-family': 'An interactive capability-vs-speed chart for all four models.',
-  'modes-of-interaction': 'Switch between modes and watch each one animate.',
-  'choosing-the-right-model': 'Answer two quick questions to get a model recommendation.',
-  'what-makes-claude-different': 'Flip each card to see what sets Claude apart.',
+  'what-is-claude': 'What Claude is, and how Constitutional AI trains it.',
+  'model-family': 'A capability-vs-speed chart across all four models.',
+  'modes-of-interaction': 'Four ways to work with the same underlying models.',
+  'choosing-the-right-model': 'A model recommendation for every kind of task.',
+  'what-makes-claude-different': 'Four things that consistently set Claude apart.',
+  'why-oop': 'Why structuring code around objects pays off as systems grow.',
+  'classes-and-objects': 'The blueprint-vs-instance distinction, with real code.',
+  'encapsulation': 'Controlling how state can change, with real code.',
+  'abstraction': 'Interface vs. implementation, with real code.',
+  'inheritance': 'Sharing and specializing behavior, with real code.',
+  'polymorphism': 'Same call, different behavior per type, with real code.',
+  'oop-in-the-real-world': 'The four pillars together, and where you’ll see them.',
 }
 
 export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
@@ -171,12 +181,12 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
 
           {activeTab === 'Visuals' && (
             <div style={{ maxWidth: 760, marginTop: 24 }}>
-              {topic.slug === 'claude-ai' ? (
+              {VISUAL_TOPICS.has(topic.slug) ? (
                 <div style={{ display: 'grid', gap: 12 }}>
                   {topic.chapters.map((ch, i) => (
                     <Link
                       key={ch.id}
-                      href={`/demo/claude-ai/visuals/${ch.id}`}
+                      href={`/demo/${topic.slug}/visuals/${ch.id}`}
                       style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -193,7 +203,7 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 15, fontWeight: 700 }}>{ch.title}</div>
                         <div style={{ fontSize: 13, color: COLORS.textMuted, marginTop: 2 }}>
-                          {VISUAL_BLURBS[ch.id] ?? 'Interactive visual'}
+                          {VISUAL_BLURBS[ch.id] ?? 'Visual explainer'}
                         </div>
                       </div>
                       <span style={{ color: COLORS.accentBright, fontSize: 18 }}>→</span>
@@ -202,7 +212,7 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
                 </div>
               ) : (
                 <div style={{ color: COLORS.textMuted, fontSize: 14 }}>
-                  No interactive visuals for this demo course yet.
+                  No visuals for this demo course yet.
                 </div>
               )}
             </div>

@@ -24,12 +24,12 @@ const VISUALS: Record<string, { title: string; subtitle: string; Component: () =
   },
   'choosing-the-right-model': {
     title: 'Choosing the Right Model for the Job',
-    subtitle: 'Answer two quick questions to see a recommendation.',
+    subtitle: 'There’s no single "best" model — it depends what you’re optimizing for.',
     Component: ChoosingModelVisual,
   },
   'what-makes-claude-different': {
     title: 'What Makes Claude Different',
-    subtitle: 'Flip each card to see what actually sets it apart.',
+    subtitle: 'Four things that consistently set Claude apart.',
     Component: DifferentiatorsVisual,
   },
 }

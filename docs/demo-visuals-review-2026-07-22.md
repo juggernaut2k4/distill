@@ -160,8 +160,8 @@ All 12 subtopics across both demo topics. Filled in as each page is reviewed.
 | 1 | `what-is-claude` (input/output flow) | **Done — rebuilt as static infographic** | Redesigned 3x live with Arun: (1) "no hovering, animated lines are good" → removed all interactivity, kept ambient dash-flow/pulse animation; (2) "doesn't have the learning meat" → replaced vague safety paragraph with real Constitutional AI/RLAIF content; (3) "1-line overview + highlight containers" → added overview line + 3 highlight cards; (4) hard constraint: fit 100% viewport, zero scrollbar, on mobile/tablet/desktop | Content rewritten (`app/demo/_content.ts`), visual rebuilt (`WhatIsClaudeVisual.tsx`) with overview line, 3 highlight cards, "How Claude is trained" 3-step loop, "What Claude can do" input/output diagram. Built a shared `FitToViewport` shrink-to-fit wrapper (`_fit-to-viewport.tsx`) into `_shell.tsx` — measures natural content height, scales down to fit below nav. One live bug found+fixed: initial version left 20px mobile overflow (bottom padding not budgeted into the available-height calc) — fixed in `9db13eb`. **Verified live 2026-07-22**: mobile (375x812), tablet (768x1024), desktop (1280x800) all measured `scrollHeight === innerHeight`, 0px overflow, no runtime errors, content legible at all 3 sizes. |
 | 2 | `model-family` (capability/speed chart) | **Done — rebuilt as static infographic** | Arun approved the proposed rebuild direction ("yes rebuild"), and flagged in passing that the `what-is-claude` page subtitle didn't align with its content. | Chart is now fully static (removed `useState`/`onClick` — 0 clickable elements measured live), all 4 model dots+labels always visible. Added overview line, a generation-improvement callout ("current-gen Haiku can often outperform an older-gen Opus") pulled from the transcript but previously missing, and a 4-card grid below the chart with every model's description visible at once, color-matched to its chart dot. Both page subtitles fixed: `model-family`'s referenced clicking ("pick a point on the chart") which no longer applies; `what-is-claude`'s was stale, duplicated a line already in the visual, and didn't match its Constitutional AI framing — replaced with "A constitutional AI, trained to critique and improve its own answers." **Verified live 2026-07-22** (`f8b455e`): mobile/tablet/desktop all `scrollHeight === innerHeight`, 0px overflow, 0 clickable elements, no runtime errors, all 4 models legible at every size. |
 | 3 | `modes-of-interaction` (mode switcher) | **Done — rebuilt as static infographic** | Extension of the same interactivity rule (no explicit per-page feedback needed — same violation as pages 1-2). | Removed the 4-way segmented control and `useState` entirely — all 4 modes (chat, extended thinking, agentic, embedded) now render as always-visible cards with the real transcript description each (old version showed a bare label only, no explanation) plus a small ambient visual retained from the original per-mode animations. Page subtitle updated (old one assumed picking a mode). **Live bug found during verification and fixed** (`ac68663`): the 4-card grid's `auto-fit minmax(280px)` produced 3 columns + an orphaned 4th card with wasted space at desktop width — replaced with an explicit 2-column grid above a 560px breakpoint via a scoped media query, clean 2x2 at tablet/desktop, single column on mobile. **Verified live 2026-07-22**: mobile/tablet/desktop all `scrollHeight === innerHeight`, 0px overflow, 0 clickable elements, clean 2x2 grid on desktop (no orphan), no runtime errors. |
-| 4 | `choosing-the-right-model` (decision wizard) | Pending review | — | — |
-| 5 | `what-makes-claude-different` (flip cards) | Pending review | — | — |
+| 4 | `choosing-the-right-model` (decision wizard) | **Done — rebuilt as static infographic** (built autonomously, not yet reviewed live by Arun) | Arun: "push it and complete both topics fully and push it. i will check tomorrow morning" — authorized completing the remaining pages without further per-page live checkpoints. | Removed the 2-question wizard and both `useState` hooks entirely. All 4 model recommendations (Opus/Sonnet/Haiku/Fable) now show simultaneously as cards with their real "when to use" reasoning from the transcript, color-matched to the model-family chart's palette for visual continuity across pages. Added a "common production pattern" section — a static triage flow diagram (Request → Haiku triage → simple/done or escalate to Sonnet/Opus) with animated dash-flow connector lines — surfacing a transcript sentence the old wizard never showed at all. Page subtitle updated (old one described the wizard mechanic). |
+| 5 | `what-makes-claude-different` (flip cards) | **Done — rebuilt as static infographic** (built autonomously, not yet reviewed live by Arun) | Same authorization as row 4. | Removed the click-to-flip mechanic and `useState` entirely. All 4 differentiator cards (safety-first training, long context windows, agentic tool use, artifacts) show their full explanation directly — no "click to flip →" prompt, no hidden back-face content. Page subtitle updated (old one described the flip mechanic). |
 
 Note: the `FitToViewport` wrapper lives in the *shared* `_shell.tsx`, so it now applies to all 5
 Claude AI visual pages automatically. Only pages 1–2's own internal spacing was tightened with
@@ -171,20 +171,45 @@ reviewed.
 
 ### Demo 2 — Object-Oriented Programming Fundamentals (7 subtopics)
 
-No Visuals tab exists yet for this topic — currently shows "unavailable." All 7 pages are new
-builds, not rebuilds. Component files will live under `app/demo/oop-fundamentals/visuals/`
-(mirroring the Claude AI pattern) once the `DemoTopicClient.tsx` gate is removed.
+Built end-to-end in one pass per Arun's "complete both topics fully" authorization — all 7 are new
+builds (no prior interactive version to rebuild from). Component files live under
+`app/demo/oop-fundamentals/visuals/`, mirroring the Claude AI directory pattern (own `_shell.tsx` +
+`_fit-to-viewport.tsx`, duplicated rather than shared across topics for isolation — `_visual-styles.ts`
+added as a shared token file across the 7 OOP components only, to keep the code-excerpt/callout/card
+styling consistent without repeating it in every file). `DemoTopicClient.tsx`'s hardcoded
+`topic.slug === 'claude-ai'` gate replaced with a `VISUAL_TOPICS` set covering both topics, and the
+Visuals tab's href now derives from `topic.slug` generically instead of a hardcoded path.
+
+Applied the CEO's code-heavy-chapter guidance throughout: short curated excerpts (~5–8 lines) from
+the real transcript code, not full reprints, each with 2–3 labeled callouts explaining what the code
+does and why it matters; before/after comparison cards for the inherently comparative chapters
+(encapsulation, polymorphism) and for `why-oop`'s procedural-vs-object framing.
 
 | # | Page | Status | Arun's feedback | Action taken |
 |---|------|--------|------------------|--------------|
-| 6 | `why-oop` (why structure code this way) | Not started | — | — |
-| 7 | `classes-and-objects` (blueprint vs. instance) | Not started | — | — |
-| 8 | `encapsulation` (controlled access to state) | Not started | — | — |
-| 9 | `abstraction` (interface vs. implementation) | Not started | — | — |
-| 10 | `inheritance` (shared base, specialized subclass) | Not started | — | — |
-| 11 | `polymorphism` (same call, per-type behavior) | Not started | — | — |
-| 12 | `oop-in-the-real-world` (the four pillars together) | Not started | — | — |
+| 6 | `why-oop` (why structure code this way) | **Done — built** (not yet reviewed live by Arun) | Covered by the CEO-approved scope decision + "complete both topics fully" authorization above. | No code excerpt (transcript has none for this chapter) — overview line, a "without structure vs. with objects" comparison pair, and a 3-card recap of what OOP buys you (reuse, enforced rules, shared vocabulary). |
+| 7 | `classes-and-objects` (blueprint vs. instance) | **Done — built** | Same. | Code excerpt: the `Car` class constructor + `drive()`. Callouts: `__init__` as constructor, `self` scoping per-instance state. Paired with a static visual showing `my_car`/`your_car` holding independently different `odometer` values — makes the "separate state per object" point concrete rather than just asserted. |
+| 8 | `encapsulation` (controlled access to state) | **Done — built** | Same. | Code excerpt: `BankAccount.deposit()` validating before mutating `_balance`. Callouts on the internal-by-convention attribute and validate-before-mutate pattern. Before/after card pair: what breaks without encapsulation (any code can set an invalid balance) vs. what encapsulation guarantees (`deposit()`/`withdraw()` are the only doors in). |
+| 9 | `abstraction` (interface vs. implementation) | **Done — built** | Same. | Code excerpt: `PaymentProcessor` abstract interface + `checkout()` depending only on it. Callouts on interface-stability. A diagram shows Stripe/PayPal as existing implementations and Apple Pay added as a new one — visually demonstrating a new provider slots in without touching `checkout()`. |
+| 10 | `inheritance` (shared base, specialized subclass) | **Done — built** | Same. | Code excerpt: `Animal.describe()`/`speak()` with `Dog` overriding `speak()`. Callouts on shared-vs-overridden methods. A small class tree diagram (Animal → Dog, Cat) shows each subclass's overridden `speak()` output. |
+| 11 | `polymorphism` (same call, per-type behavior) | **Done — built** | Same. | Code excerpt: `sum(shape.area() for shape in shapes)` with no type checks. Callouts on per-type correct behavior and the caller never checking concrete type. Before/after card pair: `if isinstance(...)` branch sprawl without polymorphism vs. zero-change extensibility with it. |
+| 12 | `oop-in-the-real-world` (the four pillars together) | **Done — built** | Same. | No code excerpt (transcript is a wrap-up, not new code) — a 4-card recap of each pillar's payoff, plus a "where you'll see it" list of real-world examples (web frameworks, game engines, enterprise systems) pulled directly from the transcript. |
 
 ### Detailed notes per page
 
 (Appended below as each page is reviewed.)
+
+### Overnight completion note (2026-07-22, late session)
+
+Arun signed off on page 3 (`modes-of-interaction`) live, then said: **"looks good push it and
+complete both topics fully and push it. i will check tomorrow morning."** This explicitly authorized
+finishing the remaining Claude AI pages (4–5) and all 7 OOP pages without further per-page live
+review checkpoints tonight — a change from the earlier "build one OOP page first and live-review it"
+guidance, superseded by Arun's own direct instruction to complete and push everything now.
+
+All 5 Claude AI pages and all 7 OOP pages are now built and pushed. Every commit was verified with
+the real `npm run build`, `npx tsc --noEmit`, and the full test suite (606/607 — the one failure is
+the pre-existing, unrelated voice-gap-watchdog/minutes_ledger mock-table issue) before pushing.
+**Pages 4, 5, and all 7 OOP pages have NOT yet been through a live-deploy scroll/interactivity/
+runtime-error verification pass or Arun's visual review** — that's the first thing to do when picking
+this back up, before considering the "one by one" review closed out.
