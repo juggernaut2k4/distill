@@ -60,11 +60,15 @@ export const DEMO_TOPICS: DemoTopic[] = [
         blocks: [
           {
             type: 'paragraph',
-            text: 'Claude is a family of large language models built by Anthropic, designed to be helpful, honest, and safe. At its core, Claude takes text (and often images, documents, or code) as input and generates text as output — but what makes it useful in practice is the range of things it can do with that: answer questions, write and edit code, analyze documents, hold a conversation, and act as an agent that plans and carries out multi-step tasks using tools.',
+            text: 'Claude is a family of large language models built by Anthropic. At its core, Claude takes text (and often images, documents, or code) as input and generates text as output — but what makes it useful in practice is the range of things it can do with that: answer questions, write and edit code, analyze documents, hold a conversation, and act as an agent that plans and carries out multi-step tasks using tools.',
           },
           {
             type: 'paragraph',
-            text: "Anthropic was founded with a specific focus on AI safety, and that shows up in how Claude is trained: it's built to be careful about the claims it makes, to say when it isn't sure, and to avoid producing harmful content — while still being genuinely capable at demanding, real-world work.",
+            text: 'What makes Claude different starts with how it\'s trained. Most language models are refined using Reinforcement Learning from Human Feedback (RLHF) — humans compare pairs of responses and label which one is better, and the model learns from those labels. Claude is trained with an additional method Anthropic developed called Constitutional AI: instead of relying only on humans to label every example, Claude is given a written set of principles — a "constitution" — and trained to critique its own draft responses against those principles, then revise them. The improved response becomes training data. Because an AI model (not a human) does much of the evaluating at scale, this is sometimes called Reinforcement Learning from AI Feedback (RLAIF).',
+          },
+          {
+            type: 'paragraph',
+            text: "This matters for three concrete reasons: it makes the values Claude is trained on explicit and inspectable — written principles, not just implicit patterns buried in thousands of scattered labels; it protects human reviewers from having to read large volumes of harmful content just to label it; and it scales — AI-generated feedback can be produced far faster and more consistently than human labeling alone. The result is a model that's built to say when it isn't sure and to avoid harmful requests, without needing a human to review every single training example by hand.",
           },
         ],
       },
