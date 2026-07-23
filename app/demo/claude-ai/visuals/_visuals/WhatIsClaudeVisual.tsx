@@ -1,169 +1,149 @@
 'use client'
 
-import { useState } from 'react'
+import { Type, Image as ImageIcon, Code2, FileText, MessageCircle, PenLine, MessagesSquare, Zap, Sparkles } from 'lucide-react'
 import { COLORS } from '../../../_styles'
 
 const INPUTS = [
-  { id: 'text', label: 'Text', desc: 'Questions, instructions, long documents.' },
-  { id: 'images', label: 'Images', desc: 'Screenshots, diagrams, photos.' },
-  { id: 'code', label: 'Code', desc: 'Whole files or codebases for context.' },
-  { id: 'docs', label: 'Documents', desc: 'PDFs, spreadsheets, reports.' },
+  { id: 'text', label: 'Text', desc: 'Questions & instructions', Icon: Type },
+  { id: 'images', label: 'Images', desc: 'Screenshots & photos', Icon: ImageIcon },
+  { id: 'code', label: 'Code', desc: 'Whole files or projects', Icon: Code2 },
+  { id: 'docs', label: 'Documents', desc: 'PDFs & reports', Icon: FileText },
 ]
 
 const OUTPUTS = [
-  { id: 'answers', label: 'Answers', desc: 'Direct responses to questions.' },
-  { id: 'writing', label: 'Writing & Code', desc: 'Drafts, edits, working code.' },
-  { id: 'conversation', label: 'Conversation', desc: 'Back-and-forth dialogue.' },
-  { id: 'actions', label: 'Actions', desc: 'Tool calls that get real work done.' },
+  { id: 'answers', label: 'Answers', desc: 'Direct responses', Icon: MessageCircle },
+  { id: 'writing', label: 'Writing & Code', desc: 'Drafts & working code', Icon: PenLine },
+  { id: 'conversation', label: 'Conversation', desc: 'Back-and-forth dialogue', Icon: MessagesSquare },
+  { id: 'actions', label: 'Actions', desc: 'Real tool-driven work', Icon: Zap },
 ]
 
-/** Input → Claude → Output flow, with a continuously-animated "current" running through the wires. */
+/** Static infographic: input → Claude → output, all labels always visible, animated flow lines. */
 export default function WhatIsClaudeVisual() {
-  const [hovered, setHovered] = useState<string | null>(null)
-  const active = INPUTS.find((i) => i.id === hovered) ?? OUTPUTS.find((o) => o.id === hovered) ?? null
-
   return (
     <div>
       <style jsx>{`
         @keyframes dash-flow {
           to {
-            stroke-dashoffset: -24;
+            stroke-dashoffset: -32;
           }
         }
         .wire {
-          stroke: ${COLORS.borderStrong};
-          stroke-width: 2;
-          stroke-dasharray: 6 6;
+          stroke: ${COLORS.accent};
+          stroke-width: 2.5;
+          stroke-dasharray: 1 11;
+          stroke-linecap: round;
           fill: none;
-          animation: dash-flow 1.4s linear infinite;
+          opacity: 0.85;
+          animation: dash-flow 1.1s linear infinite;
         }
-        .pill {
-          transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
-          cursor: default;
-        }
-        .pill:hover {
-          transform: translateY(-2px);
-          border-color: ${COLORS.accentBright};
-          background: ${COLORS.surfaceRaised};
-        }
-        @keyframes pulse {
+        @keyframes glow {
           0%, 100% {
-            box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.5);
+            box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.45);
           }
           50% {
-            box-shadow: 0 0 0 16px rgba(139, 92, 246, 0);
+            box-shadow: 0 0 0 18px rgba(139, 92, 246, 0);
           }
         }
         .core {
-          animation: pulse 2.2s ease-out infinite;
+          animation: glow 2.4s ease-out infinite;
+        }
+        .item-icon {
+          background: ${COLORS.surfaceRaised};
+          border: 1px solid ${COLORS.border};
         }
       `}</style>
 
       <div
         style={{
-          display: 'grid',
-          gridTemplateColumns: 'minmax(140px, 1fr) minmax(80px, 0.6fr) minmax(140px, 1fr)',
-          gap: 'clamp(12px, 3vw, 32px)',
-          alignItems: 'center',
+          background: COLORS.surface,
+          border: `1px solid ${COLORS.border}`,
+          borderRadius: 14,
+          padding: 'clamp(20px, 4vw, 36px)',
         }}
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {INPUTS.map((item) => (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'minmax(160px, 1fr) minmax(60px, 0.5fr) minmax(160px, 1fr)',
+            gap: 'clamp(12px, 3vw, 28px)',
+            alignItems: 'center',
+          }}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {INPUTS.map((item) => (
+              <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div
+                  className="item-icon"
+                  style={{ width: 40, height: 40, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+                >
+                  <item.Icon size={18} color={COLORS.accentBright} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.textPrimary }}>{item.label}</div>
+                  <div style={{ fontSize: 12, color: COLORS.textMuted }}>{item.desc}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative', minHeight: 260 }}>
+            <svg viewBox="0 0 100 260" style={{ width: '100%', height: 260, position: 'absolute', inset: 0 }} aria-hidden="true">
+              <path className="wire" d="M0 33 C 45 33, 45 130, 50 130" />
+              <path className="wire" d="M0 98 C 45 98, 45 130, 50 130" />
+              <path className="wire" d="M0 163 C 45 163, 45 130, 50 130" />
+              <path className="wire" d="M0 228 C 45 228, 45 130, 50 130" />
+              <path className="wire" d="M50 130 C 55 130, 55 33, 100 33" />
+              <path className="wire" d="M50 130 C 55 130, 55 98, 100 98" />
+              <path className="wire" d="M50 130 C 55 130, 55 163, 100 163" />
+              <path className="wire" d="M50 130 C 55 130, 55 228, 100 228" />
+            </svg>
             <div
-              key={item.id}
-              className="pill"
-              onMouseEnter={() => setHovered(item.id)}
-              onMouseLeave={() => setHovered(null)}
+              className="core"
               style={{
-                padding: '10px 14px',
-                borderRadius: 8,
-                border: `1px solid ${COLORS.border}`,
-                background: COLORS.surface,
-                fontSize: 13.5,
-                fontWeight: 600,
-                textAlign: 'center' as const,
+                width: 78,
+                height: 78,
+                borderRadius: '50%',
+                background: `linear-gradient(135deg, ${COLORS.accent}, ${COLORS.accentBright})`,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#fff',
+                position: 'relative',
+                zIndex: 1,
               }}
             >
-              {item.label}
+              <Sparkles size={20} />
+              <span style={{ fontWeight: 800, fontSize: 12.5, marginTop: 2 }}>Claude</span>
             </div>
-          ))}
-        </div>
+          </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-          <svg viewBox="0 0 100 160" style={{ width: '100%', height: 160 }} aria-hidden="true">
-            <path className="wire" d="M0 20 C 40 20, 40 80, 50 80" />
-            <path className="wire" d="M0 60 C 40 60, 40 80, 50 80" />
-            <path className="wire" d="M0 100 C 40 100, 40 80, 50 80" />
-            <path className="wire" d="M0 140 C 40 140, 40 80, 50 80" />
-            <path className="wire" d="M50 80 C 60 80, 60 20, 100 20" />
-            <path className="wire" d="M50 80 C 60 80, 60 60, 100 60" />
-            <path className="wire" d="M50 80 C 60 80, 60 100, 100 100" />
-            <path className="wire" d="M50 80 C 60 80, 60 140, 100 140" />
-          </svg>
-          <div
-            className="core"
-            style={{
-              width: 64,
-              height: 64,
-              borderRadius: '50%',
-              background: `linear-gradient(135deg, ${COLORS.accent}, ${COLORS.accentBright})`,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#fff',
-              fontWeight: 800,
-              fontSize: 13,
-              marginTop: -80,
-              position: 'relative',
-              zIndex: 1,
-            }}
-          >
-            Claude
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {OUTPUTS.map((item) => (
+              <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div
+                  className="item-icon"
+                  style={{ width: 40, height: 40, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+                >
+                  <item.Icon size={18} color={COLORS.accentBright} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.textPrimary }}>{item.label}</div>
+                  <div style={{ fontSize: 12, color: COLORS.textMuted }}>{item.desc}</div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {OUTPUTS.map((item) => (
-            <div
-              key={item.id}
-              className="pill"
-              onMouseEnter={() => setHovered(item.id)}
-              onMouseLeave={() => setHovered(null)}
-              style={{
-                padding: '10px 14px',
-                borderRadius: 8,
-                border: `1px solid ${COLORS.border}`,
-                background: COLORS.surface,
-                fontSize: 13.5,
-                fontWeight: 600,
-                textAlign: 'center' as const,
-              }}
-            >
-              {item.label}
-            </div>
-          ))}
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 20, paddingTop: 16, borderTop: `1px solid ${COLORS.border}` }}>
+          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: COLORS.textMuted }}>
+            Input
+          </span>
+          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: COLORS.textMuted }}>
+            Output
+          </span>
         </div>
-      </div>
-
-      <div
-        style={{
-          marginTop: 24,
-          minHeight: 46,
-          padding: '12px 16px',
-          borderRadius: 8,
-          background: COLORS.surfaceRaised,
-          border: `1px solid ${COLORS.border}`,
-          fontSize: 14,
-          color: COLORS.textSecondary,
-        }}
-      >
-        {active ? (
-          <>
-            <strong style={{ color: COLORS.textPrimary }}>{active.label}:</strong> {active.desc}
-          </>
-        ) : (
-          'Hover an input or output to see what it means.'
-        )}
       </div>
     </div>
   )
