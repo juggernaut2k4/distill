@@ -1,3 +1,5 @@
+'use client'
+
 import { ShieldCheck, ScrollText, Bot, LayoutTemplate } from 'lucide-react'
 import { COLORS } from '../../../_styles'
 
@@ -32,17 +34,23 @@ const DIFFERENTIATORS = [
 export default function DifferentiatorsVisual() {
   return (
     <div>
+      <style jsx>{`
+        .diff-grid {
+          display: grid;
+          grid-template-columns: 1fr;
+        }
+        @media (min-width: 560px) {
+          .diff-grid {
+            grid-template-columns: repeat(2, 1fr);
+          }
+        }
+      `}</style>
+
       <p style={{ fontSize: 'clamp(12px, 1.8vh, 15px)', color: COLORS.textSecondary, lineHeight: 1.5, margin: '0 0 clamp(10px, 2vh, 20px) 0', maxWidth: 640 }}>
         A few things consistently show up as differentiators when people compare Claude to other AI models.
       </p>
 
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))',
-          gap: 'clamp(8px, 1.4vh, 14px)',
-        }}
-      >
+      <div className="diff-grid" style={{ gap: 'clamp(8px, 1.4vh, 14px)' }}>
         {DIFFERENTIATORS.map((d) => (
           <div
             key={d.id}

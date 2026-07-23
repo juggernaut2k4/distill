@@ -24,7 +24,7 @@ const VISUALS: Record<string, { title: string; subtitle: string; Component: () =
   },
   'choosing-the-right-model': {
     title: 'Choosing the Right Model for the Job',
-    subtitle: 'There’s no single "best" model — it depends what you’re optimizing for.',
+    subtitle: 'Four models, each optimized for a different job.',
     Component: ChoosingModelVisual,
   },
   'what-makes-claude-different': {
