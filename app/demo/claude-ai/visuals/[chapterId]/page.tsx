@@ -9,12 +9,12 @@ import DifferentiatorsVisual from '../_visuals/DifferentiatorsVisual'
 const VISUALS: Record<string, { title: string; subtitle: string; Component: () => JSX.Element }> = {
   'what-is-claude': {
     title: 'What Is Claude?',
-    subtitle: 'The same model takes many kinds of input and produces many kinds of output.',
+    subtitle: 'A constitutional AI, trained to critique and improve its own answers.',
     Component: WhatIsClaudeVisual,
   },
   'model-family': {
     title: 'The Claude Model Family',
-    subtitle: 'Every model trades capability for speed differently — pick a point on the chart.',
+    subtitle: 'Four models, four different tradeoffs between capability, speed, and cost.',
     Component: ModelFamilyVisual,
   },
   'modes-of-interaction': {

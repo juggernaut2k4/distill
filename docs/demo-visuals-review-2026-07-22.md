@@ -81,17 +81,60 @@ his direct feedback instead of another automated pass.
 
 ---
 
+## Standing checklist — apply to every remaining page
+
+Distilled from the `what-is-claude` rebuild (page 1). Requirements are product rules from Arun;
+learnings are the technical patterns that make them stick. Apply both before/while reviewing each
+of the remaining 4 pages.
+
+**Requirements**
+1. No interactivity — no hover, no click-to-reveal, no tabs/toggles inside the visual. Everything
+   visible at once.
+2. Ambient motion is welcome, interaction is not — animated connector lines, a subtle pulse/glow on
+   a focal node, etc. are good. The line is passive vs. requires-user-action.
+3. Teach, don't just illustrate — each visual needs real conceptual "meat," not a decorative
+   restatement of the transcript in shapes. Ask: does this explain a mechanism, or just re-draw
+   what's already in the text?
+4. Preferred structural pattern: 1-line overview + a small grid of highlight/summary cards. Default
+   to this shape unless a page's content clearly calls for something else.
+5. Zero scrollbar on any device is a hard constraint — the whole page (nav + content) must fit one
+   viewport on mobile, tablet, and desktop. No exceptions.
+6. Legibility beats compression — tighten content size first (clamp()) so the fit-to-viewport scale
+   factor stays close to 1, rather than leaning on the scale transform alone.
+
+**Technical learnings**
+1. `FitToViewport` is shared infra in `_shell.tsx` — already wraps all 5 pages, nothing to re-plumb.
+2. Convert fixed-px spacing to `clamp(minPx, Nvh, maxPx)`, tied to viewport height. Reduces natural
+   (pre-scale) content height on short viewports so less scaling is needed. The 4 pages below this
+   line still use original fixed-px spacing from the earlier interactive build — do this pass first.
+3. Budget the *entire* available-height chain in `FitToViewport`'s calc, not just the top offset —
+   any container padding after the measured content in normal flow must be subtracted too (this is
+   what the 20px mobile bug on page 1 was).
+4. Verify with `document.documentElement.scrollHeight` vs `window.innerHeight` directly, never by
+   eyeballing a screenshot — the 20px bug was invisible in a screenshot but obvious in the numbers.
+5. `'use client'` is required the moment a component uses `<style jsx>` — easy to drop by accident
+   during a refactor that also removes an unrelated hook import.
+6. lucide-react icons over text/emoji labels — keep icon sourcing consistent across pages.
+
+---
+
 ## Part 2 — Visual-by-visual review (live notes)
 
 Filled in as we go. One entry per page.
 
 | # | Page | Status | Arun's feedback | Action taken |
 |---|------|--------|------------------|--------------|
-| 1 | `what-is-claude` (input/output flow) | Pending review | — | — |
+| 1 | `what-is-claude` (input/output flow) | **Done — rebuilt as static infographic** | Redesigned 3x live with Arun: (1) "no hovering, animated lines are good" → removed all interactivity, kept ambient dash-flow/pulse animation; (2) "doesn't have the learning meat" → replaced vague safety paragraph with real Constitutional AI/RLAIF content; (3) "1-line overview + highlight containers" → added overview line + 3 highlight cards; (4) hard constraint: fit 100% viewport, zero scrollbar, on mobile/tablet/desktop | Content rewritten (`app/demo/_content.ts`), visual rebuilt (`WhatIsClaudeVisual.tsx`) with overview line, 3 highlight cards, "How Claude is trained" 3-step loop, "What Claude can do" input/output diagram. Built a shared `FitToViewport` shrink-to-fit wrapper (`_fit-to-viewport.tsx`) into `_shell.tsx` — measures natural content height, scales down to fit below nav. One live bug found+fixed: initial version left 20px mobile overflow (bottom padding not budgeted into the available-height calc) — fixed in `9db13eb`. **Verified live 2026-07-22**: mobile (375x812), tablet (768x1024), desktop (1280x800) all measured `scrollHeight === innerHeight`, 0px overflow, no runtime errors, content legible at all 3 sizes. |
 | 2 | `model-family` (capability/speed chart) | Pending review | — | — |
 | 3 | `modes-of-interaction` (mode switcher) | Pending review | — | — |
 | 4 | `choosing-the-right-model` (decision wizard) | Pending review | — | — |
 | 5 | `what-makes-claude-different` (flip cards) | Pending review | — | — |
+
+Note: the `FitToViewport` wrapper lives in the *shared* `_shell.tsx`, so it now applies to all 5
+visual pages automatically. Only `what-is-claude`'s own internal spacing was tightened with
+`clamp()` to reduce how much scaling is needed — the other 4 still use their original fixed-px
+spacing from the earlier interactive-visuals build, so they may need the same tightening pass once
+reviewed.
 
 ### Detailed notes per page
 
