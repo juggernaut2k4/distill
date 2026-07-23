@@ -53,4 +53,14 @@ describe('isDemoPath', () => {
     expect(isDemoPath('/test-harness')).toBe(false)
     expect(isDemoPath('/demonstration')).toBe(false)
   })
+
+  it('matches the B2B-33 meeting-URL/dispatch API routes', () => {
+    expect(isDemoPath('/api/demo/claude-ai/meeting')).toBe(true)
+    expect(isDemoPath('/api/demo/oop-fundamentals/dispatch')).toBe(true)
+  })
+
+  it('does not match unrelated API paths, including the real partner sessions endpoint', () => {
+    expect(isDemoPath('/api/partner/v1/sessions')).toBe(false)
+    expect(isDemoPath('/api/test-harness/topics')).toBe(false)
+  })
 })

@@ -29,7 +29,17 @@ export function isTestHarnessAuthoringPath(pathname: string): boolean {
  * `middleware.ts` makes `/demo` reachable to Clerk on every host, so this needs the same
  * defense-in-depth 404 the authoring surface gets: without it, `/demo` would also render on
  * hello-clio.com/distill-peach.vercel.app since the route physically exists in the app.
+ *
+ * B2B-33 (docs/specs/B2B-33-requirement-document.md §6.8) extends this to also match
+ * `/api/demo/(.*)` — the three new server-only meeting-URL/dispatch routes, which need the exact
+ * same host-scoping as every other `/demo/*` route but didn't exist when this function was first
+ * written for B2B-32.
  */
 export function isDemoPath(pathname: string): boolean {
-  return pathname === '/demo' || pathname.startsWith('/demo/')
+  return (
+    pathname === '/demo' ||
+    pathname.startsWith('/demo/') ||
+    pathname === '/api/demo' ||
+    pathname.startsWith('/api/demo/')
+  )
 }

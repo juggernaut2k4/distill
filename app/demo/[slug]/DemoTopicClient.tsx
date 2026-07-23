@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import type { DemoTopic } from '../_content'
 import {
@@ -25,10 +25,13 @@ import {
   chapterBodyStyle,
   codeBlockStyle,
   listStyle,
+  meetingInputStyle,
+  meetingFieldWrapStyle,
+  meetingLabelStyle,
   COLORS,
 } from '../_styles'
 
-const TABS = ['Course Overview', 'Transcript', 'Visuals', 'Resources', 'Discussion', 'Learning Check'] as const
+const TABS = ['Course Overview', 'Transcript', 'Visuals', 'Resources', 'Discussion', 'Meeting', 'Learning Check'] as const
 type Tab = (typeof TABS)[number]
 
 /** Both demo topics now have a full set of static visual pages under /demo/{slug}/visuals/{chapterId}. */
@@ -49,14 +52,132 @@ const VISUAL_BLURBS: Record<string, string> = {
   'oop-in-the-real-world': 'The four pillars together, and where you’ll see them.',
 }
 
+function formatSavedAt(iso: string): string {
+  const d = new Date(iso)
+  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+}
+
 export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
   const [activeTab, setActiveTab] = useState<Tab>('Course Overview')
-  const [aiClicked, setAiClicked] = useState(false)
+
+  // B2B-33 — saved meeting URL state, fetched on mount independent of which tab is active
+  // (Edge Case 1: the page is statically generated via generateStaticParams, so this cannot be a
+  // server-rendered prop — it must be a client fetch, or a newly-saved URL would go stale until
+  // the next redeploy).
+  const [meetingLoading, setMeetingLoading] = useState(true)
+  const [savedMeetingUrl, setSavedMeetingUrl] = useState<string | null>(null)
+  const [savedMeetingUpdatedAt, setSavedMeetingUpdatedAt] = useState<string | null>(null)
+
+  // Meeting tab form state.
+  const [urlInput, setUrlInput] = useState('')
+  const [passcodeInput, setPasscodeInput] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saveUrlError, setSaveUrlError] = useState<string | null>(null)
+  const [savePasscodeError, setSavePasscodeError] = useState<string | null>(null)
+  const [saveGenericError, setSaveGenericError] = useState<string | null>(null)
+  const [saveSuccess, setSaveSuccess] = useState(false)
+
+  // Learn with AI dispatch state.
+  const [dispatching, setDispatching] = useState(false)
+  const [dispatchSucceeded, setDispatchSucceeded] = useState(false)
+  const [dispatchErrorMessage, setDispatchErrorMessage] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setMeetingLoading(true)
+    fetch(`/api/demo/${topic.slug}/meeting`)
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error('fetch failed'))))
+      .then((data: { meeting_url: string | null; updated_at: string | null }) => {
+        if (cancelled) return
+        setSavedMeetingUrl(data.meeting_url)
+        setSavedMeetingUpdatedAt(data.updated_at)
+      })
+      .catch(() => {
+        // Fails closed (§8) — leaves savedMeetingUrl as null, so the button stays disabled rather
+        // than assuming a URL is saved with no known-good value behind it.
+      })
+      .finally(() => {
+        if (!cancelled) setMeetingLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [topic.slug])
+
+  useEffect(() => {
+    if (!saveSuccess) return
+    const t = window.setTimeout(() => setSaveSuccess(false), 4000)
+    return () => window.clearTimeout(t)
+  }, [saveSuccess])
+
+  async function handleSave() {
+    setSaveUrlError(null)
+    setSavePasscodeError(null)
+    setSaveGenericError(null)
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/demo/${topic.slug}/meeting`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ meeting_url: urlInput, passcode: passcodeInput }),
+      })
+      const data = await res.json().catch(() => null)
+
+      if (res.ok) {
+        setSavedMeetingUrl(data.meeting_url)
+        setSavedMeetingUpdatedAt(data.updated_at)
+        setUrlInput('')
+        setPasscodeInput('')
+        setSaveSuccess(true)
+        return
+      }
+
+      const code = data?.error?.code
+      if (code === 'incorrect_passcode') {
+        setSavePasscodeError('Incorrect passcode.')
+      } else if (code === 'validation_failed') {
+        setSaveUrlError('Enter a valid https:// meeting URL.')
+      } else {
+        setSaveGenericError("Couldn't save — try again.")
+      }
+    } catch {
+      setSaveGenericError("Couldn't save — try again.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleLearnWithAi() {
+    setDispatching(true)
+    setDispatchErrorMessage(null)
+    try {
+      const res = await fetch(`/api/demo/${topic.slug}/dispatch`, { method: 'POST' })
+      const data = await res.json().catch(() => null)
+
+      if (res.ok && data?.status === 'dispatched') {
+        setDispatchSucceeded(true)
+        return
+      }
+
+      if (data?.error?.code === 'rate_limited') {
+        setDispatchErrorMessage('Learn with AI was just triggered for this course. Try again in a few minutes.')
+      } else {
+        setDispatchErrorMessage('Something went wrong starting the bot. Try again in a moment.')
+      }
+    } catch {
+      setDispatchErrorMessage('Something went wrong starting the bot. Try again in a moment.')
+    } finally {
+      setDispatching(false)
+    }
+  }
 
   const totalMinutes = topic.chapters.reduce((sum, ch) => {
     const m = parseInt(ch.durationLabel, 10)
     return sum + (Number.isNaN(m) ? 0 : m)
   }, 0)
+
+  const canSave = urlInput.trim().length > 0 && passcodeInput.length > 0 && !saving
+  const meetingReady = Boolean(savedMeetingUrl)
 
   return (
     <div style={pageStyle}>
@@ -94,18 +215,37 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
             <button type="button" style={secondaryButtonStyle}>
               Bookmark
             </button>
-            <button
-              type="button"
-              style={aiButtonStyle}
-              onClick={() => setAiClicked(true)}
-              aria-pressed={aiClicked}
-            >
-              ✨ Learn with AI
-            </button>
-            {aiClicked && (
-              <span style={{ fontSize: 13, color: COLORS.textMuted }}>
-                Demo only — nothing is wired up behind this button yet.
+
+            {dispatchSucceeded ? (
+              <span
+                style={{
+                  ...pillStyle,
+                  color: COLORS.green,
+                  borderColor: COLORS.green,
+                }}
+              >
+                ✓ Bot is joining the meeting.
               </span>
+            ) : (
+              <button
+                type="button"
+                style={{
+                  ...aiButtonStyle,
+                  opacity: !meetingReady || meetingLoading || dispatching ? 0.5 : 1,
+                  cursor: !meetingReady || meetingLoading || dispatching ? 'not-allowed' : 'pointer',
+                }}
+                disabled={!meetingReady || meetingLoading || dispatching}
+                onClick={handleLearnWithAi}
+              >
+                {dispatching ? 'Dispatching bot…' : '✨ Learn with AI'}
+              </button>
+            )}
+
+            {!dispatchSucceeded && !meetingLoading && !meetingReady && !dispatching && (
+              <span style={{ fontSize: 13, color: COLORS.textMuted }}>Save a meeting URL in the Meeting tab to enable this.</span>
+            )}
+            {!dispatchSucceeded && dispatchErrorMessage && (
+              <span style={{ fontSize: 13, color: COLORS.red }}>{dispatchErrorMessage}</span>
             )}
           </div>
 
@@ -227,6 +367,76 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
           {activeTab === 'Discussion' && (
             <div style={{ maxWidth: 760, marginTop: 24, color: COLORS.textMuted, fontSize: 14 }}>
               No discussion threads yet — this is a demo course.
+            </div>
+          )}
+
+          {activeTab === 'Meeting' && (
+            <div style={{ maxWidth: 760, marginTop: 24 }}>
+              {savedMeetingUrl && (
+                <p style={{ ...chapterBodyStyle, marginBottom: 20 }}>
+                  Currently saved: <strong style={{ color: COLORS.textPrimary }}>{savedMeetingUrl}</strong>
+                  {savedMeetingUpdatedAt && <> — saved {formatSavedAt(savedMeetingUpdatedAt)}.</>}
+                </p>
+              )}
+              {!savedMeetingUrl && (
+                <p style={{ ...chapterBodyStyle, marginBottom: 20 }}>
+                  For this demo, paste the Google Meet URL you want Clio&apos;s bot to join, then Save.
+                </p>
+              )}
+
+              <div style={{ ...meetingFieldWrapStyle, marginBottom: 16 }}>
+                <label style={meetingLabelStyle} htmlFor="meeting-url-input">
+                  Google Meet URL
+                </label>
+                <input
+                  id="meeting-url-input"
+                  type="url"
+                  value={urlInput}
+                  onChange={(e) => setUrlInput(e.target.value)}
+                  disabled={saving}
+                  placeholder={
+                    savedMeetingUrl ? 'Paste a new Google Meet URL to replace the saved one' : 'https://meet.google.com/xxx-xxxx-xxx'
+                  }
+                  style={meetingInputStyle}
+                />
+                {saveUrlError && (
+                  <div style={{ fontSize: 12.5, color: COLORS.red, marginTop: 6 }}>{saveUrlError}</div>
+                )}
+              </div>
+
+              <div style={{ ...meetingFieldWrapStyle, marginBottom: 16 }}>
+                <label style={meetingLabelStyle} htmlFor="meeting-passcode-input">
+                  Passcode
+                </label>
+                <input
+                  id="meeting-passcode-input"
+                  type="password"
+                  value={passcodeInput}
+                  onChange={(e) => setPasscodeInput(e.target.value)}
+                  disabled={saving}
+                  placeholder="Passcode"
+                  style={meetingInputStyle}
+                />
+                {savePasscodeError && (
+                  <div style={{ fontSize: 12.5, color: COLORS.red, marginTop: 6 }}>{savePasscodeError}</div>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={!canSave}
+                style={{
+                  ...primaryButtonStyle,
+                  opacity: canSave ? 1 : 0.5,
+                  cursor: canSave ? 'pointer' : 'not-allowed',
+                }}
+              >
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+
+              {saveSuccess && <div style={{ fontSize: 13, color: COLORS.green, marginTop: 10 }}>✓ Saved.</div>}
+              {saveGenericError && <div style={{ fontSize: 13, color: COLORS.red, marginTop: 10 }}>{saveGenericError}</div>}
             </div>
           )}
 

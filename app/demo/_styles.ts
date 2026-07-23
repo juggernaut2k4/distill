@@ -22,6 +22,7 @@ export const COLORS = {
   accentBright: '#a78bfa',
   amber: '#f5a524',
   green: '#22c55e',
+  red: '#ef4444',
 }
 
 export const navStyle: CSSProperties = {
@@ -309,4 +310,28 @@ export const listStyle: CSSProperties = {
   color: COLORS.textSecondary,
   fontSize: 14.5,
   lineHeight: 1.75,
+}
+
+/** B2B-33 — Meeting tab form fields (URL + passcode). No prior form input existed in this file to reuse verbatim. */
+export const meetingInputStyle: CSSProperties = {
+  background: COLORS.surface,
+  border: `1px solid ${COLORS.border}`,
+  borderRadius: 8,
+  padding: '12px 14px',
+  color: COLORS.textPrimary,
+  fontSize: 14,
+  width: '100%',
+  fontFamily: 'inherit',
+}
+
+export const meetingFieldWrapStyle: CSSProperties = {
+  maxWidth: 'min(520px, 100%)',
+}
+
+export const meetingLabelStyle: CSSProperties = {
+  display: 'block',
+  fontSize: 13,
+  fontWeight: 600,
+  color: COLORS.textSecondary,
+  marginBottom: 6,
 }
