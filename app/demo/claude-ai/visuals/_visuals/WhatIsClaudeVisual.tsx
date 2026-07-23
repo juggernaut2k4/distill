@@ -62,16 +62,16 @@ const OUTPUTS = [
 ]
 
 const sectionHeadingStyle: CSSProperties = {
-  fontSize: 16,
+  fontSize: 'clamp(13px, 1.8vh, 16px)',
   fontWeight: 700,
   color: COLORS.textPrimary,
-  margin: '0 0 4px 0',
+  margin: '0 0 2px 0',
 }
 
 const sectionLeadStyle: CSSProperties = {
-  fontSize: 13.5,
+  fontSize: 'clamp(11px, 1.4vh, 13px)',
   color: COLORS.textMuted,
-  margin: '0 0 18px 0',
+  margin: '0 0 clamp(6px, 1vh, 10px) 0',
 }
 
 /** Static infographic: overview → highlights → how Claude is trained → what it can do. */
@@ -119,32 +119,32 @@ export default function WhatIsClaudeVisual() {
       `}</style>
 
       {/* Overview line */}
-      <p style={{ fontSize: 15, color: COLORS.textSecondary, lineHeight: 1.6, margin: '0 0 24px 0', maxWidth: 640 }}>
+      <p style={{ fontSize: 'clamp(12px, 1.8vh, 15px)', color: COLORS.textSecondary, lineHeight: 1.5, margin: '0 0 clamp(8px, 1.5vh, 16px) 0', maxWidth: 640 }}>
         Claude is Anthropic&apos;s family of AI models, trained with <strong style={{ color: COLORS.textPrimary }}>Constitutional AI</strong> —
         a method that teaches the model to critique and improve its own answers against a written set of principles — and built to work
         across text, code, images, and documents.
       </p>
 
       {/* Highlight cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: 14, marginBottom: 32 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: 'clamp(6px, 1vh, 12px)', marginBottom: 'clamp(10px, 2vh, 20px)' }}>
         {HIGHLIGHTS.map((h) => (
           <div
             key={h.id}
             style={{
               background: COLORS.surface,
               border: `1px solid ${COLORS.border}`,
-              borderRadius: 12,
-              padding: 16,
+              borderRadius: 10,
+              padding: 'clamp(8px, 1.2vh, 14px)',
             }}
           >
             <div
               className="item-icon"
-              style={{ width: 36, height: 36, borderRadius: 9, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 10 }}
+              style={{ width: 28, height: 28, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 6 }}
             >
-              <h.Icon size={17} color={COLORS.accentBright} />
+              <h.Icon size={14} color={COLORS.accentBright} />
             </div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.textPrimary, marginBottom: 4 }}>{h.label}</div>
-            <div style={{ fontSize: 12.5, color: COLORS.textMuted, lineHeight: 1.5 }}>{h.desc}</div>
+            <div style={{ fontSize: 'clamp(12px, 1.5vh, 14px)', fontWeight: 700, color: COLORS.textPrimary, marginBottom: 2 }}>{h.label}</div>
+            <div style={{ fontSize: 'clamp(10.5px, 1.3vh, 12px)', color: COLORS.textMuted, lineHeight: 1.4 }}>{h.desc}</div>
           </div>
         ))}
       </div>
@@ -157,35 +157,35 @@ export default function WhatIsClaudeVisual() {
         style={{
           background: COLORS.surface,
           border: `1px solid ${COLORS.border}`,
-          borderRadius: 14,
-          padding: 'clamp(20px, 4vw, 32px)',
-          marginBottom: 32,
+          borderRadius: 12,
+          padding: 'clamp(10px, 1.8vh, 20px)',
+          marginBottom: 'clamp(10px, 2vh, 20px)',
         }}
       >
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'center', gap: 0, flexWrap: 'wrap' }}>
           {TRAINING_STEPS.map((step, i) => (
             <div key={step.id} style={{ display: 'flex', alignItems: 'center' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 140, textAlign: 'center' as const }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 130, textAlign: 'center' as const }}>
                 <div
                   style={{
-                    width: 52,
-                    height: 52,
+                    width: 38,
+                    height: 38,
                     borderRadius: '50%',
                     background: `linear-gradient(135deg, ${COLORS.accent}, ${COLORS.accentBright})`,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     color: '#fff',
-                    marginBottom: 10,
+                    marginBottom: 6,
                   }}
                 >
-                  <step.Icon size={22} />
+                  <step.Icon size={16} />
                 </div>
-                <div style={{ fontSize: 13.5, fontWeight: 700, color: COLORS.textPrimary }}>{step.label}</div>
-                <div style={{ fontSize: 11.5, color: COLORS.textMuted, marginTop: 4, lineHeight: 1.4 }}>{step.desc}</div>
+                <div style={{ fontSize: 'clamp(11px, 1.4vh, 13.5px)', fontWeight: 700, color: COLORS.textPrimary }}>{step.label}</div>
+                <div style={{ fontSize: 'clamp(9.5px, 1.15vh, 11.5px)', color: COLORS.textMuted, marginTop: 2, lineHeight: 1.35 }}>{step.desc}</div>
               </div>
               {i < TRAINING_STEPS.length - 1 && (
-                <svg width="40" height="20" viewBox="0 0 40 20" style={{ marginTop: -40, flexShrink: 0 }} aria-hidden="true">
+                <svg width="32" height="16" viewBox="0 0 40 20" style={{ marginTop: -28, flexShrink: 0 }} aria-hidden="true">
                   <path className="loop-arrow" d="M2 10 H36" />
                   <path d="M30 5 L37 10 L30 15" fill="none" stroke={COLORS.accentBright} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
@@ -193,7 +193,7 @@ export default function WhatIsClaudeVisual() {
             </div>
           ))}
         </div>
-        <p style={{ fontSize: 12.5, color: COLORS.textMuted, lineHeight: 1.6, marginTop: 20, paddingTop: 16, borderTop: `1px solid ${COLORS.border}` }}>
+        <p style={{ fontSize: 'clamp(10.5px, 1.3vh, 12.5px)', color: COLORS.textMuted, lineHeight: 1.5, marginTop: 10, paddingTop: 8, borderTop: `1px solid ${COLORS.border}` }}>
           Because an AI model does much of this evaluation, it&apos;s sometimes called{' '}
           <strong style={{ color: COLORS.textSecondary }}>Reinforcement Learning from AI Feedback (RLAIF)</strong> — it keeps human reviewers
           from having to read harmful content just to label it, and makes Claude&apos;s values explicit and inspectable instead of buried in
@@ -209,37 +209,37 @@ export default function WhatIsClaudeVisual() {
         style={{
           background: COLORS.surface,
           border: `1px solid ${COLORS.border}`,
-          borderRadius: 14,
-          padding: 'clamp(20px, 4vw, 36px)',
+          borderRadius: 12,
+          padding: 'clamp(10px, 1.8vh, 20px)',
         }}
       >
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'minmax(160px, 1fr) minmax(60px, 0.5fr) minmax(160px, 1fr)',
-            gap: 'clamp(12px, 3vw, 28px)',
+            gridTemplateColumns: 'minmax(140px, 1fr) minmax(50px, 0.5fr) minmax(140px, 1fr)',
+            gap: 'clamp(8px, 2vw, 20px)',
             alignItems: 'center',
           }}
         >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(4px, 1vh, 10px)' }}>
             {INPUTS.map((item) => (
-              <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <div
                   className="item-icon"
-                  style={{ width: 40, height: 40, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+                  style={{ width: 28, height: 28, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
                 >
-                  <item.Icon size={18} color={COLORS.accentBright} />
+                  <item.Icon size={13} color={COLORS.accentBright} />
                 </div>
                 <div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.textPrimary }}>{item.label}</div>
-                  <div style={{ fontSize: 12, color: COLORS.textMuted }}>{item.desc}</div>
+                  <div style={{ fontSize: 'clamp(11px, 1.4vh, 13px)', fontWeight: 700, color: COLORS.textPrimary }}>{item.label}</div>
+                  <div style={{ fontSize: 'clamp(9.5px, 1.1vh, 11px)', color: COLORS.textMuted }}>{item.desc}</div>
                 </div>
               </div>
             ))}
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative', minHeight: 260 }}>
-            <svg viewBox="0 0 100 260" style={{ width: '100%', height: 260, position: 'absolute', inset: 0 }} aria-hidden="true">
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative', minHeight: 150 }}>
+            <svg viewBox="0 0 100 260" style={{ width: '100%', height: 150, position: 'absolute', inset: 0 }} preserveAspectRatio="none" aria-hidden="true">
               <path className="wire" d="M0 33 C 45 33, 45 130, 50 130" />
               <path className="wire" d="M0 98 C 45 98, 45 130, 50 130" />
               <path className="wire" d="M0 163 C 45 163, 45 130, 50 130" />
@@ -252,8 +252,8 @@ export default function WhatIsClaudeVisual() {
             <div
               className="core"
               style={{
-                width: 78,
-                height: 78,
+                width: 52,
+                height: 52,
                 borderRadius: '50%',
                 background: `linear-gradient(135deg, ${COLORS.accent}, ${COLORS.accentBright})`,
                 display: 'flex',
@@ -265,34 +265,34 @@ export default function WhatIsClaudeVisual() {
                 zIndex: 1,
               }}
             >
-              <Sparkles size={20} />
-              <span style={{ fontWeight: 800, fontSize: 12.5, marginTop: 2 }}>Claude</span>
+              <Sparkles size={14} />
+              <span style={{ fontWeight: 800, fontSize: 9.5, marginTop: 1 }}>Claude</span>
             </div>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(4px, 1vh, 10px)' }}>
             {OUTPUTS.map((item) => (
-              <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <div
                   className="item-icon"
-                  style={{ width: 40, height: 40, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+                  style={{ width: 28, height: 28, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
                 >
-                  <item.Icon size={18} color={COLORS.accentBright} />
+                  <item.Icon size={13} color={COLORS.accentBright} />
                 </div>
                 <div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.textPrimary }}>{item.label}</div>
-                  <div style={{ fontSize: 12, color: COLORS.textMuted }}>{item.desc}</div>
+                  <div style={{ fontSize: 'clamp(11px, 1.4vh, 13px)', fontWeight: 700, color: COLORS.textPrimary }}>{item.label}</div>
+                  <div style={{ fontSize: 'clamp(9.5px, 1.1vh, 11px)', color: COLORS.textMuted }}>{item.desc}</div>
                 </div>
               </div>
             ))}
           </div>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 20, paddingTop: 16, borderTop: `1px solid ${COLORS.border}` }}>
-          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: COLORS.textMuted }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, paddingTop: 8, borderTop: `1px solid ${COLORS.border}` }}>
+          <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: COLORS.textMuted }}>
             Input
           </span>
-          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: COLORS.textMuted }}>
+          <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: COLORS.textMuted }}>
             Output
           </span>
         </div>

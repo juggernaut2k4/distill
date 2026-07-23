@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import type { ReactNode } from 'react'
 import { pageStyle, navStyle, brandStyle, brandMarkStyle, containerStyle, COLORS } from '../../_styles'
+import FitToViewport from './_fit-to-viewport'
 
 /**
  * Shared page chrome for the 5 "Claude AI" interactive visuals — nav, back link, and title, so each
@@ -26,36 +27,46 @@ export default function VisualPageShell({
           ← Back to course
         </Link>
       </nav>
-      <div style={containerStyle}>
-        <div style={{ padding: '0 clamp(16px, 4vw, 48px)' }}>
-          <div
-            style={{
-              fontSize: 12,
-              fontWeight: 700,
-              letterSpacing: '0.1em',
-              textTransform: 'uppercase',
-              color: COLORS.accentBright,
-              marginBottom: 8,
-            }}
-          >
-            Interactive Visual
+      <div style={{ ...containerStyle, padding: 'clamp(12px, 2.5vh, 24px) 0' }}>
+        <FitToViewport>
+          <div style={{ padding: '0 clamp(16px, 4vw, 48px)' }}>
+            <div
+              style={{
+                fontSize: 'clamp(10px, 1.4vh, 12px)',
+                fontWeight: 700,
+                letterSpacing: '0.1em',
+                textTransform: 'uppercase',
+                color: COLORS.accentBright,
+                marginBottom: 'clamp(4px, 0.8vh, 8px)',
+              }}
+            >
+              Interactive Visual
+            </div>
+            <h1
+              style={{
+                fontSize: 'clamp(20px, 3.2vh, 38px)',
+                fontWeight: 800,
+                letterSpacing: '-0.02em',
+                margin: '0 0 clamp(4px, 1vh, 10px) 0',
+                textWrap: 'balance',
+              }}
+            >
+              {title}
+            </h1>
+            <p
+              style={{
+                fontSize: 'clamp(12px, 1.8vh, 15px)',
+                color: COLORS.textSecondary,
+                lineHeight: 1.5,
+                maxWidth: 640,
+                margin: '0 0 clamp(10px, 2vh, 24px) 0',
+              }}
+            >
+              {subtitle}
+            </p>
+            {children}
           </div>
-          <h1
-            style={{
-              fontSize: 'clamp(26px, 4vw, 38px)',
-              fontWeight: 800,
-              letterSpacing: '-0.02em',
-              margin: '0 0 10px 0',
-              textWrap: 'balance',
-            }}
-          >
-            {title}
-          </h1>
-          <p style={{ fontSize: 15, color: COLORS.textSecondary, lineHeight: 1.6, maxWidth: 640, margin: '0 0 32px 0' }}>
-            {subtitle}
-          </p>
-          {children}
-        </div>
+        </FitToViewport>
       </div>
     </div>
   )
