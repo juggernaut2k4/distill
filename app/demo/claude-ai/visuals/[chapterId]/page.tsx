@@ -19,7 +19,7 @@ const VISUALS: Record<string, { title: string; subtitle: string; Component: () =
   },
   'modes-of-interaction': {
     title: 'Modes of Interaction',
-    subtitle: 'The same models show up differently depending on how you use them.',
+    subtitle: 'Four ways to work with the same underlying models.',
     Component: ModesOfInteractionVisual,
   },
   'choosing-the-right-model': {
