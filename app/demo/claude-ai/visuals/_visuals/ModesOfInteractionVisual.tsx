@@ -80,6 +80,15 @@ export default function ModesOfInteractionVisual() {
           fill: none;
           animation: dash-flow 1s linear infinite;
         }
+        .mode-grid {
+          display: grid;
+          grid-template-columns: 1fr;
+        }
+        @media (min-width: 560px) {
+          .mode-grid {
+            grid-template-columns: repeat(2, 1fr);
+          }
+        }
       `}</style>
 
       {/* Overview line */}
@@ -88,13 +97,7 @@ export default function ModesOfInteractionVisual() {
         the model doesn&apos;t change, the way you engage with it does.
       </p>
 
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))',
-          gap: 'clamp(8px, 1.4vh, 14px)',
-        }}
-      >
+      <div className="mode-grid" style={{ gap: 'clamp(8px, 1.4vh, 14px)' }}>
         {MODES.map((m) => (
           <div
             key={m.id}
