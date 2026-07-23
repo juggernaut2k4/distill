@@ -118,9 +118,42 @@ of the remaining 4 pages.
 
 ---
 
-## Part 2 — Visual-by-visual review (live notes)
+## Scope decision — Visuals extended to both topics (2026-07-22)
 
-Filled in as we go. One entry per page.
+Originally the Visuals tab was "scoped to the Claude AI topic only for now" — OOP showed a static
+"unavailable" placeholder. Arun asked to extend the same treatment to **both** topics ("create the
+checklist of all the sub-topics for both the topics and make the changes as you did here"), and
+asked for CEO Agent sign-off given this lifts a previously-stated scope limit.
+
+**CEO decision (routed via Orchestrator, 2026-07-22):**
+- Approved — build out both topics, not just finish Claude AI.
+- BA gate skipped for this: mechanical extension of an already-approved, already-live-reviewed
+  pattern on an internal/no-auth test surface, not a new product surface. Direct build + live
+  review with Arun (the same workflow already used for pages 1–2), not a formal spec cycle.
+- OOP-specific guidance (code-heavy chapters): show a short curated code excerpt (~5–8 lines, static
+  syntax-color tokens, no runtime execution/highlighting library) with 2–3 labeled callouts
+  explaining what each part does and why it matters — annotate, don't just reprint the snippet.
+  Where a concept is inherently comparative (encapsulation, inheritance, polymorphism), a
+  before/after or without-this-pattern/with-this-pattern card pair is a valid variant of the
+  standard "overview + card grid" shape.
+- Build one OOP page first and live-review it with Arun before batch-building the rest, the same
+  way `what-is-claude` needed 3 live iterations before the pattern was locked in — do not build all
+  7 blind.
+- `app/demo/[slug]/DemoTopicClient.tsx`'s hardcoded `topic.slug === 'claude-ai'` gate needs removing
+  so OOP's Visuals tab activates instead of showing "unavailable."
+
+## Standing checklist — applies to every remaining page, both topics
+
+(Unchanged from the Claude AI pages — see above. Requirements 1–6 and technical learnings 1–6 apply
+identically to OOP pages, plus the OOP-specific code-excerpt guidance in the scope decision above.)
+
+---
+
+## Part 2 — Visual-by-visual review checklist (live notes)
+
+All 12 subtopics across both demo topics. Filled in as each page is reviewed.
+
+### Demo 1 — Claude AI: Models & Capabilities (5 subtopics)
 
 | # | Page | Status | Arun's feedback | Action taken |
 |---|------|--------|------------------|--------------|
@@ -131,10 +164,26 @@ Filled in as we go. One entry per page.
 | 5 | `what-makes-claude-different` (flip cards) | Pending review | — | — |
 
 Note: the `FitToViewport` wrapper lives in the *shared* `_shell.tsx`, so it now applies to all 5
-visual pages automatically. Only `what-is-claude`'s own internal spacing was tightened with
-`clamp()` to reduce how much scaling is needed — the other 4 still use their original fixed-px
-spacing from the earlier interactive-visuals build, so they may need the same tightening pass once
+Claude AI visual pages automatically. Only pages 1–2's own internal spacing was tightened with
+`clamp()` to reduce how much scaling is needed — pages 3–5 still use their original fixed-px
+spacing from the earlier interactive-visuals build, so they'll need the same tightening pass when
 reviewed.
+
+### Demo 2 — Object-Oriented Programming Fundamentals (7 subtopics)
+
+No Visuals tab exists yet for this topic — currently shows "unavailable." All 7 pages are new
+builds, not rebuilds. Component files will live under `app/demo/oop-fundamentals/visuals/`
+(mirroring the Claude AI pattern) once the `DemoTopicClient.tsx` gate is removed.
+
+| # | Page | Status | Arun's feedback | Action taken |
+|---|------|--------|------------------|--------------|
+| 6 | `why-oop` (why structure code this way) | Not started | — | — |
+| 7 | `classes-and-objects` (blueprint vs. instance) | Not started | — | — |
+| 8 | `encapsulation` (controlled access to state) | Not started | — | — |
+| 9 | `abstraction` (interface vs. implementation) | Not started | — | — |
+| 10 | `inheritance` (shared base, specialized subclass) | Not started | — | — |
+| 11 | `polymorphism` (same call, per-type behavior) | Not started | — | — |
+| 12 | `oop-in-the-real-world` (the four pillars together) | Not started | — | — |
 
 ### Detailed notes per page
 
