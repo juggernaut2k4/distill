@@ -22,7 +22,16 @@ export default function FitToViewport({ children }: { children: ReactNode }) {
 
   const recalc = () => {
     if (!outerRef.current || !contentRef.current) return
-    const availableHeight = window.innerHeight - outerRef.current.getBoundingClientRect().top
+    // Bottom padding of the containing page section (e.g. containerStyle's clamp()-based padding)
+    // sits AFTER this component in normal flow — it must come out of the available-height budget
+    // too, not just the top offset, or the scaled content plus that trailing padding overflows the
+    // viewport by exactly the padding amount.
+    const parent = outerRef.current.parentElement
+    const parentPaddingBottom = parent ? parseFloat(getComputedStyle(parent).paddingBottom || '0') : 0
+    // Small extra safety margin for cross-browser font-metric/rounding differences.
+    const safetyMargin = 4
+    const availableHeight =
+      window.innerHeight - outerRef.current.getBoundingClientRect().top - parentPaddingBottom - safetyMargin
     const naturalHeight = contentRef.current.scrollHeight
     if (naturalHeight === 0) return
     const nextScale = Math.min(1, availableHeight / naturalHeight)
@@ -40,10 +49,14 @@ export default function FitToViewport({ children }: { children: ReactNode }) {
     window.addEventListener('orientationchange', recalc)
     const ro = new ResizeObserver(recalc)
     if (contentRef.current) ro.observe(contentRef.current)
+    // Fonts/icons can finish loading a tick after the initial synchronous measurement — catch any
+    // resulting reflow with one follow-up pass.
+    const t = window.setTimeout(recalc, 150)
     return () => {
       window.removeEventListener('resize', recalc)
       window.removeEventListener('orientationchange', recalc)
       ro.disconnect()
+      window.clearTimeout(t)
     }
   }, [])
 
