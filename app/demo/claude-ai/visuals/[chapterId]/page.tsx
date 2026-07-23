@@ -1,0 +1,55 @@
+import { notFound } from 'next/navigation'
+import VisualPageShell from '../_shell'
+import WhatIsClaudeVisual from '../_visuals/WhatIsClaudeVisual'
+import ModelFamilyVisual from '../_visuals/ModelFamilyVisual'
+import ModesOfInteractionVisual from '../_visuals/ModesOfInteractionVisual'
+import ChoosingModelVisual from '../_visuals/ChoosingModelVisual'
+import DifferentiatorsVisual from '../_visuals/DifferentiatorsVisual'
+
+const VISUALS: Record<string, { title: string; subtitle: string; Component: () => JSX.Element }> = {
+  'what-is-claude': {
+    title: 'What Is Claude?',
+    subtitle: 'The same model takes many kinds of input and produces many kinds of output.',
+    Component: WhatIsClaudeVisual,
+  },
+  'model-family': {
+    title: 'The Claude Model Family',
+    subtitle: 'Every model trades capability for speed differently — pick a point on the chart.',
+    Component: ModelFamilyVisual,
+  },
+  'modes-of-interaction': {
+    title: 'Modes of Interaction',
+    subtitle: 'The same models show up differently depending on how you use them.',
+    Component: ModesOfInteractionVisual,
+  },
+  'choosing-the-right-model': {
+    title: 'Choosing the Right Model for the Job',
+    subtitle: 'Answer two quick questions to see a recommendation.',
+    Component: ChoosingModelVisual,
+  },
+  'what-makes-claude-different': {
+    title: 'What Makes Claude Different',
+    subtitle: 'Flip each card to see what actually sets it apart.',
+    Component: DifferentiatorsVisual,
+  },
+}
+
+export function generateStaticParams() {
+  return Object.keys(VISUALS).map((chapterId) => ({ chapterId }))
+}
+
+export function generateMetadata({ params }: { params: { chapterId: string } }) {
+  const visual = VISUALS[params.chapterId]
+  return { title: visual ? `${visual.title} — Learn with AI` : 'Learn with AI' }
+}
+
+export default function VisualPage({ params }: { params: { chapterId: string } }) {
+  const visual = VISUALS[params.chapterId]
+  if (!visual) notFound()
+  const { title, subtitle, Component } = visual
+  return (
+    <VisualPageShell title={title} subtitle={subtitle}>
+      <Component />
+    </VisualPageShell>
+  )
+}

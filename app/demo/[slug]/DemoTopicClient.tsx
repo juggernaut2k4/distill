@@ -28,8 +28,16 @@ import {
   COLORS,
 } from '../_styles'
 
-const TABS = ['Course Overview', 'Transcript', 'Resources', 'Discussion', 'Learning Check'] as const
+const TABS = ['Course Overview', 'Transcript', 'Visuals', 'Resources', 'Discussion', 'Learning Check'] as const
 type Tab = (typeof TABS)[number]
+
+const VISUAL_BLURBS: Record<string, string> = {
+  'what-is-claude': 'Watch input become output — an animated flow diagram.',
+  'model-family': 'An interactive capability-vs-speed chart for all four models.',
+  'modes-of-interaction': 'Switch between modes and watch each one animate.',
+  'choosing-the-right-model': 'Answer two quick questions to get a model recommendation.',
+  'what-makes-claude-different': 'Flip each card to see what sets Claude apart.',
+}
 
 export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
   const [activeTab, setActiveTab] = useState<Tab>('Course Overview')
@@ -158,6 +166,45 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {activeTab === 'Visuals' && (
+            <div style={{ maxWidth: 760, marginTop: 24 }}>
+              {topic.slug === 'claude-ai' ? (
+                <div style={{ display: 'grid', gap: 12 }}>
+                  {topic.chapters.map((ch, i) => (
+                    <Link
+                      key={ch.id}
+                      href={`/demo/claude-ai/visuals/${ch.id}`}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 16,
+                        padding: '16px 18px',
+                        borderRadius: 10,
+                        background: COLORS.surface ?? '#181530',
+                        border: `1px solid ${COLORS.border ?? '#2f2a54'}`,
+                        textDecoration: 'none',
+                        color: COLORS.textPrimary,
+                      }}
+                    >
+                      <span style={chapterMarkerStyle}>{i + 1}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 15, fontWeight: 700 }}>{ch.title}</div>
+                        <div style={{ fontSize: 13, color: COLORS.textMuted, marginTop: 2 }}>
+                          {VISUAL_BLURBS[ch.id] ?? 'Interactive visual'}
+                        </div>
+                      </div>
+                      <span style={{ color: COLORS.accentBright, fontSize: 18 }}>→</span>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ color: COLORS.textMuted, fontSize: 14 }}>
+                  No interactive visuals for this demo course yet.
+                </div>
+              )}
             </div>
           )}
 
