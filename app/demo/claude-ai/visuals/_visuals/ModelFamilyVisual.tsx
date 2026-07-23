@@ -10,13 +10,15 @@ interface ModelPoint {
   capability: number // 0-100
   color: string
   desc: string
+  /** Sonnet and Fable sit close together on the chart — Fable's label renders below its dot instead of above so the two never collide. */
+  labelBelow?: boolean
 }
 
 const MODELS: ModelPoint[] = [
   { id: 'opus', name: 'Opus', speed: 30, capability: 95, color: '#a78bfa', desc: 'The most capable model — hardest reasoning, research, and creative work.' },
   { id: 'sonnet', name: 'Sonnet', speed: 65, capability: 80, color: '#8b5cf6', desc: 'The balanced default — strong at everyday coding, writing, and agentic work.' },
   { id: 'haiku', name: 'Haiku', speed: 92, capability: 55, color: '#ec4899', desc: 'The fastest and most cost-efficient — built for high-volume, latency-sensitive use.' },
-  { id: 'fable', name: 'Fable', speed: 60, capability: 72, color: '#f5a524', desc: 'Tuned for narrative and creative-writing use cases within the same family.' },
+  { id: 'fable', name: 'Fable', speed: 52, capability: 66, color: '#f5a524', desc: 'Tuned for narrative and creative-writing use cases within the same family.', labelBelow: true },
 ]
 
 /** Interactive capability-vs-speed scatter chart across the four Claude 5 models. */
@@ -81,7 +83,7 @@ export default function ModelFamilyVisual() {
                 />
                 <text
                   x={x(m.speed)}
-                  y={y(m.capability) - (isActive ? 20 : 16)}
+                  y={y(m.capability) + (m.labelBelow ? (isActive ? 26 : 22) : -(isActive ? 20 : 16))}
                   fill={isActive ? COLORS.textPrimary : COLORS.textMuted}
                   fontSize={isActive ? 13 : 11}
                   fontWeight={isActive ? 700 : 500}
