@@ -1,6 +1,6 @@
 # B2B-33 — "Learn with AI" Demo: Real Bot Dispatch with Per-Topic Meeting URL — Requirement Document
-Version: 1.0
-Status: DRAFT — pending CEO review
+Version: 1.1 (amended 2026-07-23 — see §0a, CEO Amendment reversing dispatch passcode scoping)
+Status: APPROVED — build to this version, including §0a
 Author: Business Analyst Agent
 Date: 2026-07-23
 Source brief: `.claude/agents/clio/feature-briefs/B2B-33-demo-learn-with-ai-bot-dispatch.md`
@@ -33,6 +33,75 @@ All 5 are resolved here as concrete, buildable decisions — none are left open.
 | 5 | Passcode UX for the Save gate | Fully specified in §4 Screen C and §5 wireframes C1–C4. A second field on the Meeting tab form, `type="password"`, labelled "Passcode", required alongside the URL field; wrong passcode surfaces an inline error under that field; the passcode value is never stored client-side (not in `localStorage`/`sessionStorage`, not pre-filled on reload) and must be re-entered for every save, including edits to an already-saved URL. |
 
 **Why dispatch (not just Save) needed an additional technical safeguard, resolved here as a BA technical decision, not a product-shape change:** the CEO brief explicitly scoped the passcode gate to the Save action only ("gate the Save action \[...\] not page viewing, not the tab itself"), and CEO Resolution 3 only requires the button to be disabled until a URL is saved — neither says anything about limiting *repeat* clicks of an already-enabled button. Read literally, once any legitimate URL is saved, an anonymous visitor could click "Learn with AI" an unlimited number of times, causing the real bot to repeatedly (even if harmlessly, `test_mode`-billed) join Arun's own saved meeting on demand — a residual abuse/nuisance vector the brief's own reasoning ("an unprotected save box lets anyone \[...\] point Clio's bot at an arbitrary Google Meet, on demand, for free") would apply equally to. Per `CLAUDE.md`'s "Autonomy boundary: technical vs. product decisions," rate-limiting a write endpoint is a technical/error-handling decision (full BA/Dev autonomy), not a UX/product one — it changes no visible screen, copy, or button behavior in the success case, only what happens on rapid repeat-click. **Resolution:** the dispatch route enforces a **3-minute cooldown per topic slug** (§6.3) — a second dispatch attempt for the same `slug` within 3 minutes of the previous attempt (success or failure) returns `429` with the same generic public-safe copy used for other dispatch failures (§4 Screen D, error state), so a bored or malicious repeat-clicker cannot cost-spam the vendor call, while Arun retesting a few minutes apart is unaffected.
+
+---
+
+## 0a. CEO AMENDMENT — 2026-07-23 (supersedes Decisions Table row 3 and the paragraph above)
+
+**Status: APPROVED, effective immediately. This amendment overrides row 3 ("not passcode-checked")
+and the "why dispatch isn't passcode-gated" reasoning above. Both stay in this document, struck through
+in effect but not in text, as a record of the original (now-reversed) BA technical call — do not delete
+history, but do not build to it either.**
+
+**Trigger:** Arun tested the live "Learn with AI" flow on `distill-peach.vercel.app` and reported,
+verbatim: *"In Meeting screen, passcode is not a mandatory field. we can join the meeting without the
+passcode also. can you fix that."* Read plainly, he is saying the rate-limit-only posture on dispatch is
+not the outcome he wants — he expects the passcode to gate the bot actually joining a real meeting, not
+just gate who can change which meeting it joins.
+
+**1. Ruling: approved, no pushback.** The original BA resolution was defensible in isolation (rate-limiting
+is a legitimate abuse safeguard, and the CEO brief's own words did literally scope the passcode to Save).
+But this is a public, unauthenticated page that triggers a real vendor bot to join a real, possibly-live
+Google Meet, billed against a real (if test-mode) wallet — on this surface, "who can view" and "who can
+change the URL" were never the only two questions that mattered; "who can make the bot actually show up
+uninvited in someone's meeting" is at least as important, and the 3-minute cooldown does nothing to stop
+a single, one-time unauthorized join — only repeat-spam of an already-authorized one. Arun is reversing
+the original brief's scoping now that he's seen the gap live, which is exactly the kind of call that
+belongs to him, not to a documented-in-advance technical resolution. No basis to push back; concur fully.
+
+**2. UX mechanism: option (a) — a passcode prompt on the "Learn with AI" action itself, not cached.**
+Not option (b) (remember a validated passcode client-side for the page load). Reasoning:
+- The existing, already-approved Save flow in this same spec (Decisions Table row 5, §4 Screen C,
+  §5 C1–C4) deliberately does **not** cache the passcode anywhere client-side and requires re-entry on
+  every save, "including edits to an already-saved URL" (row 5) — see also §9 Edge Cases, "the passcode
+  is never persisted client-side in any form." Reusing that exact posture for dispatch is the consistent
+  choice, not a new one: same shared secret (`DEMO_MEETING_PASSCODE`), same constant-time server-side
+  compare, same "always empty, always required" field behavior — just triggered from the "Learn with AI"
+  click instead of from Save.
+- Option (b)'s in-memory reuse would be the first place in this feature that caches the passcode across
+  actions, breaking an intentional security posture this same document already established, for a
+  convenience gain that only matters to the one demo operator (Arun) — and even for him, re-typing a
+  short shared passcode before a bot joins a real meeting is proportionate friction, not the kind of
+  friction the "Executive UX standard" principle in `CLAUDE.md` is protecting against (that principle
+  targets the target end-user's day-to-day screens; this passcode is an internal operator safety gate on
+  a sales-demo tool, not a prospect-facing flow).
+- Concretely: clicking "Learn with AI" while no meeting URL is saved behaves exactly as today (disabled/
+  hidden per Decisions Table row 3 — unchanged). Once a URL is saved, clicking "Learn with AI" opens a
+  small inline/modal passcode prompt (same visual language as the Meeting tab's passcode field — reuse
+  the component, don't invent a new one) before the dispatch call fires; wrong passcode shows the same
+  inline "Incorrect passcode." pattern already specified for Save (row 5); correct passcode proceeds
+  straight into the existing in-flight/success/error states already specified in §4 Screen D (unchanged).
+  The 3-minute per-slug cooldown (§6.3) stays in place underneath the passcode check, as defense-in-depth
+  against a leaked or shared passcode being used to cost-spam — the two safeguards are complementary, not
+  redundant, and neither replaces the other.
+
+**3. Scope: confirmed, no broader change needed.** This amendment touches exactly two files, both
+already listed in the original spec's Files Likely Touched section:
+- `app/api/demo/[slug]/dispatch/route.ts` — add a `passcode` field to the request body (Zod), and the
+  same `passcode !== process.env.DEMO_MEETING_PASSCODE` constant-time compare pattern already used in
+  `app/api/demo/[slug]/meeting/route.ts` (§6.1) — reuse that exact helper/logic rather than duplicating
+  it inline; if it isn't already extracted into a shared function, extract it now that two routes need
+  it. On mismatch, return the same `401 { error: { code: 'incorrect_passcode', message: 'Incorrect
+  passcode.' } }` shape Save already uses.
+- `app/demo/[slug]/DemoTopicClient.tsx` — add the passcode prompt to the "Learn with AI" click path,
+  reusing the existing passcode input styling/behavior from the Meeting tab rather than building a new
+  pattern.
+No table/migration/env-var/vendor changes. `DEMO_MEETING_PASSCODE` is reused as-is, not duplicated.
+
+**4. Documentation housekeeping:** §7 Acceptance Tests and §8 Error States should each get one line
+covering "dispatch with no/wrong passcode → 401, bot never dispatched" alongside the existing
+save-passcode tests, mirroring the pattern already used for Save. This is a mechanical spec update, not
+a new open question — Section 11 stays empty; do not block implementation on it.
 
 ---
 

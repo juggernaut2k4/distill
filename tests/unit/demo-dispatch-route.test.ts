@@ -2,10 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { NextRequest } from 'next/server'
 
 /**
- * B2B-33 (docs/specs/B2B-33-requirement-document.md §6.3, AT-5 through AT-9, AT-11). Covers
- * POST /api/demo/[slug]/dispatch. Per the spec's Out-of-Scope build-time warning, the outbound call
- * to the real POST /api/partner/v1/sessions endpoint is ALWAYS mocked here — this test suite must
- * never reach the real meeting-bot provider.
+ * B2B-33 (docs/specs/B2B-33-requirement-document.md §6.3 + §0a CEO amendment, AT-5 through AT-9,
+ * AT-11). Covers POST /api/demo/[slug]/dispatch, including the §0a amendment requiring the same
+ * DEMO_MEETING_PASSCODE the Save action uses. Per the spec's Out-of-Scope build-time warning, the
+ * outbound call to the real POST /api/partner/v1/sessions endpoint is ALWAYS mocked here — this test
+ * suite must never reach the real meeting-bot provider.
  */
 
 const state = {
@@ -31,8 +32,16 @@ vi.mock('@/lib/supabase', () => ({
 
 import { POST } from '@/app/api/demo/[slug]/dispatch/route'
 
-function dispatchRequest(slug: string) {
-  return new NextRequest(`https://test.hello-clio.com/api/demo/${slug}/dispatch`, { method: 'POST' })
+const CORRECT_PASSCODE = 'correct-passcode'
+
+/** `omitPasscode: true` sends `{}` — used to test the missing-passcode case without relying on a
+ *  JS default-parameter substitution on an explicit `undefined`, which silently no-ops. */
+function dispatchRequest(slug: string, passcode: string = CORRECT_PASSCODE, omitPasscode = false) {
+  return new NextRequest(`https://test.hello-clio.com/api/demo/${slug}/dispatch`, {
+    method: 'POST',
+    body: JSON.stringify(omitPasscode ? {} : { passcode }),
+    headers: { 'Content-Type': 'application/json' },
+  })
 }
 
 describe('POST /api/demo/[slug]/dispatch', () => {
@@ -43,7 +52,32 @@ describe('POST /api/demo/[slug]/dispatch', () => {
     process.env.NEXT_PUBLIC_APP_URL = 'https://hello-clio.com'
     process.env.DEMO_PARTNER_API_KEY = 'clio_test_sk_demo_fixture'
     process.env.DEMO_CONTENT_SOURCE_ID = 'src-demo-fixture'
+    process.env.DEMO_MEETING_PASSCODE = CORRECT_PASSCODE
     vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('§0a: 401s with incorrect_passcode on a wrong passcode, never calling the upstream endpoint', async () => {
+    state.row = { meeting_url: 'https://meet.google.com/abc-defg-hij', last_dispatch_attempted_at: null }
+    const res = await POST(dispatchRequest('claude-ai', 'wrong'), { params: { slug: 'claude-ai' } })
+    const body = await res.json()
+    expect(res.status).toBe(401)
+    expect(body.error.code).toBe('incorrect_passcode')
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('§0a: 401s when no passcode is sent at all', async () => {
+    state.row = { meeting_url: 'https://meet.google.com/abc-defg-hij', last_dispatch_attempted_at: null }
+    const res = await POST(dispatchRequest('claude-ai', '', true), { params: { slug: 'claude-ai' } })
+    expect(res.status).toBe(401)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('§0a: fails closed (401) when DEMO_MEETING_PASSCODE is unconfigured, even with a matching empty guess', async () => {
+    delete process.env.DEMO_MEETING_PASSCODE
+    state.row = { meeting_url: 'https://meet.google.com/abc-defg-hij', last_dispatch_attempted_at: null }
+    const res = await POST(dispatchRequest('claude-ai', 'anything'), { params: { slug: 'claude-ai' } })
+    expect(res.status).toBe(401)
+    expect(fetch).not.toHaveBeenCalled()
   })
 
   it('404s an unknown slug before any lookup', async () => {

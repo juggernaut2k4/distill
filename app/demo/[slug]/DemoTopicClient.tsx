@@ -77,10 +77,15 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
   const [saveGenericError, setSaveGenericError] = useState<string | null>(null)
   const [saveSuccess, setSaveSuccess] = useState(false)
 
-  // Learn with AI dispatch state.
+  // Learn with AI dispatch state. Per the B2B-33 §0a CEO amendment, dispatch is passcode-gated too —
+  // clicking "Learn with AI" opens an inline passcode prompt (reusing the Meeting tab's passcode
+  // field pattern) rather than dispatching immediately.
   const [dispatching, setDispatching] = useState(false)
   const [dispatchSucceeded, setDispatchSucceeded] = useState(false)
   const [dispatchErrorMessage, setDispatchErrorMessage] = useState<string | null>(null)
+  const [showDispatchPasscode, setShowDispatchPasscode] = useState(false)
+  const [dispatchPasscodeInput, setDispatchPasscodeInput] = useState('')
+  const [dispatchPasscodeError, setDispatchPasscodeError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -150,21 +155,39 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
   async function handleLearnWithAi() {
     setDispatching(true)
     setDispatchErrorMessage(null)
+    setDispatchPasscodeError(null)
     try {
-      const res = await fetch(`/api/demo/${topic.slug}/dispatch`, { method: 'POST' })
+      const res = await fetch(`/api/demo/${topic.slug}/dispatch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ passcode: dispatchPasscodeInput }),
+      })
       const data = await res.json().catch(() => null)
 
       if (res.ok && data?.status === 'dispatched') {
         setDispatchSucceeded(true)
+        setShowDispatchPasscode(false)
+        setDispatchPasscodeInput('')
         return
       }
 
-      if (data?.error?.code === 'rate_limited') {
+      const code = data?.error?.code
+      if (code === 'incorrect_passcode') {
+        // Keep the prompt open so the operator can retry without re-clicking Learn with AI.
+        setDispatchPasscodeError('Incorrect passcode.')
+        return
+      }
+
+      setShowDispatchPasscode(false)
+      setDispatchPasscodeInput('')
+      if (code === 'rate_limited') {
         setDispatchErrorMessage('Learn with AI was just triggered for this course. Try again in a few minutes.')
       } else {
         setDispatchErrorMessage('Something went wrong starting the bot. Try again in a moment.')
       }
     } catch {
+      setShowDispatchPasscode(false)
+      setDispatchPasscodeInput('')
       setDispatchErrorMessage('Something went wrong starting the bot. Try again in a moment.')
     } finally {
       setDispatching(false)
@@ -226,25 +249,74 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
               >
                 ✓ Bot is joining the meeting.
               </span>
+            ) : showDispatchPasscode ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <input
+                  type="password"
+                  autoFocus
+                  value={dispatchPasscodeInput}
+                  onChange={(e) => setDispatchPasscodeInput(e.target.value)}
+                  disabled={dispatching}
+                  placeholder="Passcode"
+                  style={{ ...meetingInputStyle, width: 160 }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && dispatchPasscodeInput.length > 0 && !dispatching) handleLearnWithAi()
+                  }}
+                />
+                <button
+                  type="button"
+                  style={{
+                    ...aiButtonStyle,
+                    opacity: dispatchPasscodeInput.length === 0 || dispatching ? 0.5 : 1,
+                    cursor: dispatchPasscodeInput.length === 0 || dispatching ? 'not-allowed' : 'pointer',
+                  }}
+                  disabled={dispatchPasscodeInput.length === 0 || dispatching}
+                  onClick={handleLearnWithAi}
+                >
+                  {dispatching ? 'Dispatching bot…' : 'Join meeting'}
+                </button>
+                <button
+                  type="button"
+                  disabled={dispatching}
+                  onClick={() => {
+                    setShowDispatchPasscode(false)
+                    setDispatchPasscodeInput('')
+                    setDispatchPasscodeError(null)
+                  }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: COLORS.textMuted,
+                    fontSize: 13,
+                    cursor: dispatching ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+                {dispatchPasscodeError && <span style={{ fontSize: 13, color: COLORS.red }}>{dispatchPasscodeError}</span>}
+              </div>
             ) : (
               <button
                 type="button"
                 style={{
                   ...aiButtonStyle,
-                  opacity: !meetingReady || meetingLoading || dispatching ? 0.5 : 1,
-                  cursor: !meetingReady || meetingLoading || dispatching ? 'not-allowed' : 'pointer',
+                  opacity: !meetingReady || meetingLoading ? 0.5 : 1,
+                  cursor: !meetingReady || meetingLoading ? 'not-allowed' : 'pointer',
                 }}
-                disabled={!meetingReady || meetingLoading || dispatching}
-                onClick={handleLearnWithAi}
+                disabled={!meetingReady || meetingLoading}
+                onClick={() => {
+                  setDispatchErrorMessage(null)
+                  setShowDispatchPasscode(true)
+                }}
               >
-                {dispatching ? 'Dispatching bot…' : '✨ Learn with AI'}
+                ✨ Learn with AI
               </button>
             )}
 
-            {!dispatchSucceeded && !meetingLoading && !meetingReady && !dispatching && (
+            {!dispatchSucceeded && !showDispatchPasscode && !meetingLoading && !meetingReady && (
               <span style={{ fontSize: 13, color: COLORS.textMuted }}>Save a meeting URL in the Meeting tab to enable this.</span>
             )}
-            {!dispatchSucceeded && dispatchErrorMessage && (
+            {!dispatchSucceeded && !showDispatchPasscode && dispatchErrorMessage && (
               <span style={{ fontSize: 13, color: COLORS.red }}>{dispatchErrorMessage}</span>
             )}
           </div>

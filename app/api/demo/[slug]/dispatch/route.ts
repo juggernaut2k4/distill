@@ -1,29 +1,41 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { getDemoTopicBySlug } from '@/app/demo/_content'
+import { verifyDemoPasscode } from '@/lib/demo/passcode'
 
 /**
  * POST /api/demo/[slug]/dispatch
  *
- * B2B-33 (docs/specs/B2B-33-requirement-document.md §6.3). Dispatches Clio's real meeting bot into
- * the Google Meet URL saved for this demo topic, by calling the real, unmodified
+ * B2B-33 (docs/specs/B2B-33-requirement-document.md §6.3, amended §0a 2026-07-23). Dispatches Clio's
+ * real meeting bot into the Google Meet URL saved for this demo topic, by calling the real, unmodified
  * POST /api/partner/v1/sessions server-to-server — the same contract real partners use — authenticated
  * as the dedicated "Clio Internal — Public Demo" account (test_mode: true, never a real partner's
  * account or balance_usd). content_pages[] is assembled deterministically from the already-authored
  * chapter text in app/demo/_content.ts — no AI call anywhere in this route.
  *
- * No passcode check here (§0 Known Constraints — the passcode gates Save only). Instead, rate-limited
- * per topic slug (3-minute cooldown) to close the residual abuse gap of unlimited free repeat-dispatch
- * of an already-saved URL by any anonymous visitor — a technical/error-handling decision, not a
- * product-shape one (see spec §0's "why dispatch needed an additional technical safeguard").
+ * Per the §0a CEO amendment, this also requires the same DEMO_MEETING_PASSCODE the Save action uses —
+ * a public, unauthenticated page must not be able to make a real bot join a real meeting with zero
+ * credential. The 3-minute per-slug cooldown stays underneath as defense-in-depth against a leaked
+ * passcode being used to cost-spam, not as a substitute for the passcode check.
  */
 
 const RATE_LIMIT_MS = 3 * 60 * 1000
+
+const DispatchSchema = z.object({
+  passcode: z.string().min(1),
+})
 
 export async function POST(request: NextRequest, { params }: { params: { slug: string } }) {
   const topic = getDemoTopicBySlug(params.slug)
   if (!topic) {
     return NextResponse.json({ error: { code: 'not_found', message: 'Unknown demo topic.' } }, { status: 404 })
+  }
+
+  const requestBody = await request.json().catch(() => null)
+  const parsed = DispatchSchema.safeParse(requestBody)
+  if (!parsed.success || !verifyDemoPasscode(parsed.data.passcode)) {
+    return NextResponse.json({ error: { code: 'incorrect_passcode', message: 'Incorrect passcode.' } }, { status: 401 })
   }
 
   const supabase = createSupabaseAdminClient()

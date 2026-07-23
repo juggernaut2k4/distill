@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { getDemoTopicBySlug } from '@/app/demo/_content'
+import { verifyDemoPasscode } from '@/lib/demo/passcode'
 
 /**
  * GET/POST /api/demo/[slug]/meeting
@@ -12,19 +13,6 @@ import { getDemoTopicBySlug } from '@/app/demo/_content'
  * enabled/disabled state both depend on it). POST is passcode-gated (write-only gate, §0 Known
  * Constraints) — a shared secret check, not a login/session, since /demo/* stays fully public.
  */
-
-function timingSafeEqualStrings(a: string, b: string): boolean {
-  const aBuf = new TextEncoder().encode(a)
-  const bBuf = new TextEncoder().encode(b)
-  const maxLen = Math.max(aBuf.length, bBuf.length, 1)
-  let diff = aBuf.length === bBuf.length ? 0 : 1
-  for (let i = 0; i < maxLen; i++) {
-    const x = i < aBuf.length ? aBuf[i] : 0
-    const y = i < bBuf.length ? bBuf[i] : 0
-    diff |= x ^ y
-  }
-  return diff === 0
-}
 
 const SaveMeetingUrlSchema = z.object({
   meeting_url: z
@@ -66,9 +54,7 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
     )
   }
 
-  const expectedPasscode = process.env.DEMO_MEETING_PASSCODE ?? ''
-  // Fail closed: an unconfigured passcode never treats any request as authenticated.
-  if (expectedPasscode.length === 0 || !timingSafeEqualStrings(parsed.data.passcode, expectedPasscode)) {
+  if (!verifyDemoPasscode(parsed.data.passcode)) {
     return NextResponse.json({ error: { code: 'incorrect_passcode', message: 'Incorrect passcode.' } }, { status: 401 })
   }
 
