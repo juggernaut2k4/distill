@@ -21,8 +21,8 @@ const BASE_INPUT = {
 }
 
 describe('assembleHumeNativePrompt — B2B-11 prompt behavior configurability', () => {
-  it('PROMPT_TEMPLATE_VERSION bumped to v7 (template source changed)', () => {
-    expect(PROMPT_TEMPLATE_VERSION).toBe('v7')
+  it('PROMPT_TEMPLATE_VERSION bumped to v8 (B2B-35 — rules 1/8/12 and the audience clause become placeholder-driven; assembled output for an unconfigured/template-mode caller stays byte-identical to v7)', () => {
+    expect(PROMPT_TEMPLATE_VERSION).toBe('v8')
   })
 
   it('default (unconfigured, no promptBehavior passed): BEHAVIORAL RULES block byte-identical to today\'s fixed template text, no PARTNER-CONFIGURED GUIDANCE section', () => {

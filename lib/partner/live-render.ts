@@ -33,6 +33,9 @@ export interface InlineContentPage {
   subtitle: string | null
   transition_trigger: string
   transition_marker: string
+  // B2B-35 F1 — optional per-page narration content, sent to Hume as the page's actual
+  // teaching material. Absent for every pre-B2B-35 page (byte-identical prompt output).
+  content_text: string | null
 }
 
 export interface PartnerSessionRow {
@@ -49,6 +52,10 @@ export interface PartnerSessionRow {
   contentToExplain: string | null
   contentTitle: string | null
   contentSubtitle: string | null
+  // B2B-35 F3 — optional, session-wide description of the actual end user, sourced from the
+  // session-creation request. Null for every pre-B2B-35 session (resolves to the 'a
+  // professional'/'a senior executive' defaults, unchanged).
+  endUserRole: string | null
 }
 
 export async function getPartnerSession(clioSessionRef: string): Promise<PartnerSessionRow | null> {
@@ -56,7 +63,7 @@ export async function getPartnerSession(clioSessionRef: string): Promise<Partner
   const { data } = await supabase
     .from('partner_sessions')
     .select(
-      'id, partner_account_id, content_ref, partner_topic_ref, partner_end_user_ref, status, test_mode, content_source_id, content_pages, content_to_explain, content_title, content_subtitle'
+      'id, partner_account_id, content_ref, partner_topic_ref, partner_end_user_ref, status, test_mode, content_source_id, content_pages, content_to_explain, content_title, content_subtitle, end_user_role'
     )
     .eq('id', clioSessionRef)
     .maybeSingle()
@@ -76,6 +83,7 @@ export async function getPartnerSession(clioSessionRef: string): Promise<Partner
     contentToExplain: (data.content_to_explain as string | null) ?? null,
     contentTitle: (data.content_title as string | null) ?? null,
     contentSubtitle: (data.content_subtitle as string | null) ?? null,
+    endUserRole: (data.end_user_role as string | null) ?? null,
   }
 }
 
@@ -193,6 +201,11 @@ export async function resolveLiveSessionRender(session: PartnerSessionRow): Prom
       intentContext: '',
       sessionContent,
       assistantName: assistantDisplayName,
+      // B2B-35 F2 — Option 2 (template mode). Explicit for clarity even though 'template' is
+      // assembleHumeNativePrompt()'s own default (AT-7).
+      sessionContentMode: 'template',
+      // B2B-35 F3 — audience persona, sourced from the session-wide end_user_role field.
+      audienceDescription: session.endUserRole?.trim() || 'a professional',
       promptBehavior: {
         tonePersona: promptConfig.tonePersona,
         deferralPhrasing: promptConfig.deferralPhrasing,
@@ -301,9 +314,10 @@ async function resolveInlineSessionRender(session: PartnerSessionRow): Promise<L
   const theme = await getThemeConfig(session.partnerAccountId)
   const assistantDisplayName = theme.assistantDisplayName ?? 'your AI guide'
 
-  // Assemble the prompt with per-page marker injection. Page BODIES are never
-  // sent to the bot (data boundary) — only the partner's narration inputs
-  // (content_to_explain + per-page titles/subtitles/triggers).
+  // Assemble the prompt with per-page marker injection. Fetched page BODIES
+  // (contentHtml/imageDataUri, the visual render) are never sent to the bot
+  // (data boundary) — only the partner's narration inputs (content_to_explain
+  // + per-page titles/subtitles/triggers/content_text, B2B-35 F1).
   let humeConfigId: string | null = null
   try {
     const sessionContent = buildInlineSessionContent(session, pages)
@@ -313,6 +327,11 @@ async function resolveInlineSessionRender(session: PartnerSessionRow): Promise<L
       intentContext: '',
       sessionContent,
       assistantName: assistantDisplayName,
+      // B2B-35 F2 — Option 1 (inline mode): warm open + own-words agenda/recap, no phantom
+      // Session Overview/Summary recitation.
+      sessionContentMode: 'inline',
+      // B2B-35 F3 — audience persona, sourced from the session-wide end_user_role field.
+      audienceDescription: session.endUserRole?.trim() || 'a professional',
       promptBehavior: {
         tonePersona: promptConfig.tonePersona,
         deferralPhrasing: promptConfig.deferralPhrasing,
@@ -358,7 +377,7 @@ async function resolveInlineSessionRender(session: PartnerSessionRow): Promise<L
  * unique transition marker naturally AND call the advance tool at the
  * transition point — the dual signal (Requirement Doc Sections 2.2, 5.4).
  */
-function buildInlineSessionContent(session: PartnerSessionRow, pages: InlineContentPage[]): string {
+export function buildInlineSessionContent(session: PartnerSessionRow, pages: InlineContentPage[]): string {
   const blocks: string[] = []
 
   if (session.contentTitle) blocks.push(`SESSION TITLE: ${session.contentTitle}`)
@@ -377,6 +396,9 @@ function buildInlineSessionContent(session: PartnerSessionRow, pages: InlineCont
     const isLast = index === pages.length - 1
     const lines: string[] = [`[PAGE ${pageNo} of ${pages.length}${page.title ? ` — "${page.title}"` : ''}]`]
     if (page.subtitle) lines.push(`Subtitle: ${page.subtitle}`)
+    // B2B-35 F1 — the page's actual teaching content, when the partner has supplied it. Absent
+    // for every pre-B2B-35 page — this block's output stays byte-identical in that case.
+    if (page.content_text) lines.push(`CONTENT TO TEACH ON THIS PAGE:\n${page.content_text}`)
     if (isLast) {
       lines.push(
         `[STAGE DIRECTION — DO NOT SAY THE BRACKETED LABEL] This is the final page (transition intent: "${page.transition_trigger}"). ` +

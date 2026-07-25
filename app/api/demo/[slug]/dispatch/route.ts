@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createSupabaseAdminClient } from '@/lib/supabase'
-import { getDemoTopicBySlug } from '@/app/demo/_content'
+import { getDemoTopicBySlug, flattenBlocksToNarrationText } from '@/app/demo/_content'
 import { verifyDemoPasscode } from '@/lib/demo/passcode'
 
 /**
@@ -70,6 +70,9 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
     media_type: 'html' as const,
     title: ch.title,
     transition_trigger: `Move on once "${ch.title}" has been fully explained.`,
+    // B2B-35 F1 — the chapter's actual teaching content, flattened to plain narration text (no
+    // AI call — deterministic transform of already-authored blocks).
+    content_text: flattenBlocksToNarrationText(ch.blocks),
   }))
 
   const expected_duration_minutes = topic.chapters.reduce((sum, ch) => {

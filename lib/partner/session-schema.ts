@@ -19,6 +19,11 @@ export const ContentPageSchema = z.object({
   title: z.string().max(200).optional(),
   subtitle: z.string().max(300).optional(),
   transition_trigger: z.string().min(1).max(500),
+  // B2B-35 F1 — optional per-page narration content ("the actual teaching material for this
+  // page"), threaded through to Hume so Clio narrates the real content instead of just the
+  // page title. Deliberately no `.min(1)` — an explicitly-empty string is accepted and treated
+  // identically to the field being absent (docs/specs/B2B-35-requirement-document.md §9).
+  content_text: z.string().max(6000).optional(),
 })
 
 export const CreateSessionSchema = z
@@ -44,6 +49,12 @@ export const CreateSessionSchema = z
     // account_kind='channel_partner' callers, enforced imperatively in the route (§6.5) since Zod has
     // no access to the resolved auth context at parse time.
     client_id: z.string().uuid().optional(),
+    // B2B-35 F3 — optional, session-wide description of who the actual end user is (e.g. "a
+    // first-year sales associate"), threaded through to the assembled Hume prompt as the
+    // audience persona in place of the hardcoded "a senior executive" default. Applies to both
+    // Option 1 (inline) and Option 2 (reference) sessions — top-level, not inside
+    // ContentPageSchema (docs/specs/B2B-35-requirement-document.md §6.8).
+    end_user_role: z.string().trim().max(200).optional(),
   })
   .refine(
     (data) => {

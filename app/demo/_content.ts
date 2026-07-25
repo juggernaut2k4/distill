@@ -416,6 +416,65 @@ print(total_area)   # works without a single if/elif checking the type`,
   },
 ]
 
+/**
+ * B2B-35 F1 (docs/specs/B2B-35-requirement-document.md §6.3) — flattens a chapter's
+ * `ContentBlock[]` into plain, spoken-safe narration text for `content_pages[i].content_text`.
+ * No AI call — deterministic, pure transform of already-authored text:
+ *  - `paragraph` → its `text`, verbatim.
+ *  - `list` → each item rendered as `"- <item>"`, one per line.
+ *  - `code` → never read aloud; replaced with a fixed spoken-safe placeholder sentence.
+ *  - unknown/unrecognized block type → skipped silently (logged), never throws (§8).
+ * Blocks are joined with a blank line between them. Truncates to 6000 chars (matching
+ * ContentPageSchema's content_text cap) at the last complete sentence boundary if exceeded —
+ * defensive; no current chapter approaches this limit.
+ */
+const CONTENT_TEXT_MAX_CHARS = 6000
+const CODE_BLOCK_PLACEHOLDER =
+  "(There's a code example on screen illustrating this — the participant can see it.)"
+
+export function flattenBlocksToNarrationText(blocks: ContentBlock[]): string {
+  const parts: string[] = []
+
+  for (const block of blocks) {
+    if (block.type === 'paragraph') {
+      if (block.text) parts.push(block.text)
+    } else if (block.type === 'list') {
+      if (block.items && block.items.length > 0) {
+        parts.push(block.items.map((item) => `- ${item}`).join('\n'))
+      }
+    } else if (block.type === 'code') {
+      parts.push(CODE_BLOCK_PLACEHOLDER)
+    } else {
+      console.warn('[demo/_content] flattenBlocksToNarrationText: skipping unknown block type:', (block as { type?: string }).type)
+    }
+  }
+
+  const flattened = parts.join('\n\n')
+  return truncateAtSentenceBoundary(flattened, CONTENT_TEXT_MAX_CHARS)
+}
+
+/** Truncates text to the last complete sentence within maxChars — mirrors the "truncate at last
+ *  complete sentence, never mid-word/mid-sentence" convention in lib/content/generator.ts. */
+function truncateAtSentenceBoundary(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text
+
+  const truncated = text.substring(0, maxChars)
+  const lastSentenceEnd = Math.max(
+    truncated.lastIndexOf('. '),
+    truncated.lastIndexOf('? '),
+    truncated.lastIndexOf('! '),
+    truncated.lastIndexOf('.\n'),
+    truncated.lastIndexOf('?\n'),
+    truncated.lastIndexOf('!\n')
+  )
+
+  if (lastSentenceEnd > 0) {
+    return truncated.substring(0, lastSentenceEnd + 1).trim()
+  }
+
+  return truncated.trim()
+}
+
 export function getDemoTopicBySlug(slug: string): DemoTopic | undefined {
   return DEMO_TOPICS.find((t) => t.slug === slug)
 }

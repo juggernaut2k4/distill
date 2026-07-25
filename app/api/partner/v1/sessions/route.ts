@@ -49,6 +49,7 @@ export async function POST(request: NextRequest) {
     partner_end_user_ref,
     partner_reference,
     client_id,
+    end_user_role,
   } = parsed.data
 
   const supabase = createSupabaseAdminClient()
@@ -144,6 +145,8 @@ export async function POST(request: NextRequest) {
       subtitle: p.subtitle ?? null,
       transition_trigger: p.transition_trigger,
       transition_marker: markers[i],
+      // B2B-35 F1 — optional per-page narration content, threaded through unchanged.
+      content_text: p.content_text ?? null,
     }))
 
     inlineColumns = {
@@ -170,6 +173,8 @@ export async function POST(request: NextRequest) {
       partner_end_user_ref: partner_end_user_ref ?? null,
       partner_reference: partner_reference ?? null,
       end_client_id: endClientId,
+      // B2B-35 F3 — session-wide audience description, applies to both content modes.
+      end_user_role: end_user_role ?? null,
       status: 'requested',
       ...inlineColumns,
     })

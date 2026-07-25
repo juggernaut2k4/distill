@@ -12,7 +12,7 @@
  * Bump PROMPT_TEMPLATE_VERSION on any structural edit to the fixed portion.
  */
 
-export const PROMPT_TEMPLATE_VERSION = 'v7'
+export const PROMPT_TEMPLATE_VERSION = 'v8'
 
 import { createSupabaseAdminClient } from '@/lib/supabase'
 
@@ -37,6 +37,31 @@ export const SESSION_CONTENT_PLACEHOLDER = '[SESSION CONTENT]'
  */
 export const TONE_GUIDANCE_PLACEHOLDER = '[TONE GUIDANCE]'
 export const PARTNER_GUIDANCE_PLACEHOLDER = '[PARTNER CONFIGURED GUIDANCE]'
+
+/**
+ * B2B-35 F2 (docs/specs/B2B-35-requirement-document.md §6.6) — rules 1, 8, and 12 of
+ * BEHAVIORAL RULES are mode-conditional on `sessionContentMode`. 'template' mode (Option 2, and
+ * the legacy app/api/hume-native/provision-config/route.ts caller) resolves to text that is
+ * byte-identical to the pre-B2B-35 (v7) fixed text. 'inline' mode (Option 1) resolves to new
+ * text: a warm icebreaker + own-words agenda (rule 1), an own-words recap before the unchanged
+ * closing sequence (rule 8), and a no-op ("does not apply in this mode") for rule 12, since there
+ * is no separately labeled Overview/Summary section to announce in this mode.
+ */
+export const RULE_1_PLACEHOLDER = '[RULE 1 TEXT]'
+export const RULE_8_PLACEHOLDER = '[RULE 8 TEXT]'
+export const RULE_12_PLACEHOLDER = '[RULE 12 TEXT]'
+
+/**
+ * B2B-35 F3 (docs/specs/B2B-35-requirement-document.md §6.7) — the template's one audience
+ * clause ("...to a senior executive over voice.") is find-and-replaced by
+ * assembleHumeNativePrompt() via the new `audienceDescription` input, defaulting to the literal
+ * `'a senior executive'` (byte-identical output) for every caller that omits it.
+ */
+export const AUDIENCE_PLACEHOLDER = '[AUDIENCE]'
+
+/** B2B-35 F2 — which of the two content-delivery shapes this session uses. Defaults to
+ *  'template' (today's existing behavior) for every caller that omits it. */
+export type SessionContentMode = 'inline' | 'template'
 
 export type PromptFieldMode = 'literal' | 'instruction'
 
@@ -98,7 +123,7 @@ export interface PromptBehaviorConfig {
 export const ASSISTANT_SELF_REFERENCE = 'You are Clio, an AI business coach'
 
 export const HUME_NATIVE_PROMPT_TEMPLATE = `You are Clio, an AI business coach delivering a live, one-on-one coaching
-session to a senior executive over voice. This is a real-time conversation —
+session to ${AUDIENCE_PLACEHOLDER} over voice. This is a real-time conversation —
 speak naturally, warmly, and with authority, like a trusted advisor, never
 like a script being read aloud.${TONE_GUIDANCE_PLACEHOLDER}
 
@@ -114,13 +139,7 @@ will be sent to you mid-call.
 
 === BEHAVIORAL RULES ===
 
-1. Open the session warmly. Deliver the Session Overview section's prepared
-   content (marked in SESSION CONTENT) in full — state the agenda, ask its
-   verification question, and wait for a response — before moving to the
-   first real subtopic. Treat this exactly like any other section: teach →
-   verification question → listen → respond → bridge. Do not skip or rush
-   past it, and do not ask what they want to cover — the agenda is fixed and
-   provided below in SESSION CONTENT.
+1. ${RULE_1_PLACEHOLDER}
 2. Do not ask about their role, industry, or background — it is already known
    to you via the CONTEXT block below. Use it to calibrate language and
    examples; never recite it back to them.
@@ -149,11 +168,7 @@ will be sent to you mid-call.
    participant actually understanding the material over covering everything
    at maximum velocity — but you are responsible for keeping the session
    moving toward completion within a reasonable session length.
-8. When the final real subtopic is complete, deliver the Session Summary
-   section's prepared content in full (it already contains the wrap-up and
-   the one-thing-to-remember framing — do not additionally improvise your own
-   summary). Ask its verification question, then follow this closing
-   sequence every time, regardless of how the call has gone so far:
+8. ${RULE_8_PLACEHOLDER}
    a. Briefly summarize what was covered today in exactly two sentences.
    b. Ask one direct closing question confirming there is nothing further to
       discuss — e.g. "Is there anything else on your mind before we wrap up?"
@@ -187,13 +202,7 @@ will be sent to you mid-call.
     described in rule 8, which only happens once, at the very end of the
     session — do not confuse the two or skip this one because you already
     expect to summarize at the end.
-12. Immediately before you begin delivering the Session Overview section's
-    content (rule 1), and again immediately before you begin delivering the
-    Session Summary section's content (rule 8), explicitly say the word
-    "overview" or "summary" (respectively) out loud, naturally, as part of
-    your sentence — for example, "Let's start with a quick overview," or
-    "Let's wrap up with a summary of what we covered." Say one of these two
-    words at that exact moment, every session, without exception.${PARTNER_GUIDANCE_PLACEHOLDER}
+12. ${RULE_12_PLACEHOLDER}${PARTNER_GUIDANCE_PLACEHOLDER}
 
 === PARTICIPANT CONTEXT ===
 
@@ -228,6 +237,22 @@ export interface AssembleHumeNativePromptInput {
    * before this field existed (Section 4.8, Section 7's regression test).
    */
   promptBehavior?: PromptBehaviorConfig | null
+  /**
+   * B2B-35 F2 (docs/specs/B2B-35-requirement-document.md §6.6) — which of the two
+   * content-delivery shapes this session uses. Defaults to `'template'` for every
+   * existing/unspecified caller (Option 2 and the legacy provision-config route), which resolves
+   * rules 1/8/12 to text byte-identical to the pre-B2B-35 (v7) fixed template. `'inline'`
+   * (Option 1) resolves those three rules to the new warm-open / no-phantom-section text instead.
+   */
+  sessionContentMode?: SessionContentMode
+  /**
+   * B2B-35 F3 (docs/specs/B2B-35-requirement-document.md §6.7) — optional description of who
+   * the actual end user is (e.g. "a first-year sales associate"), substituted for the template's
+   * audience clause. Defaults to the literal `'a senior executive'` when omitted — this is what
+   * keeps app/api/hume-native/provision-config/route.ts (the one caller that never passes this
+   * field) byte-identical to today.
+   */
+  audienceDescription?: string
 }
 
 /**
@@ -287,6 +312,40 @@ function buildPartnerGuidanceBlock(cfg: PromptBehaviorConfig | null | undefined)
 }
 
 /**
+ * B2B-35 F2 (docs/specs/B2B-35-requirement-document.md §6.6) — resolved text for rules 1, 8, and
+ * 12 by `sessionContentMode`. The `'template'` strings below are copied byte-for-byte from the
+ * pre-B2B-35 (v7) fixed template text (including its exact embedded newlines/indentation) — this
+ * is the core backward-compatibility guarantee (AT-6): a 'template'-mode (or unspecified-mode)
+ * caller's assembled output must be indistinguishable from v7's.
+ */
+const RULE_1_TEMPLATE_TEXT =
+  "Open the session warmly. Deliver the Session Overview section's prepared\n   content (marked in SESSION CONTENT) in full — state the agenda, ask its\n   verification question, and wait for a response — before moving to the\n   first real subtopic. Treat this exactly like any other section: teach →\n   verification question → listen → respond → bridge. Do not skip or rush\n   past it, and do not ask what they want to cover — the agenda is fixed and\n   provided below in SESSION CONTENT."
+
+const RULE_1_INLINE_TEXT =
+  "Open the session warmly and with genuine energy. Greet the participant, introduce yourself briefly, and offer a short, natural icebreaker — casual and human, never a rehearsed-sounding script (for example, a light remark tied to the session's topic, the time of day, or how they're doing). Then, in your own words, set the agenda using the SESSION TITLE, SESSION SUBTITLE, and WHAT TO EXPLAIN content provided below in SESSION CONTENT — synthesize and paraphrase this material naturally; do not recite it verbatim as a script and do not read it like a list. Confirm they're ready, then move into page 1."
+
+const RULE_8_TEMPLATE_TEXT =
+  "When the final real subtopic is complete, deliver the Session Summary\n   section's prepared content in full (it already contains the wrap-up and\n   the one-thing-to-remember framing — do not additionally improvise your own\n   summary). Ask its verification question, then follow this closing\n   sequence every time, regardless of how the call has gone so far:"
+
+const RULE_8_INLINE_TEXT =
+  "When the final page is complete, close warmly. In your own words — not a scripted section, since none exists in this mode — briefly recap the one or two most important things covered today. Then follow this closing sequence every time, regardless of how the call has gone so far:"
+
+const RULE_12_TEMPLATE_TEXT =
+  'Immediately before you begin delivering the Session Overview section\'s\n    content (rule 1), and again immediately before you begin delivering the\n    Session Summary section\'s content (rule 8), explicitly say the word\n    "overview" or "summary" (respectively) out loud, naturally, as part of\n    your sentence — for example, "Let\'s start with a quick overview," or\n    "Let\'s wrap up with a summary of what we covered." Say one of these two\n    words at that exact moment, every session, without exception.'
+
+const RULE_12_INLINE_TEXT =
+  'This rule does not apply in this mode — there is no separately labeled Overview or Summary section to announce. Simply open naturally per rule 1 and close naturally per rule 8, without announcing either as a distinct section.'
+
+/**
+ * Resolves `sessionContentMode` to `'template'` for any unexpected value (should be unreachable
+ * given the Zod/TypeScript union type, but defensively — Section 8's "never throw, degrade to a
+ * defined state" discipline).
+ */
+function resolveSessionContentMode(mode: SessionContentMode | undefined): SessionContentMode {
+  return mode === 'inline' ? 'inline' : 'template'
+}
+
+/**
  * Pure string-replacement assembly — no LLM call. Replaces [CONTEXT] with the
  * concatenation of the full profile context + the full intent context (per
  * BA spec 4.2 — intent block omitted entirely, not padded, when empty), and
@@ -304,7 +363,15 @@ const TONE_INSTRUCTION_ANCHOR = 'speak naturally, warmly, and with authority'
 const HUME_VOICE_STYLING_CHAR_LIMIT = 7000
 
 export function assembleHumeNativePrompt(input: AssembleHumeNativePromptInput): string {
-  const { profileContext, intentContext, sessionContent, assistantName = 'Clio', promptBehavior } = input
+  const {
+    profileContext,
+    intentContext,
+    sessionContent,
+    assistantName = 'Clio',
+    promptBehavior,
+    sessionContentMode,
+    audienceDescription = 'a senior executive',
+  } = input
 
   const contextBlock = [profileContext, intentContext]
     .map((s) => s?.trim())
@@ -322,9 +389,19 @@ export function assembleHumeNativePrompt(input: AssembleHumeNativePromptInput): 
   const toneGuidance = buildToneGuidance(promptBehavior?.tonePersona)
   const partnerGuidance = buildPartnerGuidanceBlock(promptBehavior)
 
+  // B2B-35 F2 — resolves rules 1/8/12 by mode; defaults to 'template' (byte-identical to v7).
+  const resolvedMode = resolveSessionContentMode(sessionContentMode)
+  const rule1Text = resolvedMode === 'inline' ? RULE_1_INLINE_TEXT : RULE_1_TEMPLATE_TEXT
+  const rule8Text = resolvedMode === 'inline' ? RULE_8_INLINE_TEXT : RULE_8_TEMPLATE_TEXT
+  const rule12Text = resolvedMode === 'inline' ? RULE_12_INLINE_TEXT : RULE_12_TEMPLATE_TEXT
+
   const assembled = namedTemplate
     .split(TONE_GUIDANCE_PLACEHOLDER).join(toneGuidance)
     .split(PARTNER_GUIDANCE_PLACEHOLDER).join(partnerGuidance)
+    .split(RULE_1_PLACEHOLDER).join(rule1Text)
+    .split(RULE_8_PLACEHOLDER).join(rule8Text)
+    .split(RULE_12_PLACEHOLDER).join(rule12Text)
+    .split(AUDIENCE_PLACEHOLDER).join(audienceDescription)
     .split(CONTEXT_PLACEHOLDER).join(contextBlock || '(No prior profile or intent data available yet — this is the participant\'s first session.)')
     .split(SESSION_CONTENT_PLACEHOLDER).join(sessionContent ?? '')
 
