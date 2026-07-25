@@ -37,6 +37,13 @@ export const CreateSessionSchema = z
     // Shared, unchanged.
     partner_end_user_ref: z.string().min(1).max(256).regex(PRINTABLE_ASCII).optional(),
     partner_reference: z.string().min(1).max(256).regex(PRINTABLE_ASCII).optional(),
+    // B2B-34 Piece 2 (docs/specs/B2B-34-requirement-document.md Part B §6.1/§6.5) — wire field name
+    // stays `client_id` (matches the product's established vocabulary); the DB column / TS identifier
+    // is `end_client_id` (avoids a code-level collision with the unrelated
+    // partner_oauth_clients.client_id). Optional at the Zod layer — conditionally required only for
+    // account_kind='channel_partner' callers, enforced imperatively in the route (§6.5) since Zod has
+    // no access to the resolved auth context at parse time.
+    client_id: z.string().uuid().optional(),
   })
   .refine(
     (data) => {

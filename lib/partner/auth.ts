@@ -36,11 +36,15 @@ export interface PartnerApiKeyContext {
    *  architecture.md §18.3. */
   clientId: string | null
   mode: 'test' | 'live'
+  /** B2B-34 Piece 2 (docs/specs/B2B-34-requirement-document.md Part B §6.5) — the authenticated
+   *  partner_accounts row's own account_kind. Drives whether POST /api/partner/v1/sessions requires
+   *  a client_id (channel_partner only) — direct partners ('partner') are unaffected. */
+  accountKind: 'partner' | 'channel_partner'
 }
 
 type PartnerApiKeyResult =
   | (PartnerApiKeyContext & { error: null })
-  | { partnerAccountId: null; apiKeyId: null; clientId: null; mode: null; error: NextResponse }
+  | { partnerAccountId: null; apiKeyId: null; clientId: null; mode: null; accountKind: null; error: NextResponse }
 
 /**
  * Authenticates a `/api/partner/v1/*` request via `Authorization: Bearer
@@ -80,7 +84,7 @@ export async function requirePartnerApiKey(
 
         const { data: accountRow } = await supabase
           .from('partner_accounts')
-          .select('id, status')
+          .select('id, status, account_kind')
           .eq('id', verified.claims.partner_account_id)
           .maybeSingle()
 
@@ -91,6 +95,7 @@ export async function requirePartnerApiKey(
               apiKeyId: null,
               clientId: null,
               mode: null,
+              accountKind: null,
               error: NextResponse.json(errorEnvelope('account_suspended', 'This partner account is suspended.'), { status: 403 }),
             }
           }
@@ -99,7 +104,7 @@ export async function requirePartnerApiKey(
           if (!rateLimit.allowed) {
             const res = NextResponse.json(errorEnvelope('rate_limit_exceeded', 'Rate limit exceeded.'), { status: 429 })
             res.headers.set('Retry-After', String(rateLimit.retryAfterSeconds))
-            return { partnerAccountId: null, apiKeyId: null, clientId: null, mode: null, error: res }
+            return { partnerAccountId: null, apiKeyId: null, clientId: null, mode: null, accountKind: null, error: res }
           }
 
           // Best-effort, non-blocking — mirrors the static-key path's own last_used_at update.
@@ -117,6 +122,7 @@ export async function requirePartnerApiKey(
             apiKeyId: null,
             clientId: clientRow.id,
             mode: verified.claims.mode,
+            accountKind: accountRow.account_kind as 'partner' | 'channel_partner',
             error: null,
           }
         }
@@ -128,6 +134,7 @@ export async function requirePartnerApiKey(
       apiKeyId: null,
       clientId: null,
       mode: null,
+      accountKind: null,
       error: NextResponse.json(errorEnvelope('invalid_api_key', 'Missing or malformed API key.'), { status: 401 }),
     }
   }
@@ -147,6 +154,7 @@ export async function requirePartnerApiKey(
       apiKeyId: null,
       clientId: null,
       mode: null,
+      accountKind: null,
       error: NextResponse.json(errorEnvelope('invalid_api_key', 'API key not recognized.'), { status: 401 }),
     }
   }
@@ -157,13 +165,14 @@ export async function requirePartnerApiKey(
       apiKeyId: null,
       clientId: null,
       mode: null,
+      accountKind: null,
       error: NextResponse.json(errorEnvelope('revoked_api_key', 'This API key has been revoked.'), { status: 401 }),
     }
   }
 
   const { data: accountRow } = await supabase
     .from('partner_accounts')
-    .select('id, status')
+    .select('id, status, account_kind')
     .eq('id', keyRow.partner_account_id)
     .maybeSingle()
 
@@ -173,6 +182,7 @@ export async function requirePartnerApiKey(
       apiKeyId: null,
       clientId: null,
       mode: null,
+      accountKind: null,
       error: NextResponse.json(errorEnvelope('account_suspended', 'This partner account is suspended.'), { status: 403 }),
     }
   }
@@ -181,7 +191,7 @@ export async function requirePartnerApiKey(
   if (!rateLimit.allowed) {
     const res = NextResponse.json(errorEnvelope('rate_limit_exceeded', 'Rate limit exceeded.'), { status: 429 })
     res.headers.set('Retry-After', String(rateLimit.retryAfterSeconds))
-    return { partnerAccountId: null, apiKeyId: null, clientId: null, mode: null, error: res }
+    return { partnerAccountId: null, apiKeyId: null, clientId: null, mode: null, accountKind: null, error: res }
   }
 
   // Best-effort, non-blocking — never delays or fails the response (architecture.md Section 10).
@@ -196,6 +206,7 @@ export async function requirePartnerApiKey(
     apiKeyId: keyRow.id,
     clientId: null,
     mode: keyRow.mode as 'test' | 'live',
+    accountKind: accountRow.account_kind as 'partner' | 'channel_partner',
     error: null,
   }
 }

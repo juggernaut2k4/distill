@@ -75,6 +75,11 @@ export default async function ChannelPartnerDashboardPage() {
     getShowcaseAccessEnabled(account.id),
   ])
 
+  // B2B-34 Piece 2 (docs/specs/B2B-34-requirement-document.md Part B §4) — excludes the
+  // auto-provisioned self-client: a reseller's dashboard should report their real customer count,
+  // not Clio-internal plumbing they never created. The self-client is still reachable from the full
+  // /dashboard/channel-partner/clients list.
+  const realClientCount = clients.filter((c) => !c.is_self_client).length
   const recentClientNames = clients.slice(0, 3).map((c) => c.name)
   const activeCount = team.members.length
   const pendingCount = team.pendingInvites.length
@@ -93,7 +98,7 @@ export default async function ChannelPartnerDashboardPage() {
             Clients
           </h2>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
-            <span style={{ fontSize: 40, fontWeight: 700, color: COLORS.cyan, lineHeight: 1 }}>{clients.length}</span>
+            <span style={{ fontSize: 40, fontWeight: 700, color: COLORS.cyan, lineHeight: 1 }}>{realClientCount}</span>
             <span style={{ color: COLORS.textSecondary, fontSize: 14 }}>clients</span>
           </div>
           {recentClientNames.length > 0 ? (
@@ -120,11 +125,6 @@ export default async function ChannelPartnerDashboardPage() {
           <a href="/dashboard/channel-partner/team" style={{ textDecoration: 'none' }}>
             <SecondaryButton>Manage team →</SecondaryButton>
           </a>
-        </Card>
-
-        <Card style={{ background: 'transparent', border: `1px dashed ${COLORS.borderSubtle}` }}>
-          <h2 style={{ fontSize: 13, fontWeight: 600, color: COLORS.textMuted, margin: '0 0 8px' }}>Billing</h2>
-          <p style={{ color: COLORS.textMuted, fontSize: 13, margin: 0 }}>Shared wallet billing for your clients is coming soon.</p>
         </Card>
 
         <Card>

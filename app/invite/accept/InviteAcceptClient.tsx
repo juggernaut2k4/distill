@@ -14,14 +14,14 @@ import { Loader2 } from 'lucide-react'
 type LookupState =
   | { phase: 'loading' }
   | { phase: 'invalid' } // State A4
-  | { phase: 'valid'; email: string; role: 'super_admin' | 'sales_partner' }
+  | { phase: 'valid'; email: string; role: 'super_admin' | 'internal_staff' }
 
 type AcceptState = 'idle' | 'accepting' | 'accepted' | 'mismatch' | 'invalid'
 
 type View =
   | { name: 'loading' }
   | { name: 'A4' } // invalid/expired/consumed token
-  | { name: 'A1'; email: string; role: 'super_admin' | 'sales_partner' }
+  | { name: 'A1'; email: string; role: 'super_admin' | 'internal_staff' }
   | { name: 'accepting' }
   | { name: 'A2' } // accepted, redirecting
   | { name: 'A3'; invitedEmail: string; currentEmail: string } // email mismatch
@@ -139,7 +139,7 @@ export default function InviteAcceptClient({ token }: { token: string }) {
         {view.name === 'A1' && (
           <>
             <h1 className="text-white text-2xl font-bold mb-3">
-              You&apos;ve been invited to Clio as {view.role === 'super_admin' ? 'a super-admin' : 'a sales partner'}.
+              You&apos;ve been invited to Clio as {view.role === 'super_admin' ? 'a super-admin' : 'a Clio staff member'}.
             </h1>
             <p className="text-[#94A3B8] text-sm mb-8">Invited: {view.email}</p>
             <a

@@ -23,7 +23,7 @@ interface SuperAdminRow {
   accepted_at: string | null
 }
 
-interface SalesPartnerRow {
+interface InternalStaffRow {
   id: string
   email: string
   status: 'pending' | 'active' | 'deactivated'
@@ -61,10 +61,10 @@ export default function TeamClient() {
   const [addSuperAdminError, setAddSuperAdminError] = useState<string | null>(null)
   const [deactivatingSuperAdminId, setDeactivatingSuperAdminId] = useState<string | null>(null)
 
-  // ─── Sales-partners panel ─────────────────────────────────────────────────
-  const [salesPartners, setSalesPartners] = useState<SalesPartnerRow[]>([])
-  const [salesPartnersLoading, setSalesPartnersLoading] = useState(true)
-  const [salesPartnersError, setSalesPartnersError] = useState(false)
+  // ─── Internal-staff panel ─────────────────────────────────────────────────
+  const [internalStaff, setInternalStaff] = useState<InternalStaffRow[]>([])
+  const [internalStaffLoading, setInternalStaffLoading] = useState(true)
+  const [internalStaffError, setInternalStaffError] = useState(false)
   const [busyRowId, setBusyRowId] = useState<string | null>(null)
   const [rowError, setRowError] = useState<{ id: string; message: string } | null>(null)
 
@@ -101,18 +101,18 @@ export default function TeamClient() {
     }
   }
 
-  async function loadSalesPartners() {
-    setSalesPartnersLoading(true)
-    setSalesPartnersError(false)
+  async function loadInternalStaff() {
+    setInternalStaffLoading(true)
+    setInternalStaffError(false)
     try {
-      const res = await fetch('/api/admin/team/sales-partners')
+      const res = await fetch('/api/admin/team/internal-staff')
       if (!res.ok) throw new Error('failed')
       const data = await res.json()
-      setSalesPartners(data.sales_partners ?? [])
+      setInternalStaff(data.internal_staff ?? [])
     } catch {
-      setSalesPartnersError(true)
+      setInternalStaffError(true)
     } finally {
-      setSalesPartnersLoading(false)
+      setInternalStaffLoading(false)
     }
   }
 
@@ -134,7 +134,7 @@ export default function TeamClient() {
   // §10 edge case 9 — each panel's own loading state, independent of the others.
   useEffect(() => {
     loadSuperAdmins()
-    loadSalesPartners()
+    loadInternalStaff()
     loadPartnerAccounts()
   }, [])
 
@@ -194,7 +194,7 @@ export default function TeamClient() {
     setInviteBusy(true)
     setInviteError(null)
     try {
-      const res = await fetch('/api/admin/team/sales-partners', {
+      const res = await fetch('/api/admin/team/internal-staff', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: inviteEmail.trim(), partner_account_ids: inviteTaggedIds }),
@@ -207,7 +207,7 @@ export default function TeamClient() {
       setInviteEmail('')
       setInviteTaggedIds([])
       setInviteFormOpen(false)
-      await loadSalesPartners()
+      await loadInternalStaff()
     } catch {
       setInviteError("Couldn't send invite. Try again.")
     } finally {
@@ -215,7 +215,7 @@ export default function TeamClient() {
     }
   }
 
-  function openEditTags(row: SalesPartnerRow) {
+  function openEditTags(row: InternalStaffRow) {
     setEditingTagsId(row.id)
     setEditTaggedIds(row.partner_accounts.map((a) => a.partner_account_id))
     setEditTagsError(null)
@@ -233,7 +233,7 @@ export default function TeamClient() {
     setEditTagsBusy(true)
     setEditTagsError(null)
     try {
-      const res = await fetch(`/api/admin/team/sales-partners/${id}`, {
+      const res = await fetch(`/api/admin/team/internal-staff/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ partner_account_ids: editTaggedIds }),
@@ -244,7 +244,7 @@ export default function TeamClient() {
         return
       }
       setEditingTagsId(null)
-      await loadSalesPartners()
+      await loadInternalStaff()
     } catch {
       setEditTagsError("Couldn't update tags. Try again.")
     } finally {
@@ -256,13 +256,13 @@ export default function TeamClient() {
     setBusyRowId(id)
     setRowError(null)
     try {
-      const res = await fetch(`/api/admin/team/sales-partners/${id}/resend-invite`, { method: 'POST' })
+      const res = await fetch(`/api/admin/team/internal-staff/${id}/resend-invite`, { method: 'POST' })
       const data = await res.json()
       if (!res.ok) {
         setRowError({ id, message: data?.error?.message ?? data?.error ?? "Couldn't resend invite." })
         return
       }
-      await loadSalesPartners()
+      await loadInternalStaff()
     } catch {
       setRowError({ id, message: "Couldn't resend invite. Try again." })
     } finally {
@@ -270,12 +270,12 @@ export default function TeamClient() {
     }
   }
 
-  async function handleToggleSalesPartnerStatus(row: SalesPartnerRow) {
+  async function handleToggleInternalStaffStatus(row: InternalStaffRow) {
     const nextStatus = row.status === 'deactivated' ? 'active' : 'deactivated'
     setBusyRowId(row.id)
     setRowError(null)
     try {
-      const res = await fetch(`/api/admin/team/sales-partners/${row.id}`, {
+      const res = await fetch(`/api/admin/team/internal-staff/${row.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: nextStatus }),
@@ -285,7 +285,7 @@ export default function TeamClient() {
         setRowError({ id: row.id, message: data?.error?.message ?? data?.error ?? "Couldn't update status." })
         return
       }
-      await loadSalesPartners()
+      await loadInternalStaff()
     } catch {
       setRowError({ id: row.id, message: "Couldn't update status. Try again." })
     } finally {
@@ -446,17 +446,17 @@ export default function TeamClient() {
           </div>
         )}
 
-        {salesPartnersLoading && <p className="text-[#94A3B8] text-sm py-4">Loading internal sales staff…</p>}
-        {!salesPartnersLoading && salesPartnersError && (
+        {internalStaffLoading && <p className="text-[#94A3B8] text-sm py-4">Loading internal sales staff…</p>}
+        {!internalStaffLoading && internalStaffError && (
           <p className="text-[#EF4444] text-sm py-4">Couldn&apos;t load internal sales staff. Try refreshing.</p>
         )}
-        {!salesPartnersLoading && !salesPartnersError && salesPartners.length === 0 && (
+        {!internalStaffLoading && !internalStaffError && internalStaff.length === 0 && (
           <p className="text-[#475569] text-sm py-4">No internal sales staff yet.</p>
         )}
 
-        {!salesPartnersLoading && !salesPartnersError && (
+        {!internalStaffLoading && !internalStaffError && (
           <div className="space-y-3">
-            {salesPartners.map((row) => (
+            {internalStaff.map((row) => (
               <div key={row.id} className="px-3 py-3 rounded-lg bg-[#0A0A0A] border border-[#1A1A1A]">
                 <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-2">
                   <span className="text-white text-sm flex-1 min-w-0 truncate">{row.email}</span>
@@ -530,7 +530,7 @@ export default function TeamClient() {
                     {/* §10 edge case 3 — reactivating an already-bound row needs no new invite. */}
                     {(row.status === 'active' || row.status === 'pending' || (row.status === 'deactivated' && row.has_accepted)) && (
                       <button
-                        onClick={() => handleToggleSalesPartnerStatus(row)}
+                        onClick={() => handleToggleInternalStaffStatus(row)}
                         disabled={busyRowId === row.id}
                         className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg border border-[#333333] text-[#94A3B8] hover:text-[#EF4444] hover:border-[#EF4444] transition-colors disabled:opacity-50"
                       >

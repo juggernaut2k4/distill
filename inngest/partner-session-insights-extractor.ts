@@ -31,8 +31,8 @@ import { recordInsightsReadyEvent } from '@/lib/partner/webhooks'
  *    partner_session_insights instead of sessions / session_action_items.
  *  - Purge: this file's own daily cron (03:00 UTC), reducing full-detail rows
  *    older than 30 days to type-only glitches / null action_items /
- *    null psychology_keywords via the `purge_partner_session_insights_full_detail`
- *    RPC (migration 078).
+ *    null learner_insight (B2B-34 Piece 1 — was null psychology_keywords) via the
+ *    `purge_partner_session_insights_full_detail` RPC (migration 078, updated migration 096).
  *
  * test_mode threading (v1.1, CRITICAL — Requirement Doc Section 6 / Acceptance
  * Test 11): `partner_sessions.test_mode` is fetched on BOTH the success path
@@ -53,10 +53,19 @@ const PartnerGlitchSchema = z.object({
   type: z.enum(['misunderstanding', 'repetition', 'confusion_about_clio', 'derailment', 'other']),
   description: z.string(),
 })
+// B2B-34 Piece 1 (docs/specs/B2B-34-requirement-document.md Part C §6.3) — replaces
+// psychology_keywords: z.array(z.string()). Shape is the CEO-approved, settled shape from the brief,
+// carried through unchanged per the brief's own explicit instruction not to reopen it.
+const LearnerInsightSchema = z.object({
+  summary: z.string().min(1),
+  topics_of_interest: z.array(z.string()),
+  engagement_style: z.string().min(1),
+  suggested_next_topics: z.array(z.string()),
+})
 export const PartnerInsightsExtractionSchema = z.object({
   action_items: z.array(PartnerActionItemSchema),
   glitches: z.array(PartnerGlitchSchema),
-  psychology_keywords: z.array(z.string()),
+  learner_insight: LearnerInsightSchema,
 })
 type PartnerInsightsPayload = z.infer<typeof PartnerInsightsExtractionSchema>
 
@@ -67,12 +76,16 @@ const anthropic = isPlaceholder ? null : new Anthropic({ apiKey: process.env.ANT
 const PARTNER_INSIGHTS_SYSTEM_PROMPT = `You are reviewing a transcript of a 1:1 AI-guided conversation between an AI assistant and a user. Extract three things:
 1. **Action items** — concrete next steps the User committed to, or that the assistant explicitly recommended and the User acknowledged. Do not invent items the transcript does not support.
 2. **Glitches** — moments where the conversation broke down: the assistant misunderstood or mis-heard the User, the assistant repeated itself unnecessarily, the User expressed confusion specifically about the assistant (not about the subject matter), or the conversation was derailed by an off-topic interruption. Do not flag ordinary comprehension checkpoints.
-3. **Psychology keywords** — short keyword/phrase signals (1-4 words each, lowercase, hyphenated if multi-word) capturing the User's inferred psychological state or communication pattern, based on HOW they asked/responded (tone, hesitation, confidence, urgency, frustration, curiosity) — never WHAT subject matter they discussed. Examples: "hesitant", "time-pressured", "skeptical-of-ai", "highly-engaged". Never a full sentence, never a verbatim quote.
+3. **Learner insight** — a single object capturing what this specific person cares about and how they engage, so a reseller knows what to show them next:
+   - \`summary\`: 1-2 sentences — what this person cares about and what to show them next. Base this only on what the transcript actually contains.
+   - \`topics_of_interest\`: specific subtopics they leaned into, drawn from actual conversation content — never generic category labels.
+   - \`engagement_style\`: HOW they engage, inferred from their question pattern and interaction style (e.g. "asks pointed, comparison-driven questions" or "listens fully before asking clarifying questions") — describe their *behavior*, never their emotional/psychological state. Do not use words like confused, frustrated, hesitant, skeptical, or any other tone/mood descriptor — those describe glitches (see #2), not engagement style. If you would reach for a mood word, describe the observable behavior instead (e.g. not "hesitant" but "asked to repeat the same question twice before moving on").
+   - \`suggested_next_topics\`: your own inferred recommendation for what to show this learner next, based on what they engaged with.
 
 Respond with ONLY a JSON object matching this exact shape, no prose outside the JSON:
-{"action_items": [{"text": string}], "glitches": [{"type": "misunderstanding" | "repetition" | "confusion_about_clio" | "derailment" | "other", "description": string}], "psychology_keywords": [string]}
+{"action_items": [{"text": string}], "glitches": [{"type": "misunderstanding" | "repetition" | "confusion_about_clio" | "derailment" | "other", "description": string}], "learner_insight": {"summary": string, "topics_of_interest": [string], "engagement_style": string, "suggested_next_topics": [string]}}
 
-Empty arrays are valid, expected results when nothing of that kind is present — never fabricate content to avoid an empty array.`
+Empty arrays are valid, expected results when nothing of that kind is present — never fabricate content to avoid an empty array. learner_insight's fields must all be present and non-fabricated — base them only on what the transcript actually contains.`
 
 async function callClaudeForPartnerInsightsExtraction(
   transcriptText: string
@@ -84,7 +97,12 @@ async function callClaudeForPartnerInsightsExtraction(
       data: {
         action_items: [{ text: '[MOCK] Review the AI vendor shortlist discussed in this session before the next call.' }],
         glitches: [{ type: 'other', description: '[MOCK] Placeholder glitch — ANTHROPIC_API_KEY is not configured.' }],
-        psychology_keywords: ['[mock]-placeholder-keyword'],
+        learner_insight: {
+          summary: '[MOCK] This learner is weighing build-vs-buy and wants concrete cost comparisons.',
+          topics_of_interest: ['[mock] pricing tiers', '[mock] integration timeline'],
+          engagement_style: '[MOCK] Asks pointed, comparison-driven questions.',
+          suggested_next_topics: ['[mock] ROI case study', '[mock] implementation FAQ'],
+        },
       },
     }
   }
@@ -126,7 +144,11 @@ async function runInsightsIdempotencyGuard(
   supabase: SupabaseAdminClient,
   partnerSessionId: string,
   partnerAccountId: string,
-  humeChatId: string | null
+  humeChatId: string | null,
+  // B2B-34 Piece 2 (docs/specs/B2B-34-requirement-document.md Part B §6.5) — resolved from
+  // extractInsightsForPartnerSession()'s own SELECT (already extended to include it), threaded
+  // through to the initial upsert below.
+  endClientId: string | null
 ): Promise<GuardOutcome> {
   const { data: existing } = await supabase
     .from('partner_session_insights')
@@ -142,7 +164,13 @@ async function runInsightsIdempotencyGuard(
   }
 
   await supabase.from('partner_session_insights').upsert(
-    { partner_session_id: partnerSessionId, partner_account_id: partnerAccountId, hume_chat_id: humeChatId, extraction_status: 'pending' },
+    {
+      partner_session_id: partnerSessionId,
+      partner_account_id: partnerAccountId,
+      hume_chat_id: humeChatId,
+      extraction_status: 'pending',
+      end_client_id: endClientId,
+    },
     { onConflict: 'partner_session_id', ignoreDuplicates: true }
   )
 
@@ -172,7 +200,9 @@ export async function extractInsightsForPartnerSession(partnerSessionId: string)
 
   const { data: session } = await supabase
     .from('partner_sessions')
-    .select('id, partner_account_id, hume_chat_id, test_mode')
+    // B2B-34 Piece 2 (docs/specs/B2B-34-requirement-document.md Part B §6.3) — extended to include
+    // partner_reference/end_client_id, threaded through to recordInsightsReadyEvent() below.
+    .select('id, partner_account_id, hume_chat_id, test_mode, partner_reference, end_client_id')
     .eq('id', partnerSessionId)
     .maybeSingle()
 
@@ -183,7 +213,8 @@ export async function extractInsightsForPartnerSession(partnerSessionId: string)
     supabase,
     partnerSessionId,
     session.partner_account_id as string,
-    session.hume_chat_id as string
+    session.hume_chat_id as string,
+    (session.end_client_id as string | null) ?? null
   )
   if (guard.shortCircuit) return { status: guard.status }
 
@@ -198,22 +229,37 @@ export async function extractInsightsForPartnerSession(partnerSessionId: string)
     extraction_status: 'success' | 'success_empty'
     actionItems: unknown[]
     glitches: unknown[]
-    psychologyKeywords: string[]
+    // B2B-34 Piece 1 (docs/specs/B2B-34-requirement-document.md Part C §6.3/§6.4) — replaces
+    // psychologyKeywords: string[]. null only for the zero-transcript short-circuit branch below
+    // (§6.4's success_empty case) — never a fabricated object.
+    learnerInsight: z.infer<typeof LearnerInsightSchema> | null
     isMock: boolean
     eventCount: number
   }
 
   if (messageLines.length === 0) {
-    result = { status: 'success_empty', extraction_status: 'success_empty', actionItems: [], glitches: [], psychologyKeywords: [], isMock: false, eventCount: 0 }
+    // B2B-34 Piece 1 §6.4 — zero transcript content means there is nothing to base a learner_insight
+    // on; forcing a non-null object here would fabricate content, directly against this same system
+    // prompt's "never fabricate content to avoid an empty array/result" instruction. learner_insight
+    // stores SQL NULL for this case, not an empty-but-present object.
+    result = { status: 'success_empty', extraction_status: 'success_empty', actionItems: [], glitches: [], learnerInsight: null, isMock: false, eventCount: 0 }
   } else {
     const { data, isMock } = await callClaudeForPartnerInsightsExtraction(messageLines.join('\n'))
-    const isEmpty = data.action_items.length === 0 && data.glitches.length === 0 && data.psychology_keywords.length === 0
+    // B2B-34 Piece 1 §6.4 — exact check given in the spec, redefined to NOT include learner_insight in
+    // the emptiness check (the old check was action_items.length===0 && glitches.length===0 &&
+    // psychology_keywords.length===0). Note: taken literally, this still yields 'success_empty' when
+    // action_items and glitches are both empty even though the Claude-call branch always produces a
+    // non-null learner_insight — the spec's own prose ("the Claude-call branch always produces
+    // extraction_status: 'success'") appears inconsistent with this exact code snippet; implemented
+    // literally per the spec's explicit code block, flagged to the orchestrator rather than
+    // reinterpreted.
+    const isEmpty = data.action_items.length === 0 && data.glitches.length === 0
     result = {
       status: isEmpty ? 'success_empty' : 'success',
       extraction_status: isEmpty ? 'success_empty' : 'success',
       actionItems: data.action_items,
       glitches: data.glitches,
-      psychologyKeywords: data.psychology_keywords,
+      learnerInsight: data.learner_insight,
       isMock,
       eventCount: messageLines.length,
     }
@@ -225,7 +271,7 @@ export async function extractInsightsForPartnerSession(partnerSessionId: string)
       extraction_status: result.extraction_status,
       action_items: result.actionItems,
       glitches: result.glitches,
-      psychology_keywords: result.psychologyKeywords,
+      learner_insight: result.learnerInsight,
       transcript_event_count: result.eventCount,
       error_message: result.isMock ? '[MOCK] ANTHROPIC_API_KEY not configured — mock data written' : null,
       extracted_at: new Date().toISOString(),
@@ -241,11 +287,14 @@ export async function extractInsightsForPartnerSession(partnerSessionId: string)
 
   // v1.1 — testMode is the session's REAL partner_sessions.test_mode value, fetched above. Previously
   // hardcoded to false; see Requirement Doc Section 6 v1.1 correction / Acceptance Test 11.
+  // B2B-34 Piece 2 — partnerReference/endClientId are the session's REAL values, fetched above.
   await recordInsightsReadyEvent({
     partnerSessionId,
     partnerAccountId: session.partner_account_id as string,
     extractionStatus: result.extraction_status,
     testMode: session.test_mode as boolean,
+    partnerReference: (session.partner_reference as string | null) ?? null,
+    endClientId: (session.end_client_id as string | null) ?? null,
   })
 
   return { status: result.status }
@@ -264,6 +313,11 @@ export async function extractInsightsForPartnerSession(partnerSessionId: string)
  * extractInsightsForPartnerSession() above — this function has no direct
  * `partner_sessions` read of its own otherwise.
  *
+ * B2B-34 Piece 2 (docs/specs/B2B-34-requirement-document.md Part B §6.3) — the same FK embed
+ * extends further to `partner_sessions!inner(test_mode, partner_reference, end_client_id)` so this
+ * failure path can thread the real partner_reference/end_client_id through too, same as the success
+ * path above.
+ *
  * If no `partner_session_insights` row exists yet (the `partner_sessions`
  * lookup itself threw before the idempotency guard ever ran, e.g. a missing
  * row or missing hume_chat_id), this is a no-op — matches architecture.md
@@ -277,7 +331,7 @@ export async function markInsightsExtractionFailed(partnerSessionId: string, err
 
   const { data: current } = await supabase
     .from('partner_session_insights')
-    .select('attempt_count, partner_account_id, partner_sessions!inner(test_mode)')
+    .select('attempt_count, partner_account_id, partner_sessions!inner(test_mode, partner_reference, end_client_id)')
     .eq('partner_session_id', partnerSessionId)
     .maybeSingle()
 
@@ -304,12 +358,18 @@ export async function markInsightsExtractionFailed(partnerSessionId: string, err
   // into 'failed' with attempt_count reaching 3 (mirrors the guard's own >= 3 exhaustion check), never
   // re-fired on every retry attempt below that.
   if (nextAttemptCount >= 3) {
-    const testMode = (current.partner_sessions as unknown as { test_mode: boolean } | null)?.test_mode ?? false
+    const embeddedSession = current.partner_sessions as unknown as {
+      test_mode: boolean
+      partner_reference: string | null
+      end_client_id: string | null
+    } | null
     await recordInsightsReadyEvent({
       partnerSessionId,
       partnerAccountId: current.partner_account_id as string,
       extractionStatus: 'failed',
-      testMode,
+      testMode: embeddedSession?.test_mode ?? false,
+      partnerReference: embeddedSession?.partner_reference ?? null,
+      endClientId: embeddedSession?.end_client_id ?? null,
     })
   }
 }

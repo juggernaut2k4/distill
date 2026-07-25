@@ -17,13 +17,17 @@ export interface ChannelPartnerClient {
   company_url: string | null
   status: 'active' | 'suspended'
   created_at: string
+  // B2B-34 Piece 2 (docs/specs/B2B-34-requirement-document.md Part B §6.5) — read straight through
+  // from the new partner_accounts.is_self_client column. Drives the "Self" badge on the clients list
+  // and excludes this row from the dashboard's Clients count.
+  is_self_client: boolean
 }
 
 export async function listClientsForChannelPartner(channelPartnerAccountId: string): Promise<ChannelPartnerClient[]> {
   const supabase = createSupabaseAdminClient()
   const { data } = await supabase
     .from('partner_accounts')
-    .select('id, name, company_url, status, created_at')
+    .select('id, name, company_url, status, created_at, is_self_client')
     .eq('owning_channel_partner_id', channelPartnerAccountId)
     .order('created_at', { ascending: false })
 
@@ -33,6 +37,7 @@ export async function listClientsForChannelPartner(channelPartnerAccountId: stri
     company_url: (row.company_url as string | null) ?? null,
     status: row.status as 'active' | 'suspended',
     created_at: row.created_at as string,
+    is_self_client: Boolean(row.is_self_client),
   }))
 }
 
@@ -67,6 +72,9 @@ export async function createClientForChannelPartner(
       company_url: (data.company_url as string | null) ?? null,
       status: data.status as 'active' | 'suspended',
       created_at: data.created_at as string,
+      // This path always creates a real, manually-registered client — never the self-client (that's
+      // provisioned only via createOrClaimPartnerAccount(), lib/partner/signup.ts).
+      is_self_client: false,
     },
     error: null,
   }

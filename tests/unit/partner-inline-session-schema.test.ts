@@ -61,3 +61,31 @@ describe('B2B-19 CreateSessionSchema refine (exactly one of {inline, reference})
     expect(res.success).toBe(false)
   })
 })
+
+// B2B-34 Piece 2 (docs/specs/B2B-34-requirement-document.md Part B §6.5) — client_id is optional at
+// the Zod layer (conditionally required is enforced imperatively in the route, since Zod has no
+// access to the resolved auth context at parse time).
+describe('B2B-34 CreateSessionSchema — client_id field', () => {
+  it('accepts a request with a valid uuid client_id', () => {
+    const res = CreateSessionSchema.safeParse({
+      meeting_url: MEETING,
+      partner_topic_ref: 'ai-101',
+      client_id: '3f2504e0-4f89-11d3-9a0c-0305e82c3301',
+    })
+    expect(res.success).toBe(true)
+  })
+
+  it('accepts a request with client_id omitted (optional at the schema layer)', () => {
+    const res = CreateSessionSchema.safeParse({ meeting_url: MEETING, partner_topic_ref: 'ai-101' })
+    expect(res.success).toBe(true)
+  })
+
+  it('rejects a non-uuid client_id', () => {
+    const res = CreateSessionSchema.safeParse({
+      meeting_url: MEETING,
+      partner_topic_ref: 'ai-101',
+      client_id: 'not-a-uuid',
+    })
+    expect(res.success).toBe(false)
+  })
+})

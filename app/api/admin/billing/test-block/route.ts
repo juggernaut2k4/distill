@@ -18,7 +18,7 @@ import { createTestBlockCheckoutSession } from '@/lib/stripe'
  * now-super-admin-gated `/dashboard/admin/clients` page by a super-admin who
  * is not necessarily a `partner_admin_users` member of the target account.
  * Safe per the CEO review — a super-admin is already maximally privileged,
- * and `requireSuperAdmin()` itself hard-rejects a scoped `sales_partner`.
+ * and `requireSuperAdmin()` itself hard-rejects a scoped `internal_staff`.
  * `requirePartnerAdmin`'s own body/behavior is untouched (§12 hardest
  * constraint) — this is a pure OR-alternate, checked first, falling through
  * to the existing check unchanged.

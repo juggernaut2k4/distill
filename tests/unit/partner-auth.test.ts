@@ -14,7 +14,7 @@ const state: {
   accountRow: { id: string; status: string; account_kind?: string } | null
   membershipRow: { id: string } | null
   oauthClientRow: { id: string; status: string } | null
-  oauthAccountRow: { id: string; status: string } | null
+  oauthAccountRow: { id: string; status: string; account_kind?: string } | null
 } = { keyRow: null, accountRow: null, membershipRow: null, oauthClientRow: null, oauthAccountRow: null }
 
 const updateEqSpy = vi.fn(() => Promise.resolve({ data: null, error: null }))
@@ -142,6 +142,28 @@ describe('requirePartnerApiKey', () => {
     expect(result.mode).toBe('live')
   })
 
+  // B2B-34 Piece 2 (docs/specs/B2B-34-requirement-document.md Part B §6.5) — accountKind drives
+  // whether POST /api/partner/v1/sessions requires client_id.
+  it('returns accountKind=partner for a static-key-authenticated direct-partner account', async () => {
+    state.keyRow = { id: 'key-1', partner_account_id: 'acct-1', mode: 'live', status: 'active' }
+    state.accountRow = { id: 'acct-1', status: 'active', account_kind: 'partner' }
+    const { key } = generateApiKey('live')
+    const result = await requirePartnerApiKey(makeRequest(`Bearer ${key}`), 'sessions_create')
+
+    expect(result.error).toBeNull()
+    expect(result.accountKind).toBe('partner')
+  })
+
+  it('returns accountKind=channel_partner for a static-key-authenticated reseller account', async () => {
+    state.keyRow = { id: 'key-1', partner_account_id: 'acct-cp-1', mode: 'live', status: 'active' }
+    state.accountRow = { id: 'acct-cp-1', status: 'active', account_kind: 'channel_partner' }
+    const { key } = generateApiKey('live')
+    const result = await requirePartnerApiKey(makeRequest(`Bearer ${key}`), 'sessions_create')
+
+    expect(result.error).toBeNull()
+    expect(result.accountKind).toBe('channel_partner')
+  })
+
   it('two different active keys for the same account both succeed identically (zero-downtime rotation)', async () => {
     state.accountRow = { id: 'acct-1', status: 'active' }
 
@@ -194,6 +216,18 @@ describe('requirePartnerApiKey — OAuth2 access token branch', () => {
     expect(result.apiKeyId).toBeNull()
     expect(result.clientId).toBe('oauth-client-1')
     expect(result.mode).toBe('live')
+  })
+
+  // B2B-34 Piece 2 (docs/specs/B2B-34-requirement-document.md Part B §6.5).
+  it('returns the resolved accountKind for an OAuth2-authenticated reseller account', async () => {
+    state.oauthClientRow = { id: 'oauth-client-1', status: 'active' }
+    state.oauthAccountRow = { id: 'acct-cp-1', status: 'active', account_kind: 'channel_partner' }
+    const { token } = signAccessToken('clio_client_abc', 'acct-cp-1', 'live')
+
+    const result = await requirePartnerApiKey(makeRequest(`Bearer ${token}`), 'sessions_create')
+
+    expect(result.error).toBeNull()
+    expect(result.accountKind).toBe('channel_partner')
   })
 
   it('rejects an expired OAuth2 access token with 401 invalid_api_key (same generic code as a bad static key)', async () => {

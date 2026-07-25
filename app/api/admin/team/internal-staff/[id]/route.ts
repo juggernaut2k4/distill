@@ -4,7 +4,7 @@ import { requireSuperAdmin } from '@/lib/internal-admin/auth'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 
 /**
- * PATCH /api/admin/team/sales-partners/[id] — replace tagged partner accounts and/or flip status.
+ * PATCH /api/admin/team/internal-staff/[id] — replace tagged partner accounts and/or flip status.
  *
  * B2B-21 Requirement Doc §6.4 — replaces the assignment set (diff insert/
  * delete) and/or flips status active⇄deactivated. `partner_account_ids`
@@ -46,15 +46,15 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     .from('internal_admin_users')
     .select('id, role, status, clerk_user_id')
     .eq('id', params.id)
-    .eq('role', 'sales_partner')
+    .eq('role', 'internal_staff')
     .maybeSingle()
 
   if (targetError) {
-    console.error('[admin/team/sales-partners/:id] Failed to load target:', targetError.message)
-    return NextResponse.json({ error: 'Could not update sales-partner.' }, { status: 500 })
+    console.error('[admin/team/internal-staff/:id] Failed to load target:', targetError.message)
+    return NextResponse.json({ error: 'Could not update internal-staff member.' }, { status: 500 })
   }
   if (!target) {
-    return NextResponse.json({ error: 'Sales-partner not found.' }, { status: 404 })
+    return NextResponse.json({ error: 'Internal-staff member not found.' }, { status: 404 })
   }
 
   if (partner_account_ids) {
@@ -64,7 +64,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       .in('id', partner_account_ids)
 
     if (accountsError) {
-      console.error('[admin/team/sales-partners/:id] Failed to verify partner accounts:', accountsError.message)
+      console.error('[admin/team/internal-staff/:id] Failed to verify partner accounts:', accountsError.message)
       return NextResponse.json({ error: 'Could not update tagged partner accounts.' }, { status: 500 })
     }
     if ((accounts ?? []).length !== partner_account_ids.length) {
@@ -72,16 +72,16 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     }
 
     const { error: deleteError } = await supabase
-      .from('sales_partner_assignments')
+      .from('internal_staff_assignments')
       .delete()
       .eq('internal_admin_user_id', params.id)
 
     if (deleteError) {
-      console.error('[admin/team/sales-partners/:id] Failed to clear existing assignments:', deleteError.message)
+      console.error('[admin/team/internal-staff/:id] Failed to clear existing assignments:', deleteError.message)
       return NextResponse.json({ error: 'Could not update tagged partner accounts.' }, { status: 500 })
     }
 
-    const { error: insertError } = await supabase.from('sales_partner_assignments').insert(
+    const { error: insertError } = await supabase.from('internal_staff_assignments').insert(
       partner_account_ids.map((partnerAccountId) => ({
         internal_admin_user_id: params.id,
         partner_account_id: partnerAccountId,
@@ -90,7 +90,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     )
 
     if (insertError) {
-      console.error('[admin/team/sales-partners/:id] Failed to insert new assignments:', insertError.message)
+      console.error('[admin/team/internal-staff/:id] Failed to insert new assignments:', insertError.message)
       return NextResponse.json({ error: 'Could not update tagged partner accounts.' }, { status: 500 })
     }
   }
@@ -114,8 +114,8 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       .eq('id', params.id)
 
     if (statusError) {
-      console.error('[admin/team/sales-partners/:id] Failed to update status:', statusError.message)
-      return NextResponse.json({ error: 'Could not update sales-partner status.' }, { status: 500 })
+      console.error('[admin/team/internal-staff/:id] Failed to update status:', statusError.message)
+      return NextResponse.json({ error: 'Could not update internal-staff status.' }, { status: 500 })
     }
   }
 

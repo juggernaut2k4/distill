@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 /**
  * B2B-02 — tests for lib/partner/webhooks.ts: `recordBillableEvent` (Section
@@ -41,6 +41,11 @@ const { noRateChain } = vi.hoisted(() => ({
   },
 }))
 
+// B2B-34 Piece 2 (docs/specs/B2B-34-requirement-document.md Part B §6.5) — the end_client_id
+// resolution lookup on partner_sessions, run whenever clioSessionRef is set. Defaults to null;
+// individual tests override via mockResolvedValueOnce.
+const partnerSessionsMaybeSingleMock = vi.fn(() => Promise.resolve<{ data: { end_client_id: string | null } | null }>({ data: null }))
+
 vi.mock('@/lib/supabase', () => ({
   createSupabaseAdminClient: vi.fn(() => ({
     from: vi.fn((table: string) => {
@@ -73,17 +78,25 @@ vi.mock('@/lib/supabase', () => ({
       if (table === 'billing_rate_versions') {
         return noRateChain()
       }
+      if (table === 'partner_sessions') {
+        return {
+          select: vi.fn(() => ({
+            eq: vi.fn(() => ({ maybeSingle: partnerSessionsMaybeSingleMock })),
+          })),
+        }
+      }
       throw new Error(`Unexpected table: ${table}`)
     }),
   })),
 }))
 
-import { recordBillableEvent, attemptDispatch, type DueDispatchRow } from '@/lib/partner/webhooks'
+import { recordBillableEvent, attemptDispatch, recordInsightsReadyEvent, type DueDispatchRow } from '@/lib/partner/webhooks'
 
 describe('recordBillableEvent', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     state.accountRow = { id: 'acct-1', outbound_signing_secret: 'secret-123' }
+    partnerSessionsMaybeSingleMock.mockResolvedValue({ data: null })
   })
 
   it('returns an error when the partner account cannot be found', async () => {
@@ -113,6 +126,9 @@ describe('recordBillableEvent', () => {
       from: (table: string) => {
         if (table === 'partner_accounts') {
           return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: state.accountRow }) }) }) }
+        }
+        if (table === 'partner_sessions') {
+          return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: null }) }) }) }
         }
         return {
           upsert: (row: Record<string, unknown>) => {
@@ -212,6 +228,9 @@ describe('recordBillableEvent', () => {
         if (table === 'billing_rate_versions') {
           return noRateChain()
         }
+        if (table === 'partner_sessions') {
+          return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: { end_client_id: 'client-1' } }) }) }) }
+        }
         throw new Error(`Unexpected table: ${table}`)
       },
     })
@@ -236,6 +255,8 @@ describe('recordBillableEvent', () => {
         clio_session_ref: 'session-1',
         webhook_dispatch_log_id: 'dl-1',
         test_mode: false,
+        // B2B-34 Piece 2 — resolved from partner_sessions.end_client_id, threaded onto usage_events.
+        end_client_id: 'client-1',
       })
     )
   })
@@ -290,6 +311,9 @@ describe('recordBillableEvent', () => {
         if (table === 'usage_events') {
           return { insert: usageEventsInsertMock }
         }
+        if (table === 'partner_sessions') {
+          return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: null }) }) }) }
+        }
         throw new Error(`Unexpected table: ${table}`)
       },
     })
@@ -332,6 +356,163 @@ describe('recordBillableEvent', () => {
 
     expect('error' in result).toBe(true)
     expect((result as { error: string }).error).toBe('relation "usage_events" does not exist')
+  })
+
+  // B2B-34 Piece 2 (docs/specs/B2B-34-requirement-document.md Part B §6.5, §7 Acceptance Tests).
+  it('resolves end_client_id from the originating partner_sessions row and includes it on the payload', async () => {
+    partnerSessionsMaybeSingleMock.mockResolvedValueOnce({ data: { end_client_id: 'end-client-42' } })
+
+    let capturedPayload: Record<string, unknown> | null = null
+    const { createSupabaseAdminClient } = await import('@/lib/supabase')
+    ;(createSupabaseAdminClient as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce({
+      from: (table: string) => {
+        if (table === 'partner_accounts') {
+          return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: state.accountRow }) }) }) }
+        }
+        if (table === 'usage_events') {
+          return { insert: () => ({ select: () => ({ single: () => Promise.resolve({ data: { id: 'usage-event-1' }, error: null }) }) }) }
+        }
+        if (table === 'billing_rate_versions') {
+          return noRateChain()
+        }
+        if (table === 'partner_sessions') {
+          return { select: () => ({ eq: () => ({ maybeSingle: partnerSessionsMaybeSingleMock }) }) }
+        }
+        return {
+          upsert: (row: Record<string, unknown>) => {
+            capturedPayload = row.payload as Record<string, unknown>
+            return { select: () => ({ maybeSingle: () => Promise.resolve({ data: { id: 'dl-1' } }) }) }
+          },
+        }
+      },
+    })
+
+    await recordBillableEvent({
+      partnerAccountId: 'acct-1',
+      eventType: 'usage.voice_minute',
+      clioSessionRef: 'session-1',
+      quantity: 1,
+      unit: 'minutes',
+    })
+
+    expect(capturedPayload!.end_client_id).toBe('end-client-42')
+  })
+
+  it('leaves end_client_id null when no clioSessionRef is provided (no partner_sessions lookup)', async () => {
+    let capturedPayload: Record<string, unknown> | null = null
+    const { createSupabaseAdminClient } = await import('@/lib/supabase')
+    ;(createSupabaseAdminClient as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce({
+      from: (table: string) => {
+        if (table === 'partner_accounts') {
+          return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: state.accountRow }) }) }) }
+        }
+        if (table === 'usage_events') {
+          return { insert: () => ({ select: () => ({ single: () => Promise.resolve({ data: { id: 'usage-event-1' }, error: null }) }) }) }
+        }
+        if (table === 'billing_rate_versions') {
+          return noRateChain()
+        }
+        if (table === 'partner_sessions') {
+          throw new Error('partner_sessions should never be queried when clioSessionRef is absent')
+        }
+        return {
+          upsert: (row: Record<string, unknown>) => {
+            capturedPayload = row.payload as Record<string, unknown>
+            return { select: () => ({ maybeSingle: () => Promise.resolve({ data: { id: 'dl-1' } }) }) }
+          },
+        }
+      },
+    })
+
+    await recordBillableEvent({ partnerAccountId: 'acct-1', eventType: 'usage.voice_minute', quantity: 1, unit: 'minutes' })
+
+    expect(capturedPayload!.end_client_id).toBeNull()
+  })
+})
+
+// B2B-34 Piece 2 (docs/specs/B2B-34-requirement-document.md Part B §6.3, §7 Acceptance Tests) — the
+// webhook fix: partner_reference is threaded through as the real value (was hardcoded null), and
+// end_client_id is added as a new, additive, NON-hashed field.
+describe('recordInsightsReadyEvent', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    state.accountRow = { id: 'acct-1', outbound_signing_secret: 'secret-123' }
+    // Deterministic `now`/`occurred_at` across calls within a test — canonicalHashInput() includes
+    // occurred_at, so the hash-comparison tests below need it held constant across both calls to
+    // isolate what's actually varying (partner_reference vs. end_client_id).
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-24T00:00:00.000Z'))
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  async function captureUpsertedRow(params: {
+    partnerReference: string | null
+    endClientId: string | null
+    extractionStatus?: 'success' | 'success_empty' | 'failed'
+  }): Promise<Record<string, unknown>> {
+    let capturedRow: Record<string, unknown> | null = null
+    const { createSupabaseAdminClient } = await import('@/lib/supabase')
+    ;(createSupabaseAdminClient as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce({
+      from: (table: string) => {
+        if (table === 'partner_accounts') {
+          return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: state.accountRow }) }) }) }
+        }
+        if (table === 'webhook_dispatch_log') {
+          return {
+            upsert: (row: Record<string, unknown>) => {
+              capturedRow = row
+              return { select: () => ({ maybeSingle: () => Promise.resolve({ data: { id: 'dl-1' } }) }) }
+            },
+          }
+        }
+        throw new Error(`Unexpected table: ${table}`)
+      },
+    })
+
+    await recordInsightsReadyEvent({
+      partnerSessionId: 'session-1',
+      partnerAccountId: 'acct-1',
+      extractionStatus: params.extractionStatus ?? 'success',
+      testMode: false,
+      partnerReference: params.partnerReference,
+      endClientId: params.endClientId,
+    })
+
+    if (!capturedRow) throw new Error('webhook_dispatch_log.upsert was never called')
+    return capturedRow
+  }
+
+  it('delivers the real partner_reference on the payload, not a hardcoded null (closes the pre-existing bug)', async () => {
+    const row = await captureUpsertedRow({ partnerReference: 'hartford-topic-slug', endClientId: null })
+    const payload = row.payload as Record<string, unknown>
+    expect(payload.partner_reference).toBe('hartford-topic-slug')
+  })
+
+  it('still delivers null partner_reference when the partner genuinely never set one', async () => {
+    const row = await captureUpsertedRow({ partnerReference: null, endClientId: null })
+    const payload = row.payload as Record<string, unknown>
+    expect(payload.partner_reference).toBeNull()
+  })
+
+  it('includes end_client_id on the payload, matching partner_sessions.end_client_id for the session', async () => {
+    const row = await captureUpsertedRow({ partnerReference: null, endClientId: 'end-client-99' })
+    const payload = row.payload as Record<string, unknown>
+    expect(payload.end_client_id).toBe('end-client-99')
+  })
+
+  it('the idempotency hash changes when partner_reference changes (it IS part of the hash input)', async () => {
+    const rowA = await captureUpsertedRow({ partnerReference: 'ref-a', endClientId: null })
+    const rowB = await captureUpsertedRow({ partnerReference: 'ref-b', endClientId: null })
+    expect(rowA.payload_hash).not.toBe(rowB.payload_hash)
+  })
+
+  it('the idempotency hash is UNAFFECTED by end_client_id (it is NOT part of the hash input, additive-only like extraction_status)', async () => {
+    const rowA = await captureUpsertedRow({ partnerReference: 'same-ref', endClientId: 'client-a' })
+    const rowB = await captureUpsertedRow({ partnerReference: 'same-ref', endClientId: 'client-b' })
+    expect(rowA.payload_hash).toBe(rowB.payload_hash)
   })
 })
 

@@ -151,10 +151,19 @@ describe('AT-25 — /api/admin/sales-partners* routes 403 a non-super-admin call
   })
 })
 
-// ─── AT-29/AT-30 — the §6.14 naming-collision fix: TeamClient.tsx's rendered
-// copy changes, everything else (route paths, state identifiers, DB values)
-// stays byte-identical. ─────────────────────────────────────────────────────
-describe('AT-29/AT-30 — TeamClient.tsx naming-collision fix is copy-only', () => {
+// ─── AT-29/AT-30 — the §6.14 naming-collision fix (B2B-28): TeamClient.tsx's
+// rendered copy changes, everything else (route paths, state identifiers, DB
+// values) stays byte-identical AT THAT TIME. B2B-34 Piece 5 (this file's own
+// requirement doc, Part A §0.4) is the deferred follow-up B2B-28 explicitly
+// named and scheduled: it now renames the underlying route paths, state/
+// handler identifiers, and DB value from the `sales_partner` token to
+// `internal_staff`, while keeping TeamClient.tsx's *rendered* copy unchanged.
+// These AT-30 assertions are updated accordingly to assert the NEW paths/
+// identifiers; the AT-29 rendered-copy assertions are untouched since no
+// visible text changed. The migration-084-content assertion also stays
+// unchanged — migration 084's file is never edited in place; the rename
+// happens via the new, additive migration 094. ─────────────────────────────
+describe('AT-29/AT-30 — TeamClient.tsx naming-collision fix is copy-only (B2B-28), identifiers renamed by B2B-34 Part A', () => {
   const source = fs.readFileSync(
     path.resolve(__dirname, '../../app/dashboard/admin/team/TeamClient.tsx'),
     'utf8'
@@ -173,35 +182,55 @@ describe('AT-29/AT-30 — TeamClient.tsx naming-collision fix is copy-only', () 
     expect(source).not.toMatch(/>Sales-partners</)
   })
 
-  it('keeps every fetched route path byte-identical to /api/admin/team/sales-partners* (AT-30)', () => {
-    expect(source).toContain("fetch('/api/admin/team/sales-partners')")
-    expect(source).toContain("fetch('/api/admin/team/sales-partners', {")
-    expect(source).toContain('fetch(`/api/admin/team/sales-partners/${id}`')
-    expect(source).toContain('fetch(`/api/admin/team/sales-partners/${id}/resend-invite`')
-    expect(source).toContain('fetch(`/api/admin/team/sales-partners/${row.id}`')
+  it('uses the B2B-34-renamed route paths /api/admin/team/internal-staff* (AT-30)', () => {
+    expect(source).toContain("fetch('/api/admin/team/internal-staff')")
+    expect(source).toContain("fetch('/api/admin/team/internal-staff', {")
+    expect(source).toContain('fetch(`/api/admin/team/internal-staff/${id}`')
+    expect(source).toContain('fetch(`/api/admin/team/internal-staff/${id}/resend-invite`')
+    expect(source).toContain('fetch(`/api/admin/team/internal-staff/${row.id}`')
   })
 
-  it('keeps every state variable/handler identifier byte-identical (AT-30)', () => {
+  it('no longer references the pre-B2B-34 /api/admin/team/sales-partners* route paths (AT-30)', () => {
+    expect(source).not.toContain('/api/admin/team/sales-partners')
+  })
+
+  it('uses the B2B-34-renamed state variable/handler identifiers (AT-30)', () => {
     for (const identifier of [
-      'salesPartners',
-      'salesPartnersLoading',
-      'salesPartnersError',
-      'loadSalesPartners',
+      'internalStaff',
+      'internalStaffLoading',
+      'internalStaffError',
+      'loadInternalStaff',
       'handleSendInvite',
       'handleResendInvite',
-      'handleToggleSalesPartnerStatus',
+      'handleToggleInternalStaffStatus',
     ]) {
       expect(source).toContain(identifier)
     }
   })
 
-  it('never touches internal_admin_users/sales_partner_assignments schema or the role=sales_partner DB value (AT-30, source-level confirmation)', () => {
+  it('no longer references the pre-B2B-34 salesPartners-family identifiers (AT-30)', () => {
+    for (const identifier of ['salesPartners', 'salesPartnersLoading', 'salesPartnersError', 'loadSalesPartners', 'handleToggleSalesPartnerStatus']) {
+      expect(source).not.toContain(identifier)
+    }
+  })
+
+  it('never edits migration 084\'s own file content in place (AT-30, source-level confirmation)', () => {
     const migration084 = fs.readFileSync(
       path.resolve(__dirname, '../../supabase/migrations/084_b2b21_internal_admin_identity.sql'),
       'utf8'
     )
-    // Confirms migration 084 itself is untouched by this brief — B2B-28 ships
-    // its own migration (088) and never edits 084's file contents.
+    // Confirms migration 084 itself is untouched — B2B-28 shipped its own
+    // migration (088) and never edited 084's file contents; B2B-34 Part A's
+    // rename happens via the new, additive migration 094, not by editing 084.
     expect(migration084).toMatch(/role\s+TEXT NOT NULL CHECK \(role IN \('super_admin', 'sales_partner'\)\)/)
+  })
+
+  it('migration 094 performs the B2B-34 Part A rename (constraint, table, indexes, RLS policy)', () => {
+    const migration094 = fs.readFileSync(
+      path.resolve(__dirname, '../../supabase/migrations/094_b2b34_internal_staff_rename.sql'),
+      'utf8'
+    )
+    expect(migration094).toMatch(/CHECK \(role IN \('super_admin', 'internal_staff'\)\)/)
+    expect(migration094).toContain('ALTER TABLE sales_partner_assignments RENAME TO internal_staff_assignments')
   })
 })

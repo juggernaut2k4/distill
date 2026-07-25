@@ -48,10 +48,45 @@ export async function POST(request: NextRequest) {
     expected_duration_minutes,
     partner_end_user_ref,
     partner_reference,
+    client_id,
   } = parsed.data
 
   const supabase = createSupabaseAdminClient()
   const isInline = Boolean(content_pages)
+
+  // ─── B2B-34 Piece 2 (docs/specs/B2B-34-requirement-document.md Part B §6.5) — client_id pre-flight.
+  // Required only for account_kind='channel_partner' (reseller) callers; direct partners
+  // (account_kind='partner') are completely unaffected — client_id stays absent/unused for them,
+  // exactly matching pre-B2B-34 behavior. Runs before the Option-1 pre-flight block below so a bad
+  // client_id never creates a session row or triggers a content-source lookup.
+  let endClientId: string | null = null
+  if (auth.accountKind === 'channel_partner') {
+    if (!client_id) {
+      return NextResponse.json(
+        {
+          error: {
+            code: 'client_id_required',
+            message:
+              "client_id is required for sales-partner accounts. Register a client first, or use your account's auto-provisioned self client (see your Clients page).",
+          },
+        },
+        { status: 422 }
+      )
+    }
+    const { data: clientRow } = await supabase
+      .from('partner_accounts')
+      .select('id')
+      .eq('id', client_id)
+      .eq('owning_channel_partner_id', auth.partnerAccountId)
+      .maybeSingle()
+    if (!clientRow) {
+      return NextResponse.json(
+        { error: { code: 'invalid_client_id', message: 'client_id was not found or is not registered to your account.' } },
+        { status: 422 }
+      )
+    }
+    endClientId = client_id
+  }
 
   // ─── Option 1 (inline) pre-flight: content source + SSRF + marker generation ─
   // Runs BEFORE any row insert or dispatch (State B2/B3 — "No dispatch"), so a
@@ -134,6 +169,7 @@ export async function POST(request: NextRequest) {
       content_ref: content_ref ?? null,
       partner_end_user_ref: partner_end_user_ref ?? null,
       partner_reference: partner_reference ?? null,
+      end_client_id: endClientId,
       status: 'requested',
       ...inlineColumns,
     })

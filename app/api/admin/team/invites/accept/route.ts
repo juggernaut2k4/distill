@@ -27,7 +27,7 @@ const AcceptSchema = z.object({
  *
  * Unauthenticated, token-gated lookup backing State A1 of `/invite/accept`
  * (Requirement Doc §4.C) — the page must show the invited email address and
- * role-branded copy ("as a sales partner" / "as a super-admin") BEFORE the
+ * role-branded copy ("as a Clio staff member" / "as a super-admin") BEFORE the
  * visitor signs in, which is otherwise impossible since the accept POST
  * itself requires an authenticated session. Returns only the two fields
  * already known to whoever holds the unguessable 48-hex-char bearer token

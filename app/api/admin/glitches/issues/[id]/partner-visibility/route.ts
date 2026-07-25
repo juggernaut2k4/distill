@@ -67,7 +67,7 @@ export async function GET(_request: NextRequest, { params }: { params: { id: str
 
   // A sales-partner caller never learns this issue touches a partner outside their scope — the row
   // is omitted entirely, not disabled (§4.B State I1, §6.4).
-  if (admin.role === 'sales_partner') {
+  if (admin.role === 'internal_staff') {
     eligiblePartnerIds = eligiblePartnerIds.filter((id) => admin.scopedPartnerAccountIds.includes(id))
   }
 

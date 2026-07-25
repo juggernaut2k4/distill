@@ -1128,25 +1128,25 @@ export async function sendAdminAlert(params: {
 }
 
 /**
- * B2B-21 Requirement Doc §6.6 — sales-partner invite email. Non-blocking
+ * B2B-21 Requirement Doc §6.6 — internal-staff invite email. Non-blocking
  * best-effort send, following the exact `EmailResult`-returning, Resend-based
  * pattern already used by `sendPartnerSignupWelcomeEmail` — a failed send
  * never blocks the underlying `internal_admin_users` row/token write; the
  * caller surfaces `email_sent: false` so the UI can offer "Resend invite."
  * @param email - the invitee's email address
  * @param inviterName - the inviting super-admin's display name/email
- * @param partnerAccountNames - the partner account(s) this sales-partner is tagged to
+ * @param partnerAccountNames - the partner account(s) this internal-staff member is tagged to
  * @param acceptUrl - the full `/invite/accept?token=...` URL
  */
-export async function sendSalesPartnerInviteEmail(
+export async function sendInternalStaffInviteEmail(
   email: string,
   inviterName: string,
   partnerAccountNames: string[],
   acceptUrl: string
 ): Promise<EmailResult> {
   if (isPlaceholder || !resend) {
-    console.log('[MOCK] sendSalesPartnerInviteEmail', { email, inviterName, partnerAccountNames, acceptUrl })
-    return { success: true, messageId: 'mock-sales-partner-invite-id' }
+    console.log('[MOCK] sendInternalStaffInviteEmail', { email, inviterName, partnerAccountNames, acceptUrl })
+    return { success: true, messageId: 'mock-internal-staff-invite-id' }
   }
 
   const accountsList = partnerAccountNames.join(', ')
@@ -1155,7 +1155,7 @@ export async function sendSalesPartnerInviteEmail(
     const result = await resend.emails.send({
       from: FROM,
       to: email,
-      subject: `You've been invited to Clio as a sales partner`,
+      subject: `You've been invited to Clio as internal staff`,
       html: `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -1165,7 +1165,7 @@ export async function sendSalesPartnerInviteEmail(
       <p style="color:#7C3AED;font-size:12px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin:0 0 32px;">CLIO</p>
       <h1 style="color:#ffffff;font-size:28px;font-weight:800;margin:0 0 12px;">You've been invited to Clio.</h1>
       <p style="color:#94A3B8;font-size:16px;line-height:1.7;margin:0 0 8px;">
-        ${inviterName} has invited you as a sales partner, scoped to: <strong style="color:#ffffff;">${accountsList}</strong>.
+        ${inviterName} has invited you as internal staff, scoped to: <strong style="color:#ffffff;">${accountsList}</strong>.
       </p>
       <p style="color:#94A3B8;font-size:16px;line-height:1.7;margin:0 0 32px;">
         This invite expires in 7 days.
@@ -1177,10 +1177,10 @@ export async function sendSalesPartnerInviteEmail(
   </table>
 </body>
 </html>`,
-      text: `${inviterName} has invited you to Clio as a sales partner, scoped to: ${accountsList}. Accept your invite (expires in 7 days): ${acceptUrl}`,
+      text: `${inviterName} has invited you to Clio as internal staff, scoped to: ${accountsList}. Accept your invite (expires in 7 days): ${acceptUrl}`,
     })
 
-    logEmailResult('sendSalesPartnerInviteEmail', email, result)
+    logEmailResult('sendInternalStaffInviteEmail', email, result)
     if (result.error) {
       return { success: false, error: result.error.message }
     }
@@ -1188,7 +1188,7 @@ export async function sendSalesPartnerInviteEmail(
     return { success: true, messageId: result.data?.id }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error'
-    console.error(`[email:sendSalesPartnerInviteEmail] EXCEPTION to=${email}:`, message)
+    console.error(`[email:sendInternalStaffInviteEmail] EXCEPTION to=${email}:`, message)
     return { success: false, error: message }
   }
 }
@@ -1196,7 +1196,7 @@ export async function sendSalesPartnerInviteEmail(
 /**
  * B2B-26 (docs/specs/B2B-26-requirement-document.md §6.11) — a sales-partner's
  * own team invite email. Same dark-void/#7C3AED-CTA HTML skeleton as
- * `sendSalesPartnerInviteEmail`, different copy and no partner-account-tagging
+ * `sendInternalStaffInviteEmail`, different copy and no partner-account-tagging
  * list (this invite is scoped to one account only). Non-blocking best-effort
  * send, same `EmailResult`-returning pattern as every other function here.
  * @param email - the invitee's email address
@@ -1257,7 +1257,7 @@ export async function sendPartnerTeamInviteEmail(
 /**
  * B2B-21 Requirement Doc §6.6 — courtesy notification when a super-admin
  * adds another super-admin email. Non-blocking best-effort send, same
- * pattern as `sendSalesPartnerInviteEmail`. No token/accept step is needed
+ * pattern as `sendInternalStaffInviteEmail`. No token/accept step is needed
  * for a super-admin — Clerk's own email verification during that person's
  * sign-up/sign-in is sufficient proof of ownership, picked up by the
  * lazy-bind in `resolveInternalAdmin()` on their next authenticated request.

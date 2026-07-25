@@ -28,11 +28,41 @@ import {
   meetingInputStyle,
   meetingFieldWrapStyle,
   meetingLabelStyle,
+  demoLabelStyle,
   COLORS,
 } from '../_styles'
 
-const TABS = ['Course Overview', 'Transcript', 'Visuals', 'Resources', 'Discussion', 'Meeting', 'Learning Check'] as const
+const TABS = ['Course Overview', 'Transcript', 'Visuals', 'Resources', 'Discussion', 'Meeting', 'Learning Check', 'Performance'] as const
 type Tab = (typeof TABS)[number]
+
+// B2B-34 Piece 1 (docs/specs/B2B-34-requirement-document.md Part C §6.2) — mirrors the API route's own
+// PerformanceResponse contract (app/api/demo/[slug]/performance/route.ts). Duplicated rather than
+// shared across a client/server boundary import, matching this codebase's existing convention of
+// inline response-shape types in client components (see the meeting_url fetch above).
+type PerformanceSessionState = 'not_dispatched' | 'in_progress' | 'pending_extraction' | 'extraction_failed' | 'ready'
+
+interface PerformanceLearnerInsight {
+  summary: string
+  topics_of_interest: string[]
+  engagement_style: string
+  suggested_next_topics: string[]
+}
+
+interface PerformanceResponse {
+  session_state: PerformanceSessionState
+  duration_minutes: number | null
+  action_items: { text: string }[] | null
+  learner_insight: PerformanceLearnerInsight | null
+}
+
+/** Matches the section-heading inline style already used inside the Course Overview tab below (e.g. "What you'll learn"). */
+const perfSectionHeadingStyle = { fontSize: 15, fontWeight: 700, margin: '20px 0 10px 0' } as const
+
+/** Dimmed heading/body pair for the Performance tab's non-ready states — same COLORS.textMuted-based
+ * dimming convention already used for this page's other empty-state tabs (Resources/Discussion/Learning
+ * Check), matching the Meeting tab's own dimmed/disabled visual language for "nothing here yet." */
+const perfEmptyHeadingStyle = { fontSize: 18, fontWeight: 700, color: COLORS.textMuted, margin: '24px 0 8px 0' } as const
+const perfEmptyBodyStyle = { fontSize: 14, color: COLORS.textMuted, lineHeight: 1.6, margin: 0 } as const
 
 /** Both demo topics now have a full set of static visual pages under /demo/{slug}/visuals/{chapterId}. */
 const VISUAL_TOPICS = new Set(['claude-ai', 'oop-fundamentals'])
@@ -86,6 +116,36 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
   const [showDispatchPasscode, setShowDispatchPasscode] = useState(false)
   const [dispatchPasscodeInput, setDispatchPasscodeInput] = useState('')
   const [dispatchPasscodeError, setDispatchPasscodeError] = useState<string | null>(null)
+
+  // B2B-34 Piece 1 — Performance tab data, fetched eagerly on mount (§3: "eager on mount, matching the
+  // existing savedMeetingUrl fetch pattern already in this component, so switching to the tab never
+  // shows an avoidable loading flash for data that could have already arrived").
+  const [performanceLoading, setPerformanceLoading] = useState(true)
+  const [performanceData, setPerformanceData] = useState<PerformanceResponse | null>(null)
+  const [performanceFetchFailed, setPerformanceFetchFailed] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    setPerformanceLoading(true)
+    fetch(`/api/demo/${topic.slug}/performance`)
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error('fetch failed'))))
+      .then((data: PerformanceResponse) => {
+        if (cancelled) return
+        setPerformanceData(data)
+      })
+      .catch(() => {
+        if (cancelled) return
+        // §8 — a frontend fetch failure falls back to the P-Pending visual treatment (fails toward
+        // "still processing," never toward showing stale/fabricated data).
+        setPerformanceFetchFailed(true)
+      })
+      .finally(() => {
+        if (!cancelled) setPerformanceLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [topic.slug])
 
   useEffect(() => {
     let cancelled = false
@@ -515,6 +575,102 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
           {activeTab === 'Learning Check' && (
             <div style={{ maxWidth: 760, marginTop: 24, color: COLORS.textMuted, fontSize: 14 }}>
               No learning check quiz for this demo course.
+            </div>
+          )}
+
+          {activeTab === 'Performance' && (
+            <div style={{ maxWidth: 760, marginTop: 24 }}>
+              {performanceLoading ? (
+                // §9 edge case "Slow network on first load" — a muted "Loading…" line, matching the
+                // Meeting tab's own lack-of-spinner-for-fast-fetches precedent, never a layout shift
+                // once resolved.
+                <p style={{ color: COLORS.textMuted, fontSize: 14 }}>Loading…</p>
+              ) : performanceFetchFailed || !performanceData ? (
+                // §8 — frontend fetch failure falls back to State P-Pending's visual treatment.
+                <>
+                  <h3 style={perfEmptyHeadingStyle}>Performance data is being prepared.</h3>
+                  <p style={perfEmptyBodyStyle}>This usually takes a few minutes after the meeting ends. Check back shortly.</p>
+                </>
+              ) : performanceData.session_state === 'not_dispatched' ? (
+                <>
+                  <h3 style={perfEmptyHeadingStyle}>No meeting dispatched yet.</h3>
+                  <p style={perfEmptyBodyStyle}>
+                    Once the bot has joined a meeting for this course, its performance data will appear here.
+                  </p>
+                </>
+              ) : performanceData.session_state === 'in_progress' || performanceData.session_state === 'pending_extraction' ? (
+                <>
+                  <h3 style={perfEmptyHeadingStyle}>Performance data is being prepared.</h3>
+                  <p style={perfEmptyBodyStyle}>This usually takes a few minutes after the meeting ends. Check back shortly.</p>
+                </>
+              ) : performanceData.session_state === 'extraction_failed' ? (
+                <>
+                  <h3 style={perfEmptyHeadingStyle}>Performance data couldn&apos;t be generated.</h3>
+                  <p style={perfEmptyBodyStyle}>Something went wrong analyzing this meeting. Contact Clio if this keeps happening.</p>
+                </>
+              ) : (
+                <div>
+                  <h3 style={perfSectionHeadingStyle}>Duration</h3>
+                  <p style={chapterBodyStyle}>
+                    {performanceData.duration_minutes !== null ? (
+                      `${performanceData.duration_minutes} minutes`
+                    ) : (
+                      <span style={{ color: COLORS.textMuted }}>Not available</span>
+                    )}
+                  </p>
+
+                  <h3 style={perfSectionHeadingStyle}>Action items</h3>
+                  {performanceData.action_items && performanceData.action_items.length > 0 ? (
+                    <ul style={listStyle}>
+                      {performanceData.action_items.map((item, i) => (
+                        <li key={i}>{item.text}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p style={{ color: COLORS.textMuted, fontSize: 14, marginBottom: 14 }}>
+                      No action items were identified in this session.
+                    </p>
+                  )}
+
+                  <h3 style={perfSectionHeadingStyle}>Learner insight</h3>
+                  {performanceData.learner_insight ? (
+                    <>
+                      <p style={chapterBodyStyle}>{performanceData.learner_insight.summary}</p>
+
+                      {performanceData.learner_insight.topics_of_interest.length > 0 && (
+                        <>
+                          <div style={demoLabelStyle}>Topics of interest</div>
+                          <div style={{ ...pillRowStyle, margin: '0 0 16px 0' }}>
+                            {performanceData.learner_insight.topics_of_interest.map((t, i) => (
+                              <span key={i} style={pillStyle}>
+                                {t}
+                              </span>
+                            ))}
+                          </div>
+                        </>
+                      )}
+
+                      <div style={demoLabelStyle}>Engagement style</div>
+                      <p style={chapterBodyStyle}>{performanceData.learner_insight.engagement_style}</p>
+
+                      {performanceData.learner_insight.suggested_next_topics.length > 0 && (
+                        <>
+                          <div style={demoLabelStyle}>Suggested next topics</div>
+                          <div style={{ ...pillRowStyle, margin: '0 0 4px 0' }}>
+                            {performanceData.learner_insight.suggested_next_topics.map((t, i) => (
+                              <span key={i} style={pillStyle}>
+                                {t}
+                              </span>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </>
+                  ) : (
+                    <p style={{ color: COLORS.textMuted, fontSize: 14 }}>No learner insight was generated for this session.</p>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>

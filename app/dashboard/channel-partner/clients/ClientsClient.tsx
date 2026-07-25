@@ -24,6 +24,8 @@ interface ClientRow {
   company_url: string | null
   status: 'active' | 'suspended'
   created_at: string
+  // B2B-34 Piece 2 (docs/specs/B2B-34-requirement-document.md Part B §4) — drives the "Self" badge below.
+  is_self_client: boolean
 }
 
 // B2B-29 (docs/specs/B2B-29-requirement-document.md §4) — exported so the new
@@ -173,7 +175,25 @@ export default function ClientsClient({ initialFormOpen }: { initialFormOpen: bo
               <Card>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
                   <div style={{ minWidth: 0 }}>
-                    <p style={{ color: COLORS.textPrimary, fontWeight: 600, margin: 0 }}>{client.name}</p>
+                    <p style={{ color: COLORS.textPrimary, fontWeight: 600, margin: 0 }}>
+                      {client.name}
+                      {client.is_self_client && (
+                        <span
+                          style={{
+                            marginLeft: 8,
+                            color: COLORS.textMuted,
+                            fontSize: 11,
+                            background: '#1A1A1A',
+                            border: '1px solid #333333',
+                            borderRadius: 4,
+                            padding: '1px 6px',
+                            fontWeight: 500,
+                          }}
+                        >
+                          Self
+                        </span>
+                      )}
+                    </p>
                     {client.company_url && (
                       <p style={{ color: COLORS.textSecondary, fontSize: 13, margin: '2px 0 0' }}>{client.company_url}</p>
                     )}

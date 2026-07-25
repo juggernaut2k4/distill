@@ -33,7 +33,7 @@ export async function GET() {
 
   const rows = (data ?? []) as Array<{ partner_account_id: string }>
   const summary =
-    admin.role === 'sales_partner' ? rows.filter((row) => admin.scopedPartnerAccountIds.includes(row.partner_account_id)) : rows
+    admin.role === 'internal_staff' ? rows.filter((row) => admin.scopedPartnerAccountIds.includes(row.partner_account_id)) : rows
 
   return NextResponse.json({ summary })
 }

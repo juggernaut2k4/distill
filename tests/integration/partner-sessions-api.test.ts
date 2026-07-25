@@ -37,6 +37,11 @@ const walletMaybeSingleMock = vi.fn(() =>
 )
 const sessionsUpdateMock = vi.fn(() => ({ eq: vi.fn(() => Promise.resolve({ data: null, error: null })) }))
 
+// B2B-34 Piece 2 (docs/specs/B2B-34-requirement-document.md Part B §6.5) — the client_id ownership
+// lookup on partner_accounts (`.eq('id', client_id).eq('owning_channel_partner_id', ...)`). Defaults
+// to "not found" (null); individual tests override via mockResolvedValueOnce for the valid/owned case.
+const clientOwnershipMaybeSingleMock = vi.fn(() => Promise.resolve<{ data: { id: string } | null }>({ data: null }))
+
 vi.mock('@/lib/supabase', () => ({
   createSupabaseAdminClient: vi.fn(() => ({
     from: vi.fn((table: string) => {
@@ -53,6 +58,15 @@ vi.mock('@/lib/supabase', () => ({
       if (table === 'partner_wallets') {
         return {
           select: vi.fn(() => ({ eq: vi.fn(() => ({ maybeSingle: walletMaybeSingleMock })) })),
+        }
+      }
+      if (table === 'partner_accounts') {
+        return {
+          select: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              eq: vi.fn(() => ({ maybeSingle: clientOwnershipMaybeSingleMock })),
+            })),
+          })),
         }
       }
       throw new Error(`Unexpected table: ${table}`)
@@ -76,6 +90,7 @@ describe('POST /api/partner/v1/sessions', () => {
     vi.clearAllMocks()
     insertedRows.length = 0
     insertSingleMock.mockResolvedValue({ data: { id: 'session-ref-123' }, error: null })
+    clientOwnershipMaybeSingleMock.mockResolvedValue({ data: null })
   })
 
   it('rejects with 401 and never touches the database when auth fails', async () => {
@@ -294,6 +309,75 @@ describe('POST /api/partner/v1/sessions', () => {
       partner_oauth_client_id: 'oauth-client-row-1',
     })
     expect(dispatchMock).toHaveBeenCalled()
+  })
+
+  // B2B-34 Piece 2 (docs/specs/B2B-34-requirement-document.md Part B §6.5, §7 Acceptance Tests) —
+  // client_id gating: required + validated for channel_partner (reseller) callers only; a direct
+  // partner ('partner') caller is completely unaffected, zero regression.
+  describe('client_id gating (B2B-34 Piece 2)', () => {
+    it('422s with client_id_required for a channel_partner caller who omits client_id, no row created', async () => {
+      authMock.mockResolvedValue({ partnerAccountId: 'acct-cp-1', apiKeyId: 'key-1', clientId: null, mode: 'live', accountKind: 'channel_partner', error: null })
+
+      const res = await POST(makeRequest({ meeting_url: 'https://meet.google.com/abc-defg-hij', partner_topic_ref: 'ai-101' }))
+      const json = await res.json()
+
+      expect(res.status).toBe(422)
+      expect(json.error.code).toBe('client_id_required')
+      expect(insertedRows).toHaveLength(0)
+      expect(dispatchMock).not.toHaveBeenCalled()
+    })
+
+    it('422s with invalid_client_id for a channel_partner caller whose client_id belongs to a different reseller (or does not exist), no row created', async () => {
+      authMock.mockResolvedValue({ partnerAccountId: 'acct-cp-1', apiKeyId: 'key-1', clientId: null, mode: 'live', accountKind: 'channel_partner', error: null })
+      clientOwnershipMaybeSingleMock.mockResolvedValueOnce({ data: null })
+
+      const res = await POST(
+        makeRequest({
+          meeting_url: 'https://meet.google.com/abc-defg-hij',
+          partner_topic_ref: 'ai-101',
+          client_id: '3f2504e0-4f89-11d3-9a0c-0305e82c3301',
+        })
+      )
+      const json = await res.json()
+
+      expect(res.status).toBe(422)
+      expect(json.error.code).toBe('invalid_client_id')
+      expect(insertedRows).toHaveLength(0)
+      expect(dispatchMock).not.toHaveBeenCalled()
+    })
+
+    it('succeeds and sets end_client_id when a channel_partner caller supplies a valid, owned client_id', async () => {
+      authMock.mockResolvedValue({ partnerAccountId: 'acct-cp-1', apiKeyId: 'key-1', clientId: null, mode: 'live', accountKind: 'channel_partner', error: null })
+      clientOwnershipMaybeSingleMock.mockResolvedValueOnce({ data: { id: '3f2504e0-4f89-11d3-9a0c-0305e82c3301' } })
+      dispatchMock.mockResolvedValue({ status: 'bot_active' })
+      walletMaybeSingleMock.mockResolvedValueOnce({ data: { stripe_default_payment_method_id: 'pm_123' } })
+
+      const res = await POST(
+        makeRequest({
+          meeting_url: 'https://meet.google.com/abc-defg-hij',
+          partner_topic_ref: 'ai-101',
+          client_id: '3f2504e0-4f89-11d3-9a0c-0305e82c3301',
+        })
+      )
+
+      expect(res.status).toBe(201)
+      expect(insertedRows[0]).toMatchObject({
+        partner_account_id: 'acct-cp-1',
+        end_client_id: '3f2504e0-4f89-11d3-9a0c-0305e82c3301',
+      })
+    })
+
+    it('a direct-partner (account_kind=partner) caller with no client_id succeeds exactly as today — zero regression', async () => {
+      authMock.mockResolvedValue({ partnerAccountId: 'acct-1', apiKeyId: 'key-1', clientId: null, mode: 'live', accountKind: 'partner', error: null })
+      dispatchMock.mockResolvedValue({ status: 'bot_active' })
+      walletMaybeSingleMock.mockResolvedValueOnce({ data: { stripe_default_payment_method_id: 'pm_123' } })
+
+      const res = await POST(makeRequest({ meeting_url: 'https://meet.google.com/abc-defg-hij', partner_topic_ref: 'ai-101' }))
+
+      expect(res.status).toBe(201)
+      expect(insertedRows[0]).toMatchObject({ partner_account_id: 'acct-1', end_client_id: null })
+      expect(dispatchMock).toHaveBeenCalled()
+    })
   })
 })
 

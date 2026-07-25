@@ -11,6 +11,12 @@ import Link from 'next/link'
  * a forward-reference-only, non-functional "Legal agreement" placeholder card.
  * Revenue-share editing removed per Arun's direct instruction (2026-07-21) —
  * the feature is fully dropped, not deferred.
+ *
+ * "Usage" card added by B2B-34 Piece 3 (docs/specs/B2B-34-requirement-document.md
+ * Part E §4) — trailing-30-day + all-time minutes totals plus a per-client
+ * breakdown, inserted between the Clients and Team cards. `usage.error`
+ * drives this card's own independent error state (Part E §8) — a usage-query
+ * failure never blocks the Clients/Team sections from rendering.
  */
 
 interface ClientRow {
@@ -19,6 +25,19 @@ interface ClientRow {
   company_url: string | null
   status: 'active' | 'suspended'
   created_at: string
+}
+
+interface UsageBreakdownRow {
+  client_id: string
+  client_name: string
+  minutes: number
+}
+
+interface UsageData {
+  minutes_30d: number
+  minutes_all_time: number
+  breakdown: UsageBreakdownRow[]
+  error: boolean
 }
 
 interface DetailData {
@@ -30,6 +49,7 @@ interface DetailData {
   }
   clients: ClientRow[]
   team: { active_count: number; pending_count: number }
+  usage: UsageData
 }
 
 function formatDate(iso: string): string {
@@ -77,7 +97,7 @@ export default function SalesPartnerDetailClient({ id }: { id: string }) {
     )
   }
 
-  const { sales_partner, clients, team } = data
+  const { sales_partner, clients, team, usage } = data
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -126,6 +146,50 @@ export default function SalesPartnerDetailClient({ id }: { id: string }) {
                 </div>
               ))}
             </div>
+          )}
+        </div>
+
+        <div className="bg-[#111111] border border-[#222222] rounded-xl p-4 md:p-6">
+          <h2 className="text-white text-lg font-semibold mb-3">Usage</h2>
+          {usage.error ? (
+            <p className="text-[#EF4444] text-sm">Couldn&apos;t load usage data. Try refreshing.</p>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 mb-4">
+                <p className="text-[#94A3B8] text-sm">
+                  <span className="text-white font-semibold">{usage.minutes_30d}</span> minutes (last 30 days)
+                </p>
+                <p className="text-[#94A3B8] text-sm">
+                  <span className="text-white font-semibold">{usage.minutes_all_time}</span> minutes (all time)
+                </p>
+              </div>
+              {usage.breakdown.length === 0 ? (
+                <p className="text-[#475569] text-sm">No usage in the last 30 days.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-[#222222]">
+                        <th className="text-left px-3 py-2 text-[#94A3B8] text-xs font-semibold uppercase tracking-wide">
+                          Client
+                        </th>
+                        <th className="text-right px-3 py-2 text-[#94A3B8] text-xs font-semibold uppercase tracking-wide">
+                          Minutes (30d)
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {usage.breakdown.map((row) => (
+                        <tr key={row.client_id} className="border-b border-[#1a1a1a] last:border-0">
+                          <td className="px-3 py-2 text-white truncate">{row.client_name}</td>
+                          <td className="px-3 py-2 text-[#94A3B8] text-right whitespace-nowrap">{row.minutes}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
           )}
         </div>
 

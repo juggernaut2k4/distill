@@ -10,6 +10,11 @@ import Link from 'next/link'
  * VISUAL pattern only (column headers with ArrowUpDown sort icons,
  * bg-[#111111] border-[#222222] rounded-xl overflow-hidden,
  * overflow-x-auto table wrapper) — none of its billing-specific data/logic.
+ *
+ * `minutes_30d` column added by B2B-34 Piece 3
+ * (docs/specs/B2B-34-requirement-document.md Part E §4) — each reseller's
+ * total minutes usage (self + all owned clients combined) over the trailing
+ * 30 days.
  */
 
 interface SalesPartnerRow {
@@ -19,14 +24,16 @@ interface SalesPartnerRow {
   created_at: string
   client_count: number
   team_count: number
+  minutes_30d: number
 }
 
-type SortColumn = 'name' | 'client_count' | 'team_count' | 'status' | 'created_at'
+type SortColumn = 'name' | 'client_count' | 'team_count' | 'minutes_30d' | 'status' | 'created_at'
 
 const COLUMNS: Array<{ key: SortColumn; label: string }> = [
   { key: 'name', label: 'Name' },
   { key: 'client_count', label: 'Clients' },
   { key: 'team_count', label: 'Team' },
+  { key: 'minutes_30d', label: 'Minutes (30d)' },
   { key: 'status', label: 'Status' },
   { key: 'created_at', label: 'Signed up' },
 ]
@@ -117,10 +124,15 @@ export default function SalesPartnersClient() {
             <thead>
               <tr className="border-b border-[#222222]">
                 {COLUMNS.map(({ key, label }) => (
-                  <th key={key} className="text-left px-4 py-3 whitespace-nowrap">
+                  <th
+                    key={key}
+                    className={`px-4 py-3 whitespace-nowrap ${key === 'minutes_30d' ? 'text-right' : 'text-left'}`}
+                  >
                     <button
                       onClick={() => handleSort(key)}
-                      className="flex items-center gap-1 text-[#94A3B8] hover:text-white text-xs font-semibold uppercase tracking-wide transition-colors"
+                      className={`flex items-center gap-1 text-[#94A3B8] hover:text-white text-xs font-semibold uppercase tracking-wide transition-colors ${
+                        key === 'minutes_30d' ? 'ml-auto' : ''
+                      }`}
                     >
                       {label}
                       <ArrowUpDown className={`w-3 h-3 ${sortColumn === key ? 'text-[#7C3AED]' : 'text-[#333333]'}`} />
@@ -165,6 +177,7 @@ export default function SalesPartnersClient() {
                     </td>
                     <td className="px-4 py-3 text-[#94A3B8] whitespace-nowrap">{row.client_count}</td>
                     <td className="px-4 py-3 text-[#94A3B8] whitespace-nowrap">{row.team_count}</td>
+                    <td className="px-4 py-3 text-[#94A3B8] whitespace-nowrap text-right">{row.minutes_30d}</td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       <span
                         className={`text-xs font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full ${

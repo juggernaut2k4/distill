@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireSuperAdmin } from '@/lib/internal-admin/auth'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { generateInviteToken, inviteExpiresAt } from '@/lib/internal-admin/invite-tokens'
-import { sendSalesPartnerInviteEmail } from '@/lib/delivery/email'
+import { sendInternalStaffInviteEmail } from '@/lib/delivery/email'
 
 /**
- * POST /api/admin/team/sales-partners/[id]/resend-invite
+ * POST /api/admin/team/internal-staff/[id]/resend-invite
  *
  * B2B-21 Requirement Doc §6.4 / §4.B State T3 — valid while clerk_user_id IS
  * NULL and status is 'pending' (still-pending invite) OR 'deactivated' (a
@@ -25,15 +25,15 @@ export async function POST(_request: NextRequest, { params }: { params: { id: st
     .from('internal_admin_users')
     .select('id, email, role, status, clerk_user_id')
     .eq('id', params.id)
-    .eq('role', 'sales_partner')
+    .eq('role', 'internal_staff')
     .maybeSingle()
 
   if (targetError) {
-    console.error('[admin/team/sales-partners/:id/resend-invite] Failed to load target:', targetError.message)
+    console.error('[admin/team/internal-staff/:id/resend-invite] Failed to load target:', targetError.message)
     return NextResponse.json({ error: 'Could not resend invite.' }, { status: 500 })
   }
   if (!target) {
-    return NextResponse.json({ error: 'Sales-partner not found.' }, { status: 404 })
+    return NextResponse.json({ error: 'Internal-staff member not found.' }, { status: 404 })
   }
   if (target.clerk_user_id || (target.status !== 'pending' && target.status !== 'deactivated')) {
     return NextResponse.json({ error: 'This invite has already been accepted.' }, { status: 422 })
@@ -48,12 +48,12 @@ export async function POST(_request: NextRequest, { params }: { params: { id: st
     .eq('id', params.id)
 
   if (updateError) {
-    console.error('[admin/team/sales-partners/:id/resend-invite] Failed to mint new token:', updateError.message)
+    console.error('[admin/team/internal-staff/:id/resend-invite] Failed to mint new token:', updateError.message)
     return NextResponse.json({ error: 'Could not resend invite.' }, { status: 500 })
   }
 
   const { data: assignments } = await supabase
-    .from('sales_partner_assignments')
+    .from('internal_staff_assignments')
     .select('partner_accounts(name)')
     .eq('internal_admin_user_id', params.id)
 
@@ -64,14 +64,14 @@ export async function POST(_request: NextRequest, { params }: { params: { id: st
 
   const { data: inviterRow } = await supabase.from('internal_admin_users').select('email').eq('id', admin.internalAdminUserId).maybeSingle()
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
-  const emailResult = await sendSalesPartnerInviteEmail(
+  const emailResult = await sendInternalStaffInviteEmail(
     target.email,
     inviterRow?.email ?? 'A Clio super-admin',
     partnerAccountNames,
     `${appUrl}/invite/accept?token=${token}`
   )
   if (!emailResult.success) {
-    console.error('[admin/team/sales-partners/:id/resend-invite] Invite email failed (non-blocking):', emailResult.error)
+    console.error('[admin/team/internal-staff/:id/resend-invite] Invite email failed (non-blocking):', emailResult.error)
   }
 
   return NextResponse.json({ resent: true, email_sent: emailResult.success })

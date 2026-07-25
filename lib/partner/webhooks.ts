@@ -55,7 +55,14 @@ export interface WebhookPayload {
   extraction_status?: 'success' | 'success_empty' | 'failed' | null
   action_items?: { text: string }[] | null
   glitches?: { type: string; description?: string }[] | null
-  psychology_keywords?: string[] | null
+  // B2B-34 Piece 1 (docs/specs/B2B-34-requirement-document.md Part C §6.6) — replaces
+  // psychology_keywords?: string[] | null.
+  learner_insight?: { summary: string; topics_of_interest: string[]; engagement_style: string; suggested_next_topics: string[] } | null
+  // B2B-34 Piece 2 (docs/specs/B2B-34-requirement-document.md Part B §6.3/§6.5) — additive, mirrors
+  // extraction_status?/action_items?/glitches?'s own convention. NOT part of canonicalHashInput()'s
+  // idempotency hash (stays a narrow "core identity of the event" hash). Populated on every event
+  // type this function emits, not only session.insights_ready (§6.5).
+  end_client_id?: string | null
 }
 
 /** Deterministic subset used for the idempotency index — excludes event_id/dispatched_at, which vary per attempt. */
@@ -116,6 +123,23 @@ export async function recordBillableEvent(
   const occurredAt = params.occurredAt ?? now
   const eventId = crypto.randomUUID()
 
+  // B2B-34 Piece 2 (docs/specs/B2B-34-requirement-document.md Part B §6.5) — resolve end_client_id
+  // from the originating partner_sessions row, one extra indexed lookup, only when clioSessionRef is
+  // set. Zero call-site changes required anywhere else in the codebase. A failed/errored lookup is
+  // logged and never blocks or reverses this event-recording path (endClientId just stays null).
+  let endClientId: string | null = null
+  if (params.clioSessionRef) {
+    const { data: sessionRow, error: sessionLookupError } = await supabase
+      .from('partner_sessions')
+      .select('end_client_id')
+      .eq('id', params.clioSessionRef)
+      .maybeSingle()
+    if (sessionLookupError) {
+      console.error('[partner/webhooks] end_client_id lookup failed (non-fatal):', sessionLookupError.message)
+    }
+    endClientId = (sessionRow?.end_client_id as string | null) ?? null
+  }
+
   const payload: WebhookPayload = {
     event_id: eventId,
     event_type: params.eventType,
@@ -127,6 +151,9 @@ export async function recordBillableEvent(
     occurred_at: occurredAt,
     dispatched_at: now,
     test_mode: params.testMode ?? false,
+    // B2B-34 Piece 2 — additive, for consistency across every event type this function emits, not
+    // only session.insights_ready. NOT included in canonicalHashInput() below.
+    end_client_id: endClientId,
   }
 
   const payloadHash = crypto.createHash('sha256').update(canonicalHashInput(payload)).digest('hex')
@@ -192,6 +219,7 @@ export async function recordBillableEvent(
             quantity: params.quantity,
             clio_session_ref: params.clioSessionRef ?? null,
             partner_reference: params.partnerReference ?? null,
+            end_client_id: endClientId,
             webhook_dispatch_log_id: inserted.id,
             test_mode: params.testMode ?? false,
             is_metered_test_usage: params.isMeteredTestUsage ?? false,
@@ -510,7 +538,8 @@ async function getPartnerAdminEmails(partnerAccountId: string): Promise<string[]
 /**
  * B2B-09 — inserts a REFERENCE-ONLY webhook_dispatch_log row for
  * session.insights_ready. Deliberately does NOT include
- * action_items/glitches/psychology_keywords in the stored payload — that
+ * action_items/glitches/learner_insight (B2B-34 Piece 1 — was psychology_keywords)
+ * in the stored payload — that
  * content is reconstructed live from partner_session_insights at each
  * delivery attempt (attemptDispatch(), below), per the Requirement Doc
  * Section 6 / Section 11 judgment call 2 (migration 071's own restriction on
@@ -527,12 +556,22 @@ async function getPartnerAdminEmails(partnerAccountId: string): Promise<string[]
  * embed pattern below) — both callers MUST thread the session's real
  * `test_mode` value through `testMode`, never a hardcoded default (v1.1
  * correction, Requirement Doc Section 6 / Acceptance Test 11).
+ *
+ * B2B-34 Piece 2 (docs/specs/B2B-34-requirement-document.md Part B §6.3) — two additive changes:
+ * (1) fixes the pre-existing bug where `partner_reference` was hardcoded to `null` in both the
+ * payload AND the idempotency hash input — both callers now thread the session's real
+ * `partner_sessions.partner_reference` value through `partnerReference`, never a hardcoded default;
+ * (2) adds `end_client_id` as a new, additive, NON-hashed field (matching how
+ * `extraction_status`/`action_items`/`glitches` are already additive-only, non-hashed fields on this
+ * same payload).
  */
 export async function recordInsightsReadyEvent(params: {
   partnerSessionId: string
   partnerAccountId: string
   extractionStatus: 'success' | 'success_empty' | 'failed'
   testMode: boolean
+  partnerReference: string | null
+  endClientId: string | null
 }): Promise<void> {
   const supabase = createSupabaseAdminClient()
   const { data: account } = await supabase
@@ -547,12 +586,13 @@ export async function recordInsightsReadyEvent(params: {
     event_id: crypto.randomUUID(),
     event_type: 'session.insights_ready' as const,
     clio_session_ref: params.partnerSessionId,
-    partner_reference: null,
+    partner_reference: params.partnerReference,
     occurred_at: now,
     dispatched_at: now,
     test_mode: params.testMode,
     extraction_status: params.extractionStatus,
-    // action_items / glitches / psychology_keywords intentionally omitted — see function doc comment.
+    end_client_id: params.endClientId,
+    // action_items / glitches / learner_insight intentionally omitted — see function doc comment.
   }
   const payloadHash = crypto
     .createHash('sha256')
@@ -560,7 +600,7 @@ export async function recordInsightsReadyEvent(params: {
       canonicalHashInput({
         event_type: 'session.insights_ready',
         clio_session_ref: params.partnerSessionId,
-        partner_reference: null,
+        partner_reference: params.partnerReference,
         quantity: null,
         unit: null,
         generation_type: null,
@@ -674,12 +714,12 @@ export async function attemptDispatch(row: DueDispatchRow): Promise<'delivered' 
     // the stored reference payload (Requirement Doc Section 6 / Section 11
     // judgment call 2). Reads WHATEVER is currently in
     // partner_session_insights: full detail if within the 30-day retention
-    // window, the purged (type-only glitches, null action_items/psychology)
+    // window, the purged (type-only glitches, null action_items/learner_insight)
     // shape if not — graceful degradation, not a special-cased error
     // (Requirement Doc Section 9). architecture.md §16.7.
     const { data: live } = await supabase
       .from('partner_session_insights')
-      .select('action_items, glitches, psychology_keywords')
+      .select('action_items, glitches, learner_insight')
       .eq('partner_session_id', row.payload.clio_session_ref as string)
       .maybeSingle()
 
@@ -687,7 +727,7 @@ export async function attemptDispatch(row: DueDispatchRow): Promise<'delivered' 
       ...row.payload,
       action_items: (live?.action_items as WebhookPayload['action_items']) ?? null,
       glitches: (live?.glitches as WebhookPayload['glitches']) ?? null,
-      psychology_keywords: (live?.psychology_keywords as WebhookPayload['psychology_keywords']) ?? null,
+      learner_insight: (live?.learner_insight as WebhookPayload['learner_insight']) ?? null,
     }
     rawBody = JSON.stringify(fullPayload)
     // Signed FRESH here, never reused from insert time — the wire body no

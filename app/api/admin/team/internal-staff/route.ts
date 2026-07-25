@@ -3,11 +3,11 @@ import { z } from 'zod'
 import { requireSuperAdmin, internalAdminErrorEnvelope } from '@/lib/internal-admin/auth'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { generateInviteToken, inviteExpiresAt } from '@/lib/internal-admin/invite-tokens'
-import { sendSalesPartnerInviteEmail } from '@/lib/delivery/email'
+import { sendInternalStaffInviteEmail } from '@/lib/delivery/email'
 
 /**
- * GET  /api/admin/team/sales-partners  — list every role='sales_partner' row + tagged partner accounts.
- * POST /api/admin/team/sales-partners  — invite a new sales-partner (email + ≥1 partner account ids).
+ * GET  /api/admin/team/internal-staff  — list every role='internal_staff' row + tagged partner accounts.
+ * POST /api/admin/team/internal-staff  — invite a new internal-staff member (email + ≥1 partner account ids).
  *
  * B2B-21 Requirement Doc §6.4 / §4.B State T3. `requireSuperAdmin()` only.
  */
@@ -30,22 +30,22 @@ export async function GET() {
   const { data: rows, error } = await supabase
     .from('internal_admin_users')
     .select('id, email, status, invited_at, accepted_at, clerk_user_id')
-    .eq('role', 'sales_partner')
+    .eq('role', 'internal_staff')
     .order('invited_at', { ascending: true })
 
   if (error) {
-    console.error('[admin/team/sales-partners] Failed to load sales-partners:', error.message)
-    return NextResponse.json({ error: "Couldn't load sales-partners." }, { status: 500 })
+    console.error('[admin/team/internal-staff] Failed to load internal staff:', error.message)
+    return NextResponse.json({ error: "Couldn't load internal staff." }, { status: 500 })
   }
 
-  const salesPartnerIds = (rows ?? []).map((r) => r.id as string)
+  const internalStaffIds = (rows ?? []).map((r) => r.id as string)
   const assignmentsByAdmin = new Map<string, Array<{ partner_account_id: string; name: string }>>()
 
-  if (salesPartnerIds.length > 0) {
+  if (internalStaffIds.length > 0) {
     const { data: assignments } = await supabase
-      .from('sales_partner_assignments')
+      .from('internal_staff_assignments')
       .select('internal_admin_user_id, partner_account_id, partner_accounts(name)')
-      .in('internal_admin_user_id', salesPartnerIds)
+      .in('internal_admin_user_id', internalStaffIds)
 
     for (const row of (assignments ?? []) as Array<{
       internal_admin_user_id: string
@@ -59,7 +59,7 @@ export async function GET() {
     }
   }
 
-  const salesPartners = (rows ?? []).map((row) => ({
+  const internalStaff = (rows ?? []).map((row) => ({
     id: row.id,
     email: row.email,
     status: row.status,
@@ -73,7 +73,7 @@ export async function GET() {
     partner_accounts: assignmentsByAdmin.get(row.id as string) ?? [],
   }))
 
-  return NextResponse.json({ sales_partners: salesPartners })
+  return NextResponse.json({ internal_staff: internalStaff })
 }
 
 export async function POST(request: NextRequest) {
@@ -111,7 +111,7 @@ export async function POST(request: NextRequest) {
     .in('id', partner_account_ids)
 
   if (accountsError) {
-    console.error('[admin/team/sales-partners] Failed to verify partner accounts:', accountsError.message)
+    console.error('[admin/team/internal-staff] Failed to verify partner accounts:', accountsError.message)
     return NextResponse.json({ error: "Couldn't create the invite." }, { status: 500 })
   }
   if ((accounts ?? []).length !== partner_account_ids.length) {
@@ -125,7 +125,7 @@ export async function POST(request: NextRequest) {
     .from('internal_admin_users')
     .insert({
       email,
-      role: 'sales_partner',
+      role: 'internal_staff',
       status: 'pending',
       invited_by: admin.internalAdminUserId,
       invite_token_hash: tokenHash,
@@ -135,7 +135,7 @@ export async function POST(request: NextRequest) {
     .single()
 
   if (insertError || !created) {
-    console.error('[admin/team/sales-partners] Failed to create sales-partner:', insertError?.message)
+    console.error('[admin/team/internal-staff] Failed to create internal-staff member:', insertError?.message)
     return NextResponse.json(internalAdminErrorEnvelope('already_exists', 'This email already has an internal-admin role.'), { status: 409 })
   }
 
@@ -144,22 +144,22 @@ export async function POST(request: NextRequest) {
     partner_account_id: partnerAccountId,
     assigned_by: admin.internalAdminUserId,
   }))
-  const { error: assignError } = await supabase.from('sales_partner_assignments').insert(assignmentRows)
+  const { error: assignError } = await supabase.from('internal_staff_assignments').insert(assignmentRows)
   if (assignError) {
-    console.error('[admin/team/sales-partners] Failed to create partner-account assignments:', assignError.message)
+    console.error('[admin/team/internal-staff] Failed to create partner-account assignments:', assignError.message)
     return NextResponse.json({ error: "Couldn't tag partner accounts to this invite." }, { status: 500 })
   }
 
   const { data: inviterRow } = await supabase.from('internal_admin_users').select('email').eq('id', admin.internalAdminUserId).maybeSingle()
-  const emailResult = await sendSalesPartnerInviteEmail(
+  const emailResult = await sendInternalStaffInviteEmail(
     email,
     inviterRow?.email ?? 'A Clio super-admin',
     (accounts ?? []).map((a) => a.name as string),
     acceptUrlFor(token)
   )
   if (!emailResult.success) {
-    console.error('[admin/team/sales-partners] Invite email failed (non-blocking):', emailResult.error)
+    console.error('[admin/team/internal-staff] Invite email failed (non-blocking):', emailResult.error)
   }
 
-  return NextResponse.json({ sales_partner: created, email_sent: emailResult.success }, { status: 201 })
+  return NextResponse.json({ internal_staff_member: created, email_sent: emailResult.success }, { status: 201 })
 }

@@ -63,6 +63,8 @@ alike.
 | Configurator — Questionnaire/Topics/Content/Domain/Integration screens | Shell-level fluid width inherited from the fix above (their standalone routes still render inside `ConfiguratorShell`); section-internal responsiveness not yet audited | B2B-23 (shell only) |
 | API page, Docs page | Shell-level fluid width inherited from the fix above (both render inside `ConfiguratorNavShell`); section-internal responsiveness not yet audited | B2B-23 (shell only) / B2B-16 |
 | Internal admin (`/dashboard/admin/*`) | Not yet verified | various |
+| `/dashboard/admin/sales-partners` (list) | Compliant — verified as part of B2B-34 Part E. Already used fluid layout primitives (`max-w-6xl mx-auto`, no hardcoded pixel-width caps, `overflow-x-auto` on the table); the new "Minutes (30d)" column reuses the same primitives, no new hardcoded width introduced. | B2B-34 Part E |
+| `/dashboard/admin/sales-partners/[id]` (detail) | Compliant — verified as part of B2B-34 Part E. Already used fluid layout primitives (`max-w-4xl mx-auto`, no hardcoded pixel-width caps); the new "Usage" card and its breakdown table reuse the same primitives plus `overflow-x-auto`, no new hardcoded width introduced. | B2B-34 Part E |
 | `/partner-render/[clio_session_ref]` (live session view) | Not yet verified | B2B-19 |
 | `/partner-questionnaire/[partner_account_id]` (public, end-user-facing) | Not yet verified | B2B-03 |
 

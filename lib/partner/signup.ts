@@ -95,6 +95,29 @@ export async function createOrClaimPartnerAccount(
     return { success: false, alreadyMember: false, partnerAccountId: account.id as string, accountKind: resolvedAccountKind, error: adminError.message }
   }
 
+  // B2B-34 Piece 2 (docs/specs/B2B-34-requirement-document.md Part B §6.2) — auto-provision a
+  // "self" client so every reseller can test/dispatch immediately without first registering a real
+  // end-customer. createOrClaimPartnerAccount() is the sole chokepoint for provisioning a
+  // channel_partner account (this webhook branch + both authenticated claim routes), so this one
+  // change covers every current and future provisioning path.
+  if (resolvedAccountKind === 'channel_partner') {
+    const { error: selfClientError } = await supabase.from('partner_accounts').insert({
+      name: 'Self (direct sessions)',
+      archetype: 'unspecified',
+      status: 'active',
+      account_kind: 'partner',
+      owning_channel_partner_id: account.id,
+      is_self_client: true,
+    })
+    if (selfClientError) {
+      // Best-effort, non-blocking — mirrors this file's own established convention (the admin-insert
+      // failure branch above is similarly accepted/logged, not retried). A reseller whose self-client
+      // failed to provision can always create an equivalent client manually via "Add a client" — this
+      // never blocks the core account-creation flow, which must not fail for a peripheral convenience.
+      console.error('[partner-signup] Failed to auto-provision self-client (non-blocking):', selfClientError.message)
+    }
+  }
+
   // Unchanged — fires identically regardless of accountKind. accountKind is
   // additive on the payload so inngest/partner-signup-reminder.ts can skip
   // sales-partner accounts (§6.10).

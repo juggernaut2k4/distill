@@ -7,7 +7,7 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
  * B2B-21 — Internal Admin Identity (Requirement Doc §6.2).
  *
  * A new, orthogonal identity layer for Clio's OWN internal team
- * (`internal_admin_users` / `sales_partner_assignments`), parallel to but
+ * (`internal_admin_users` / `internal_staff_assignments`), parallel to but
  * structurally separate from `lib/partner/auth.ts`'s `requirePartnerAdmin`
  * (a partner's own staff, scoped to that one partner's own account). This
  * file never reads or writes `partner_admin_users` and is never a valid
@@ -24,20 +24,20 @@ function errorEnvelope(code: string, message: string) {
 
 export type InternalAdminResult =
   | { role: 'super_admin'; clerkUserId: string; internalAdminUserId: string; scopedPartnerAccountIds: null; error: null }
-  | { role: 'sales_partner'; clerkUserId: string; internalAdminUserId: string; scopedPartnerAccountIds: string[]; error: null }
+  | { role: 'internal_staff'; clerkUserId: string; internalAdminUserId: string; scopedPartnerAccountIds: string[]; error: null }
   | { role: null; clerkUserId: null; internalAdminUserId: null; scopedPartnerAccountIds: null; error: NextResponse }
 
 interface InternalAdminUserRow {
   id: string
   clerk_user_id: string | null
-  role: 'super_admin' | 'sales_partner'
+  role: 'super_admin' | 'internal_staff'
   status: 'pending' | 'active' | 'deactivated'
   email: string
 }
 
 async function scopedPartnerAccountIdsFor(internalAdminUserId: string, supabase: ReturnType<typeof createSupabaseAdminClient>): Promise<string[]> {
   const { data } = await supabase
-    .from('sales_partner_assignments')
+    .from('internal_staff_assignments')
     .select('partner_account_id')
     .eq('internal_admin_user_id', internalAdminUserId)
   return (data ?? []).map((row) => row.partner_account_id as string)
@@ -85,7 +85,7 @@ export async function resolveInternalAdmin(): Promise<InternalAdminResult> {
       return { role: 'super_admin', clerkUserId: userId, internalAdminUserId: row.id, scopedPartnerAccountIds: null, error: null }
     }
     const scopedPartnerAccountIds = await scopedPartnerAccountIdsFor(row.id, supabase)
-    return { role: 'sales_partner', clerkUserId: userId, internalAdminUserId: row.id, scopedPartnerAccountIds, error: null }
+    return { role: 'internal_staff', clerkUserId: userId, internalAdminUserId: row.id, scopedPartnerAccountIds, error: null }
   }
 
   // Not found by clerk_user_id — attempt a lazy bind by verified primary email.
@@ -110,12 +110,12 @@ export async function resolveInternalAdmin(): Promise<InternalAdminResult> {
         .eq('id', pendingRow.id)
 
       if (!bindError) {
-        const boundRole = pendingRow.role as 'super_admin' | 'sales_partner'
+        const boundRole = pendingRow.role as 'super_admin' | 'internal_staff'
         if (boundRole === 'super_admin') {
           return { role: 'super_admin', clerkUserId: userId, internalAdminUserId: pendingRow.id, scopedPartnerAccountIds: null, error: null }
         }
         const scopedPartnerAccountIds = await scopedPartnerAccountIdsFor(pendingRow.id, supabase)
-        return { role: 'sales_partner', clerkUserId: userId, internalAdminUserId: pendingRow.id, scopedPartnerAccountIds, error: null }
+        return { role: 'internal_staff', clerkUserId: userId, internalAdminUserId: pendingRow.id, scopedPartnerAccountIds, error: null }
       }
       console.error('[internal-admin/auth] Failed to lazy-bind internal_admin_users row:', bindError.message)
     }
@@ -137,7 +137,7 @@ export async function resolveInternalAdmin(): Promise<InternalAdminResult> {
 export async function requireSuperAdmin(): Promise<InternalAdminResult> {
   const result = await resolveInternalAdmin()
   if (result.error) return result
-  if (result.role === 'sales_partner') {
+  if (result.role === 'internal_staff') {
     return {
       role: null,
       clerkUserId: null,
@@ -161,7 +161,7 @@ export async function requireInternalAdmin(partnerAccountId?: string): Promise<I
   const result = await resolveInternalAdmin()
   if (result.error) return result
 
-  if (partnerAccountId && result.role === 'sales_partner' && !result.scopedPartnerAccountIds.includes(partnerAccountId)) {
+  if (partnerAccountId && result.role === 'internal_staff' && !result.scopedPartnerAccountIds.includes(partnerAccountId)) {
     return {
       role: null,
       clerkUserId: null,

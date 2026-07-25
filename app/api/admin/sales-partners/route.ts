@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server'
 import { requireSuperAdmin } from '@/lib/internal-admin/auth'
 import { createSupabaseAdminClient } from '@/lib/supabase'
+import { getMinutes30dByReseller } from '@/lib/partner/usage-summary'
 
 /**
  * GET /api/admin/sales-partners — the sales-partner roster.
  * B2B-28 (docs/specs/B2B-28-requirement-document.md §6.9). `requireSuperAdmin()` only.
+ * `minutes_30d` added by B2B-34 Piece 3 (docs/specs/B2B-34-requirement-document.md Part E §6.1).
  */
 export async function GET() {
   const admin = await requireSuperAdmin()
@@ -24,13 +26,14 @@ export async function GET() {
 
   const ids = (accounts ?? []).map((a) => a.id as string)
 
-  const [clientCounts, teamCounts] = await Promise.all([
+  const [clientCounts, teamCounts, minutes30dById] = await Promise.all([
     ids.length > 0
       ? supabase.from('partner_accounts').select('owning_channel_partner_id').in('owning_channel_partner_id', ids)
       : Promise.resolve({ data: [] as Array<{ owning_channel_partner_id: string | null }> }),
     ids.length > 0
       ? supabase.from('partner_admin_users').select('partner_account_id').in('partner_account_id', ids)
       : Promise.resolve({ data: [] as Array<{ partner_account_id: string }> }),
+    getMinutes30dByReseller(ids),
   ])
 
   const clientCountById = new Map<string, number>()
@@ -52,6 +55,7 @@ export async function GET() {
     created_at: row.created_at as string,
     client_count: clientCountById.get(row.id as string) ?? 0,
     team_count: teamCountById.get(row.id as string) ?? 0,
+    minutes_30d: minutes30dById.get(row.id as string) ?? 0,
   }))
 
   return NextResponse.json({ sales_partners: salesPartners })

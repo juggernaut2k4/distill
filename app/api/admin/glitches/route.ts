@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
   const { partner_account_id: partnerAccountId, type: typeFilter, status: statusFilter } = parsed.data
 
   // B2B-21 §6.3 — force-scope a sales-partner's read to their tagged accounts.
-  if (admin.role === 'sales_partner') {
+  if (admin.role === 'internal_staff') {
     if (partnerAccountId && !admin.scopedPartnerAccountIds.includes(partnerAccountId)) {
       return NextResponse.json(internalAdminErrorEnvelope('forbidden', 'This partner account is outside your assigned scope.'), { status: 403 })
     }
@@ -73,7 +73,7 @@ export async function GET(request: NextRequest) {
     )
     .order('extracted_at', { ascending: false })
 
-  if (admin.role === 'sales_partner') {
+  if (admin.role === 'internal_staff') {
     query = partnerAccountId
       ? query.eq('partner_account_id', partnerAccountId)
       : query.in('partner_account_id', admin.scopedPartnerAccountIds)
