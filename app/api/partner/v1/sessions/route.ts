@@ -50,6 +50,8 @@ export async function POST(request: NextRequest) {
     partner_reference,
     client_id,
     end_user_role,
+    end_user_name,
+    end_user_industry,
   } = parsed.data
 
   const supabase = createSupabaseAdminClient()
@@ -175,6 +177,11 @@ export async function POST(request: NextRequest) {
       end_client_id: endClientId,
       // B2B-35 F3 — session-wide audience description, applies to both content modes.
       end_user_role: end_user_role ?? null,
+      // B2B-36 F4 (docs/specs/B2B-36-requirement-document.md §6.6) — required at the Zod layer
+      // (§6.2), so `?? null` here is defensive only, matching this file's existing style for the
+      // other end_user_* fields.
+      end_user_name: end_user_name ?? null,
+      end_user_industry: end_user_industry ?? null,
       status: 'requested',
       ...inlineColumns,
     })

@@ -41,13 +41,23 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
   const supabase = createSupabaseAdminClient()
   const { data: savedRow } = await supabase
     .from('demo_meeting_urls')
-    .select('meeting_url, last_dispatch_attempted_at')
+    .select('meeting_url, end_user_name, last_dispatch_attempted_at')
     .eq('slug', params.slug)
     .maybeSingle()
 
   if (!savedRow?.meeting_url) {
     return NextResponse.json(
       { error: { code: 'no_meeting_url', message: 'No meeting URL has been saved for this topic yet.' } },
+      { status: 422 }
+    )
+  }
+
+  // B2B-36 F4 (docs/specs/B2B-36-requirement-document.md §6.9) — defensive server-side check,
+  // since this endpoint is independently callable and passcode-gated, not solely reliant on the
+  // client button's `disabled` state.
+  if (!savedRow?.end_user_name) {
+    return NextResponse.json(
+      { error: { code: 'no_end_user_name', message: 'No participant name has been saved for this topic yet.' } },
       { status: 422 }
     )
   }
@@ -82,6 +92,7 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
 
   const body = {
     meeting_url: savedRow.meeting_url,
+    end_user_name: savedRow.end_user_name,
     content_pages,
     content_source_id: process.env.DEMO_CONTENT_SOURCE_ID,
     content_to_explain: topic.overview,

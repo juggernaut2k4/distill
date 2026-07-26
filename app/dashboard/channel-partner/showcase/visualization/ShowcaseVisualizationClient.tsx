@@ -240,6 +240,11 @@ export default function ShowcaseVisualizationClient() {
     allVisualized && contentSourceId
       ? {
           meeting_url: 'REPLACE_WITH_MEETING_URL',
+          // B2B-36 F4 (docs/specs/B2B-36-requirement-document.md §6.2) — end_user_name is now
+          // required on CreateSessionSchema. Same "paste into Postman, replace before firing"
+          // convention as meeting_url above — this panel is a manual-dispatch preview, not a live
+          // auto-call.
+          end_user_name: 'REPLACE_WITH_PARTICIPANT_NAME',
           title: content.title ?? undefined,
           subtitle: content.subtitle ?? undefined,
           content_to_explain: content.content_to_explain ?? undefined,

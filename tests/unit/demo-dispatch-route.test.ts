@@ -7,10 +7,15 @@ import { NextRequest } from 'next/server'
  * DEMO_MEETING_PASSCODE the Save action uses. Per the spec's Out-of-Scope build-time warning, the
  * outbound call to the real POST /api/partner/v1/sessions endpoint is ALWAYS mocked here — this test
  * suite must never reach the real meeting-bot provider.
+ *
+ * B2B-36 F4 (docs/specs/B2B-36-requirement-document.md §6.9) — the saved row now also carries
+ * end_user_name, threaded through to the outbound body, with a new defensive no_end_user_name
+ * 422 check. Pre-existing rows below are updated to include end_user_name so tests that expect
+ * the dispatch to proceed keep proceeding.
  */
 
 const state = {
-  row: null as { meeting_url: string; last_dispatch_attempted_at: string | null } | null,
+  row: null as { meeting_url: string; end_user_name: string | null; last_dispatch_attempted_at: string | null } | null,
   updated: [] as unknown[],
 }
 
@@ -57,7 +62,7 @@ describe('POST /api/demo/[slug]/dispatch', () => {
   })
 
   it('§0a: 401s with incorrect_passcode on a wrong passcode, never calling the upstream endpoint', async () => {
-    state.row = { meeting_url: 'https://meet.google.com/abc-defg-hij', last_dispatch_attempted_at: null }
+    state.row = { meeting_url: 'https://meet.google.com/abc-defg-hij', end_user_name: 'Arun', last_dispatch_attempted_at: null }
     const res = await POST(dispatchRequest('claude-ai', 'wrong'), { params: { slug: 'claude-ai' } })
     const body = await res.json()
     expect(res.status).toBe(401)
@@ -66,7 +71,7 @@ describe('POST /api/demo/[slug]/dispatch', () => {
   })
 
   it('§0a: 401s when no passcode is sent at all', async () => {
-    state.row = { meeting_url: 'https://meet.google.com/abc-defg-hij', last_dispatch_attempted_at: null }
+    state.row = { meeting_url: 'https://meet.google.com/abc-defg-hij', end_user_name: 'Arun', last_dispatch_attempted_at: null }
     const res = await POST(dispatchRequest('claude-ai', '', true), { params: { slug: 'claude-ai' } })
     expect(res.status).toBe(401)
     expect(fetch).not.toHaveBeenCalled()
@@ -74,7 +79,7 @@ describe('POST /api/demo/[slug]/dispatch', () => {
 
   it('§0a: fails closed (401) when DEMO_MEETING_PASSCODE is unconfigured, even with a matching empty guess', async () => {
     delete process.env.DEMO_MEETING_PASSCODE
-    state.row = { meeting_url: 'https://meet.google.com/abc-defg-hij', last_dispatch_attempted_at: null }
+    state.row = { meeting_url: 'https://meet.google.com/abc-defg-hij', end_user_name: 'Arun', last_dispatch_attempted_at: null }
     const res = await POST(dispatchRequest('claude-ai', 'anything'), { params: { slug: 'claude-ai' } })
     expect(res.status).toBe(401)
     expect(fetch).not.toHaveBeenCalled()
@@ -95,8 +100,23 @@ describe('POST /api/demo/[slug]/dispatch', () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
+  // B2B-36 F4 (docs/specs/B2B-36-requirement-document.md §6.9) — the migration edge case: a saved
+  // URL but no saved name.
+  it('422s with no_end_user_name when a meeting URL is saved but no name is saved, never calling the upstream endpoint', async () => {
+    state.row = { meeting_url: 'https://meet.google.com/abc-defg-hij', end_user_name: null, last_dispatch_attempted_at: null }
+    const res = await POST(dispatchRequest('claude-ai'), { params: { slug: 'claude-ai' } })
+    const body = await res.json()
+    expect(res.status).toBe(422)
+    expect(body.error.code).toBe('no_end_user_name')
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
   it('AT-7: 429s with rate_limited when the last attempt was under 3 minutes ago', async () => {
-    state.row = { meeting_url: 'https://meet.google.com/abc-defg-hij', last_dispatch_attempted_at: new Date(Date.now() - 60_000).toISOString() }
+    state.row = {
+      meeting_url: 'https://meet.google.com/abc-defg-hij',
+      end_user_name: 'Arun',
+      last_dispatch_attempted_at: new Date(Date.now() - 60_000).toISOString(),
+    }
     const res = await POST(dispatchRequest('claude-ai'), { params: { slug: 'claude-ai' } })
     const body = await res.json()
     expect(res.status).toBe(429)
@@ -107,6 +127,7 @@ describe('POST /api/demo/[slug]/dispatch', () => {
   it('proceeds when the last attempt was more than 3 minutes ago', async () => {
     state.row = {
       meeting_url: 'https://meet.google.com/abc-defg-hij',
+      end_user_name: 'Arun',
       last_dispatch_attempted_at: new Date(Date.now() - 4 * 60_000).toISOString(),
     }
     ;(fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -119,7 +140,7 @@ describe('POST /api/demo/[slug]/dispatch', () => {
   })
 
   it('AT-6: on a real 201 bot_active response, returns { status: "dispatched", clio_session_ref } and never leaks the raw upstream body', async () => {
-    state.row = { meeting_url: 'https://meet.google.com/abc-defg-hij', last_dispatch_attempted_at: null }
+    state.row = { meeting_url: 'https://meet.google.com/abc-defg-hij', end_user_name: 'Arun', last_dispatch_attempted_at: null }
     ;(fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
       status: 201,
       json: async () => ({ clio_session_ref: '9e2a4f11-8b3c-4d21-9a77-1c8f2e5b6a90', status: 'bot_active', render_url: 'https://hello-clio.com/partner-render/9e2a4f11' }),
@@ -132,7 +153,7 @@ describe('POST /api/demo/[slug]/dispatch', () => {
   })
 
   it('AT-8: on a real card_required (402) response, returns a generic 502 message — never the raw code/message', async () => {
-    state.row = { meeting_url: 'https://meet.google.com/abc-defg-hij', last_dispatch_attempted_at: null }
+    state.row = { meeting_url: 'https://meet.google.com/abc-defg-hij', end_user_name: 'Arun', last_dispatch_attempted_at: null }
     ;(fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
       status: 402,
       json: async () => ({ error: { code: 'card_required', message: 'Add a payment method to start testing.' } }),
@@ -146,7 +167,7 @@ describe('POST /api/demo/[slug]/dispatch', () => {
   })
 
   it('502s with the same generic message on a network error calling the upstream endpoint', async () => {
-    state.row = { meeting_url: 'https://meet.google.com/abc-defg-hij', last_dispatch_attempted_at: null }
+    state.row = { meeting_url: 'https://meet.google.com/abc-defg-hij', end_user_name: 'Arun', last_dispatch_attempted_at: null }
     ;(fetch as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('network down'))
     const res = await POST(dispatchRequest('claude-ai'), { params: { slug: 'claude-ai' } })
     const body = await res.json()
@@ -155,7 +176,7 @@ describe('POST /api/demo/[slug]/dispatch', () => {
   })
 
   it('AT-9: content_pages[] has exactly one entry per chapter, url pointing at the live visual page, deterministic transition_trigger', async () => {
-    state.row = { meeting_url: 'https://meet.google.com/abc-defg-hij', last_dispatch_attempted_at: null }
+    state.row = { meeting_url: 'https://meet.google.com/abc-defg-hij', end_user_name: 'Arun', last_dispatch_attempted_at: null }
     ;(fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
       status: 201,
       json: async () => ({ clio_session_ref: 'ref-1', status: 'bot_active' }),
@@ -172,7 +193,7 @@ describe('POST /api/demo/[slug]/dispatch', () => {
   })
 
   it('assembles 7 content_pages for oop-fundamentals', async () => {
-    state.row = { meeting_url: 'https://meet.google.com/abc-defg-hij', last_dispatch_attempted_at: null }
+    state.row = { meeting_url: 'https://meet.google.com/abc-defg-hij', end_user_name: 'Arun', last_dispatch_attempted_at: null }
     ;(fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
       status: 201,
       json: async () => ({ clio_session_ref: 'ref-1', status: 'bot_active' }),
@@ -182,5 +203,20 @@ describe('POST /api/demo/[slug]/dispatch', () => {
     const [, calledInit] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0]
     const sentBody = JSON.parse((calledInit as RequestInit).body as string)
     expect(sentBody.content_pages).toHaveLength(7)
+  })
+
+  // B2B-36 F4 (docs/specs/B2B-36-requirement-document.md §6.9) — end_user_name sourced from the
+  // saved row is threaded through to the outbound /api/partner/v1/sessions call.
+  it('B2B-36: the outbound body includes end_user_name sourced from the saved row', async () => {
+    state.row = { meeting_url: 'https://meet.google.com/abc-defg-hij', end_user_name: 'Arun', last_dispatch_attempted_at: null }
+    ;(fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 201,
+      json: async () => ({ clio_session_ref: 'ref-1', status: 'bot_active' }),
+    })
+    await POST(dispatchRequest('claude-ai'), { params: { slug: 'claude-ai' } })
+
+    const [, calledInit] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0]
+    const sentBody = JSON.parse((calledInit as RequestInit).body as string)
+    expect(sentBody.end_user_name).toBe('Arun')
   })
 })

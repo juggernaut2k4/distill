@@ -88,6 +88,10 @@ const BASE_SESSION: PartnerSessionRow = {
   contentTitle: null,
   contentSubtitle: null,
   endUserRole: null,
+  // B2B-36 F4 — new required fields on PartnerSessionRow; null here since this file predates and
+  // is unrelated to B2B-36's own test coverage (tests/unit/b2b36-live-render-call-sites.test.ts).
+  endUserName: null,
+  endUserIndustry: null,
 }
 
 const INLINE_SESSION: PartnerSessionRow = {

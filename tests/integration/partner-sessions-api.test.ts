@@ -77,11 +77,17 @@ vi.mock('@/lib/supabase', () => ({
 import { POST } from '@/app/api/partner/v1/sessions/route'
 import { GET as getSessionStatus } from '@/app/api/partner/v1/sessions/[clio_session_ref]/route'
 
-function makeRequest(body: unknown, authHeader = 'Bearer clio_live_sk_valid') {
+// B2B-36 F4 (docs/specs/B2B-36-requirement-document.md §6.2) — end_user_name is now required on
+// every request. Injected as a default here (unless the caller's own body already sets one, e.g.
+// the dedicated "end_user_name required" tests below that omit or blank it) so every pre-existing
+// test in this file keeps validating its original scenario rather than failing on an unrelated
+// missing field — the same discipline used for demo-meeting-route.test.ts / demo-dispatch-route.test.ts.
+function makeRequest(body: Record<string, unknown>, authHeader = 'Bearer clio_live_sk_valid') {
+  const merged = 'end_user_name' in body ? body : { end_user_name: 'Arun', ...body }
   return new NextRequest('http://localhost:3000/api/partner/v1/sessions', {
     method: 'POST',
     headers: { authorization: authHeader, 'content-type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify(merged),
   })
 }
 
@@ -377,6 +383,69 @@ describe('POST /api/partner/v1/sessions', () => {
       expect(res.status).toBe(201)
       expect(insertedRows[0]).toMatchObject({ partner_account_id: 'acct-1', end_client_id: null })
       expect(dispatchMock).toHaveBeenCalled()
+    })
+  })
+
+  // B2B-36 F4 (docs/specs/B2B-36-requirement-document.md §6.2/§6.6/§7 AT-3) — end_user_name
+  // (required) and end_user_industry (optional) threaded through to the inserted row.
+  describe('end_user_name / end_user_industry (B2B-36 F4)', () => {
+    // These two tests must send a body with end_user_name genuinely absent, so they bypass
+    // makeRequest()'s auto-injected default (which exists to keep every OTHER pre-existing test
+    // in this file passing without a `end_user_name` addition of its own).
+    it('AT-3: 422s with a Zod validation error referencing end_user_name when it is omitted', async () => {
+      authMock.mockResolvedValue({ partnerAccountId: 'acct-1', apiKeyId: 'key-1', mode: 'live', error: null })
+
+      const req = new NextRequest('http://localhost:3000/api/partner/v1/sessions', {
+        method: 'POST',
+        headers: { authorization: 'Bearer clio_live_sk_valid', 'content-type': 'application/json' },
+        body: JSON.stringify({ meeting_url: 'https://meet.google.com/abc-defg-hij', partner_topic_ref: 'ai-101' }),
+      })
+      const res = await POST(req)
+      const json = await res.json()
+
+      expect(res.status).toBe(422)
+      expect(json.details.fieldErrors.end_user_name).toBeDefined()
+      expect(insertedRows).toHaveLength(0)
+    })
+
+    it('422s when end_user_name is an empty string', async () => {
+      authMock.mockResolvedValue({ partnerAccountId: 'acct-1', apiKeyId: 'key-1', mode: 'live', error: null })
+
+      const res = await POST(makeRequest({ meeting_url: 'https://meet.google.com/abc-defg-hij', partner_topic_ref: 'ai-101', end_user_name: '' }))
+
+      expect(res.status).toBe(422)
+      expect(insertedRows).toHaveLength(0)
+    })
+
+    it('inserts end_user_name and end_user_industry on the created row when both are supplied', async () => {
+      authMock.mockResolvedValue({ partnerAccountId: 'acct-1', apiKeyId: 'key-1', clientId: null, mode: 'live', error: null })
+      dispatchMock.mockResolvedValue({ status: 'bot_active' })
+      walletMaybeSingleMock.mockResolvedValueOnce({ data: { stripe_default_payment_method_id: 'pm_123' } })
+
+      const res = await POST(
+        makeRequest({
+          meeting_url: 'https://meet.google.com/abc-defg-hij',
+          partner_topic_ref: 'ai-101',
+          end_user_name: 'Arun',
+          end_user_industry: 'healthcare',
+        })
+      )
+
+      expect(res.status).toBe(201)
+      expect(insertedRows[0]).toMatchObject({ end_user_name: 'Arun', end_user_industry: 'healthcare' })
+    })
+
+    it('inserts end_user_industry as null when omitted', async () => {
+      authMock.mockResolvedValue({ partnerAccountId: 'acct-1', apiKeyId: 'key-1', clientId: null, mode: 'live', error: null })
+      dispatchMock.mockResolvedValue({ status: 'bot_active' })
+      walletMaybeSingleMock.mockResolvedValueOnce({ data: { stripe_default_payment_method_id: 'pm_123' } })
+
+      const res = await POST(
+        makeRequest({ meeting_url: 'https://meet.google.com/abc-defg-hij', partner_topic_ref: 'ai-101', end_user_name: 'Arun' })
+      )
+
+      expect(res.status).toBe(201)
+      expect(insertedRows[0]).toMatchObject({ end_user_name: 'Arun', end_user_industry: null })
     })
   })
 })

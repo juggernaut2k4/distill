@@ -10,6 +10,9 @@ const REAL_KEY_FIXTURE = 'clio_test_sk_super_secret_value_that_must_never_leak_1
 
 const SAMPLE_PAYLOAD: TestHarnessPayload = {
   meeting_url: 'https://meet.google.com/abc-defg-hij',
+  // B2B-36 F4 (docs/specs/B2B-36-requirement-document.md §6.2) — end_user_name is now a required
+  // field on TestHarnessPayload (lib/test-harness/payload-types.ts).
+  end_user_name: 'Content QA',
   title: 'Q3 AI Strategy Briefing',
   subtitle: 'A test of HTML + image screen rendering',
   content_to_explain: 'Walk through the current-state overview.',

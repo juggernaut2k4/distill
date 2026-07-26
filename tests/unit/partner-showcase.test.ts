@@ -74,6 +74,10 @@ describe('Showcase final payload validity against the real CreateSessionSchema (
   it('a fully-assembled Showcase payload (meeting_url replaced) passes CreateSessionSchema.safeParse with zero errors', () => {
     const payload = {
       meeting_url: 'https://meet.google.com/abc-defg-hij',
+      // B2B-36 F4 (docs/specs/B2B-36-requirement-document.md §6.2) — end_user_name is now
+      // required; the real ShowcaseVisualizationClient.tsx payload panel supplies the same
+      // REPLACE_WITH_PARTICIPANT_NAME placeholder convention as meeting_url.
+      end_user_name: 'REPLACE_WITH_PARTICIPANT_NAME',
       title: 'How Clio Works',
       subtitle: 'A live look at AI-narrated learning',
       content_to_explain: 'Some content to explain during the demo.',

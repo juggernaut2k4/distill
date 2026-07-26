@@ -19,6 +19,10 @@ const SaveMeetingUrlSchema = z.object({
     .string()
     .url()
     .refine((u) => u.startsWith('https://'), { message: 'meeting_url must be an https:// URL' }),
+  // B2B-36 F4 (docs/specs/B2B-36-requirement-document.md §6.7) — required. Mirrors
+  // end_user_name's own .min(1) at the partner-API layer (§6.2) — the demo path enforces the
+  // same "required everywhere" rule via its own schema.
+  end_user_name: z.string().trim().min(1, 'Name is required').max(200),
   passcode: z.string().min(1),
 })
 
@@ -30,12 +34,13 @@ export async function GET(_request: NextRequest, { params }: { params: { slug: s
   const supabase = createSupabaseAdminClient()
   const { data } = await supabase
     .from('demo_meeting_urls')
-    .select('meeting_url, updated_at')
+    .select('meeting_url, end_user_name, updated_at')
     .eq('slug', params.slug)
     .maybeSingle()
 
   return NextResponse.json({
     meeting_url: data?.meeting_url ?? null,
+    end_user_name: data?.end_user_name ?? null,
     updated_at: data?.updated_at ?? null,
   })
 }
@@ -49,7 +54,16 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
   const parsed = SaveMeetingUrlSchema.safeParse(body)
   if (!parsed.success) {
     return NextResponse.json(
-      { error: { code: 'validation_failed', message: 'Enter a valid https:// meeting URL.', details: parsed.error.flatten() } },
+      {
+        error: {
+          code: 'validation_failed',
+          // B2B-36 F4 (docs/specs/B2B-36-requirement-document.md §6.7) — updated: the schema now
+          // validates two required fields, so this message should not silently mislead a caller
+          // whose name field failed instead of their URL.
+          message: 'Enter a name and a valid https:// meeting URL.',
+          details: parsed.error.flatten(),
+        },
+      },
       { status: 422 }
     )
   }
@@ -61,8 +75,11 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
   const supabase = createSupabaseAdminClient()
   const { data, error } = await supabase
     .from('demo_meeting_urls')
-    .upsert({ slug: params.slug, meeting_url: parsed.data.meeting_url }, { onConflict: 'slug' })
-    .select('meeting_url, updated_at')
+    .upsert(
+      { slug: params.slug, meeting_url: parsed.data.meeting_url, end_user_name: parsed.data.end_user_name },
+      { onConflict: 'slug' }
+    )
+    .select('meeting_url, end_user_name, updated_at')
     .single()
 
   if (error || !data) {
@@ -70,5 +87,5 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
     return NextResponse.json({ error: { code: 'internal_error', message: "Couldn't save — try again." } }, { status: 500 })
   }
 
-  return NextResponse.json({ meeting_url: data.meeting_url, updated_at: data.updated_at })
+  return NextResponse.json({ meeting_url: data.meeting_url, end_user_name: data.end_user_name, updated_at: data.updated_at })
 }

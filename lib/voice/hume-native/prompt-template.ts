@@ -12,7 +12,7 @@
  * Bump PROMPT_TEMPLATE_VERSION on any structural edit to the fixed portion.
  */
 
-export const PROMPT_TEMPLATE_VERSION = 'v8'
+export const PROMPT_TEMPLATE_VERSION = 'v9'
 
 import { createSupabaseAdminClient } from '@/lib/supabase'
 
@@ -58,6 +58,25 @@ export const RULE_12_PLACEHOLDER = '[RULE 12 TEXT]'
  * `'a senior executive'` (byte-identical output) for every caller that omits it.
  */
 export const AUDIENCE_PLACEHOLDER = '[AUDIENCE]'
+
+/**
+ * B2B-36 F4 (docs/specs/B2B-36-requirement-document.md §6.4) — participant name, substituted
+ * into RULE_1_INLINE_TEXT's greeting (inline/Option 1 mode only — Fork 2). Defaults to the
+ * literal 'the participant' (byte-identical to pre-B2B-36 output) when omitted/blank.
+ */
+export const PARTICIPANT_NAME_PLACEHOLDER = '[PARTICIPANT NAME]'
+/**
+ * B2B-36 F4 (docs/specs/B2B-36-requirement-document.md §6.4) — extends the same opening-sentence
+ * audience clause end_user_role already resolves (both content modes — Fork 1). Resolves to ''
+ * (nothing appended) when endUserIndustry is absent/blank — never a placeholder guess.
+ */
+export const INDUSTRY_CLAUSE_PLACEHOLDER = '[INDUSTRY CLAUSE]'
+/**
+ * B2B-36 F5 (docs/specs/B2B-36-requirement-document.md §6.4) — soft, toggleable voice-pacing
+ * mitigation appended to rule 7. Resolves to '' unless HUME_NATIVE_PACING_GUIDANCE_ENABLED is the
+ * literal string 'true' (default OFF, byte-identical to pre-B2B-36 output).
+ */
+export const PACING_GUIDANCE_PLACEHOLDER = '[PACING GUIDANCE]'
 
 /** B2B-35 F2 — which of the two content-delivery shapes this session uses. Defaults to
  *  'template' (today's existing behavior) for every caller that omits it. */
@@ -123,7 +142,7 @@ export interface PromptBehaviorConfig {
 export const ASSISTANT_SELF_REFERENCE = 'You are Clio, an AI business coach'
 
 export const HUME_NATIVE_PROMPT_TEMPLATE = `You are Clio, an AI business coach delivering a live, one-on-one coaching
-session to ${AUDIENCE_PLACEHOLDER} over voice. This is a real-time conversation —
+session to ${AUDIENCE_PLACEHOLDER}${INDUSTRY_CLAUSE_PLACEHOLDER} over voice. This is a real-time conversation —
 speak naturally, warmly, and with authority, like a trusted advisor, never
 like a script being read aloud.${TONE_GUIDANCE_PLACEHOLDER}
 
@@ -167,7 +186,7 @@ will be sent to you mid-call.
 7. Keep a natural pace: teach with patience, not speed. Prioritize the
    participant actually understanding the material over covering everything
    at maximum velocity — but you are responsible for keeping the session
-   moving toward completion within a reasonable session length.
+   moving toward completion within a reasonable session length.${PACING_GUIDANCE_PLACEHOLDER}
 8. ${RULE_8_PLACEHOLDER}
    a. Briefly summarize what was covered today in exactly two sentences.
    b. Ask one direct closing question confirming there is nothing further to
@@ -253,6 +272,20 @@ export interface AssembleHumeNativePromptInput {
    * field) byte-identical to today.
    */
   audienceDescription?: string
+  /**
+   * B2B-36 F4 (docs/specs/B2B-36-requirement-document.md §6.4) — optional participant name,
+   * substituted into RULE_1_INLINE_TEXT's greeting (inline/Option 1 mode only — Fork 2).
+   * Defaults to the literal 'the participant' when omitted/blank, reproducing today's fixed
+   * wording exactly.
+   */
+  participantName?: string
+  /**
+   * B2B-36 F4 (docs/specs/B2B-36-requirement-document.md §6.4) — optional industry description,
+   * extending the same opening-sentence audience clause end_user_role already resolves (both
+   * modes — Fork 1). Resolves to an empty clause (nothing appended) when absent — never a
+   * placeholder guess.
+   */
+  endUserIndustry?: string
 }
 
 /**
@@ -321,8 +354,12 @@ function buildPartnerGuidanceBlock(cfg: PromptBehaviorConfig | null | undefined)
 const RULE_1_TEMPLATE_TEXT =
   "Open the session warmly. Deliver the Session Overview section's prepared\n   content (marked in SESSION CONTENT) in full — state the agenda, ask its\n   verification question, and wait for a response — before moving to the\n   first real subtopic. Treat this exactly like any other section: teach →\n   verification question → listen → respond → bridge. Do not skip or rush\n   past it, and do not ask what they want to cover — the agenda is fixed and\n   provided below in SESSION CONTENT."
 
+// B2B-36 F4 (docs/specs/B2B-36-requirement-document.md §6.4, Fork 2/3) — template literal
+// embedding PARTICIPANT_NAME_PLACEHOLDER, inlined at module-eval time exactly like
+// HUME_NATIVE_PROMPT_TEMPLATE itself already does with AUDIENCE_PLACEHOLDER. RULE_1_TEMPLATE_TEXT
+// above is intentionally NOT touched — Option 2 keeps its own unrelated, unchanged text.
 const RULE_1_INLINE_TEXT =
-  "Open the session warmly and with genuine energy. Greet the participant, introduce yourself briefly, and offer a short, natural icebreaker — casual and human, never a rehearsed-sounding script (for example, a light remark tied to the session's topic, the time of day, or how they're doing). Then, in your own words, set the agenda using the SESSION TITLE, SESSION SUBTITLE, and WHAT TO EXPLAIN content provided below in SESSION CONTENT — synthesize and paraphrase this material naturally; do not recite it verbatim as a script and do not read it like a list. Confirm they're ready, then move into page 1."
+  `Open the session warmly and with genuine energy. Greet ${PARTICIPANT_NAME_PLACEHOLDER}, introduce yourself briefly, and offer a short, natural icebreaker — casual and human, never a rehearsed-sounding script (for example, a light remark tied to the session's topic, the time of day, or how they're doing). Then, in your own words, set the agenda using the SESSION TITLE, SESSION SUBTITLE, and WHAT TO EXPLAIN content provided below in SESSION CONTENT — synthesize and paraphrase this material naturally; do not recite it verbatim as a script and do not read it like a list. Confirm they're ready, then move into page 1.`
 
 const RULE_8_TEMPLATE_TEXT =
   "When the final real subtopic is complete, deliver the Session Summary\n   section's prepared content in full (it already contains the wrap-up and\n   the one-thing-to-remember framing — do not additionally improvise your own\n   summary). Ask its verification question, then follow this closing\n   sequence every time, regardless of how the call has gone so far:"
@@ -343,6 +380,24 @@ const RULE_12_INLINE_TEXT =
  */
 function resolveSessionContentMode(mode: SessionContentMode | undefined): SessionContentMode {
   return mode === 'inline' ? 'inline' : 'template'
+}
+
+/**
+ * B2B-36 F5 (docs/specs/B2B-36-requirement-document.md §6.4) — soft, toggleable, prompt-only
+ * mitigation for Clio's voice fading to a whisper during long continuous speech. Read exactly
+ * once inside assembleHumeNativePrompt() below, so every caller (both partner render paths and
+ * the legacy app/api/hume-native/provision-config/route.ts) picks it up with zero additional
+ * wiring — mirrors HUME_NATIVE_SUMMARY_MODE's exact toggle mechanism. Default OFF: any value
+ * other than the literal string 'true' resolves to '', byte-identical to pre-B2B-36 output.
+ */
+function buildPacingGuidance(): string {
+  const enabled = process.env.HUME_NATIVE_PACING_GUIDANCE_ENABLED === 'true'
+  if (!enabled) return ''
+  return ' When explaining something at length, naturally break up longer stretches of ' +
+    'continuous speech — roughly every minute or so — with a brief pause, a quick check-in ' +
+    'like "does that make sense so far?", or a short verification question, rather than ' +
+    'delivering one long unbroken monologue. This is about rhythm and delivery, not ' +
+    'shortening the material.'
 }
 
 /**
@@ -371,6 +426,8 @@ export function assembleHumeNativePrompt(input: AssembleHumeNativePromptInput): 
     promptBehavior,
     sessionContentMode,
     audienceDescription = 'a senior executive',
+    participantName,
+    endUserIndustry,
   } = input
 
   const contextBlock = [profileContext, intentContext]
@@ -395,12 +452,21 @@ export function assembleHumeNativePrompt(input: AssembleHumeNativePromptInput): 
   const rule8Text = resolvedMode === 'inline' ? RULE_8_INLINE_TEXT : RULE_8_TEMPLATE_TEXT
   const rule12Text = resolvedMode === 'inline' ? RULE_12_INLINE_TEXT : RULE_12_TEMPLATE_TEXT
 
+  // B2B-36 F4 — resolves independently of sessionContentMode; the token only appears in
+  // RULE_1_INLINE_TEXT, so this is a harmless no-op for 'template' mode (Fork 2).
+  const resolvedParticipantName = participantName?.trim() || 'the participant'
+  // B2B-36 F4 — Fork 1: byte-identical ('') when absent/whitespace-only, never a placeholder.
+  const industryClause = endUserIndustry?.trim() ? ` in ${endUserIndustry.trim()}` : ''
+
   const assembled = namedTemplate
     .split(TONE_GUIDANCE_PLACEHOLDER).join(toneGuidance)
     .split(PARTNER_GUIDANCE_PLACEHOLDER).join(partnerGuidance)
     .split(RULE_1_PLACEHOLDER).join(rule1Text)
     .split(RULE_8_PLACEHOLDER).join(rule8Text)
     .split(RULE_12_PLACEHOLDER).join(rule12Text)
+    .split(PARTICIPANT_NAME_PLACEHOLDER).join(resolvedParticipantName)
+    .split(INDUSTRY_CLAUSE_PLACEHOLDER).join(industryClause)
+    .split(PACING_GUIDANCE_PLACEHOLDER).join(buildPacingGuidance())
     .split(AUDIENCE_PLACEHOLDER).join(audienceDescription)
     .split(CONTEXT_PLACEHOLDER).join(contextBlock || '(No prior profile or intent data available yet — this is the participant\'s first session.)')
     .split(SESSION_CONTENT_PLACEHOLDER).join(sessionContent ?? '')

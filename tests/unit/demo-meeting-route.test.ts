@@ -6,9 +6,16 @@ import { NextRequest } from 'next/server'
  * GET/POST /api/demo/[slug]/meeting — reading/saving the Google Meet URL for a public demo topic.
  * GET is unauthenticated; POST is passcode-gated (write-only) and must never write a row on an
  * incorrect passcode or invalid URL.
+ *
+ * B2B-36 F4 (docs/specs/B2B-36-requirement-document.md §6.7) — end_user_name is now required
+ * alongside meeting_url. Pre-existing tests below are updated to include it so they keep
+ * validating their original scenario rather than failing on an unrelated missing field.
  */
 
-const state = { upserted: [] as unknown[], row: null as { meeting_url: string; updated_at: string } | null }
+const state = {
+  upserted: [] as unknown[],
+  row: null as { meeting_url: string; end_user_name: string | null; updated_at: string } | null,
+}
 
 vi.mock('@/lib/supabase', () => ({
   createSupabaseAdminClient: vi.fn(() => ({
@@ -23,7 +30,10 @@ vi.mock('@/lib/supabase', () => ({
         return {
           select: vi.fn(() => ({
             single: vi.fn(() =>
-              Promise.resolve({ data: { meeting_url: 'https://meet.google.com/abc-defg-hij', updated_at: '2026-07-23T00:00:00.000Z' }, error: null })
+              Promise.resolve({
+                data: { meeting_url: 'https://meet.google.com/abc-defg-hij', end_user_name: 'Arun', updated_at: '2026-07-23T00:00:00.000Z' },
+                error: null,
+              })
             ),
           })),
         }
@@ -58,18 +68,26 @@ describe('GET /api/demo/[slug]/meeting', () => {
     expect(res.status).toBe(404)
   })
 
-  it('returns null meeting_url/updated_at when nothing is saved yet (not an error)', async () => {
+  it('returns null meeting_url/end_user_name/updated_at when nothing is saved yet (not an error)', async () => {
     const res = await GET(getRequest(), { params: { slug: 'claude-ai' } })
     const body = await res.json()
     expect(res.status).toBe(200)
-    expect(body).toEqual({ meeting_url: null, updated_at: null })
+    expect(body).toEqual({ meeting_url: null, end_user_name: null, updated_at: null })
   })
 
   it('returns the saved row when one exists', async () => {
-    state.row = { meeting_url: 'https://meet.google.com/abc-defg-hij', updated_at: '2026-07-22T16:03:00.000Z' }
+    state.row = { meeting_url: 'https://meet.google.com/abc-defg-hij', end_user_name: 'Arun', updated_at: '2026-07-22T16:03:00.000Z' }
     const res = await GET(getRequest(), { params: { slug: 'claude-ai' } })
     const body = await res.json()
-    expect(body).toEqual({ meeting_url: 'https://meet.google.com/abc-defg-hij', updated_at: '2026-07-22T16:03:00.000Z' })
+    expect(body).toEqual({ meeting_url: 'https://meet.google.com/abc-defg-hij', end_user_name: 'Arun', updated_at: '2026-07-22T16:03:00.000Z' })
+  })
+
+  // B2B-36 F4 — the migration edge case: a pre-existing row with a saved URL but no saved name.
+  it('returns end_user_name: null when the saved row predates the B2B-36 migration (URL saved, no name)', async () => {
+    state.row = { meeting_url: 'https://meet.google.com/abc-defg-hij', end_user_name: null, updated_at: '2026-07-25T04:20:01.000Z' }
+    const res = await GET(getRequest(), { params: { slug: 'claude-ai' } })
+    const body = await res.json()
+    expect(body).toEqual({ meeting_url: 'https://meet.google.com/abc-defg-hij', end_user_name: null, updated_at: '2026-07-25T04:20:01.000Z' })
   })
 })
 
@@ -82,7 +100,7 @@ describe('POST /api/demo/[slug]/meeting', () => {
   })
 
   it('AT-4: 401s on an incorrect passcode and never writes a row', async () => {
-    const res = await POST(postRequest({ meeting_url: 'https://meet.google.com/abc-defg-hij', passcode: 'wrong' }), {
+    const res = await POST(postRequest({ meeting_url: 'https://meet.google.com/abc-defg-hij', end_user_name: 'Arun', passcode: 'wrong' }), {
       params: { slug: 'claude-ai' },
     })
     const body = await res.json()
@@ -93,7 +111,7 @@ describe('POST /api/demo/[slug]/meeting', () => {
 
   it('fails closed (401) when DEMO_MEETING_PASSCODE is unconfigured, even with a matching empty guess', async () => {
     delete process.env.DEMO_MEETING_PASSCODE
-    const res = await POST(postRequest({ meeting_url: 'https://meet.google.com/abc-defg-hij', passcode: 'anything' }), {
+    const res = await POST(postRequest({ meeting_url: 'https://meet.google.com/abc-defg-hij', end_user_name: 'Arun', passcode: 'anything' }), {
       params: { slug: 'claude-ai' },
     })
     expect(res.status).toBe(401)
@@ -101,28 +119,56 @@ describe('POST /api/demo/[slug]/meeting', () => {
   })
 
   it('422s a non-https URL and never writes a row', async () => {
-    const res = await POST(postRequest({ meeting_url: 'http://meet.google.com/abc-defg-hij', passcode: 'correct-passcode' }), {
-      params: { slug: 'claude-ai' },
-    })
+    const res = await POST(
+      postRequest({ meeting_url: 'http://meet.google.com/abc-defg-hij', end_user_name: 'Arun', passcode: 'correct-passcode' }),
+      { params: { slug: 'claude-ai' } }
+    )
     expect(res.status).toBe(422)
     expect(state.upserted).toHaveLength(0)
   })
 
-  it('AT-3: saves on a correct passcode + valid https URL, returning the saved row', async () => {
-    const res = await POST(postRequest({ meeting_url: 'https://meet.google.com/abc-defg-hij', passcode: 'correct-passcode' }), {
-      params: { slug: 'claude-ai' },
-    })
+  it('AT-3: saves on a correct passcode + valid https URL + name, returning the saved row', async () => {
+    const res = await POST(
+      postRequest({ meeting_url: 'https://meet.google.com/abc-defg-hij', end_user_name: 'Arun', passcode: 'correct-passcode' }),
+      { params: { slug: 'claude-ai' } }
+    )
     const body = await res.json()
     expect(res.status).toBe(200)
-    expect(body).toEqual({ meeting_url: 'https://meet.google.com/abc-defg-hij', updated_at: '2026-07-23T00:00:00.000Z' })
+    expect(body).toEqual({ meeting_url: 'https://meet.google.com/abc-defg-hij', end_user_name: 'Arun', updated_at: '2026-07-23T00:00:00.000Z' })
     expect(state.upserted).toHaveLength(1)
+    expect(state.upserted[0]).toMatchObject({ end_user_name: 'Arun' })
   })
 
   it('404s an unknown slug before any passcode check', async () => {
-    const res = await POST(postRequest({ meeting_url: 'https://meet.google.com/abc-defg-hij', passcode: 'correct-passcode' }), {
-      params: { slug: 'not-a-real-topic' },
-    })
+    const res = await POST(
+      postRequest({ meeting_url: 'https://meet.google.com/abc-defg-hij', end_user_name: 'Arun', passcode: 'correct-passcode' }),
+      { params: { slug: 'not-a-real-topic' } }
+    )
     expect(res.status).toBe(404)
     expect(state.upserted).toHaveLength(0)
+  })
+
+  // B2B-36 F4 (docs/specs/B2B-36-requirement-document.md §6.7/§8) — end_user_name is required.
+  describe('B2B-36 F4 — end_user_name required', () => {
+    it('422s with validation_failed and the updated message when end_user_name is missing', async () => {
+      const res = await POST(
+        postRequest({ meeting_url: 'https://meet.google.com/abc-defg-hij', passcode: 'correct-passcode' }),
+        { params: { slug: 'claude-ai' } }
+      )
+      const body = await res.json()
+      expect(res.status).toBe(422)
+      expect(body.error.code).toBe('validation_failed')
+      expect(body.error.message).toBe('Enter a name and a valid https:// meeting URL.')
+      expect(state.upserted).toHaveLength(0)
+    })
+
+    it('422s with validation_failed when end_user_name is an empty string', async () => {
+      const res = await POST(
+        postRequest({ meeting_url: 'https://meet.google.com/abc-defg-hij', end_user_name: '', passcode: 'correct-passcode' }),
+        { params: { slug: 'claude-ai' } }
+      )
+      expect(res.status).toBe(422)
+      expect(state.upserted).toHaveLength(0)
+    })
   })
 })

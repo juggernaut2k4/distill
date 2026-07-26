@@ -56,6 +56,10 @@ export interface PartnerSessionRow {
   // session-creation request. Null for every pre-B2B-35 session (resolves to the 'a
   // professional'/'a senior executive' defaults, unchanged).
   endUserRole: string | null
+  // B2B-36 F4 (docs/specs/B2B-36-requirement-document.md §6.3) — new. Null for every pre-B2B-36
+  // session (resolves to the 'the participant'/no-industry-clause defaults, unchanged).
+  endUserName: string | null
+  endUserIndustry: string | null
 }
 
 export async function getPartnerSession(clioSessionRef: string): Promise<PartnerSessionRow | null> {
@@ -63,7 +67,7 @@ export async function getPartnerSession(clioSessionRef: string): Promise<Partner
   const { data } = await supabase
     .from('partner_sessions')
     .select(
-      'id, partner_account_id, content_ref, partner_topic_ref, partner_end_user_ref, status, test_mode, content_source_id, content_pages, content_to_explain, content_title, content_subtitle, end_user_role'
+      'id, partner_account_id, content_ref, partner_topic_ref, partner_end_user_ref, status, test_mode, content_source_id, content_pages, content_to_explain, content_title, content_subtitle, end_user_role, end_user_name, end_user_industry'
     )
     .eq('id', clioSessionRef)
     .maybeSingle()
@@ -84,6 +88,8 @@ export async function getPartnerSession(clioSessionRef: string): Promise<Partner
     contentTitle: (data.content_title as string | null) ?? null,
     contentSubtitle: (data.content_subtitle as string | null) ?? null,
     endUserRole: (data.end_user_role as string | null) ?? null,
+    endUserName: (data.end_user_name as string | null) ?? null,
+    endUserIndustry: (data.end_user_industry as string | null) ?? null,
   }
 }
 
@@ -206,6 +212,10 @@ export async function resolveLiveSessionRender(session: PartnerSessionRow): Prom
       sessionContentMode: 'template',
       // B2B-35 F3 — audience persona, sourced from the session-wide end_user_role field.
       audienceDescription: session.endUserRole?.trim() || 'a professional',
+      // B2B-36 F4 (docs/specs/B2B-36-requirement-document.md §6.5) — Fork 1: industry clause
+      // applies to both content modes. participantName intentionally NOT passed here — Fork 2,
+      // template mode has no greeting seam.
+      endUserIndustry: session.endUserIndustry ?? undefined,
       promptBehavior: {
         tonePersona: promptConfig.tonePersona,
         deferralPhrasing: promptConfig.deferralPhrasing,
@@ -332,6 +342,11 @@ async function resolveInlineSessionRender(session: PartnerSessionRow): Promise<L
       sessionContentMode: 'inline',
       // B2B-35 F3 — audience persona, sourced from the session-wide end_user_role field.
       audienceDescription: session.endUserRole?.trim() || 'a professional',
+      // B2B-36 F4 (docs/specs/B2B-36-requirement-document.md §6.5) — inline mode gets both the
+      // real participant name (Fork 2, greeting seam only exists here) and the industry clause
+      // (Fork 1, both modes).
+      participantName: session.endUserName ?? undefined,
+      endUserIndustry: session.endUserIndustry ?? undefined,
       promptBehavior: {
         tonePersona: promptConfig.tonePersona,
         deferralPhrasing: promptConfig.deferralPhrasing,

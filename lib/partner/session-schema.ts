@@ -55,6 +55,16 @@ export const CreateSessionSchema = z
     // Option 1 (inline) and Option 2 (reference) sessions — top-level, not inside
     // ContentPageSchema (docs/specs/B2B-35-requirement-document.md §6.8).
     end_user_role: z.string().trim().max(200).optional(),
+    // B2B-36 F4 (docs/specs/B2B-36-requirement-document.md §6.2) — required, session-wide
+    // participant name. Unlike end_user_role/end_user_industry, this has no .optional() — every
+    // new session must supply it. Safe: zero real (non-test-mode) partner_sessions rows exist as
+    // of 2026-07-26.
+    end_user_name: z.string().trim().min(1, 'end_user_name is required').max(200),
+    // B2B-36 F4 (docs/specs/B2B-36-requirement-document.md §6.2) — optional, session-wide
+    // industry description (e.g. "healthcare"), extending the end_user_role audience clause. No
+    // default when absent — the industry clause is omitted entirely, never replaced with a
+    // placeholder.
+    end_user_industry: z.string().trim().max(200).optional(),
   })
   .refine(
     (data) => {

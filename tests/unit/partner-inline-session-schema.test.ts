@@ -2,16 +2,21 @@ import { describe, it, expect } from 'vitest'
 import { CreateSessionSchema } from '@/lib/partner/session-schema'
 
 const MEETING = 'https://meet.google.com/abc-defg-hij'
+// B2B-36 F4 (docs/specs/B2B-36-requirement-document.md §6.2) — end_user_name is now required on
+// every request. Added to every payload below that expects success:true so these pre-existing
+// tests keep validating their original scenario rather than failing on an unrelated missing
+// field. This is the one caller-breaking change the spec calls out explicitly (§6.2).
+const NAME = 'Arun'
 
 describe('B2B-19 CreateSessionSchema refine (exactly one of {inline, reference})', () => {
   // AT-BC-1 — existing Option 2 requests validate unchanged, no new field required.
   it('accepts Option 2 with content_ref (backward compat)', () => {
-    const res = CreateSessionSchema.safeParse({ meeting_url: MEETING, content_ref: '3f2504e0-4f89-11d3-9a0c-0305e82c3301' })
+    const res = CreateSessionSchema.safeParse({ meeting_url: MEETING, content_ref: '3f2504e0-4f89-11d3-9a0c-0305e82c3301', end_user_name: NAME })
     expect(res.success).toBe(true)
   })
 
   it('accepts Option 2 with partner_topic_ref (backward compat)', () => {
-    const res = CreateSessionSchema.safeParse({ meeting_url: MEETING, partner_topic_ref: 'topic-42' })
+    const res = CreateSessionSchema.safeParse({ meeting_url: MEETING, partner_topic_ref: 'topic-42', end_user_name: NAME })
     expect(res.success).toBe(true)
   })
 
@@ -23,6 +28,7 @@ describe('B2B-19 CreateSessionSchema refine (exactly one of {inline, reference})
       content_pages: [
         { url: 'https://content.partner.example.com/1.html', media_type: 'html', transition_trigger: 'after page one' },
       ],
+      end_user_name: NAME,
     })
     expect(res.success).toBe(true)
   })
@@ -34,13 +40,14 @@ describe('B2B-19 CreateSessionSchema refine (exactly one of {inline, reference})
       content_ref: '3f2504e0-4f89-11d3-9a0c-0305e82c3301',
       content_source_id: '11111111-1111-1111-1111-111111111111',
       content_pages: [{ url: 'https://x.example.com/1.html', media_type: 'html', transition_trigger: 't' }],
+      end_user_name: NAME,
     })
     expect(res.success).toBe(false)
   })
 
   // AT-6 — neither mode present → reject.
   it('rejects neither inline nor reference present', () => {
-    const res = CreateSessionSchema.safeParse({ meeting_url: MEETING })
+    const res = CreateSessionSchema.safeParse({ meeting_url: MEETING, end_user_name: NAME })
     expect(res.success).toBe(false)
   })
 
@@ -48,6 +55,7 @@ describe('B2B-19 CreateSessionSchema refine (exactly one of {inline, reference})
     const res = CreateSessionSchema.safeParse({
       meeting_url: MEETING,
       content_pages: [{ url: 'https://x.example.com/1.html', media_type: 'html', transition_trigger: 't' }],
+      end_user_name: NAME,
     })
     expect(res.success).toBe(false)
   })
@@ -57,6 +65,7 @@ describe('B2B-19 CreateSessionSchema refine (exactly one of {inline, reference})
       meeting_url: MEETING,
       content_source_id: '11111111-1111-1111-1111-111111111111',
       content_pages: [{ url: 'not-a-url', media_type: 'html', transition_trigger: 't' }],
+      end_user_name: NAME,
     })
     expect(res.success).toBe(false)
   })
@@ -71,12 +80,13 @@ describe('B2B-34 CreateSessionSchema — client_id field', () => {
       meeting_url: MEETING,
       partner_topic_ref: 'ai-101',
       client_id: '3f2504e0-4f89-11d3-9a0c-0305e82c3301',
+      end_user_name: NAME,
     })
     expect(res.success).toBe(true)
   })
 
   it('accepts a request with client_id omitted (optional at the schema layer)', () => {
-    const res = CreateSessionSchema.safeParse({ meeting_url: MEETING, partner_topic_ref: 'ai-101' })
+    const res = CreateSessionSchema.safeParse({ meeting_url: MEETING, partner_topic_ref: 'ai-101', end_user_name: NAME })
     expect(res.success).toBe(true)
   })
 
@@ -85,6 +95,7 @@ describe('B2B-34 CreateSessionSchema — client_id field', () => {
       meeting_url: MEETING,
       partner_topic_ref: 'ai-101',
       client_id: 'not-a-uuid',
+      end_user_name: NAME,
     })
     expect(res.success).toBe(false)
   })
@@ -105,6 +116,7 @@ describe('B2B-35 F1 — content_pages[].content_text', () => {
           content_text: 'Claude is a family of large language models built by Anthropic.',
         },
       ],
+      end_user_name: NAME,
     })
     expect(res.success).toBe(true)
   })
@@ -116,6 +128,7 @@ describe('B2B-35 F1 — content_pages[].content_text', () => {
       content_pages: [
         { url: 'https://content.partner.example.com/1.html', media_type: 'html', transition_trigger: 'after page one' },
       ],
+      end_user_name: NAME,
     })
     expect(res.success).toBe(true)
   })
@@ -132,6 +145,7 @@ describe('B2B-35 F1 — content_pages[].content_text', () => {
           content_text: '',
         },
       ],
+      end_user_name: NAME,
     })
     expect(res.success).toBe(true)
   })
@@ -149,6 +163,7 @@ describe('B2B-35 F1 — content_pages[].content_text', () => {
           content_text: 'x'.repeat(6001),
         },
       ],
+      end_user_name: NAME,
     })
     expect(res.success).toBe(false)
   })
@@ -165,6 +180,7 @@ describe('B2B-35 F1 — content_pages[].content_text', () => {
           content_text: 'x'.repeat(6000),
         },
       ],
+      end_user_name: NAME,
     })
     expect(res.success).toBe(true)
   })
@@ -178,6 +194,7 @@ describe('B2B-35 F3 — end_user_role', () => {
       meeting_url: MEETING,
       partner_topic_ref: 'ai-101',
       end_user_role: 'a first-year sales associate',
+      end_user_name: NAME,
     })
     expect(res.success).toBe(true)
   })
@@ -190,17 +207,18 @@ describe('B2B-35 F3 — end_user_role', () => {
         { url: 'https://content.partner.example.com/1.html', media_type: 'html', transition_trigger: 'after page one' },
       ],
       end_user_role: 'a first-year sales associate',
+      end_user_name: NAME,
     })
     expect(res.success).toBe(true)
   })
 
   it('accepts end_user_role omitted (backward compat — defaults resolved downstream)', () => {
-    const res = CreateSessionSchema.safeParse({ meeting_url: MEETING, partner_topic_ref: 'ai-101' })
+    const res = CreateSessionSchema.safeParse({ meeting_url: MEETING, partner_topic_ref: 'ai-101', end_user_name: NAME })
     expect(res.success).toBe(true)
   })
 
   it('accepts end_user_role as whitespace-only (validated at the schema layer only; default resolution happens downstream)', () => {
-    const res = CreateSessionSchema.safeParse({ meeting_url: MEETING, partner_topic_ref: 'ai-101', end_user_role: '   ' })
+    const res = CreateSessionSchema.safeParse({ meeting_url: MEETING, partner_topic_ref: 'ai-101', end_user_role: '   ', end_user_name: NAME })
     expect(res.success).toBe(true)
   })
 
@@ -209,6 +227,60 @@ describe('B2B-35 F3 — end_user_role', () => {
       meeting_url: MEETING,
       partner_topic_ref: 'ai-101',
       end_user_role: 'x'.repeat(201),
+      end_user_name: NAME,
+    })
+    expect(res.success).toBe(false)
+  })
+})
+
+// B2B-36 F4 (docs/specs/B2B-36-requirement-document.md §6.2/§7 AT-3, §6.2 caps) — end_user_name
+// (required) and end_user_industry (optional).
+describe('B2B-36 F4 — end_user_name / end_user_industry', () => {
+  // AT-3
+  it('rejects a request with end_user_name omitted', () => {
+    const res = CreateSessionSchema.safeParse({ meeting_url: MEETING, partner_topic_ref: 'ai-101' })
+    expect(res.success).toBe(false)
+    if (!res.success) {
+      const flat = res.error.flatten()
+      expect(flat.fieldErrors.end_user_name).toBeDefined()
+    }
+  })
+
+  it('rejects a request with end_user_name as an empty string', () => {
+    const res = CreateSessionSchema.safeParse({ meeting_url: MEETING, partner_topic_ref: 'ai-101', end_user_name: '' })
+    expect(res.success).toBe(false)
+  })
+
+  it('rejects end_user_name longer than 200 characters', () => {
+    const res = CreateSessionSchema.safeParse({
+      meeting_url: MEETING,
+      partner_topic_ref: 'ai-101',
+      end_user_name: 'x'.repeat(201),
+    })
+    expect(res.success).toBe(false)
+  })
+
+  it('accepts a request with end_user_name present and end_user_industry omitted', () => {
+    const res = CreateSessionSchema.safeParse({ meeting_url: MEETING, partner_topic_ref: 'ai-101', end_user_name: NAME })
+    expect(res.success).toBe(true)
+  })
+
+  it('accepts a request with end_user_industry present', () => {
+    const res = CreateSessionSchema.safeParse({
+      meeting_url: MEETING,
+      partner_topic_ref: 'ai-101',
+      end_user_name: NAME,
+      end_user_industry: 'healthcare',
+    })
+    expect(res.success).toBe(true)
+  })
+
+  it('rejects end_user_industry longer than 200 characters', () => {
+    const res = CreateSessionSchema.safeParse({
+      meeting_url: MEETING,
+      partner_topic_ref: 'ai-101',
+      end_user_name: NAME,
+      end_user_industry: 'x'.repeat(201),
     })
     expect(res.success).toBe(false)
   })

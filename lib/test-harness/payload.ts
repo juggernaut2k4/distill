@@ -19,6 +19,12 @@ import type { TestHarnessPayload } from './payload-types'
 export type { TestHarnessPayload, TestHarnessContentPage } from './payload-types'
 export { PLACEHOLDER_MEETING_URL } from './payload-types'
 
+// B2B-36 F4 (docs/specs/B2B-36-requirement-document.md §6.2) — end_user_name is now required on
+// every CreateSessionSchema request. The test harness has no real end-user identity to supply, so
+// a fixed, descriptive value is used — this call dispatches for real (see payload-types.ts), so a
+// PLACEHOLDER_-style value cannot be used here the way it can for meeting_url.
+export const TEST_HARNESS_END_USER_NAME = 'Content QA'
+
 export class TestHarnessTopicNotFoundError extends Error {
   constructor(topicId: string) {
     super(`Test harness topic not found: ${topicId}`)
@@ -41,6 +47,7 @@ export async function assembleTestHarnessPayload(topicId: string, meetingUrl: st
     subtitle: topic.subtitle ?? undefined,
     content_to_explain: topic.content_to_explain ?? undefined,
     content_source_id: contentSourceId,
+    end_user_name: TEST_HARNESS_END_USER_NAME,
     content_pages: [...screens]
       .sort((a, b) => a.position - b.position)
       .map((s) => ({

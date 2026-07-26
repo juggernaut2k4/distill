@@ -24,4 +24,10 @@ export interface TestHarnessPayload {
   content_to_explain?: string
   content_source_id: string
   content_pages: TestHarnessContentPage[]
+  // B2B-36 F4 (docs/specs/B2B-36-requirement-document.md §6.2) — end_user_name is now required on
+  // CreateSessionSchema. This route dispatches for real (app/api/test-harness/dispatch/[topicId]/
+  // route.ts proxies straight through to the live POST /api/partner/v1/sessions), so a placeholder
+  // like PLACEHOLDER_MEETING_URL would break the call — a fixed, real value is used instead. See
+  // TEST_HARNESS_END_USER_NAME in ./payload.ts.
+  end_user_name: string
 }

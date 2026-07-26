@@ -97,11 +97,16 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
   const [meetingLoading, setMeetingLoading] = useState(true)
   const [savedMeetingUrl, setSavedMeetingUrl] = useState<string | null>(null)
   const [savedMeetingUpdatedAt, setSavedMeetingUpdatedAt] = useState<string | null>(null)
+  // B2B-36 F4 (docs/specs/B2B-36-requirement-document.md §6.8) — saved participant name, fetched
+  // alongside the meeting URL.
+  const [savedEndUserName, setSavedEndUserName] = useState<string | null>(null)
 
   // Meeting tab form state.
+  const [nameInput, setNameInput] = useState('')
   const [urlInput, setUrlInput] = useState('')
   const [passcodeInput, setPasscodeInput] = useState('')
   const [saving, setSaving] = useState(false)
+  const [saveNameError, setSaveNameError] = useState<string | null>(null)
   const [saveUrlError, setSaveUrlError] = useState<string | null>(null)
   const [savePasscodeError, setSavePasscodeError] = useState<string | null>(null)
   const [saveGenericError, setSaveGenericError] = useState<string | null>(null)
@@ -152,9 +157,10 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
     setMeetingLoading(true)
     fetch(`/api/demo/${topic.slug}/meeting`)
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error('fetch failed'))))
-      .then((data: { meeting_url: string | null; updated_at: string | null }) => {
+      .then((data: { meeting_url: string | null; end_user_name: string | null; updated_at: string | null }) => {
         if (cancelled) return
         setSavedMeetingUrl(data.meeting_url)
+        setSavedEndUserName(data.end_user_name)
         setSavedMeetingUpdatedAt(data.updated_at)
       })
       .catch(() => {
@@ -176,6 +182,7 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
   }, [saveSuccess])
 
   async function handleSave() {
+    setSaveNameError(null)
     setSaveUrlError(null)
     setSavePasscodeError(null)
     setSaveGenericError(null)
@@ -184,14 +191,16 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
       const res = await fetch(`/api/demo/${topic.slug}/meeting`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ meeting_url: urlInput, passcode: passcodeInput }),
+        body: JSON.stringify({ meeting_url: urlInput, end_user_name: nameInput, passcode: passcodeInput }),
       })
       const data = await res.json().catch(() => null)
 
       if (res.ok) {
         setSavedMeetingUrl(data.meeting_url)
+        setSavedEndUserName(data.end_user_name)
         setSavedMeetingUpdatedAt(data.updated_at)
         setUrlInput('')
+        setNameInput('')
         setPasscodeInput('')
         setSaveSuccess(true)
         return
@@ -259,8 +268,8 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
     return sum + (Number.isNaN(m) ? 0 : m)
   }, 0)
 
-  const canSave = urlInput.trim().length > 0 && passcodeInput.length > 0 && !saving
-  const meetingReady = Boolean(savedMeetingUrl)
+  const canSave = urlInput.trim().length > 0 && nameInput.trim().length > 0 && passcodeInput.length > 0 && !saving
+  const meetingReady = Boolean(savedMeetingUrl) && Boolean(savedEndUserName)
 
   return (
     <div style={pageStyle}>
@@ -374,7 +383,7 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
             )}
 
             {!dispatchSucceeded && !showDispatchPasscode && !meetingLoading && !meetingReady && (
-              <span style={{ fontSize: 13, color: COLORS.textMuted }}>Save a meeting URL in the Meeting tab to enable this.</span>
+              <span style={{ fontSize: 13, color: COLORS.textMuted }}>Save a meeting URL and name in the Meeting tab to enable this.</span>
             )}
             {!dispatchSucceeded && !showDispatchPasscode && dispatchErrorMessage && (
               <span style={{ fontSize: 13, color: COLORS.red }}>{dispatchErrorMessage}</span>
@@ -504,17 +513,44 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
 
           {activeTab === 'Meeting' && (
             <div style={{ maxWidth: 760, marginTop: 24 }}>
-              {savedMeetingUrl && (
+              {savedMeetingUrl && savedEndUserName && (
                 <p style={{ ...chapterBodyStyle, marginBottom: 20 }}>
-                  Currently saved: <strong style={{ color: COLORS.textPrimary }}>{savedMeetingUrl}</strong>
+                  Currently saved: <strong style={{ color: COLORS.textPrimary }}>{savedEndUserName}</strong>,
+                  meeting at <strong style={{ color: COLORS.textPrimary }}>{savedMeetingUrl}</strong>
+                  {savedMeetingUpdatedAt && <> — saved {formatSavedAt(savedMeetingUpdatedAt)}.</>}
+                </p>
+              )}
+              {savedMeetingUrl && !savedEndUserName && (
+                <p style={{ ...chapterBodyStyle, marginBottom: 20 }}>
+                  Currently saved: <strong style={{ color: COLORS.textPrimary }}>{savedMeetingUrl}</strong>{' '}
+                  (no name saved yet — add a name below to enable Learn with AI)
                   {savedMeetingUpdatedAt && <> — saved {formatSavedAt(savedMeetingUpdatedAt)}.</>}
                 </p>
               )}
               {!savedMeetingUrl && (
                 <p style={{ ...chapterBodyStyle, marginBottom: 20 }}>
-                  For this demo, paste the Google Meet URL you want Clio&apos;s bot to join, then Save.
+                  For this demo, enter the participant&apos;s name and paste the Google Meet URL you want
+                  Clio&apos;s bot to join, then Save.
                 </p>
               )}
+
+              <div style={{ ...meetingFieldWrapStyle, marginBottom: 16 }}>
+                <label style={meetingLabelStyle} htmlFor="meeting-name-input">
+                  Name
+                </label>
+                <input
+                  id="meeting-name-input"
+                  type="text"
+                  value={nameInput}
+                  onChange={(e) => setNameInput(e.target.value)}
+                  disabled={saving}
+                  placeholder="Participant's name"
+                  style={meetingInputStyle}
+                />
+                {saveNameError && (
+                  <div style={{ fontSize: 12.5, color: COLORS.red, marginTop: 6 }}>{saveNameError}</div>
+                )}
+              </div>
 
               <div style={{ ...meetingFieldWrapStyle, marginBottom: 16 }}>
                 <label style={meetingLabelStyle} htmlFor="meeting-url-input">
