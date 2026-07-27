@@ -1,11 +1,57 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { Component, useEffect, useRef, useState } from 'react'
+import type { ErrorInfo, ReactNode } from 'react'
 import TemplateRenderer from '@/components/templates/TemplateRenderer'
 import { HumeAdapter } from '@/lib/voice/hume-adapter'
 import type { TemplateSection } from '@/lib/templates/types'
 import { cssCustomPropertiesToStyleBlock, type CSSCustomProperties } from '@/lib/partner/theme-client-safe'
 import { matchesTransitionMarker } from '@/lib/content/transition-markers'
+
+/** Fire-and-forget report to the diagnostic sink — never throws, never awaited by callers. */
+function reportClientError(clioSessionRef: string, source: 'error' | 'unhandledrejection', message: string, stack?: string) {
+  try {
+    fetch('/api/partner/render/client-error', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clio_session_ref: clioSessionRef, source, message, stack }),
+      keepalive: true,
+    }).catch(() => {})
+  } catch {
+    /* best-effort only */
+  }
+}
+
+/**
+ * 2026-07-27 — found live: an uncaught render error inside one inline page
+ * (e.g. a malformed fetched content page) unmounted the ENTIRE render tree,
+ * including the sibling component holding the active Hume voice connection —
+ * the whole session dropped silently along with the visible "Application
+ * error" screen. This boundary contains a crash to the single page that
+ * threw, leaving every other page AND the voice connection (which lives
+ * outside this boundary, in the parent component) untouched.
+ */
+class InlinePageErrorBoundary extends Component<
+  { clioSessionRef: string; pageLabel: string; children: ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false }
+
+  static getDerivedStateFromError() {
+    return { hasError: true }
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    reportClientError(this.props.clioSessionRef, 'error', `[${this.props.pageLabel}] ${error.message}`, error.stack ?? info.componentStack ?? undefined)
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return <p className="px-6 text-center text-sm text-white/70">This page isn&apos;t available right now.</p>
+    }
+    return this.props.children
+  }
+}
 
 /**
  * B2B-03 / B2B-19 — Live-session render client.
@@ -69,6 +115,29 @@ export default function PartnerRenderClient({ clioSessionRef, sections, inlinePa
   const joinGreetingRetriedRef = useRef(false)
   // B2B-19 — wrap-up-nudge poll (inline only).
   const wrapUpRetriedRef = useRef(false)
+
+  // 2026-07-27 — global crash diagnostics. The meeting-bot's headless browser has no accessible
+  // devtools console, so an uncaught error here was previously invisible from the server side —
+  // this reports it to Vercel runtime logs instead of leaving it a guess. Deliberately mounted
+  // once, top-level, independent of InlinePageErrorBoundary (which only catches React render
+  // errors — this also catches non-render errors like a rejected promise in an event handler).
+  useEffect(() => {
+    const onError = (event: ErrorEvent) => {
+      reportClientError(clioSessionRef, 'error', event.message, event.error?.stack)
+    }
+    const onRejection = (event: PromiseRejectionEvent) => {
+      const reason = event.reason
+      const message = reason instanceof Error ? reason.message : String(reason)
+      const stack = reason instanceof Error ? reason.stack : undefined
+      reportClientError(clioSessionRef, 'unhandledrejection', message, stack)
+    }
+    window.addEventListener('error', onError)
+    window.addEventListener('unhandledrejection', onRejection)
+    return () => {
+      window.removeEventListener('error', onError)
+      window.removeEventListener('unhandledrejection', onRejection)
+    }
+  }, [clioSessionRef])
 
   /** Moves the on-screen stack to `idx`, clamped, and scrolls it into view. */
   function goToSection(idx: number) {
@@ -338,23 +407,25 @@ export default function PartnerRenderClient({ clioSessionRef, sections, inlinePa
             ref={(el) => { sectionEls.current[index] = el }}
             className="relative flex h-screen w-screen items-center justify-center bg-black"
           >
-            {page.status === 'unavailable' ? (
-              <p className="px-6 text-center text-sm text-white/70">This page isn&apos;t available right now.</p>
-            ) : page.mediaType === 'image' ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={page.imageDataUri} alt={page.title ?? `page ${index + 1}`} className="max-h-full max-w-full object-contain" />
-            ) : (
-              // Sandboxed: allow-scripts but NOT allow-same-origin → partner
-              // script runs in a null/opaque origin and cannot read Clio's
-              // render-page origin, the Hume token, or session data (AT-SSRF-3).
-              // srcDoc, never dangerouslySetInnerHTML (CLAUDE.md rule).
-              <iframe
-                title={page.title ?? `page ${index + 1}`}
-                srcDoc={page.contentHtml}
-                sandbox="allow-scripts"
-                className="h-full w-full border-0"
-              />
-            )}
+            <InlinePageErrorBoundary clioSessionRef={clioSessionRef} pageLabel={page.title ?? `page ${index + 1}`}>
+              {page.status === 'unavailable' ? (
+                <p className="px-6 text-center text-sm text-white/70">This page isn&apos;t available right now.</p>
+              ) : page.mediaType === 'image' ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={page.imageDataUri} alt={page.title ?? `page ${index + 1}`} className="max-h-full max-w-full object-contain" />
+              ) : (
+                // Sandboxed: allow-scripts but NOT allow-same-origin → partner
+                // script runs in a null/opaque origin and cannot read Clio's
+                // render-page origin, the Hume token, or session data (AT-SSRF-3).
+                // srcDoc, never dangerouslySetInnerHTML (CLAUDE.md rule).
+                <iframe
+                  title={page.title ?? `page ${index + 1}`}
+                  srcDoc={page.contentHtml}
+                  sandbox="allow-scripts"
+                  className="h-full w-full border-0"
+                />
+              )}
+            </InlinePageErrorBoundary>
           </div>
         ))}
         {status === 'error' && (
