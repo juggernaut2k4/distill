@@ -2,6 +2,7 @@ import { inngest } from './client'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { getMeetingBotProvider } from '@/lib/meeting-bot/provider'
 import { recordBillableEvent } from '@/lib/partner/webhooks'
+import { emitPartnerSessionEndedEvent } from '@/lib/partner/live-render'
 
 /**
  * B2B-08 — server-side timer that force-ends a test-mode partner session at
@@ -63,6 +64,7 @@ export const partnerTrialCutoffJob = inngest.createFunction(
         .from('partner_sessions')
         .update({ status: 'completed', ended_at: new Date().toISOString(), end_reason: 'trial_limit_reached' })
         .eq('id', clioSessionRef)
+      emitPartnerSessionEndedEvent(clioSessionRef)   // NEW — B2B-37
     })
 
     await step.run('record-billable-events', async () => {

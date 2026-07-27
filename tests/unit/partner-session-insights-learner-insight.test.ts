@@ -59,17 +59,25 @@ vi.mock('@/lib/supabase', () => ({
               maybeSingle: async () => ({ data: insightsBySession[val] ?? null, error: null }),
             }),
           }),
-          upsert: async (row: Record<string, unknown>) => {
-            upsertWrites.push(row)
-            const sessionId = row.partner_session_id as string
-            if (!insightsBySession[sessionId]) {
-              insightsBySession[sessionId] = {
-                extraction_status: (row.extraction_status as FakeInsightsRow['extraction_status']) ?? 'pending',
-                attempt_count: 0,
+          // B2B-37 §6.3 — upsert(...).select(...) now mirrors the atomic-claim shape the real code
+          // chains onto the upsert (INSERT ... ON CONFLICT DO NOTHING RETURNING semantics). Both
+          // tests in this file start with no existing row, so the row is always freshly inserted here
+          // and `.select()` always returns the one inserted row — never the empty/claimed-by-another
+          // case, which is covered separately in tests/unit/b2b37-partner-session-insights-guard-and-backstop.test.ts.
+          upsert: (row: Record<string, unknown>) => ({
+            select: async (_cols?: string) => {
+              upsertWrites.push(row)
+              const sessionId = row.partner_session_id as string
+              const alreadyExisted = !!insightsBySession[sessionId]
+              if (!alreadyExisted) {
+                insightsBySession[sessionId] = {
+                  extraction_status: (row.extraction_status as FakeInsightsRow['extraction_status']) ?? 'pending',
+                  attempt_count: 0,
+                }
               }
-            }
-            return { error: null }
-          },
+              return { data: alreadyExisted ? [] : [{ extraction_status: 'pending' }], error: null }
+            },
+          }),
           update: (fields: Record<string, unknown>) => ({
             eq: async (_col: string, val: string) => {
               updateWrites.push({ sessionId: val, fields })

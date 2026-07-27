@@ -469,6 +469,23 @@ function sectionTitle(section: TemplateSection): string {
 }
 
 /**
+ * B2B-37 — the single, shared emitter for `clio/partner-session.ended`, the only event
+ * `partnerSessionInsightsExtractor` (inngest/partner-session-insights-extractor.ts) listens for.
+ * Called from every completion path that lands a partner_sessions row in a terminal status
+ * ('completed' or 'failed'): handleSessionEnd() below (covers both its call sites — the normal
+ * client-triggered end-session route and the Attendee fatal_error fallback), plus
+ * inngest/partner-live-cutoff.ts and inngest/partner-trial-cutoff.ts's own mark-session-completed
+ * steps, which update partner_sessions.status directly via Supabase and never call
+ * handleSessionEnd(). Fire-and-forget with logged failure, matching the existing
+ * clio/partner-trial.ended / clio/partner-live.ended emit pattern in this same file — never blocks
+ * or throws out of the caller.
+ */
+export function emitPartnerSessionEndedEvent(partnerSessionId: string): void {
+  inngest.send({ name: 'clio/partner-session.ended', data: { partnerSessionId } })
+    .catch((err) => console.error('[partner-session-ended] clio/partner-session.ended emit failed:', err))
+}
+
+/**
  * architecture.md Section 12.6 step 9 — the call-site instrumentation
  * B2B-02's own Section 10 explicitly deferred to this brief. Called once,
  * on session end, from the render page's client component.
@@ -521,6 +538,8 @@ export async function handleSessionEnd(
     inngest.send({ name: 'clio/partner-live.ended', data: { clioSessionRef } })
       .catch((err) => console.error('[live-render] clio/partner-live.ended emit failed:', err))
   }
+
+  emitPartnerSessionEndedEvent(clioSessionRef)   // NEW — B2B-37
 
   if (durationMinutes > 0) {
     await recordBillableEvent({

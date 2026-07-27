@@ -138,7 +138,9 @@ async function callClaudeForPartnerInsightsExtraction(
 
 type SupabaseAdminClient = ReturnType<typeof createSupabaseAdminClient>
 
-type GuardOutcome = { shortCircuit: true; status: 'already_terminal' } | { shortCircuit: false }
+type GuardOutcome =
+  | { shortCircuit: true; status: 'already_terminal' | 'claimed_by_concurrent_run' }
+  | { shortCircuit: false }
 
 async function runInsightsIdempotencyGuard(
   supabase: SupabaseAdminClient,
@@ -163,7 +165,7 @@ async function runInsightsIdempotencyGuard(
     return { shortCircuit: false }
   }
 
-  await supabase.from('partner_session_insights').upsert(
+  const { data: insertedRows } = await supabase.from('partner_session_insights').upsert(
     {
       partner_session_id: partnerSessionId,
       partner_account_id: partnerAccountId,
@@ -172,16 +174,19 @@ async function runInsightsIdempotencyGuard(
       end_client_id: endClientId,
     },
     { onConflict: 'partner_session_id', ignoreDuplicates: true }
-  )
+  ).select('extraction_status')
 
-  const { data: afterInsert } = await supabase
-    .from('partner_session_insights')
-    .select('extraction_status')
-    .eq('partner_session_id', partnerSessionId)
-    .maybeSingle()
-
-  const afterStatus = afterInsert?.extraction_status as string | undefined
-  if (afterStatus === 'success' || afterStatus === 'success_empty') return { shortCircuit: true, status: 'already_terminal' }
+  // B2B-37 — atomic claim: with ignoreDuplicates:true this is INSERT ... ON CONFLICT DO NOTHING,
+  // and .select() on the upsert returns only rows THIS call actually inserted. An empty array means
+  // a concurrent invocation (e.g. the fast-path emission and the legacy Hume-webhook fallback
+  // emission landing in the same window) already won the insert race — short-circuit immediately
+  // rather than re-reading and treating 'pending' as retryable. Deliberately narrower than the
+  // `if (existing)` branch above: this only closes the same-moment concurrent-insert race and does
+  // not change the backstop sweep's intentional "pending is retryable" crash-recovery behavior for
+  // a row genuinely stuck 30+ minutes from an earlier run.
+  if (!insertedRows || insertedRows.length === 0) {
+    return { shortCircuit: true, status: 'claimed_by_concurrent_run' }
+  }
   return { shortCircuit: false }
 }
 
@@ -422,7 +427,7 @@ export const partnerSessionInsightsBackstopSweep = inngest.createFunction(
     const eligibleIds = await step.run('find-eligible-sessions', async () => {
       const cutoff = new Date(Date.now() - BACKSTOP_ELIGIBILITY_DELAY_MS).toISOString()
 
-      const { data: candidates } = await supabase
+      const { data: candidates, error: candidatesError } = await supabase
         .from('partner_sessions')
         .select('id')
         .eq('status', 'completed')
@@ -430,13 +435,23 @@ export const partnerSessionInsightsBackstopSweep = inngest.createFunction(
         .lt('ended_at', cutoff)
         .not('hume_chat_id', 'is', null)
 
+      if (candidatesError) {
+        console.error('[partner-session-insights-backstop] Failed to query eligible candidates:', candidatesError.message)
+        throw new Error(`Backstop sweep candidate query failed: ${candidatesError.message}`)
+      }
+
       const candidateIds = (candidates ?? []).map((s) => s.id as string)
       if (candidateIds.length === 0) return [] as string[]
 
-      const { data: existing } = await supabase
+      const { data: existing, error: existingError } = await supabase
         .from('partner_session_insights')
         .select('partner_session_id, extraction_status, attempt_count')
         .in('partner_session_id', candidateIds)
+
+      if (existingError) {
+        console.error('[partner-session-insights-backstop] Failed to query existing extraction rows:', existingError.message)
+        throw new Error(`Backstop sweep existing-rows query failed: ${existingError.message}`)
+      }
 
       const existingMap = new Map(
         (existing ?? []).map((r) => [r.partner_session_id as string, r as { extraction_status: string; attempt_count: number }])

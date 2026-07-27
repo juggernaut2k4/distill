@@ -3,6 +3,7 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
 import { getMeetingBotProvider } from '@/lib/meeting-bot/provider'
 import { recordBillableEvent } from '@/lib/partner/webhooks'
 import { fetchHumeChatDuration, type FetchHumeChatDurationResult } from '@/lib/voice/hume-native/session-details'
+import { emitPartnerSessionEndedEvent } from '@/lib/partner/live-render'
 
 /**
  * B2B-19 — mid-session minute enforcement for the PAID wallet (Requirement Doc
@@ -264,6 +265,7 @@ export const partnerLiveCutoffJob = inngest.createFunction(
           billed_duration_source: 'wall_clock_fallback',
         })
         .eq('id', clioSessionRef)
+      emitPartnerSessionEndedEvent(clioSessionRef)   // NEW — B2B-37
     })
 
     await step.run('record-billable-events', async () => {
