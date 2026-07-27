@@ -55,6 +55,7 @@ describe('POST /api/demo/[slug]/dispatch', () => {
     state.row = null
     state.updated = []
     process.env.NEXT_PUBLIC_APP_URL = 'https://hello-clio.com'
+    process.env.DEMO_PARTNER_API_BASE_URL = 'https://hello-clio.com'
     process.env.DEMO_PARTNER_API_KEY = 'clio_test_sk_demo_fixture'
     process.env.DEMO_CONTENT_SOURCE_ID = 'src-demo-fixture'
     process.env.DEMO_MEETING_PASSCODE = CORRECT_PASSCODE
@@ -111,24 +112,30 @@ describe('POST /api/demo/[slug]/dispatch', () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
-  it('AT-7: 429s with rate_limited when the last attempt was under 3 minutes ago', async () => {
+  // 2026-07-27 — the per-slug rate-limit cooldown was removed per Arun's direct instruction (the
+  // passcode gate alone is considered sufficient); these two cases replace the old AT-7
+  // rate-limited/cooldown-elapsed pair, confirming dispatch proceeds regardless of how recently
+  // (or never) a prior attempt was made.
+  it('proceeds even when the last attempt was very recent (no cooldown)', async () => {
     state.row = {
       meeting_url: 'https://meet.google.com/abc-defg-hij',
       end_user_name: 'Arun',
-      last_dispatch_attempted_at: new Date(Date.now() - 60_000).toISOString(),
+      last_dispatch_attempted_at: new Date(Date.now() - 5_000).toISOString(),
     }
+    ;(fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 201,
+      json: async () => ({ clio_session_ref: '9e2a4f11-8b3c-4d21-9a77-1c8f2e5b6a90', status: 'bot_active' }),
+    })
     const res = await POST(dispatchRequest('claude-ai'), { params: { slug: 'claude-ai' } })
-    const body = await res.json()
-    expect(res.status).toBe(429)
-    expect(body.error.code).toBe('rate_limited')
-    expect(fetch).not.toHaveBeenCalled()
+    expect(res.status).toBe(200)
+    expect(fetch).toHaveBeenCalledTimes(1)
   })
 
-  it('proceeds when the last attempt was more than 3 minutes ago', async () => {
+  it('proceeds when no prior attempt was ever recorded', async () => {
     state.row = {
       meeting_url: 'https://meet.google.com/abc-defg-hij',
       end_user_name: 'Arun',
-      last_dispatch_attempted_at: new Date(Date.now() - 4 * 60_000).toISOString(),
+      last_dispatch_attempted_at: null,
     }
     ;(fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
       status: 201,

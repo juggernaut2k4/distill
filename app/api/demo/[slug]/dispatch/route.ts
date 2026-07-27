@@ -16,11 +16,19 @@ import { verifyDemoPasscode } from '@/lib/demo/passcode'
  *
  * Per the §0a CEO amendment, this also requires the same DEMO_MEETING_PASSCODE the Save action uses —
  * a public, unauthenticated page must not be able to make a real bot join a real meeting with zero
- * credential. The 3-minute per-slug cooldown stays underneath as defense-in-depth against a leaked
- * passcode being used to cost-spam, not as a substitute for the passcode check.
+ * credential. The per-slug rate-limit cooldown that used to sit here (defense-in-depth against a
+ * leaked passcode) was removed 2026-07-27 per Arun's direct instruction — the passcode gate alone is
+ * considered sufficient; a leaked passcode is a credential-rotation problem, not a rate-limiting one.
+ *
+ * `apiBaseUrl` (2026-07-27 fix) is deliberately a SEPARATE constant from the content-page base URL
+ * below. The two must never share a value: `test.hello-clio.com` (the demo/content host) 404s on
+ * every path except /demo/* and the test-harness authoring surface (see middleware.ts's per-host
+ * block) — including this exact endpoint, /api/partner/v1/sessions. A prior fix that pointed
+ * NEXT_PUBLIC_APP_URL at test.hello-clio.com (to fix content_pages[] visual-rendering) silently broke
+ * this call as a result, since both used to read the same env var. Confirmed live 2026-07-27: calling
+ * the sessions endpoint against test.hello-clio.com returns this middleware's neutral 404 HTML page,
+ * which this route's `.json()` parse then fails on with "Unexpected token '<'".
  */
-
-const RATE_LIMIT_MS = 3 * 60 * 1000
 
 const DispatchSchema = z.object({
   passcode: z.string().min(1),
@@ -62,21 +70,17 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
     )
   }
 
-  if (savedRow.last_dispatch_attempted_at) {
-    const elapsed = Date.now() - new Date(savedRow.last_dispatch_attempted_at).getTime()
-    if (elapsed < RATE_LIMIT_MS) {
-      return NextResponse.json({ error: { code: 'rate_limited', message: 'Try again in a few minutes.' } }, { status: 429 })
-    }
-  }
-
-  // Marked before the outbound call so two near-simultaneous requests racing past the read-check
-  // above still can't both proceed — a small accepted race window, not a financial system (§6.3).
+  // Still recorded (for diagnostics/observability) even though the cooldown check itself was
+  // removed — see the file-header comment for why.
   await supabase.from('demo_meeting_urls').update({ last_dispatch_attempted_at: new Date().toISOString() }).eq('slug', params.slug)
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
+  // Content-page URLs must resolve on the demo/test-harness host — /demo/* only renders there.
+  const contentBaseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
+  // The real partner API must NOT be called against that same host — see file-header comment.
+  const apiBaseUrl = process.env.DEMO_PARTNER_API_BASE_URL ?? 'https://www.hello-clio.com'
 
   const content_pages = topic.chapters.map((ch) => ({
-    url: `${appUrl}/demo/${params.slug}/visuals/${ch.id}`,
+    url: `${contentBaseUrl}/demo/${params.slug}/visuals/${ch.id}`,
     media_type: 'html' as const,
     title: ch.title,
     transition_trigger: `Move on once "${ch.title}" has been fully explained.`,
@@ -105,7 +109,7 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
   let upstreamStatus: number
   let upstreamBody: { status?: string; clio_session_ref?: string; error?: { code?: string; message?: string } | string }
   try {
-    const upstream = await fetch(`${appUrl}/api/partner/v1/sessions`, {
+    const upstream = await fetch(`${apiBaseUrl}/api/partner/v1/sessions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
