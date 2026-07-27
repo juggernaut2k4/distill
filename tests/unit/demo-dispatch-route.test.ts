@@ -56,6 +56,7 @@ describe('POST /api/demo/[slug]/dispatch', () => {
     state.updated = []
     process.env.NEXT_PUBLIC_APP_URL = 'https://hello-clio.com'
     process.env.DEMO_PARTNER_API_BASE_URL = 'https://hello-clio.com'
+    process.env.DEMO_CONTENT_BASE_URL = 'https://hello-clio.com'
     process.env.DEMO_PARTNER_API_KEY = 'clio_test_sk_demo_fixture'
     process.env.DEMO_CONTENT_SOURCE_ID = 'src-demo-fixture'
     process.env.DEMO_MEETING_PASSCODE = CORRECT_PASSCODE
@@ -109,6 +110,19 @@ describe('POST /api/demo/[slug]/dispatch', () => {
     const body = await res.json()
     expect(res.status).toBe(422)
     expect(body.error.code).toBe('no_end_user_name')
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  // 2026-07-27 — DEMO_CONTENT_BASE_URL has no hardcoded fallback (per Arun's direct instruction:
+  // never bake the test-harness host into route logic), so a missing var must fail closed rather
+  // than silently producing a broken content_pages[] URL.
+  it('500s with internal_error when DEMO_CONTENT_BASE_URL is not configured, never calling the upstream endpoint', async () => {
+    delete process.env.DEMO_CONTENT_BASE_URL
+    state.row = { meeting_url: 'https://meet.google.com/abc-defg-hij', end_user_name: 'Arun', last_dispatch_attempted_at: null }
+    const res = await POST(dispatchRequest('claude-ai'), { params: { slug: 'claude-ai' } })
+    const body = await res.json()
+    expect(res.status).toBe(500)
+    expect(body.error.code).toBe('internal_error')
     expect(fetch).not.toHaveBeenCalled()
   })
 

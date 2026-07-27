@@ -20,14 +20,25 @@ import { verifyDemoPasscode } from '@/lib/demo/passcode'
  * leaked passcode) was removed 2026-07-27 per Arun's direct instruction — the passcode gate alone is
  * considered sufficient; a leaked passcode is a credential-rotation problem, not a rate-limiting one.
  *
- * `apiBaseUrl` (2026-07-27 fix) is deliberately a SEPARATE constant from the content-page base URL
- * below. The two must never share a value: `test.hello-clio.com` (the demo/content host) 404s on
- * every path except /demo/* and the test-harness authoring surface (see middleware.ts's per-host
- * block) — including this exact endpoint, /api/partner/v1/sessions. A prior fix that pointed
- * NEXT_PUBLIC_APP_URL at test.hello-clio.com (to fix content_pages[] visual-rendering) silently broke
- * this call as a result, since both used to read the same env var. Confirmed live 2026-07-27: calling
- * the sessions endpoint against test.hello-clio.com returns this middleware's neutral 404 HTML page,
- * which this route's `.json()` parse then fails on with "Unexpected token '<'".
+ * `apiBaseUrl` and `contentBaseUrl` (2026-07-27 fix, revised same day) are deliberately SEPARATE env
+ * vars, not just separate constants — `apiBaseUrl` reads NEXT_PUBLIC_APP_URL (the app's real
+ * production host), `contentBaseUrl` reads its own dedicated DEMO_CONTENT_BASE_URL. They must never
+ * be backed by the same variable: `test.hello-clio.com` (the demo/content host) 404s on every path
+ * except /demo/* and the test-harness authoring surface (see middleware.ts's per-host block) —
+ * including /api/partner/v1/sessions AND /api/attendee/webhook AND /partner-render/[id], none of
+ * which are demo paths.
+ *
+ * History: an earlier fix pointed NEXT_PUBLIC_APP_URL itself at test.hello-clio.com (to fix
+ * content_pages[] visual-rendering here). That broke far more than this route — NEXT_PUBLIC_APP_URL
+ * is read by ~15 other call sites (Stripe checkout URLs, every transactional email link, invite
+ * links, and critically the Attendee bot's webhook URL and the real /partner-render/[id] URL built
+ * in app/api/partner/v1/sessions/route.ts for EVERY partner session, demo or real). Confirmed live
+ * 2026-07-27 via Vercel runtime logs: a live demo session had its meeting bot navigate to
+ * `test.hello-clio.com/partner-render/<id>` (404, per middleware) and a stream of
+ * `POST /api/attendee/webhook 404`s — the bot never rendered content and Clio never spoke, because
+ * the whole webhook/render loop was pointed at a host that structurally can't serve it. Fixed by
+ * giving the demo-only content-page need its own narrow env var and leaving NEXT_PUBLIC_APP_URL as
+ * the real production host everywhere, as every other call site already assumes.
  */
 
 const DispatchSchema = z.object({
@@ -75,7 +86,17 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
   await supabase.from('demo_meeting_urls').update({ last_dispatch_attempted_at: new Date().toISOString() }).eq('slug', params.slug)
 
   // Content-page URLs must resolve on the demo/test-harness host — /demo/* only renders there.
-  const contentBaseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
+  // Deliberately its OWN env var, never NEXT_PUBLIC_APP_URL — see file-header comment. No
+  // hardcoded host fallback: per Arun's direct instruction (2026-07-27), the test-harness host
+  // must always come from config, never be a literal baked into route logic.
+  const contentBaseUrl = process.env.DEMO_CONTENT_BASE_URL
+  if (!contentBaseUrl) {
+    console.error('[demo/dispatch] DEMO_CONTENT_BASE_URL is not configured.')
+    return NextResponse.json(
+      { error: { code: 'internal_error', message: 'Something went wrong starting the bot. Try again in a moment.' } },
+      { status: 500 }
+    )
+  }
   // The real partner API must NOT be called against that same host — see file-header comment.
   const apiBaseUrl = process.env.DEMO_PARTNER_API_BASE_URL ?? 'https://www.hello-clio.com'
 
