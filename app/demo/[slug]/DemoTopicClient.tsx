@@ -152,6 +152,33 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
     }
   }, [topic.slug])
 
+  // 2026-07-27 — found live: dispatchSucceeded was a one-time flag with no way to learn the real
+  // Google Meet call had ended, so "✓ Bot is joining the meeting." stayed on screen forever. While
+  // it's true, poll session status and clear it once the session has actually finished (moved past
+  // in_progress), so the operator can relaunch without a manual page refresh.
+  useEffect(() => {
+    if (!dispatchSucceeded) return
+    let cancelled = false
+    const interval = window.setInterval(() => {
+      fetch(`/api/demo/${topic.slug}/performance`)
+        .then((res) => (res.ok ? res.json() : Promise.reject(new Error('fetch failed'))))
+        .then((data: PerformanceResponse) => {
+          if (cancelled) return
+          setPerformanceData(data)
+          if (data.session_state !== 'in_progress' && data.session_state !== 'not_dispatched') {
+            setDispatchSucceeded(false)
+          }
+        })
+        .catch(() => {
+          // Transient poll failure — retry on the next tick rather than resetting state.
+        })
+    }, 10000)
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
+  }, [dispatchSucceeded, topic.slug])
+
   useEffect(() => {
     let cancelled = false
     setMeetingLoading(true)
