@@ -59,4 +59,38 @@ describe('injectIframeDiagnosticShim', () => {
     expect(result).toContain("addEventListener('error'")
     expect(result).toContain("addEventListener('unhandledrejection'")
   })
+
+  /**
+   * B2B-43 Fix 4b — React error boundaries catch render-time exceptions internally
+   * (componentDidCatch/getDerivedStateFromError), so a caught render error never reaches
+   * window.onerror/unhandledrejection. Next.js's own App Router error boundary renders a generic
+   * "Application error" fallback INSIDE this iframe's document in that case, invisible to the two
+   * listeners above. This closes that blind spot: a MutationObserver watches document.body for that
+   * known fallback text and reports it once, tagged distinctly from a raw uncaught JS error.
+   */
+  it('watches document.body with a MutationObserver for the Next.js error-boundary fallback signature', () => {
+    const html = '<head></head>'
+    const result = injectIframeDiagnosticShim(html, 'ref', 'My Page')
+    expect(result).toContain('MutationObserver')
+    expect(result).toContain('Application error: a client-side exception has occurred')
+    expect(result).toContain('observe(document.body')
+  })
+
+  it('reports a detected error-boundary fallback via the same postReport sink, tagged [iframe:error-boundary] distinctly from the pageLabel-tagged report() helper', () => {
+    const html = '<head></head>'
+    const result = injectIframeDiagnosticShim(html, 'ref-123', 'My Page')
+    expect(result).toContain("source: 'error-boundary'")
+    expect(result).toContain("'[iframe:error-boundary] '")
+    // Reuses the same low-level fetch sink as window.onerror/unhandledrejection reporting —
+    // exactly one fetch(...) call site to /api/partner/render/client-error in the whole shim.
+    const fetchCallCount = (result.match(/fetch\('\/api\/partner\/render\/client-error'/g) ?? []).length
+    expect(fetchCallCount).toBe(1)
+  })
+
+  it('only reports the error-boundary fallback once per page (guards against repeated MutationObserver callbacks)', () => {
+    const html = '<head></head>'
+    const result = injectIframeDiagnosticShim(html, 'ref', 'My Page')
+    expect(result).toContain('errorBoundaryReported')
+    expect(result).toContain('if (errorBoundaryReported) return;')
+  })
 })

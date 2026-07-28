@@ -49,6 +49,20 @@ import type { DraftPayload } from './content-generation'
  *      same /api/partner/render/client-error sink (`fetch()` itself is not blocked by `sandbox`
  *      restrictions, only storage/top-level-navigation/etc. are) — so if this fix doesn't fully
  *      resolve it, the next occurrence finally produces a real stack trace instead of silence.
+ *
+ * B2B-43 Fix 4b — closes a structural blind spot in (2) above: React error boundaries catch
+ * render-time exceptions internally via componentDidCatch/getDerivedStateFromError, which means a
+ * caught render error NEVER reaches window.onerror or unhandledrejection, regardless of what threw
+ * it. The fetched inner page is itself a full Next.js document with its own App Router error
+ * boundary — if its hydration throws for any reason, Next's own boundary catches it and renders its
+ * generic "Application error" fallback UI inside this iframe's document, fully visible on screen,
+ * while producing zero global uncaught-error events. That means the shim receiving zero reports
+ * (as happened twice on 2026-07-27) is expected regardless of root cause — not meaningful evidence
+ * either way. Fix: a MutationObserver on document.body watches for that fallback's known text
+ * signature appearing anywhere in the document and reports it the first time it's seen, tagged
+ * `[iframe:error-boundary]` (distinct from the generic `[iframe:<pageLabel>]` prefix used by (2)'s
+ * own window.onerror/unhandledrejection reports) so it's identifiable in logs as a caught
+ * React-render error rather than a raw uncaught JS error.
  */
 function buildIframeDiagnosticShim(clioSessionRef: string, pageLabel: string): string {
   const safeSessionRef = JSON.stringify(clioSessionRef)
@@ -73,15 +87,18 @@ function stubStorage(name){
 }
 stubStorage('sessionStorage');
 stubStorage('localStorage');
-function report(source, message, stack){
+function postReport(payload){
   try {
     fetch('/api/partner/render/client-error', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ clio_session_ref: ${safeSessionRef}, source: source, message: '[iframe:' + ${safeLabel} + '] ' + message, stack: stack }),
+      body: JSON.stringify(payload),
       keepalive: true
     }).catch(function(){});
   } catch (e) {}
+}
+function report(source, message, stack){
+  postReport({ clio_session_ref: ${safeSessionRef}, source: source, message: '[iframe:' + ${safeLabel} + '] ' + message, stack: stack });
 }
 window.addEventListener('error', function (event) {
   report('error', event.message, event.error && event.error.stack);
@@ -92,6 +109,26 @@ window.addEventListener('unhandledrejection', function (event) {
   var stack = reason instanceof Error ? reason.stack : undefined;
   report('unhandledrejection', message, stack);
 });
+var errorBoundaryReported = false;
+function checkForErrorBoundary(){
+  if (errorBoundaryReported) return;
+  var bodyText = document.body && document.body.textContent;
+  if (bodyText && bodyText.indexOf('Application error: a client-side exception has occurred') !== -1) {
+    errorBoundaryReported = true;
+    postReport({ clio_session_ref: ${safeSessionRef}, source: 'error-boundary', message: '[iframe:error-boundary] ' + ${safeLabel} + ' — Next.js error-boundary fallback detected in document', stack: undefined });
+  }
+}
+function armErrorBoundaryWatcher(){
+  checkForErrorBoundary();
+  try {
+    new MutationObserver(checkForErrorBoundary).observe(document.body, { childList: true, subtree: true, characterData: true });
+  } catch (e) {}
+}
+if (document.body) {
+  armErrorBoundaryWatcher();
+} else {
+  document.addEventListener('DOMContentLoaded', armErrorBoundaryWatcher);
+}
 })();</script>`
 }
 
