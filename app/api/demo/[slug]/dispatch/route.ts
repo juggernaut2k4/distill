@@ -76,6 +76,41 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
   const billedAccountId = resolved.partnerAccountId
 
   const supabase = createSupabaseAdminClient()
+
+  // B2B-44 Fix 5a — server-side duplicate-dispatch guard. Previously the ONLY thing preventing a
+  // double-dispatch was the client's `dispatchSucceeded` React boolean (DemoTopicClient.tsx),
+  // documented by its own 2026-07-27 comment as unreliable ("no way to learn the real state") — a
+  // second tab, or a refresh mid-session, could silently join a second real bot into the same
+  // meeting. Scoped to this demo route only (not the shared `/api/partner/v1/sessions` route every
+  // real partner also calls) — the demo route alone satisfies the brief's minimum bar, and given
+  // tonight's history of a build failure from an overly-ambitious version of a fix (B2B-43's Fix
+  // 4a), the narrower, lower-blast-radius implementation is the safer choice here; see this dev's
+  // full reasoning in the B2B-44 report. Only rows CURRENTLY active block a fresh dispatch — a slug
+  // whose most recent session has already reached 'completed'/'failed' is unaffected.
+  const demoPartnerAccountId = process.env.DEMO_PARTNER_ACCOUNT_ID
+  if (demoPartnerAccountId) {
+    const { data: activeSession } = await supabase
+      .from('partner_sessions')
+      .select('id')
+      .eq('partner_reference', params.slug)
+      .eq('partner_account_id', demoPartnerAccountId)
+      .in('status', ['requested', 'bot_active'])
+      .limit(1)
+      .maybeSingle()
+
+    if (activeSession) {
+      return NextResponse.json(
+        {
+          error: {
+            code: 'session_already_active',
+            message: 'A bot is already in this meeting. End the current session before starting a new one.',
+          },
+        },
+        { status: 409 }
+      )
+    }
+  }
+
   const { data: savedRow } = await supabase
     .from('demo_meeting_urls')
     .select('meeting_url, end_user_name, last_dispatch_attempted_at')
@@ -160,7 +195,7 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
   // bug (that account's 20-minute trial ran out mid-testing). Fire-and-forget: log and proceed on
   // error, never block the dispatch on this check failing — worst case is the exact pre-existing
   // trial_exhausted failure mode from before this feature, not a new regression.
-  const demoPartnerAccountId = process.env.DEMO_PARTNER_ACCOUNT_ID
+  // (demoPartnerAccountId declared above, reused here for the B2B-44 duplicate-dispatch guard.)
   if (demoPartnerAccountId) {
     try {
       const { data: internalWallet } = await supabase

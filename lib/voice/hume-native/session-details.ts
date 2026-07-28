@@ -68,16 +68,28 @@ export class HumeSessionDetailsLookupError extends Error {
 }
 
 /**
- * Fetches one page of transcript events for a Hume chat, reusing the exact
- * pagination shape already proven in inngest/hume-native-nightly-cleanup.ts.
- * Extracted here as a small shared helper rather than duplicating the loop a
- * third time (per the requirement doc's Section 12 dependency note).
+ * Fetches one page of transcript events for a Hume chat.
+ *
+ * B2B-44 — CORRECTED 2026-07-28: there is no separate paginated
+ * `/v0/evi/chats/{chat_id}/events` transcript endpoint on Hume's API — that
+ * URL 404s unconditionally (confirmed live: 100% failure rate across every
+ * `partner_session_insights` row that ever attempted extraction). The real
+ * mechanism is pagination via the chat-metadata endpoint itself
+ * (`GET /v0/evi/chats/{chat_id}?page_number={n}&page_size=100`), which
+ * returns `events_page`/`page_number`/`total_pages` directly on the chat
+ * metadata object. Only the URL changed here — the pagination loop and the
+ * `events_page`/`total_pages` response-shape parsing below are unchanged.
  *
  * B2B-09 — exported (no behavior change to the function body) so
  * `inngest/partner-session-insights-extractor.ts` can import it directly
  * rather than duplicating this pagination loop a third time. Every existing
  * call site (`getHumeSessionDetails()`, below) is unaffected. architecture.md
  * §16.6.
+ *
+ * B2B-44 — `inngest/hume-native-nightly-cleanup.ts` now also imports and
+ * calls this function directly instead of maintaining its own independent,
+ * hand-duplicated copy of this same loop (that duplicate copy carried the
+ * identical `/events`-suffix bug, found and fixed as part of the same brief).
  */
 export async function fetchAllTranscriptEvents(apiKey: string, chatId: string): Promise<unknown[]> {
   const transcriptEvents: unknown[] = []
@@ -86,7 +98,7 @@ export async function fetchAllTranscriptEvents(apiKey: string, chatId: string): 
 
   while (hasMore) {
     const eventsRes = await fetch(
-      `${HUME_CHATS_URL}/${chatId}/events?page_size=100&page_number=${pageNumber}`,
+      `${HUME_CHATS_URL}/${chatId}?page_size=100&page_number=${pageNumber}`,
       {
         method: 'GET',
         headers: { 'X-Hume-Api-Key': apiKey },
@@ -125,12 +137,12 @@ export type FetchHumeChatDurationResult =
 
 /**
  * HUME-DURATION-BILLING-01 — Fetches Hume's own authoritative chat duration
- * for a Hume-native session, via the lightweight single-chat metadata
- * endpoint (`GET /v0/evi/chats/{chat_id}`) — distinct from
- * `fetchAllTranscriptEvents()` above, which hits the paginated
- * `/v0/evi/chats/{chat_id}/events` transcript endpoint and is far more
- * expensive. This function is read-only and does not touch any archive
- * table or write path.
+ * for a Hume-native session, via a single unpaginated call to the same
+ * chat-metadata endpoint (`GET /v0/evi/chats/{chat_id}`) that
+ * `fetchAllTranscriptEvents()` above pages through repeatedly — this
+ * function only reads `start_timestamp`/`end_timestamp` off one page and
+ * never loops, so it stays far cheaper than a full transcript fetch. This
+ * function is read-only and does not touch any archive table or write path.
  *
  * Per docs/specs/HUME-DURATION-BILLING-01-requirement-doc.md Section 6.1/6.2:
  * - Single attempt, 5-second timeout, no retries (AbortController).

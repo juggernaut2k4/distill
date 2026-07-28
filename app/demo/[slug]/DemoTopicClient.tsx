@@ -278,6 +278,11 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
       setDispatchPasscodeInput('')
       if (code === 'rate_limited') {
         setDispatchErrorMessage('Learn with AI was just triggered for this course. Try again in a few minutes.')
+      } else if (code === 'session_already_active') {
+        // B2B-44 Fix 5a — server-side duplicate-dispatch guard rejected this attempt because a
+        // session for this course is already active. Surface the server's own message rather than
+        // inventing new copy, matching this handler's existing pattern for other error codes.
+        setDispatchErrorMessage(data?.error?.message ?? 'A bot is already in this meeting.')
       } else {
         setDispatchErrorMessage('Something went wrong starting the bot. Try again in a moment.')
       }

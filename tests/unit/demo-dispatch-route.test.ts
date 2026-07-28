@@ -19,6 +19,9 @@ const state = {
   resolvedPasscode: null as { partnerAccountId: string; passcodeId: string } | null,
   internalWalletRow: null as { trial_minutes_used: number; test_minutes_balance: number } | null,
   demoDispatchInsertError: null as { message: string } | null,
+  // B2B-44 Fix 5a — the row (if any) the duplicate-dispatch guard's query against partner_sessions
+  // should find. null = no active session for this slug/account (guard allows dispatch).
+  activePartnerSessionRow: null as { id: string } | null,
 }
 
 const updated: unknown[] = []
@@ -62,6 +65,21 @@ vi.mock('@/lib/supabase', () => ({
           }),
         }
       }
+      if (table === 'partner_sessions') {
+        return {
+          select: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                in: vi.fn(() => ({
+                  limit: vi.fn(() => ({
+                    maybeSingle: vi.fn(() => Promise.resolve({ data: state.activePartnerSessionRow })),
+                  })),
+                })),
+              })),
+            })),
+          })),
+        }
+      }
       throw new Error(`Unexpected table: ${table}`)
     }),
     rpc: vi.fn((fn: string, args: unknown) => {
@@ -88,6 +106,7 @@ describe('POST /api/demo/[slug]/dispatch', () => {
     state.resolvedPasscode = null
     state.internalWalletRow = { trial_minutes_used: 20, test_minutes_balance: 500 } // well-funded by default
     state.demoDispatchInsertError = null
+    state.activePartnerSessionRow = null // no active session by default — guard allows dispatch
     updated.length = 0
     demoDispatchInserts.length = 0
     rpcCalls.length = 0
@@ -320,6 +339,37 @@ describe('POST /api/demo/[slug]/dispatch', () => {
     expect(sentBody.content_pages).toHaveLength(5) // claude-ai has 5 chapters
     expect(sentBody.content_pages[0].url).toBe('https://hello-clio.com/demo/claude-ai/visuals/what-is-claude')
     expect(sentBody.content_pages[0].transition_trigger).toBe('Move on once "What Is Claude?" has been fully explained.')
+  })
+
+  // ─── B2B-44 Fix 5a — server-side duplicate-dispatch guard ─────────────────────────────
+
+  it('Fix 5a: rejects with 409 session_already_active when a session for this slug is already requested/bot_active, never calling upstream', async () => {
+    state.resolvedPasscode = { partnerAccountId: 'acct-reseller-1', passcodeId: 'passcode-1' }
+    state.demoMeetingUrlsRow = { meeting_url: 'https://meet.google.com/abc-defg-hij', end_user_name: 'Arun', last_dispatch_attempted_at: null }
+    state.activePartnerSessionRow = { id: 'existing-active-session' }
+    const res = await POST(dispatchRequest('claude-ai'), { params: { slug: 'claude-ai' } })
+    const body = await res.json()
+    expect(res.status).toBe(409)
+    expect(body.error.code).toBe('session_already_active')
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('Fix 5a: allows a fresh dispatch once the prior session for this slug is no longer active (no requested/bot_active row found)', async () => {
+    // The guard's own query only ever matches status IN ('requested','bot_active') — a slug whose
+    // most recent session already reached 'completed'/'failed' simply finds no row, exactly like
+    // the "no active session ever existed" default state.
+    state.resolvedPasscode = { partnerAccountId: 'acct-reseller-1', passcodeId: 'passcode-1' }
+    state.demoMeetingUrlsRow = { meeting_url: 'https://meet.google.com/abc-defg-hij', end_user_name: 'Arun', last_dispatch_attempted_at: null }
+    state.activePartnerSessionRow = null
+    ;(fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 201,
+      json: async () => ({ clio_session_ref: 'ref-fresh', status: 'bot_active' }),
+    })
+    const res = await POST(dispatchRequest('claude-ai'), { params: { slug: 'claude-ai' } })
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(body).toEqual({ status: 'dispatched', clio_session_ref: 'ref-fresh' })
+    expect(fetch).toHaveBeenCalled()
   })
 
   it('B2B-36: the outbound body includes end_user_name sourced from the saved row', async () => {

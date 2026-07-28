@@ -2,6 +2,7 @@ import { toZonedTime } from 'date-fns-tz'
 import { inngest } from './client'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { sendAdminAlert } from '@/lib/delivery/email'
+import { fetchAllTranscriptEvents } from '@/lib/voice/hume-native/session-details'
 
 /**
  * HUME-NATIVE-01 Phase C — Nightly Hume Config archive + cleanup.
@@ -179,39 +180,14 @@ export const humeNativeNightlyCleanup = inngest.createFunction(
           const configSnapshot = await configRes.json()
 
           // (b) Fetch full transcript, paginating until all pages retrieved.
-          const transcriptEvents: unknown[] = []
-          let pageNumber = 0
-          let hasMore = true
-
-          while (hasMore) {
-            const eventsRes = await fetch(
-              `https://api.hume.ai/v0/evi/chats/${chatId}/events?page_size=100&page_number=${pageNumber}`,
-              {
-                method: 'GET',
-                headers: { 'X-Hume-Api-Key': apiKey as string },
-              }
-            )
-
-            if (!eventsRes.ok) {
-              const errBody = await eventsRes.text().catch(() => '(unreadable response body)')
-              throw new Error(
-                `Failed to fetch transcript page ${pageNumber} for chat ${chatId}: ${eventsRes.status} ${errBody}`
-              )
-            }
-
-            const page = (await eventsRes.json()) as {
-              events_page?: unknown[]
-              page_number?: number
-              total_pages?: number
-            }
-
-            const pageEvents = page.events_page ?? []
-            transcriptEvents.push(...pageEvents)
-
-            const totalPages = page.total_pages ?? 1
-            pageNumber++
-            hasMore = pageNumber < totalPages && pageEvents.length > 0
-          }
+          //
+          // B2B-44 — this used to be an independent, hand-duplicated copy of the same
+          // pagination loop that lives in lib/voice/hume-native/session-details.ts's
+          // fetchAllTranscriptEvents(), and it carried its own independent copy of the
+          // identical `/events`-suffix bug (that URL 404s unconditionally — confirmed live,
+          // 100% failure rate). Now consolidated onto the single shared implementation so a
+          // fix here can never again silently fail to apply to the other call site.
+          const transcriptEvents = await fetchAllTranscriptEvents(apiKey as string, chatId)
 
           // (c) Insert archive row. DELETE must never be reached unless this
           // succeeds — archive-before-delete ordering enforced as a

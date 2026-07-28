@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { createSupabaseAdminClient } from '@/lib/supabase'
 
 /**
  * POST /api/partner/render/client-error
@@ -11,17 +12,101 @@ import { z } from 'zod'
  * "Application error" on screen with no way to see the actual stack trace).
  *
  * Same trust boundary as the sibling render routes (no Clerk session, no
- * partner API key — validated only by the opaque clio_session_ref). Never
- * persisted to a table: this only console.errors so it surfaces in Vercel
- * runtime logs. Always returns 200 — must never itself throw or block.
+ * partner API key — validated only by the opaque clio_session_ref).
+ *
+ * B2B-44 Fix 2 — widened `source` to accept 'error-boundary' reports (posted
+ * by lib/partner/live-render.ts's buildIframeDiagnosticShim() when it detects
+ * the Next.js error-boundary fallback text). Previously this value was
+ * rejected by the Zod schema, so the `.safeParse()` failed and the route
+ * returned before console.error() was ever reached — Fix 4b (2026-07-27) had
+ * never actually logged anything.
+ *
+ * B2B-44 Fix 3 — in addition to the existing console.error (still the
+ * primary, unconditional record — Vercel runtime logs), a validated report
+ * now also gets a best-effort row in `glitch_instances` with
+ * `glitch_type: 'technical_error'`, so it surfaces on the same internal
+ * glitch dashboard (`/api/admin/glitches`) as conversational glitches — the
+ * one durable, dashboarded location visible without shelling into Vercel
+ * logs. This insert is entirely best-effort: any failure (session lookup,
+ * insert error) is swallowed into console.error and never affects the
+ * response below. Always returns 200 — must never itself throw or block.
  */
 
 const ClientErrorSchema = z.object({
   clio_session_ref: z.string().uuid(),
   message: z.string().min(1).max(2000),
   stack: z.string().max(4000).optional(),
-  source: z.enum(['error', 'unhandledrejection']),
+  source: z.enum(['error', 'unhandledrejection', 'error-boundary']),
 })
+
+// B2B-44 Fix 3 — ordinal-collision-avoidance scheme for glitch_instances rows written by this
+// route. glitch_instances has UNIQUE(partner_session_id, ordinal), and trigger-sourced rows
+// (fanout_glitch_instances(), migration 082) always start at ordinal 0 and grow by small integers
+// (one per conversational glitch in a session — never remotely close to this floor in practice).
+// Client-error-sourced rows instead take max(existing ordinal for this session, FLOOR - 1) + 1,
+// which guarantees: (a) never collides with a trigger-sourced row, since the result is always >=
+// CLIENT_ERROR_ORDINAL_FLOOR, far above any realistic trigger-assigned ordinal; (b) never collides
+// with an earlier client-error row for the same session, since it's always strictly greater than
+// the current max. A race between two concurrent crash reports for the same session could still
+// compute the same next value and collide on the UNIQUE constraint — acceptable here specifically
+// because this insert is documented best-effort and swallows its own errors.
+const CLIENT_ERROR_ORDINAL_FLOOR = 100000
+
+async function tryRecordGlitchInstance(
+  clioSessionRef: string,
+  report: { message: string; stack?: string; source: string }
+): Promise<void> {
+  try {
+    const supabase = createSupabaseAdminClient()
+
+    // clio_session_ref IS partner_sessions.id (same resolution pattern as every other
+    // meeting-bot-facing render route — see lib/partner/live-render.ts's getPartnerSession()).
+    const { data: session } = await supabase
+      .from('partner_sessions')
+      .select('id, partner_account_id')
+      .eq('id', clioSessionRef)
+      .maybeSingle()
+
+    if (!session) {
+      console.error('[partner-render] client-error: no partner_sessions row found for clio_session_ref, skipping glitch_instances insert', {
+        clioSessionRef,
+      })
+      return
+    }
+
+    const { data: maxOrdinalRow } = await supabase
+      .from('glitch_instances')
+      .select('ordinal')
+      .eq('partner_session_id', session.id)
+      .order('ordinal', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    const nextOrdinal = Math.max(
+      CLIENT_ERROR_ORDINAL_FLOOR,
+      ((maxOrdinalRow?.ordinal as number | undefined) ?? CLIENT_ERROR_ORDINAL_FLOOR - 1) + 1
+    )
+
+    const description = [`source: ${report.source}`, report.message, report.stack ? `stack: ${report.stack}` : null]
+      .filter(Boolean)
+      .join('\n')
+
+    const { error } = await supabase.from('glitch_instances').insert({
+      partner_session_id: session.id,
+      partner_account_id: session.partner_account_id,
+      glitch_type: 'technical_error',
+      description,
+      ordinal: nextOrdinal,
+      extracted_at: new Date().toISOString(),
+    })
+
+    if (error) {
+      console.error('[partner-render] client-error: glitch_instances insert failed (non-blocking):', error.message)
+    }
+  } catch (err) {
+    console.error('[partner-render] client-error: tryRecordGlitchInstance threw (non-blocking):', err instanceof Error ? err.message : err)
+  }
+}
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null)
@@ -35,6 +120,12 @@ export async function POST(request: NextRequest) {
     source: parsed.data.source,
     message: parsed.data.message,
     stack: parsed.data.stack,
+  })
+
+  await tryRecordGlitchInstance(parsed.data.clio_session_ref, {
+    message: parsed.data.message,
+    stack: parsed.data.stack,
+    source: parsed.data.source,
   })
 
   return NextResponse.json({ ok: true })
