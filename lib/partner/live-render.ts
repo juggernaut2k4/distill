@@ -25,6 +25,87 @@ import type { DraftPayload } from './content-generation'
  * gained one optional parameter instead — see its doc comment.
  */
 
+/**
+ * 2026-07-27 — found live twice: an inline page's screen share crashes with Next.js's generic
+ * "Application error" text, but the client-side diagnostic reporting added to
+ * PartnerRenderClient.tsx (window.onerror/unhandledrejection, POSTing to
+ * /api/partner/render/client-error) never received a single report for either occurrence. That's
+ * conclusive, not just suggestive: the iframe embedding this HTML (`sandbox="allow-scripts"`,
+ * deliberately WITHOUT `allow-same-origin`, per AT-SSRF-3 — a real reseller's page must never read
+ * Clio's session data) has an opaque origin, and errors thrown inside it live in a wholly separate
+ * browsing context the PARENT page's window.onerror can never observe. The fetched page here is
+ * itself a full Next.js document with its own client-side hydration script — and in Chromium,
+ * *any* sessionStorage/localStorage access from an opaque-origin context throws a SecurityError
+ * synchronously, which is exactly the kind of error Next.js's own router/hydration code can trip
+ * over unconditionally (e.g. scroll-position restoration).
+ *
+ * Fix, injected server-side into the fetched HTML before it's ever handed to the client as
+ * `contentHtml` (so it runs before the partner's own page scripts, inside the SAME already-sandboxed
+ * realm — this adds no new capability the sandbox didn't already allow):
+ *   1. Replace window.sessionStorage/localStorage with an in-memory no-op stub the moment a bare
+ *      property read on either throws — neutralizes the failure class outright, whether or not this
+ *      specific hypothesis is the actual cause every time.
+ *   2. Wire up window.onerror/unhandledrejection INSIDE the iframe's own realm and report to the
+ *      same /api/partner/render/client-error sink (`fetch()` itself is not blocked by `sandbox`
+ *      restrictions, only storage/top-level-navigation/etc. are) — so if this fix doesn't fully
+ *      resolve it, the next occurrence finally produces a real stack trace instead of silence.
+ */
+function buildIframeDiagnosticShim(clioSessionRef: string, pageLabel: string): string {
+  const safeSessionRef = JSON.stringify(clioSessionRef)
+  const safeLabel = JSON.stringify(pageLabel)
+  return `<script>(function(){
+function stubStorage(name){
+  try { window[name]; } catch (e) {
+    try {
+      var store = {};
+      Object.defineProperty(window, name, { configurable: true, get: function () {
+        return {
+          getItem: function (k) { return Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null; },
+          setItem: function (k, v) { store[k] = String(v); },
+          removeItem: function (k) { delete store[k]; },
+          clear: function () { store = {}; },
+          key: function (i) { return Object.keys(store)[i] || null; },
+          get length() { return Object.keys(store).length; }
+        };
+      }});
+    } catch (e2) {}
+  }
+}
+stubStorage('sessionStorage');
+stubStorage('localStorage');
+function report(source, message, stack){
+  try {
+    fetch('/api/partner/render/client-error', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clio_session_ref: ${safeSessionRef}, source: source, message: '[iframe:' + ${safeLabel} + '] ' + message, stack: stack }),
+      keepalive: true
+    }).catch(function(){});
+  } catch (e) {}
+}
+window.addEventListener('error', function (event) {
+  report('error', event.message, event.error && event.error.stack);
+});
+window.addEventListener('unhandledrejection', function (event) {
+  var reason = event.reason;
+  var message = reason instanceof Error ? reason.message : String(reason);
+  var stack = reason instanceof Error ? reason.stack : undefined;
+  report('unhandledrejection', message, stack);
+});
+})();</script>`
+}
+
+/** Injects buildIframeDiagnosticShim()'s script as the very first thing in <head> (or at the very
+ *  start of the document if no <head> tag is found), so it runs before any of the fetched page's
+ *  own scripts. Exported for direct unit testing. */
+export function injectIframeDiagnosticShim(html: string, clioSessionRef: string, pageLabel: string): string {
+  const shim = buildIframeDiagnosticShim(clioSessionRef, pageLabel)
+  if (/<head[^>]*>/i.test(html)) {
+    return html.replace(/<head[^>]*>/i, (match) => `${match}${shim}`)
+  }
+  return `${shim}${html}`
+}
+
 /** B2B-19 — one inline content page as stored on partner_sessions.content_pages. */
 export interface InlineContentPage {
   url: string
@@ -329,7 +410,7 @@ async function resolveInlineSessionRender(session: PartnerSessionRow): Promise<L
         subtitle: page.subtitle,
         transitionMarker: page.transition_marker,
         status: 'ok',
-        contentHtml: fetched.body.toString('utf8'),
+        contentHtml: injectIframeDiagnosticShim(fetched.body.toString('utf8'), session.id, page.title ?? page.transition_marker),
       })
     }
   }
