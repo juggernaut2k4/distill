@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 import { COLORS, Card, PrimaryButton } from '../_shared'
 import { UNNAMED_PARTNER_PLACEHOLDER } from '@/lib/partner/signup-constants'
+import DemoAccessClient from './DemoAccessClient'
 
 /**
  * B2B-29 (docs/specs/B2B-29-requirement-document.md §4). Two cards: Company
@@ -241,6 +242,8 @@ export default function SettingsClient() {
           </p>
         )}
       </Card>
+
+      <DemoAccessClient />
     </div>
   )
 }

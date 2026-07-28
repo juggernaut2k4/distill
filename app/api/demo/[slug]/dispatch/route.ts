@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { getDemoTopicBySlug, flattenBlocksToNarrationText } from '@/app/demo/_content'
-import { verifyDemoPasscode } from '@/lib/demo/passcode'
+import { resolveDemoPasscodeToAccount } from '@/lib/demo/passcode-accounts'
 
 /**
  * POST /api/demo/[slug]/dispatch
@@ -39,6 +39,15 @@ import { verifyDemoPasscode } from '@/lib/demo/passcode'
  * the whole webhook/render loop was pointed at a host that structurally can't serve it. Fixed by
  * giving the demo-only content-page need its own narrow env var and leaving NEXT_PUBLIC_APP_URL as
  * the real production host everywhere, as every other call site already assumes.
+ *
+ * B2B-39 (docs/specs/B2B-39-requirement-document.md §6.9) — the passcode is no longer checked
+ * against the single shared DEMO_MEETING_PASSCODE env var. It now resolves, per-account, via
+ * `resolveDemoPasscodeToAccount()` (lib/demo/passcode-accounts.ts) to a `partner_accounts.id` — the
+ * account to BILL for this demo session. The outbound authentication below is UNCHANGED — still
+ * always `DEMO_PARTNER_API_KEY` / the fixed "Clio Internal — Public Demo" account (the Flagged
+ * Decision in the requirement doc) — only billing ATTRIBUTION is now per-passcode, tracked via the
+ * new `demo_dispatches` row written after a successful dispatch, not via which credential
+ * authenticates the upstream call.
  */
 
 const DispatchSchema = z.object({
@@ -53,9 +62,18 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
 
   const requestBody = await request.json().catch(() => null)
   const parsed = DispatchSchema.safeParse(requestBody)
-  if (!parsed.success || !verifyDemoPasscode(parsed.data.passcode)) {
+  if (!parsed.success) {
     return NextResponse.json({ error: { code: 'incorrect_passcode', message: 'Incorrect passcode.' } }, { status: 401 })
   }
+
+  // B2B-39 §6.9 point 1 — replaces the single verifyDemoPasscode() call. Same error shape/code as
+  // before — visitor-facing behavior is unchanged; only the server-side resolution mechanism
+  // changed (one shared secret -> a per-account hashed-passcode lookup).
+  const resolved = await resolveDemoPasscodeToAccount(parsed.data.passcode)
+  if (!resolved) {
+    return NextResponse.json({ error: { code: 'incorrect_passcode', message: 'Incorrect passcode.' } }, { status: 401 })
+  }
+  const billedAccountId = resolved.partnerAccountId
 
   const supabase = createSupabaseAdminClient()
   const { data: savedRow } = await supabase
@@ -136,6 +154,36 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
     reseller_id: process.env.DEMO_PARTNER_ACCOUNT_ID,
   }
 
+  // B2B-39 §6.3 — internal auto-top-up safety valve. Unrelated to which passcode was entered; runs
+  // unconditionally on the fixed DEMO_PARTNER_ACCOUNT_ID (the account the outbound call below always
+  // authenticates as) to keep ITS real B2B-08 test_minutes_balance funded, resolving the precipitating
+  // bug (that account's 20-minute trial ran out mid-testing). Fire-and-forget: log and proceed on
+  // error, never block the dispatch on this check failing — worst case is the exact pre-existing
+  // trial_exhausted failure mode from before this feature, not a new regression.
+  const demoPartnerAccountId = process.env.DEMO_PARTNER_ACCOUNT_ID
+  if (demoPartnerAccountId) {
+    try {
+      const { data: internalWallet } = await supabase
+        .from('partner_wallets')
+        .select('trial_minutes_used, test_minutes_balance')
+        .eq('partner_account_id', demoPartnerAccountId)
+        .maybeSingle()
+      const trialRemaining = Math.max(0, 20 - Number(internalWallet?.trial_minutes_used ?? 0))
+      const testMinutesBalance = Number(internalWallet?.test_minutes_balance ?? 0)
+      if (trialRemaining + testMinutesBalance < 30) {
+        const { error: topUpError } = await supabase.rpc('credit_test_minutes_balance', {
+          p_partner_account_id: demoPartnerAccountId,
+          p_minutes: 500,
+        })
+        if (topUpError) {
+          console.error('[demo/dispatch] Internal auto-top-up RPC failed (non-blocking):', topUpError.message)
+        }
+      }
+    } catch (err) {
+      console.error('[demo/dispatch] Internal auto-top-up check threw (non-blocking):', err instanceof Error ? err.message : err)
+    }
+  }
+
   let upstreamStatus: number
   let upstreamBody: { status?: string; clio_session_ref?: string; error?: { code?: string; message?: string } | string }
   try {
@@ -159,7 +207,20 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
 
   // Never forward the upstream response body verbatim to the public client (§6.3's response-mapping
   // table) — no vendor name, HTTP status, or billing-internal detail is ever exposed to a visitor.
-  if (upstreamStatus === 201 && upstreamBody.status === 'bot_active') {
+  if (upstreamStatus === 201 && upstreamBody.status === 'bot_active' && upstreamBody.clio_session_ref) {
+    // B2B-39 §6.9 point 4 — billing-attribution row, best-effort/non-blocking. Never blocks the
+    // visitor from getting their already-successful dispatch response; worst case is a demo session
+    // that isn't attributed to anyone's demo-minutes balance.
+    const { error: demoDispatchError } = await supabase.from('demo_dispatches').insert({
+      clio_session_ref: upstreamBody.clio_session_ref,
+      billed_partner_account_id: billedAccountId,
+      demo_passcode_id: resolved.passcodeId,
+      slug: params.slug,
+    })
+    if (demoDispatchError) {
+      console.error('[demo/dispatch] Failed to insert demo_dispatches row (non-blocking):', demoDispatchError.message)
+    }
+
     return NextResponse.json({ status: 'dispatched', clio_session_ref: upstreamBody.clio_session_ref })
   }
 

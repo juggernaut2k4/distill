@@ -577,6 +577,69 @@ export async function sendLowBalanceAlertEmail(
   }
 }
 
+/**
+ * B2B-39 (docs/specs/B2B-39-requirement-document.md §6.8). Byte-for-byte the same HTML/text
+ * template structure as `sendLowBalanceAlertEmail()` above (same dark theme, same CLIO wordmark,
+ * same purple CTA button), with copy substituted for the demo-minutes dimension. `dashboardPath` is
+ * passed explicitly by the caller (`checkDemoLowBalanceAndAlert`, lib/partner/webhooks.ts) rather
+ * than inferred here — this function stays free of any `account_kind` DB lookup.
+ */
+export async function sendDemoLowBalanceAlertEmail(
+  toEmail: string,
+  partnerName: string,
+  balanceMinutes: number,
+  referenceMinutes: number,
+  dashboardPath: string
+): Promise<EmailResult> {
+  if (isPlaceholder || !resend) {
+    console.log('[MOCK] sendDemoLowBalanceAlertEmail', { toEmail, partnerName, balanceMinutes, referenceMinutes, dashboardPath })
+    return { success: true, messageId: 'mock-demo-low-balance-alert-id' }
+  }
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
+  const formattedBalance = balanceMinutes.toFixed(1)
+  const formattedReference = referenceMinutes.toFixed(1)
+
+  try {
+    const result = await resend.emails.send({
+      from: FROM,
+      to: toEmail,
+      subject: `Clio demo minutes running low — ${partnerName}`,
+      html: `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="background:#080808;color:#ffffff;font-family:Inter,system-ui,sans-serif;margin:0;padding:0;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;padding:40px 24px;">
+    <tr><td>
+      <p style="color:#7C3AED;font-size:12px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin:0 0 32px;">CLIO</p>
+      <h1 style="color:#ffffff;font-size:28px;font-weight:800;margin:0 0 12px;">Your demo minutes are running low.</h1>
+      <p style="color:#94A3B8;font-size:16px;line-height:1.7;margin:0 0 32px;">
+        ${partnerName}'s Clio demo-minutes balance is <strong style="color:#F59E0B;">${formattedBalance} minutes</strong>,
+        which has crossed 20% of your last top-up of ${formattedReference} minutes.
+      </p>
+      <div style="background:#111111;border:1px solid #222222;border-radius:12px;padding:32px;text-align:center;">
+        <a href="${appUrl}${dashboardPath}" style="background:#7C3AED;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:700;display:inline-block;">Buy more demo minutes →</a>
+      </div>
+    </td></tr>
+  </table>
+</body>
+</html>`,
+      text: `${partnerName}'s Clio demo-minutes balance is ${formattedBalance} minutes, which has crossed 20% of your last top-up of ${formattedReference} minutes. Buy more soon at ${appUrl}${dashboardPath}`,
+    })
+
+    logEmailResult('sendDemoLowBalanceAlertEmail', toEmail, result)
+    if (result.error) {
+      return { success: false, error: result.error.message }
+    }
+
+    return { success: true, messageId: result.data?.id }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error(`[email:sendDemoLowBalanceAlertEmail] EXCEPTION to=${toEmail}:`, message)
+    return { success: false, error: message }
+  }
+}
+
 // ─── B2B-06 — Partner Provisioning (self-serve signup) ────────────────────────
 
 /**

@@ -282,6 +282,88 @@ export async function createTestBlockCheckoutSession(
   return session.url
 }
 
+// ─── B2B-39 — Demo-minutes top-up (docs/specs/B2B-39-requirement-document.md §6, §4.C) ──────
+
+export type DemoTopupTierKey = 'min15' | 'min30' | 'hr1' | 'hr2' | 'hr3' | 'hr5' | 'hr10'
+
+export interface DemoTopupTier {
+  minutes: number
+  priceUsd: number
+  label: string
+}
+
+/**
+ * Explicitly provisional pricing (docs/specs/B2B-39-requirement-document.md §6, "Proposed
+ * demo-minutes top-up ladder") — scaled from the seeded voice_minute platform-default rate, floored
+ * at Stripe's real-world $0.50 minimum charge for the smallest tier, anchored so the 2-hour tier
+ * matches the existing real test-block price ($1.80/120min) exactly. Subject to change once real
+ * COGS data lands (still-open F-02 backlog item) — not final.
+ */
+export const DEMO_TOPUP_TIERS: Record<DemoTopupTierKey, DemoTopupTier> = {
+  min15: { minutes: 15, priceUsd: 0.5, label: '15 min' },
+  min30: { minutes: 30, priceUsd: 0.75, label: '30 min' },
+  hr1: { minutes: 60, priceUsd: 1.25, label: '1 hour' },
+  hr2: { minutes: 120, priceUsd: 1.8, label: '2 hours' },
+  hr3: { minutes: 180, priceUsd: 2.5, label: '3 hours' },
+  hr5: { minutes: 300, priceUsd: 4.0, label: '5 hours' },
+  hr10: { minutes: 600, priceUsd: 7.5, label: '10 hours' },
+}
+
+/**
+ * Self-serve demo-minutes top-up — Stripe Checkout, `mode: "payment"`, an ad-hoc `price_data` line
+ * item parameterized by tier (mirrors `createTestBlockCheckoutSession()`'s pattern exactly, but
+ * across 7 tiers instead of one fixed 120-minute block). No pre-created Stripe Price object needed —
+ * `isPlaceholder`/mock-URL guard below covers a placeholder Stripe environment automatically, same
+ * as every other function in this file.
+ * @param partnerAccountId - partner_accounts.id (the billing target — a channel_partner account or
+ *   the admin sentinel account) — stored in Checkout Session metadata
+ * @param tier - one of the 7 fixed DEMO_TOPUP_TIERS keys
+ * @param successUrl - optional override for the post-payment redirect
+ * @param cancelUrl - optional override for the cancel redirect
+ * @returns Stripe Checkout URL
+ */
+export async function createDemoTopupCheckoutSession(
+  partnerAccountId: string,
+  tier: DemoTopupTierKey,
+  successUrl?: string,
+  cancelUrl?: string
+): Promise<string> {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
+  const resolvedSuccess = successUrl ?? `${appUrl}/dashboard/channel-partner/settings?demo_topup=success`
+  const resolvedCancel = cancelUrl ?? `${appUrl}/dashboard/channel-partner/settings?demo_topup=cancelled`
+  const tierDetails = DEMO_TOPUP_TIERS[tier]
+
+  if (isPlaceholder || !stripeClient) {
+    console.log('[MOCK] createDemoTopupCheckoutSession', { partnerAccountId, tier, tierDetails })
+    return `${appUrl}/dashboard?mock_demo_topup=1&partner_account_id=${partnerAccountId}&tier=${tier}`
+  }
+
+  const session = await stripeClient.checkout.sessions.create({
+    mode: 'payment',
+    payment_method_types: ['card'],
+    customer_creation: 'always',
+    line_items: [{
+      price_data: {
+        currency: 'usd',
+        product_data: { name: `Clio demo minutes — ${tierDetails.label} (provisional pricing)` },
+        unit_amount: Math.round(tierDetails.priceUsd * 100),
+      },
+      quantity: 1,
+    }],
+    metadata: {
+      partner_account_id: partnerAccountId,
+      purpose: 'demo_topup_purchase',
+      demo_topup_tier: tier,
+      demo_topup_minutes: String(tierDetails.minutes),
+    },
+    success_url: resolvedSuccess,
+    cancel_url: resolvedCancel,
+  })
+
+  if (!session.url) throw new Error('Stripe did not return a checkout URL for the demo-topup session.')
+  return session.url
+}
+
 // ─── B2B-13 — Recurring Plan Tiers (docs/specs/B2B-13-requirement-document.md) ─
 
 /**

@@ -116,6 +116,26 @@ export async function createOrClaimPartnerAccount(
       // never blocks the core account-creation flow, which must not fail for a peripheral convenience.
       console.error('[partner-signup] Failed to auto-provision self-client (non-blocking):', selfClientError.message)
     }
+
+    // B2B-39 (docs/specs/B2B-39-requirement-document.md §6.4, AT-6) — 20 free demo minutes,
+    // provisioned automatically and immediately at registration, decoupled from passcode generation
+    // (the passcode itself is generated lazily on the reseller's first visit to the Settings page's
+    // Demo access card — see app/api/channel-partner/demo-access/regenerate/route.ts). Best-effort/
+    // non-blocking, same convention as the self-client provisioning immediately above. Wrapped in
+    // try/catch (not just an `if (error)` check) since credit_demo_minutes_balance is an RPC call
+    // that could itself throw against an unexpected client shape — this must never block account
+    // creation, the core flow this block already protects.
+    try {
+      const { error: demoGrantError } = await supabase.rpc('credit_demo_minutes_balance', {
+        p_partner_account_id: account.id,
+        p_minutes: 20,
+      })
+      if (demoGrantError) {
+        console.error('[partner-signup] Failed to grant 20 free demo minutes (non-blocking):', demoGrantError.message)
+      }
+    } catch (err) {
+      console.error('[partner-signup] credit_demo_minutes_balance threw (non-blocking):', err instanceof Error ? err.message : err)
+    }
   }
 
   // Unchanged — fires identically regardless of accountKind. accountKind is

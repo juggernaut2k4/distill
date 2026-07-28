@@ -20,7 +20,7 @@ type AdminSupabaseClient = ReturnType<typeof createSupabaseAdminClient>
 async function walletLedgerAlreadyRecorded(
   supabase: AdminSupabaseClient,
   stripeObjectId: string,
-  entryType: 'topup_checkout' | 'topup_subscription_recharge' | 'topup_invoice' | 'test_block_purchase' | 'plan_allowance_credit'
+  entryType: 'topup_checkout' | 'topup_subscription_recharge' | 'topup_invoice' | 'test_block_purchase' | 'plan_allowance_credit' | 'demo_topup_purchase'
 ): Promise<boolean> {
   const { data } = await supabase
     .from('wallet_ledger')
@@ -191,6 +191,61 @@ export async function POST(request: NextRequest) {
           }
 
           console.log(`[stripe-webhook] B2B-08 test block purchase: +120 min for partner ${partnerAccountId}, new test_minutes_balance: ${newTestMinutesBalance}`)
+
+          break
+        }
+
+        // ── B2B-39 — demo-minutes top-up purchase (mode: "payment", tiered) ─────────
+        // docs/specs/B2B-39-requirement-document.md §6, AT-8. Structurally separate from the
+        // test_block_purchase branch above — demo minutes never touch trial_minutes_used/
+        // test_minutes_balance, per the Known Constraint.
+        if (session.metadata?.purpose === 'demo_topup_purchase') {
+          const partnerAccountId = session.metadata?.partner_account_id
+          const demoTopupMinutes = Number(session.metadata?.demo_topup_minutes ?? 0)
+
+          if (!partnerAccountId || demoTopupMinutes <= 0) {
+            console.warn('[stripe-webhook] demo_topup_purchase checkout.session.completed missing partner_account_id/minutes:', session.id)
+            break
+          }
+
+          if (await walletLedgerAlreadyRecorded(supabase, session.id, 'demo_topup_purchase')) break
+
+          const { data: newDemoMinutesBalance, error: rpcError } = await supabase.rpc('credit_demo_minutes_balance', {
+            p_partner_account_id: partnerAccountId,
+            p_minutes: demoTopupMinutes,
+          })
+          if (rpcError) {
+            console.error('[stripe-webhook] credit_demo_minutes_balance RPC failed:', rpcError.message)
+            break
+          }
+
+          // resulting_balance_usd is still required/populated on every wallet_ledger row — this row
+          // type never moves balance_usd, so the account's CURRENT, unchanged value is cited, same
+          // discipline as the test_block_purchase branch above.
+          const { data: demoWalletRow } = await supabase
+            .from('partner_wallets')
+            .select('balance_usd')
+            .eq('partner_account_id', partnerAccountId)
+            .maybeSingle()
+          const currentBalanceUsdForDemo = demoWalletRow ? Number(demoWalletRow.balance_usd) : 0
+
+          await supabase.from('wallet_ledger').insert({
+            partner_account_id: partnerAccountId,
+            entry_type: 'demo_topup_purchase',
+            delta_usd: (session.amount_total ?? 0) / 100,
+            resulting_balance_usd: currentBalanceUsdForDemo,
+            resulting_demo_minutes_balance: newDemoMinutesBalance,
+            stripe_object_id: session.id,
+          })
+
+          if (typeof session.customer === 'string') {
+            await supabase
+              .from('partner_wallets')
+              .update({ stripe_customer_id: session.customer })
+              .eq('partner_account_id', partnerAccountId)
+          }
+
+          console.log(`[stripe-webhook] B2B-39 demo top-up purchase: +${demoTopupMinutes} min for partner ${partnerAccountId}, new demo_minutes_balance: ${newDemoMinutesBalance}`)
 
           break
         }

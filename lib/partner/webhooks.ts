@@ -1,6 +1,6 @@
 import crypto from 'crypto'
 import { createSupabaseAdminClient } from '@/lib/supabase'
-import { sendLowBalanceAlertEmail } from '@/lib/delivery/email'
+import { sendLowBalanceAlertEmail, sendDemoLowBalanceAlertEmail } from '@/lib/delivery/email'
 import { buildSignatureHeader, CLIO_SIGNATURE_HEADER } from './webhook-signature'
 
 /**
@@ -549,6 +549,65 @@ async function getPartnerAdminEmails(partnerAccountId: string): Promise<string[]
   }
 
   return emails
+}
+
+/**
+ * B2B-39 (docs/specs/B2B-39-requirement-document.md §6.8). Sibling of `checkLowBalanceAndAlert()`
+ * above for the demo-minutes dimension — not a parameterized shared function, since the two compare
+ * different columns, different units (USD vs. minutes), and call different email templates; this
+ * codebase's own convention already prefers small sibling duplicates over parameterizing across
+ * dimensions this different (e.g. `consume_trial_and_test_minutes` alongside
+ * `decrement_wallet_balance`). Identical race-safe, compare-and-set-once-per-cycle mechanics.
+ * Exported — called from `inngest/demo-dispatch-minutes-consumer.ts` after `consume_demo_minutes`.
+ *
+ * No webhook-dispatch-log branch (unlike `checkLowBalanceAndAlert`) — demo accounts have no outbound
+ * partner webhook subscription surface; email-only is correct here, not a parity gap.
+ *
+ * @param dashboardPath - `/dashboard/channel-partner/settings` for a reseller-shaped account, or
+ *   `/dashboard/admin/sales-partners` for the admin sentinel account. Passed by the caller (which
+ *   already knows or can trivially check `partnerAccountId === DEMO_PARTNER_ACCOUNT_ID`) rather than
+ *   inferred here, to keep this function free of an extra `account_kind` DB lookup.
+ */
+export async function checkDemoLowBalanceAndAlert(
+  partnerAccountId: string,
+  newBalanceMinutes: number,
+  dashboardPath: string
+): Promise<void> {
+  const supabase = createSupabaseAdminClient()
+
+  const { data: wallet } = await supabase
+    .from('partner_wallets')
+    .select('demo_reference_topup_minutes')
+    .eq('partner_account_id', partnerAccountId)
+    .maybeSingle()
+
+  const referenceMinutes = wallet?.demo_reference_topup_minutes ? Number(wallet.demo_reference_topup_minutes) : 0
+  if (!referenceMinutes) return // no funded reference point yet — no alert is possible or expected
+
+  if (newBalanceMinutes > referenceMinutes * 0.2) return // not yet at 80% consumed
+
+  const { data: won } = await supabase
+    .from('partner_wallets')
+    .update({ demo_low_balance_alert_fired_at: new Date().toISOString() })
+    .eq('partner_account_id', partnerAccountId)
+    .is('demo_low_balance_alert_fired_at', null)
+    .select('id')
+    .maybeSingle()
+
+  if (!won) return // already fired for this depletion cycle — no duplicate send
+
+  const [{ data: account }, emails] = await Promise.all([
+    supabase.from('partner_accounts').select('name').eq('id', partnerAccountId).maybeSingle(),
+    getPartnerAdminEmails(partnerAccountId),
+  ])
+
+  await Promise.all(
+    emails.map((email) =>
+      sendDemoLowBalanceAlertEmail(email, account?.name ?? 'your Clio account', newBalanceMinutes, referenceMinutes, dashboardPath).catch(
+        (err) => console.error('[partner/webhooks] sendDemoLowBalanceAlertEmail failed:', err)
+      )
+    )
+  )
 }
 
 // ─── B2B-09 — session.insights_ready reference-event recording ────────────────
