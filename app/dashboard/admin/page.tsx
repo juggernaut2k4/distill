@@ -70,5 +70,3 @@ export default async function AdminHomePage() {
     </DashboardShell>
   )
 }
-
-export { ADMIN_LINKS }
