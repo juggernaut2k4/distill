@@ -58,7 +58,7 @@ vi.mock('@/lib/supabase', () => ({
   })),
 }))
 
-import { POST } from '@/app/api/partner/render/client-error/route'
+import { POST, OPTIONS } from '@/app/api/partner/render/client-error/route'
 
 function errorRequest(body: unknown) {
   return new NextRequest('https://hello-clio.com/api/partner/render/client-error', {
@@ -153,5 +153,31 @@ describe('POST /api/partner/render/client-error', () => {
     const body = await res.json()
     expect(res.status).toBe(200)
     expect(body).toEqual({ ok: true })
+  })
+
+  // ─── B2B-45 — CORS headers, so the report actually reaches this route from the opaque-origin
+  // sandboxed iframe (sandbox="allow-scripts", no allow-same-origin). Confirmed live: zero POST
+  // requests ever reached this route in 2 hours despite 3 shipped diagnostic mitigations, because
+  // the browser's preflight CORS check silently failed and blocked every real request client-side. ───
+
+  it('B2B-45: OPTIONS preflight returns 204 with permissive CORS headers', async () => {
+    const res = await OPTIONS()
+    expect(res.status).toBe(204)
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*')
+    expect(res.headers.get('Access-Control-Allow-Methods')).toBe('POST, OPTIONS')
+    expect(res.headers.get('Access-Control-Allow-Headers')).toBe('Content-Type')
+  })
+
+  it('B2B-45: successful POST response carries Access-Control-Allow-Origin', async () => {
+    const res = await POST(errorRequest({ clio_session_ref: VALID_REF, message: 'boom', source: 'error' }))
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*')
+  })
+
+  it('B2B-45: the invalid-body {ok:false} response ALSO carries Access-Control-Allow-Origin — a malformed report must not silently fail the CORS check too', async () => {
+    const res = await POST(errorRequest({ not: 'valid' }))
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(body).toEqual({ ok: false })
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*')
   })
 })

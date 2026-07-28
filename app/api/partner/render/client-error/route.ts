@@ -108,11 +108,33 @@ async function tryRecordGlitchInstance(
   }
 }
 
+// B2B-45 — the reporting shim runs inside a sandboxed iframe with `sandbox="allow-scripts"` and no
+// `allow-same-origin` (deliberate, AT-SSRF-3), so its fetch() carries an opaque `Origin: null`. Its
+// POST body is `application/json`, which is not a CORS-simple content-type, so the browser preflights
+// with OPTIONS before ever sending the real request. Next's default auto-OPTIONS response has no
+// Access-Control-Allow-Origin, so the preflight was passing (204) while the browser silently dropped
+// every real POST that followed — confirmed live: zero POSTs to this route in two hours despite three
+// separate shipped diagnostic mitigations trying to send them. `*` (not a reflected `"null"`) is safe
+// here specifically because this endpoint already has no trust boundary (no Clerk session, no partner
+// API key, validated only by the opaque clio_session_ref) and the shim's fetch() sends no credentials.
+const CORS_HEADERS = { 'Access-Control-Allow-Origin': '*' }
+
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      ...CORS_HEADERS,
+      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    },
+  })
+}
+
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null)
   const parsed = ClientErrorSchema.safeParse(body)
   if (!parsed.success) {
-    return NextResponse.json({ ok: false }, { status: 200 })
+    return NextResponse.json({ ok: false }, { status: 200, headers: CORS_HEADERS })
   }
 
   console.error('[partner-render] client-side error report:', {
@@ -128,5 +150,5 @@ export async function POST(request: NextRequest) {
     source: parsed.data.source,
   })
 
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({ ok: true }, { headers: CORS_HEADERS })
 }
