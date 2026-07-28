@@ -33,7 +33,7 @@ const EXPECTED_LINKS = [
   { href: '/dashboard/admin/glitches', title: 'Glitches', description: 'Internal bug and issue tracker.' },
   { href: '/dashboard/admin/team', title: 'Team', description: 'Manage super-admins and sales-partner access.' },
   { href: '/dashboard/admin/partner-invites', title: 'Partner invites', description: 'Manage partner invite links and their status.' },
-  { href: '/dashboard/admin/sales-partners', title: 'Sales-partners', description: 'Reseller roster, usage, and demo access.' },
+  { href: '/dashboard/admin/sales-partners', title: 'Sales-partners', description: 'Reseller roster and usage.' },
 ]
 
 describe('B2B-40 — app/dashboard/admin/page.tsx (AdminHomePage) — source-level assertions', () => {

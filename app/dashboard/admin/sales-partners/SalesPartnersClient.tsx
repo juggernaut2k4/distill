@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Users, ArrowLeft, ArrowUpDown } from 'lucide-react'
 import Link from 'next/link'
-import DemoAccessCard from './DemoAccessCard'
 
 /**
  * B2B-28 (docs/specs/B2B-28-requirement-document.md §4) — super-admin-only
@@ -118,8 +117,6 @@ export default function SalesPartnersClient() {
           Companies reselling Clio to their own clients — not Clio&apos;s internal sales staff (see Team &amp; Access).
         </p>
       </div>
-
-      <DemoAccessCard />
 
       <div className="bg-[#111111] border border-[#222222] rounded-xl overflow-hidden">
         <div className="overflow-x-auto">

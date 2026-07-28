@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { Building2, LayoutTemplate, Bug, Shield, Link2, Users, LucideIcon } from 'lucide-react'
 import { requireSuperAdmin } from '@/lib/internal-admin/auth'
 import DashboardShell from '@/components/dashboard/DashboardShell'
+import DemoAccessCard from './DemoAccessCard'
 
 /**
  * B2B-40 (docs/specs/B2B-40-requirement-document.md §4.B) — super-admin
@@ -11,10 +12,14 @@ import DashboardShell from '@/components/dashboard/DashboardShell'
  * shape as every other admin sub-page (e.g.
  * app/dashboard/admin/team/page.tsx), substituting requireSuperAdmin() +
  * notFound() on failure — identical gate convention to every sibling page,
- * not a new pattern. No client component: the content below is 100% static
- * (no data fetch, no interactivity), so it renders directly as part of this
- * server component per §4.B / Design Question 2 (link grid only, no
- * metrics/charts/live data).
+ * not a new pattern. The link grid itself is 100% static (no data fetch, no
+ * interactivity), so it renders directly as part of this server component
+ * per §4.B / Design Question 2 (link grid only, no metrics/charts/live
+ * data) — `DemoAccessCard` (relocated here from
+ * `/dashboard/admin/sales-partners` per Arun's direct instruction, since it
+ * is the admin's own settings, not part of managing other resellers) is
+ * the one 'use client' exception, composed in as a child same as any
+ * Server Component rendering a Client Component.
  */
 
 interface AdminLinkCard {
@@ -30,7 +35,7 @@ const ADMIN_LINKS: AdminLinkCard[] = [
   { href: '/dashboard/admin/glitches', icon: Bug, title: 'Glitches', description: 'Internal bug and issue tracker.' },
   { href: '/dashboard/admin/team', icon: Shield, title: 'Team', description: 'Manage super-admins and sales-partner access.' },
   { href: '/dashboard/admin/partner-invites', icon: Link2, title: 'Partner invites', description: 'Manage partner invite links and their status.' },
-  { href: '/dashboard/admin/sales-partners', icon: Users, title: 'Sales-partners', description: 'Reseller roster, usage, and demo access.' },
+  { href: '/dashboard/admin/sales-partners', icon: Users, title: 'Sales-partners', description: 'Reseller roster and usage.' },
 ]
 
 export default async function AdminHomePage() {
@@ -51,7 +56,11 @@ export default async function AdminHomePage() {
           Jump into any part of Clio&apos;s internal admin tools.
         </p>
 
-        <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="mt-6">
+          <DemoAccessCard />
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {ADMIN_LINKS.map(({ href, icon: Icon, title, description }) => (
             <Link
               key={href}

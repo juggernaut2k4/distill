@@ -4,14 +4,14 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 
 /**
- * B2B-39 (docs/specs/B2B-39-requirement-document.md §4.B). "Your demo access" card for
- * `/dashboard/admin/sales-partners`, placed above the sales-partner roster table. Same three states
- * (no-passcode / active / reveal-modal) and same buy-minutes modal as the reseller's
- * `DemoAccessClient.tsx`, sourced from `/api/admin/demo-access[/regenerate]` +
- * `/api/admin/billing/demo-topup` instead. Uses THIS file's own Tailwind-class convention
- * (`bg-[#111111] border border-[#222222] rounded-xl`), matching `SalesPartnersClient.tsx` — not the
- * inline-style `Card` component the reseller pages use, per the spec's explicit "match the file it's
- * added to" instruction.
+ * B2B-39 (docs/specs/B2B-39-requirement-document.md §4.B), relocated 2026-07-27 per Arun's direct
+ * instruction from `/dashboard/admin/sales-partners` to `/dashboard/admin` (this card is the admin's
+ * own settings, not part of managing other resellers — B2B-40's new admin home page didn't exist
+ * yet when this card was originally built). Same three states (no-passcode / active / reveal-modal)
+ * and same buy-minutes modal as the reseller's `DemoAccessClient.tsx`, sourced from
+ * `/api/admin/demo-access[/regenerate]` + `/api/admin/billing/demo-topup` instead. Uses the same
+ * `bg-[#111111] border border-[#222222] rounded-xl` convention `app/dashboard/admin/page.tsx`'s own
+ * link cards already use, unchanged from the original file.
  */
 
 const TOPUP_TIERS: { key: string; label: string; price: string }[] = [
@@ -35,7 +35,7 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
-const RETURN_PATH = '/dashboard/admin/sales-partners'
+const RETURN_PATH = '/dashboard/admin'
 
 export default function DemoAccessCard() {
   const router = useRouter()
