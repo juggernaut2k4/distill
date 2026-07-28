@@ -148,9 +148,11 @@ Authorization: Bearer <token>
 Content-Type: application/json
 
 { "meeting_url": "https://meet.google.com/abc-defg-hij",
+  "reseller_id": "<your partner_account_id>",
+  "reseller_unique_id": "order-48213",
   "partner_topic_ref": "onboarding-101" }
 
-→ 200 { clio_session_ref, status: "bot_active", render_url }`}
+→ 201 { clio_session_ref, status: "bot_active", render_url, reseller_unique_id: "order-48213" }`}
             </pre>
           </li>
           <li>
@@ -167,6 +169,27 @@ Content-Type: application/json
             .
           </li>
         </ol>
+      </Card>
+
+      {/* B2B-38 (docs/specs/B2B-38-requirement-document.md §6.11) — copy-only, no new component, no
+          enforcement. Verbatim per the approved spec. */}
+      <h2 style={sectionHeadingStyle}>Session traceability IDs</h2>
+      <Card style={{ marginBottom: 16 }}>
+        <p style={bodyStyle}>
+          <code style={monoInline}>reseller_id</code> is required on every session — it must exactly match
+          your own account (the same identity your API key resolves to). Optionally, send a{' '}
+          <code style={monoInline}>reseller_unique_id</code> — a value unique to this request on your side
+          (e.g. your own order or booking id). If you resend the same <code style={monoInline}>
+          reseller_unique_id</code>, Clio will not start a second session — it returns the original
+          session&apos;s response instead, so retries are always safe.
+        </p>
+        <p style={{ ...bodyStyle, marginBottom: 0 }}>
+          <strong style={{ color: COLORS.textPrimary }}>We recommend saving every id Clio returns</strong>{' '}
+          (<code style={monoInline}>clio_session_ref</code>, and your own{' '}
+          <code style={monoInline}>reseller_unique_id</code> if you sent one) on your side. This makes it
+          easier to reconcile billing and support questions later — but it&apos;s entirely optional; Clio
+          does not require or verify that you&apos;ve stored anything.
+        </p>
       </Card>
 
       {/* 2 — Content & image auth (B2B-23 WS-3). Hand-authored, no AI

@@ -23,6 +23,10 @@ describe('assembleTestHarnessPayload', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     process.env.NEXT_PUBLIC_APP_URL = 'https://hello-clio.com'
+    // B2B-38 (docs/specs/B2B-38-requirement-document.md §6.2) — reseller_id is now required and
+    // read at call time from TEST_HARNESS_PARTNER_ACCOUNT_ID; a well-formed UUID here matches the
+    // "real infra value configured" state (the AT-6 success test below).
+    process.env.TEST_HARNESS_PARTNER_ACCOUNT_ID = '55555555-5555-5555-5555-555555555555'
   })
 
   it('throws TestHarnessTopicNotFoundError when the topic does not exist', async () => {

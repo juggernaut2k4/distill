@@ -30,7 +30,9 @@ export async function GET(request: NextRequest, { params }: Params) {
   const supabase = createSupabaseAdminClient()
   const { data: session } = await supabase
     .from('partner_sessions')
-    .select('id, status, created_at, ended_at')
+    // B2B-38 (docs/specs/B2B-38-requirement-document.md §6.10) — extended to include
+    // reseller_unique_id, echoed back below when the session was created with one.
+    .select('id, status, created_at, ended_at, reseller_unique_id')
     .eq('id', params.clio_session_ref)
     .eq('partner_account_id', auth.partnerAccountId)
     .maybeSingle()
@@ -44,5 +46,9 @@ export async function GET(request: NextRequest, { params }: Params) {
     status: session.status,
     created_at: session.created_at,
     ended_at: session.ended_at,
+    // B2B-38 §6.10 — present only when the session was created with a reseller_unique_id (same
+    // conditional-inclusion convention as the POST response). reseller_id/client_id/hume_config_id
+    // deliberately not added here — see §6.10.
+    ...(session.reseller_unique_id ? { reseller_unique_id: session.reseller_unique_id } : {}),
   })
 }

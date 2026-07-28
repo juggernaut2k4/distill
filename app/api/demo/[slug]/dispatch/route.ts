@@ -125,6 +125,15 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
     subtitle: topic.subtitle,
     expected_duration_minutes,
     partner_reference: params.slug,
+    // B2B-38 (docs/specs/B2B-38-requirement-document.md §6.2) — reseller_id is now mandatory on
+    // every POST /api/partner/v1/sessions call. This route authenticates upstream as the "Clio
+    // Internal — Public Demo" account via DEMO_PARTNER_API_KEY, and reseller_id is validated
+    // server-side to exactly equal the account that API key resolves to — so it must be that same
+    // account's own id, sourced from the SAME env var app/api/demo/[slug]/performance/route.ts
+    // already uses to identify this account (DEMO_PARTNER_ACCOUNT_ID), not a hardcoded literal —
+    // this keeps the two routes self-consistent by construction and avoids a typo'd/stale UUID
+    // silently 422ing every demo dispatch.
+    reseller_id: process.env.DEMO_PARTNER_ACCOUNT_ID,
   }
 
   let upstreamStatus: number

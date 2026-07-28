@@ -63,6 +63,14 @@ export interface WebhookPayload {
   // idempotency hash (stays a narrow "core identity of the event" hash). Populated on every event
   // type this function emits, not only session.insights_ready (§6.5).
   end_client_id?: string | null
+  // B2B-38 (docs/specs/B2B-38-requirement-document.md §6.8) — additive, mirrors end_client_id's own
+  // convention immediately above. NOT part of canonicalHashInput()'s idempotency hash. reseller_id is
+  // declared optional (?) purely for style consistency with end_client_id; at runtime it is always
+  // populated (non-null) whenever a payload is built at all, since every call site already requires a
+  // resolved partner_account_id to proceed.
+  reseller_id?: string | null
+  reseller_unique_id?: string | null
+  hume_config_id?: string | null
 }
 
 /** Deterministic subset used for the idempotency index — excludes event_id/dispatched_at, which vary per attempt. */
@@ -127,17 +135,24 @@ export async function recordBillableEvent(
   // from the originating partner_sessions row, one extra indexed lookup, only when clioSessionRef is
   // set. Zero call-site changes required anywhere else in the codebase. A failed/errored lookup is
   // logged and never blocks or reverses this event-recording path (endClientId just stays null).
+  // B2B-38 (docs/specs/B2B-38-requirement-document.md §6.8) — extends the existing end_client_id
+  // lookup to also fetch reseller_unique_id/hume_config_id. reseller_id needs no extra query — it is
+  // already params.partnerAccountId.
   let endClientId: string | null = null
+  let resellerUniqueId: string | null = null
+  let humeConfigId: string | null = null
   if (params.clioSessionRef) {
     const { data: sessionRow, error: sessionLookupError } = await supabase
       .from('partner_sessions')
-      .select('end_client_id')
+      .select('end_client_id, reseller_unique_id, hume_config_id')
       .eq('id', params.clioSessionRef)
       .maybeSingle()
     if (sessionLookupError) {
-      console.error('[partner/webhooks] end_client_id lookup failed (non-fatal):', sessionLookupError.message)
+      console.error('[partner/webhooks] trace-id lookup failed (non-fatal):', sessionLookupError.message)
     }
     endClientId = (sessionRow?.end_client_id as string | null) ?? null
+    resellerUniqueId = (sessionRow?.reseller_unique_id as string | null) ?? null
+    humeConfigId = (sessionRow?.hume_config_id as string | null) ?? null
   }
 
   const payload: WebhookPayload = {
@@ -154,6 +169,10 @@ export async function recordBillableEvent(
     // B2B-34 Piece 2 — additive, for consistency across every event type this function emits, not
     // only session.insights_ready. NOT included in canonicalHashInput() below.
     end_client_id: endClientId,
+    // B2B-38 §6.8 — additive, same non-hashed convention as end_client_id.
+    reseller_id: params.partnerAccountId,
+    reseller_unique_id: resellerUniqueId,
+    hume_config_id: humeConfigId,
   }
 
   const payloadHash = crypto.createHash('sha256').update(canonicalHashInput(payload)).digest('hex')
@@ -572,6 +591,10 @@ export async function recordInsightsReadyEvent(params: {
   testMode: boolean
   partnerReference: string | null
   endClientId: string | null
+  // B2B-38 (docs/specs/B2B-38-requirement-document.md §6.8) — caller-supplied, not looked-up
+  // internally, mirroring endClientId's own existing convention exactly.
+  resellerUniqueId: string | null
+  humeConfigId: string | null
 }): Promise<void> {
   const supabase = createSupabaseAdminClient()
   const { data: account } = await supabase
@@ -592,6 +615,10 @@ export async function recordInsightsReadyEvent(params: {
     test_mode: params.testMode,
     extraction_status: params.extractionStatus,
     end_client_id: params.endClientId,
+    // B2B-38 §6.8 — additive.
+    reseller_id: params.partnerAccountId,
+    reseller_unique_id: params.resellerUniqueId,
+    hume_config_id: params.humeConfigId,
     // action_items / glitches / learner_insight intentionally omitted — see function doc comment.
   }
   const payloadHash = crypto

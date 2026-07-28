@@ -52,10 +52,29 @@ export async function POST(request: NextRequest) {
     end_user_role,
     end_user_name,
     end_user_industry,
+    reseller_id,
+    reseller_unique_id,
   } = parsed.data
 
   const supabase = createSupabaseAdminClient()
   const isInline = Boolean(content_pages)
+
+  // ─── B2B-38 (docs/specs/B2B-38-requirement-document.md §6.5) — reseller_id mismatch pre-flight
+  // (Open Item 1). Runs before client_id's own pre-flight and before any row insert — a mismatched
+  // reseller_id must never create a session row or incur vendor cost, exactly mirroring why
+  // client_id's own pre-flight runs first. A request that omits reseller_id entirely never reaches
+  // this check — it fails Zod's own required-field validation first (the generic 422 above).
+  if (reseller_id !== auth.partnerAccountId) {
+    return NextResponse.json(
+      {
+        error: {
+          code: 'invalid_reseller_id',
+          message: 'reseller_id does not match the account resolved from your API key.',
+        },
+      },
+      { status: 422 }
+    )
+  }
 
   // ─── B2B-34 Piece 2 (docs/specs/B2B-34-requirement-document.md Part B §6.5) — client_id pre-flight.
   // Required only for account_kind='channel_partner' (reseller) callers; direct partners
@@ -182,11 +201,43 @@ export async function POST(request: NextRequest) {
       // other end_user_* fields.
       end_user_name: end_user_name ?? null,
       end_user_industry: end_user_industry ?? null,
+      // B2B-38 §6.4/§6.5 — idempotent-replay key (Open Item 2). A replay of the same
+      // (partner_account_id, reseller_unique_id) pair fails this insert with a Postgres
+      // unique-violation (23505), caught below.
+      reseller_unique_id: reseller_unique_id ?? null,
       status: 'requested',
       ...inlineColumns,
     })
     .select('id')
     .single()
+
+  // B2B-38 §6.5 — Open Item 2's idempotent-replay branch. A unique-violation on
+  // idx_partner_sessions_reseller_unique_id means this exact (reseller, reseller_unique_id) pair
+  // already has a session — return that session's ORIGINAL response, do not create a new row, do not
+  // call dispatchMeetingBot(). Any other field differences in this retried request (e.g. a different
+  // meeting_url) are deliberately ignored — reseller_unique_id alone is the idempotency key. This
+  // branch runs BEFORE dispatchMeetingBot() is ever reached, so no concurrent replay can ever cause a
+  // second real bot join — the DB unique index is the sole source of truth, not a check-then-act.
+  if (insertError?.code === '23505' && reseller_unique_id) {
+    const { data: original } = await supabase
+      .from('partner_sessions')
+      .select('id, status')
+      .eq('partner_account_id', auth.partnerAccountId)
+      .eq('reseller_unique_id', reseller_unique_id)
+      .maybeSingle()
+
+    if (original) {
+      const originalAppUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
+      const originalRenderUrl = `${originalAppUrl}/partner-render/${original.id}`
+      return NextResponse.json(
+        { clio_session_ref: original.id, status: original.status, render_url: originalRenderUrl, reseller_unique_id },
+        { status: 201 }
+      )
+    }
+    // Conflict fired but the row vanished between insert and re-select (should not happen — no
+    // delete path exists for partner_sessions) — fall through to the generic error below rather
+    // than silently succeed on an inconsistent state.
+  }
 
   if (insertError || !inserted) {
     console.error('[partner/sessions] Failed to insert partner_sessions row:', insertError?.message)
@@ -196,6 +247,20 @@ export async function POST(request: NextRequest) {
   const clioSessionRef = inserted.id as string
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
   const renderUrl = `${appUrl}/partner-render/${clioSessionRef}`
+
+  // B2B-38 §6.5 — new trace-log row, inserted immediately after a genuinely new partner_sessions
+  // row is created. Best-effort, logged-not-thrown — a logging-table failure must never prevent a
+  // real session from being created and dispatched.
+  const { error: traceLogError } = await supabase.from('partner_session_trace_logs').insert({
+    clio_session_ref: clioSessionRef,
+    partner_account_id: auth.partnerAccountId,
+    reseller_id: auth.partnerAccountId, // always equal — validated above (§6.1)
+    end_client_id: endClientId,
+    reseller_unique_id: reseller_unique_id ?? null,
+  })
+  if (traceLogError) {
+    console.error('[partner/sessions] Failed to insert partner_session_trace_logs row (non-fatal):', traceLogError.message)
+  }
 
   // B2B-08 — trial/test-block gate check, test-mode keys only.
   if (auth.mode === 'test') {
@@ -264,6 +329,9 @@ export async function POST(request: NextRequest) {
         clio_session_ref: clioSessionRef,
         status: dispatchResult.status,
         render_url: renderUrl,
+        // B2B-38 §6.5 — echoed back only when the caller sent one (same conditional-spread
+        // convention as `error` immediately below).
+        ...(reseller_unique_id ? { reseller_unique_id } : {}),
         ...(dispatchResult.error ? { error: dispatchResult.error } : {}),
       },
       { status: 201 }
@@ -347,6 +415,9 @@ export async function POST(request: NextRequest) {
       clio_session_ref: clioSessionRef,
       status: dispatchResult.status,
       render_url: renderUrl,
+      // B2B-38 §6.5 — echoed back only when the caller sent one (same conditional-spread
+      // convention as `error` immediately below).
+      ...(reseller_unique_id ? { reseller_unique_id } : {}),
       ...(dispatchResult.error ? { error: dispatchResult.error } : {}),
     },
     { status: 201 }

@@ -65,6 +65,15 @@ export const CreateSessionSchema = z
     // default when absent — the industry clause is omitted entirely, never replaced with a
     // placeholder.
     end_user_industry: z.string().trim().max(200).optional(),
+    // B2B-38 (docs/specs/B2B-38-requirement-document.md §6.2) — mandatory for every account_kind
+    // (Open Item 3), validated against auth.partnerAccountId imperatively in the route (Zod has no
+    // access to the resolved auth context at parse time — same reason client_id's channel_partner
+    // requirement is enforced in the route, not here). UUID because it must be directly comparable to
+    // auth.partnerAccountId, which is itself a partner_accounts.id UUID.
+    reseller_id: z.string().uuid('reseller_id must be a valid UUID'),
+    // B2B-38 §6.2 — optional. Idempotent-replay key (Open Item 2), scoped per-reseller. Same
+    // printable-ASCII/length convention as partner_reference/partner_end_user_ref immediately above.
+    reseller_unique_id: z.string().min(1).max(256).regex(PRINTABLE_ASCII).optional(),
   })
   .refine(
     (data) => {

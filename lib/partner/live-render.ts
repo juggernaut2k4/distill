@@ -245,6 +245,19 @@ export async function resolveLiveSessionRender(session: PartnerSessionRow): Prom
 
     const provisioned = await provisionNativeConfig({ sessionId: session.id, assembledPrompt: prompt })
     humeConfigId = provisioned.configId
+
+    // B2B-38 (docs/specs/B2B-38-requirement-document.md §6.6) — best-effort persist, mirrors
+    // assembled_prompt_snapshot's own convention just above. Non-fatal: a failed write here means
+    // partner_session_trace_logs.hume_config_id and glitch_instances.hume_config_id stay null for
+    // this session — everything else proceeds unaffected (session already has voice either way,
+    // since provisioning itself succeeded).
+    const { error: configIdError } = await supabase
+      .from('partner_sessions')
+      .update({ hume_config_id: humeConfigId })
+      .eq('id', session.id)
+    if (configIdError) {
+      console.error('[partner/live-render] failed to persist hume_config_id (non-fatal):', { sessionId: session.id, error: configIdError })
+    }
   } catch (err) {
     console.error('[partner/live-render] Hume config provisioning failed (session proceeds without voice):', err instanceof Error ? err.message : err)
   }
@@ -371,6 +384,16 @@ async function resolveInlineSessionRender(session: PartnerSessionRow): Promise<L
 
     const provisioned = await provisionNativeConfig({ sessionId: session.id, assembledPrompt: prompt })
     humeConfigId = provisioned.configId
+
+    // B2B-38 §6.6 — best-effort persist (inline, non-fatal), same pattern/convention as the
+    // template-mode call site above.
+    const { error: configIdError } = await supabase
+      .from('partner_sessions')
+      .update({ hume_config_id: humeConfigId })
+      .eq('id', session.id)
+    if (configIdError) {
+      console.error('[partner/live-render] failed to persist hume_config_id (inline, non-fatal):', { sessionId: session.id, error: configIdError })
+    }
   } catch (err) {
     console.error('[partner/live-render] Hume config provisioning failed (inline session proceeds without voice):', err instanceof Error ? err.message : err)
   }

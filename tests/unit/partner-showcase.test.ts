@@ -78,6 +78,13 @@ describe('Showcase final payload validity against the real CreateSessionSchema (
       // required; the real ShowcaseVisualizationClient.tsx payload panel supplies the same
       // REPLACE_WITH_PARTICIPANT_NAME placeholder convention as meeting_url.
       end_user_name: 'REPLACE_WITH_PARTICIPANT_NAME',
+      // B2B-38 (docs/specs/B2B-38-requirement-document.md §6.2) — reseller_id is now required.
+      // ShowcaseVisualizationClient.tsx supplies the same REPLACE_WITH_-placeholder convention as
+      // meeting_url, but unlike end_user_name (any non-empty string), reseller_id is strictly
+      // UUID-validated — so this "already filled in" success case uses a real UUID (matching how
+      // meeting_url above is already a real URL, not the raw placeholder), same as
+      // meeting_url/content_source_id's own convention in this same payload.
+      reseller_id: '44444444-4444-4444-4444-444444444444',
       title: 'How Clio Works',
       subtitle: 'A live look at AI-narrated learning',
       content_to_explain: 'Some content to explain during the demo.',

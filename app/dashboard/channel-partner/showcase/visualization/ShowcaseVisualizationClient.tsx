@@ -245,6 +245,12 @@ export default function ShowcaseVisualizationClient() {
           // convention as meeting_url above — this panel is a manual-dispatch preview, not a live
           // auto-call.
           end_user_name: 'REPLACE_WITH_PARTICIPANT_NAME',
+          // B2B-38 (docs/specs/B2B-38-requirement-document.md §6.2) — reseller_id is now required
+          // on CreateSessionSchema, validated to exactly equal the account the caller's own API key
+          // resolves to. Same "paste into Postman, replace before firing" convention as meeting_url/
+          // end_user_name above — this reseller already knows their own account id (it's how they
+          // authenticate), so REPLACE_WITH_YOUR_RESELLER_ID is the value to swap in.
+          reseller_id: 'REPLACE_WITH_YOUR_RESELLER_ID',
           title: content.title ?? undefined,
           subtitle: content.subtitle ?? undefined,
           content_to_explain: content.content_to_explain ?? undefined,

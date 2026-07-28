@@ -30,4 +30,9 @@ export interface TestHarnessPayload {
   // like PLACEHOLDER_MEETING_URL would break the call — a fixed, real value is used instead. See
   // TEST_HARNESS_END_USER_NAME in ./payload.ts.
   end_user_name: string
+  // B2B-38 (docs/specs/B2B-38-requirement-document.md §6.2) — reseller_id is now mandatory on
+  // CreateSessionSchema, validated to exactly equal the account TEST_HARNESS_PARTNER_API_KEY
+  // authenticates as. Same "dispatches for real, cannot use a placeholder" reasoning as
+  // end_user_name immediately above — see TEST_HARNESS_PARTNER_ACCOUNT_ID in ./payload.ts.
+  reseller_id: string
 }

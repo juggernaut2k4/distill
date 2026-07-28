@@ -150,7 +150,12 @@ async function runInsightsIdempotencyGuard(
   // B2B-34 Piece 2 (docs/specs/B2B-34-requirement-document.md Part B §6.5) — resolved from
   // extractInsightsForPartnerSession()'s own SELECT (already extended to include it), threaded
   // through to the initial upsert below.
-  endClientId: string | null
+  endClientId: string | null,
+  // B2B-38 (docs/specs/B2B-38-requirement-document.md §6.9) — resolved from
+  // extractInsightsForPartnerSession()'s own SELECT, threaded through to the initial upsert below
+  // exactly as endClientId already is.
+  resellerUniqueId: string | null,
+  humeConfigId: string | null
 ): Promise<GuardOutcome> {
   const { data: existing } = await supabase
     .from('partner_session_insights')
@@ -172,6 +177,9 @@ async function runInsightsIdempotencyGuard(
       hume_chat_id: humeChatId,
       extraction_status: 'pending',
       end_client_id: endClientId,
+      // B2B-38 §6.9 — additive.
+      reseller_unique_id: resellerUniqueId,
+      hume_config_id: humeConfigId,
     },
     { onConflict: 'partner_session_id', ignoreDuplicates: true }
   ).select('extraction_status')
@@ -207,7 +215,9 @@ export async function extractInsightsForPartnerSession(partnerSessionId: string)
     .from('partner_sessions')
     // B2B-34 Piece 2 (docs/specs/B2B-34-requirement-document.md Part B §6.3) — extended to include
     // partner_reference/end_client_id, threaded through to recordInsightsReadyEvent() below.
-    .select('id, partner_account_id, hume_chat_id, test_mode, partner_reference, end_client_id')
+    // B2B-38 (docs/specs/B2B-38-requirement-document.md §6.9) — extended further to include
+    // reseller_unique_id/hume_config_id.
+    .select('id, partner_account_id, hume_chat_id, test_mode, partner_reference, end_client_id, reseller_unique_id, hume_config_id')
     .eq('id', partnerSessionId)
     .maybeSingle()
 
@@ -219,7 +229,9 @@ export async function extractInsightsForPartnerSession(partnerSessionId: string)
     partnerSessionId,
     session.partner_account_id as string,
     session.hume_chat_id as string,
-    (session.end_client_id as string | null) ?? null
+    (session.end_client_id as string | null) ?? null,
+    (session.reseller_unique_id as string | null) ?? null,
+    (session.hume_config_id as string | null) ?? null
   )
   if (guard.shortCircuit) return { status: guard.status }
 
@@ -300,6 +312,9 @@ export async function extractInsightsForPartnerSession(partnerSessionId: string)
     testMode: session.test_mode as boolean,
     partnerReference: (session.partner_reference as string | null) ?? null,
     endClientId: (session.end_client_id as string | null) ?? null,
+    // B2B-38 §6.8 — the session's REAL values, fetched above.
+    resellerUniqueId: (session.reseller_unique_id as string | null) ?? null,
+    humeConfigId: (session.hume_config_id as string | null) ?? null,
   })
 
   return { status: result.status }
@@ -336,7 +351,11 @@ export async function markInsightsExtractionFailed(partnerSessionId: string, err
 
   const { data: current } = await supabase
     .from('partner_session_insights')
-    .select('attempt_count, partner_account_id, partner_sessions!inner(test_mode, partner_reference, end_client_id)')
+    // B2B-38 (docs/specs/B2B-38-requirement-document.md §6.9) — FK embed extended to also carry
+    // reseller_unique_id/hume_config_id through to the recordInsightsReadyEvent() call below.
+    .select(
+      'attempt_count, partner_account_id, partner_sessions!inner(test_mode, partner_reference, end_client_id, reseller_unique_id, hume_config_id)'
+    )
     .eq('partner_session_id', partnerSessionId)
     .maybeSingle()
 
@@ -367,6 +386,8 @@ export async function markInsightsExtractionFailed(partnerSessionId: string, err
       test_mode: boolean
       partner_reference: string | null
       end_client_id: string | null
+      reseller_unique_id: string | null
+      hume_config_id: string | null
     } | null
     await recordInsightsReadyEvent({
       partnerSessionId,
@@ -375,6 +396,9 @@ export async function markInsightsExtractionFailed(partnerSessionId: string, err
       testMode: embeddedSession?.test_mode ?? false,
       partnerReference: embeddedSession?.partner_reference ?? null,
       endClientId: embeddedSession?.end_client_id ?? null,
+      // B2B-38 §6.9 — threaded through same as endClientId immediately above.
+      resellerUniqueId: embeddedSession?.reseller_unique_id ?? null,
+      humeConfigId: embeddedSession?.hume_config_id ?? null,
     })
   }
 }

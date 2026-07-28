@@ -13,6 +13,8 @@ const SAMPLE_PAYLOAD: TestHarnessPayload = {
   // B2B-36 F4 (docs/specs/B2B-36-requirement-document.md §6.2) — end_user_name is now a required
   // field on TestHarnessPayload (lib/test-harness/payload-types.ts).
   end_user_name: 'Content QA',
+  // B2B-38 (docs/specs/B2B-38-requirement-document.md §6.2) — reseller_id is now required.
+  reseller_id: 'b3f1c2a4-1111-0000-0000-000000000000',
   title: 'Q3 AI Strategy Briefing',
   subtitle: 'A test of HTML + image screen rendering',
   content_to_explain: 'Walk through the current-state overview.',
