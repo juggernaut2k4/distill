@@ -12,7 +12,7 @@
  * Bump PROMPT_TEMPLATE_VERSION on any structural edit to the fixed portion.
  */
 
-export const PROMPT_TEMPLATE_VERSION = 'v9'
+export const PROMPT_TEMPLATE_VERSION = 'v10'
 
 import { createSupabaseAdminClient } from '@/lib/supabase'
 
@@ -141,6 +141,21 @@ export interface PromptBehaviorConfig {
 // change.
 export const ASSISTANT_SELF_REFERENCE = 'You are Clio, an AI business coach'
 
+/**
+ * B2B-41 (docs/specs/B2B-41-requirement-document.md) — rule 13, added below after rule 12, is
+ * fixed, mode-invariant text (embedded directly in the template literal, no placeholder constant,
+ * no new AssembleHumeNativePromptInput field) instructing Clio to skip rule 8's Clio-initiated
+ * closing sequence and call end_session immediately — in the same turn, after a brief
+ * acknowledgment and short goodbye — when the PARTICIPANT explicitly asks to end the call. Rule 8
+ * itself only ever covers Clio's own self-initiated closing (see its own closing parenthetical);
+ * there was previously no rule covering a participant-initiated end request, which is what caused
+ * a live P0 bug — the model said a farewell but never called end_session, leaving the session (and
+ * its billing) running. No sessionContentMode fork is needed: this behavior does not vary between
+ * 'template' and 'inline' content-delivery mode (unlike rules 1/8/12). PROMPT_TEMPLATE_VERSION
+ * bumps v9 -> v10, and — unlike every optional B2B-11/35/36 field, all of which are byte-identical
+ * when unconfigured — this IS a genuine, unconditional output change for every existing caller in
+ * both content modes: that is the intended P0 fix, not an opt-in.
+ */
 export const HUME_NATIVE_PROMPT_TEMPLATE = `You are Clio, an AI business coach delivering a live, one-on-one coaching
 session to ${AUDIENCE_PLACEHOLDER}${INDUSTRY_CLAUSE_PLACEHOLDER} over voice. This is a real-time conversation —
 speak naturally, warmly, and with authority, like a trusted advisor, never
@@ -221,7 +236,24 @@ will be sent to you mid-call.
     described in rule 8, which only happens once, at the very end of the
     session — do not confuse the two or skip this one because you already
     expect to summarize at the end.
-12. ${RULE_12_PLACEHOLDER}${PARTNER_GUIDANCE_PLACEHOLDER}
+12. ${RULE_12_PLACEHOLDER}
+13. If the participant explicitly states or asks that they want to end the
+    call or session — in any phrasing ("I want to end the call," "let's stop
+    here," "I need to go," or similar) — do not run rule 8's full closing
+    sequence: skip the two-sentence summary (8a) and the "anything else?"
+    confirmation loop (8b), since they have already told you they are done.
+    Instead, in that same turn, briefly acknowledge their request in your own
+    words, say a short, natural goodbye, and call the end_session tool.
+    end_session is the only way the call ends here, exactly as rule 8c
+    already establishes for its own closing flow — the call does not end
+    automatically just because you said goodbye, so you must call
+    end_session explicitly every time you close a session this way. If they
+    mention wanting to continue "next time" or something similar, treat that
+    as ordinary conversational content for your goodbye — it needs no
+    special handling beyond a natural acknowledgment. (This is distinct from
+    rule 6, which governs deferring an off-topic or complex question the
+    participant raises mid-session — this rule governs an explicit request
+    to end the call itself.)${PARTNER_GUIDANCE_PLACEHOLDER}
 
 === PARTICIPANT CONTEXT ===
 

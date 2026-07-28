@@ -21,11 +21,11 @@ const BASE_INPUT = {
 }
 
 describe('assembleHumeNativePrompt — B2B-11 prompt behavior configurability', () => {
-  it('PROMPT_TEMPLATE_VERSION bumped to v9 (B2B-36 — participant name/industry and pacing-guidance placeholders added; assembled output for an unconfigured/toggle-off caller stays byte-identical to v8)', () => {
-    expect(PROMPT_TEMPLATE_VERSION).toBe('v9')
+  it('PROMPT_TEMPLATE_VERSION bumped to v10 (B2B-41 — new rule 13 for participant-initiated call-end handling; assembled output for an unconfigured/toggle-off caller is no longer byte-identical to v9, by design)', () => {
+    expect(PROMPT_TEMPLATE_VERSION).toBe('v10')
   })
 
-  it('default (unconfigured, no promptBehavior passed): BEHAVIORAL RULES block byte-identical to today\'s fixed template text, no PARTNER-CONFIGURED GUIDANCE section', () => {
+  it('default (unconfigured, no promptBehavior passed): BEHAVIORAL RULES block (through rule 13, B2B-41) byte-identical to today\'s fixed template text, no PARTNER-CONFIGURED GUIDANCE section', () => {
     const assembled = assembleHumeNativePrompt(BASE_INPUT)
 
     // The fixed opening sentence through rule 12's final sentence must be
@@ -33,8 +33,13 @@ describe('assembleHumeNativePrompt — B2B-11 prompt behavior configurability', 
     expect(assembled).toContain(
       'speak naturally, warmly, and with authority, like a trusted advisor, never\nlike a script being read aloud.\n\n=== HOW THIS SESSION WORKS ==='
     )
+    // Rule 12 flows straight into rule 13 (B2B-41) with nothing injected between them.
     expect(assembled).toContain(
-      'Say one of these two\n    words at that exact moment, every session, without exception.\n\n=== PARTICIPANT CONTEXT ==='
+      'Say one of these two\n    words at that exact moment, every session, without exception.\n13. If the participant explicitly states or asks'
+    )
+    // Rule 13's final sentence flows straight into PARTICIPANT CONTEXT — no guidance injected after it.
+    expect(assembled).toContain(
+      'to end the call itself.)\n\n=== PARTICIPANT CONTEXT ==='
     )
     expect(assembled).not.toContain('=== PARTNER-CONFIGURED GUIDANCE ===')
     expect(assembled).not.toContain('[TONE GUIDANCE]')

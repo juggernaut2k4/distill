@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { getDemoTopicBySlug } from '@/app/demo/_content'
-import { verifyDemoPasscode } from '@/lib/demo/passcode'
+import { resolveDemoPasscodeToAccount } from '@/lib/demo/passcode-accounts'
 
 /**
  * GET/POST /api/demo/[slug]/meeting
@@ -11,7 +11,18 @@ import { verifyDemoPasscode } from '@/lib/demo/passcode'
  * Arun wants Clio's real bot to join for a given public demo topic. GET is unauthenticated
  * (page-viewing-equivalent — the "Currently saved" summary line and the Learn with AI button's
  * enabled/disabled state both depend on it). POST is passcode-gated (write-only gate, §0 Known
- * Constraints) — a shared secret check, not a login/session, since /demo/* stays fully public.
+ * Constraints) — since /demo/* stays fully public.
+ *
+ * B2B-42 (docs/specs/B2B-42-requirement-document.md §6.1) — the passcode check now resolves,
+ * per-account, via `resolveDemoPasscodeToAccount()` (lib/demo/passcode-accounts.ts), the same
+ * mechanism and the exact same call pattern `app/api/demo/[slug]/dispatch/route.ts` already uses —
+ * no longer the single shared `DEMO_MEETING_PASSCODE` env var (lib/demo/passcode.ts, deleted as part
+ * of this brief once this was its only functional caller). Save is a gate-only consumer: unlike
+ * dispatch, it never reads `resolved.partnerAccountId` or `resolved.passcodeId` — saving a meeting
+ * URL/name has no billing or attribution consequence (that lives solely in `demo_dispatches`,
+ * written by the dispatch route at dispatch time). A passcode issued/regenerated for any
+ * `channel_partner` account or the admin sentinel account now unlocks both Save and dispatch
+ * uniformly.
  */
 
 const SaveMeetingUrlSchema = z.object({
@@ -68,7 +79,12 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
     )
   }
 
-  if (!verifyDemoPasscode(parsed.data.passcode)) {
+  // B2B-42 (docs/specs/B2B-42-requirement-document.md §6.1) — replaces the single
+  // verifyDemoPasscode() call. Same error shape/code as before — visitor-facing behavior is
+  // unchanged; only the server-side resolution mechanism changed (one shared secret -> a
+  // per-account hashed-passcode lookup), mirroring dispatch/route.ts's own B2B-39 integration.
+  const resolved = await resolveDemoPasscodeToAccount(parsed.data.passcode)
+  if (!resolved) {
     return NextResponse.json({ error: { code: 'incorrect_passcode', message: 'Incorrect passcode.' } }, { status: 401 })
   }
 

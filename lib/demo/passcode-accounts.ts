@@ -3,11 +3,14 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
 
 /**
  * B2B-39 (docs/specs/B2B-39-requirement-document.md §6.4). Per-account demo passcode generation,
- * hashing, and dispatch-time resolution. Kept in a wholly separate file from `lib/demo/passcode.ts`
- * — that file's `verifyDemoPasscode()` (the single shared `DEMO_MEETING_PASSCODE` env var, gating the
- * Meeting tab's "Save meeting URL" action) is completely untouched by this feature and must never be
- * merged with this mechanism (§10 Out of Scope — conflating the two would let a reseller's own
- * demo-billing passcode also unlock editing the meeting URL for every demo topic).
+ * hashing, and dispatch-time resolution. Originally kept in a wholly separate file from
+ * `lib/demo/passcode.ts` — that file was deleted as of B2B-42 (docs/specs/B2B-42-requirement-document.md
+ * §6.2), once its `verifyDemoPasscode()` (the single shared `DEMO_MEETING_PASSCODE` env var) lost its
+ * one remaining caller (the Meeting tab's Save action, which B2B-42 moved onto this file's
+ * `resolveDemoPasscodeToAccount()` instead). The Save action's use is gate-only — it never reads
+ * `resolved.partnerAccountId` or `resolved.passcodeId` — so this remains a read-only resolution
+ * helper with no billing side effect of its own; billing attribution is still written solely by the
+ * dispatch route via `demo_dispatches` at dispatch time (§6.9 below, unchanged by B2B-42).
  *
  * Format: 10 characters from a 31-symbol unambiguous alphanumeric alphabet — uppercase A-Z minus
  * {O, I, L} (23 letters) plus digits 0-9 minus {0, 1} (8 digits) = 31 symbols. Generated via
@@ -81,8 +84,9 @@ export function hashDemoPasscode(candidate: string): string {
  * Single indexed lookup: `demo_passcodes WHERE passcode_hash = hashDemoPasscode(candidate) AND
  * revoked_at IS NULL`. Returns the billing account id AND the passcode row id (needed by the
  * dispatch route to populate `demo_dispatches.demo_passcode_id` — §6.9 point 4) or `null` if no
- * active passcode matches. Used ONLY by the dispatch route — never by the Meeting tab's Save action,
- * which keeps using `lib/demo/passcode.ts`'s mechanism unchanged.
+ * active passcode matches. Used by both the dispatch route (which additionally reads
+ * `partnerAccountId`/`passcodeId` for billing attribution) and, as of B2B-42, the Meeting tab's Save
+ * action (gate-only — the resolved account/passcode identity is never read or stored there).
  */
 export async function resolveDemoPasscodeToAccount(candidate: string): Promise<ResolvedDemoPasscode | null> {
   const supabase = createSupabaseAdminClient()
