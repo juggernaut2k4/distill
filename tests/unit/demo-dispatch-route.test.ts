@@ -19,9 +19,14 @@ const state = {
   resolvedPasscode: null as { partnerAccountId: string; passcodeId: string } | null,
   internalWalletRow: null as { trial_minutes_used: number; test_minutes_balance: number } | null,
   demoDispatchInsertError: null as { message: string } | null,
-  // B2B-44 Fix 5a — the row (if any) the duplicate-dispatch guard's query against partner_sessions
-  // should find. null = no active session for this slug/account (guard allows dispatch).
-  activePartnerSessionRow: null as { id: string } | null,
+  // B2B-44 Fix 5a — the MOST RECENT partner_sessions row (if any) for this slug/account, per the
+  // guard's `order(created_at desc).limit(1)` query. null = no session ever dispatched for this slug
+  // (guard allows). Only status 'requested'/'bot_active' on THIS row blocks — an older row in an
+  // active status must never block once a newer row exists (2026-07-28 live incident: an
+  // orphaned/never-recovered session from the prior day permanently blocked every future dispatch
+  // for the slug under the original `.in('status', [...]).limit(1)` query, which matched ANY
+  // matching row rather than only the latest one).
+  latestPartnerSessionRow: null as { id: string; status: string } | null,
 }
 
 const updated: unknown[] = []
@@ -70,9 +75,9 @@ vi.mock('@/lib/supabase', () => ({
           select: vi.fn(() => ({
             eq: vi.fn(() => ({
               eq: vi.fn(() => ({
-                in: vi.fn(() => ({
+                order: vi.fn(() => ({
                   limit: vi.fn(() => ({
-                    maybeSingle: vi.fn(() => Promise.resolve({ data: state.activePartnerSessionRow })),
+                    maybeSingle: vi.fn(() => Promise.resolve({ data: state.latestPartnerSessionRow })),
                   })),
                 })),
               })),
@@ -106,7 +111,7 @@ describe('POST /api/demo/[slug]/dispatch', () => {
     state.resolvedPasscode = null
     state.internalWalletRow = { trial_minutes_used: 20, test_minutes_balance: 500 } // well-funded by default
     state.demoDispatchInsertError = null
-    state.activePartnerSessionRow = null // no active session by default — guard allows dispatch
+    state.latestPartnerSessionRow = null // no session ever dispatched by default — guard allows dispatch
     updated.length = 0
     demoDispatchInserts.length = 0
     rpcCalls.length = 0
@@ -343,10 +348,10 @@ describe('POST /api/demo/[slug]/dispatch', () => {
 
   // ─── B2B-44 Fix 5a — server-side duplicate-dispatch guard ─────────────────────────────
 
-  it('Fix 5a: rejects with 409 session_already_active when a session for this slug is already requested/bot_active, never calling upstream', async () => {
+  it('Fix 5a: rejects with 409 session_already_active when the MOST RECENT session for this slug is requested/bot_active, never calling upstream', async () => {
     state.resolvedPasscode = { partnerAccountId: 'acct-reseller-1', passcodeId: 'passcode-1' }
     state.demoMeetingUrlsRow = { meeting_url: 'https://meet.google.com/abc-defg-hij', end_user_name: 'Arun', last_dispatch_attempted_at: null }
-    state.activePartnerSessionRow = { id: 'existing-active-session' }
+    state.latestPartnerSessionRow = { id: 'existing-active-session', status: 'bot_active' }
     const res = await POST(dispatchRequest('claude-ai'), { params: { slug: 'claude-ai' } })
     const body = await res.json()
     expect(res.status).toBe(409)
@@ -354,13 +359,10 @@ describe('POST /api/demo/[slug]/dispatch', () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
-  it('Fix 5a: allows a fresh dispatch once the prior session for this slug is no longer active (no requested/bot_active row found)', async () => {
-    // The guard's own query only ever matches status IN ('requested','bot_active') — a slug whose
-    // most recent session already reached 'completed'/'failed' simply finds no row, exactly like
-    // the "no active session ever existed" default state.
+  it('Fix 5a: allows a fresh dispatch once the most recent session for this slug is no longer active', async () => {
     state.resolvedPasscode = { partnerAccountId: 'acct-reseller-1', passcodeId: 'passcode-1' }
     state.demoMeetingUrlsRow = { meeting_url: 'https://meet.google.com/abc-defg-hij', end_user_name: 'Arun', last_dispatch_attempted_at: null }
-    state.activePartnerSessionRow = null
+    state.latestPartnerSessionRow = { id: 'prior-completed-session', status: 'completed' }
     ;(fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
       status: 201,
       json: async () => ({ clio_session_ref: 'ref-fresh', status: 'bot_active' }),
@@ -369,6 +371,37 @@ describe('POST /api/demo/[slug]/dispatch', () => {
     const body = await res.json()
     expect(res.status).toBe(200)
     expect(body).toEqual({ status: 'dispatched', clio_session_ref: 'ref-fresh' })
+    expect(fetch).toHaveBeenCalled()
+  })
+
+  it('Fix 5a: allows a fresh dispatch when no session has ever been dispatched for this slug', async () => {
+    state.resolvedPasscode = { partnerAccountId: 'acct-reseller-1', passcodeId: 'passcode-1' }
+    state.demoMeetingUrlsRow = { meeting_url: 'https://meet.google.com/abc-defg-hij', end_user_name: 'Arun', last_dispatch_attempted_at: null }
+    state.latestPartnerSessionRow = null
+    ;(fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 201,
+      json: async () => ({ clio_session_ref: 'ref-fresh', status: 'bot_active' }),
+    })
+    const res = await POST(dispatchRequest('claude-ai'), { params: { slug: 'claude-ai' } })
+    expect(res.status).toBe(200)
+    expect(fetch).toHaveBeenCalled()
+  })
+
+  it('Fix 5a regression (2026-07-28 live incident): an OLDER orphaned bot_active session must never block a fresh dispatch once a newer, non-active session exists for the same slug — the guard must key off the latest row only, not "any row ever active"', async () => {
+    // The query itself (order by created_at desc, limit 1) can only ever see one row — this test
+    // documents the specific failure mode: state.latestPartnerSessionRow here represents what the
+    // query returns when correctly scoped (the newest row, already 'completed'), proving the fix
+    // does not regress to matching the older stuck row that a naive `.in('status', [...])` query
+    // (with no ordering) could have returned instead.
+    state.resolvedPasscode = { partnerAccountId: 'acct-reseller-1', passcodeId: 'passcode-1' }
+    state.demoMeetingUrlsRow = { meeting_url: 'https://meet.google.com/abc-defg-hij', end_user_name: 'Arun', last_dispatch_attempted_at: null }
+    state.latestPartnerSessionRow = { id: 'newest-session-completed', status: 'completed' }
+    ;(fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 201,
+      json: async () => ({ clio_session_ref: 'ref-fresh', status: 'bot_active' }),
+    })
+    const res = await POST(dispatchRequest('claude-ai'), { params: { slug: 'claude-ai' } })
+    expect(res.status).toBe(200)
     expect(fetch).toHaveBeenCalled()
   })
 

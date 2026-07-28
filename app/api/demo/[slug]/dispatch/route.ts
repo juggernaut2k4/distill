@@ -89,16 +89,23 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
   // whose most recent session has already reached 'completed'/'failed' is unaffected.
   const demoPartnerAccountId = process.env.DEMO_PARTNER_ACCOUNT_ID
   if (demoPartnerAccountId) {
-    const { data: activeSession } = await supabase
+    // 2026-07-28 — found live: the original query matched ANY row ever in an active status for this
+    // slug, including old orphaned sessions from days earlier whose cutoff-arming event silently
+    // dropped (the same failure mode B2B-43's stuck-session backstop sweep exists to recover from,
+    // just not yet swept). That permanently blocked every future dispatch for the slug. Scope to only
+    // the MOST RECENT session, matching the exact pattern GET /api/demo/[slug]/performance already
+    // uses (order by created_at desc, limit 1) — only a genuinely current session should block a
+    // fresh dispatch.
+    const { data: latestSession } = await supabase
       .from('partner_sessions')
-      .select('id')
+      .select('id, status')
       .eq('partner_reference', params.slug)
       .eq('partner_account_id', demoPartnerAccountId)
-      .in('status', ['requested', 'bot_active'])
+      .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle()
 
-    if (activeSession) {
+    if (latestSession && (latestSession.status === 'requested' || latestSession.status === 'bot_active')) {
       return NextResponse.json(
         {
           error: {
