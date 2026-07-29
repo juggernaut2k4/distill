@@ -97,6 +97,21 @@ describe('POST /api/partner/render/client-error', () => {
     expect((await res2.json()).ok).toBe(true)
   })
 
+  // 2026-07-29 — B2B-47 follow-up: Clerk removal from /demo/** did not stop the crash (live-verified,
+  // 3 distinct pages crashed in one session post-fix), so a real React error boundary
+  // (app/(demo)/demo/_diagnostic-error-boundary.tsx) was added inside the demo pages themselves to
+  // capture the actual Error/stack, reporting with this new source value. Widening this enum before
+  // that value is ever sent is the exact lesson from B2B-45 — do not repeat the two-day silent-reject
+  // window that source: 'error-boundary' sat in.
+  it('accepts source "react-error-boundary" (a real React error boundary reporting the actual caught error) and returns ok:true', async () => {
+    const res = await POST(
+      errorRequest({ clio_session_ref: VALID_REF, message: 'Cannot read properties of undefined', stack: 'at Component (x.js:1:1)', source: 'react-error-boundary' })
+    )
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(body).toEqual({ ok: true })
+  })
+
   it('rejects an unknown source value with ok:false, still 200', async () => {
     const res = await POST(errorRequest({ clio_session_ref: VALID_REF, message: 'boom', source: 'something-else' }))
     const body = await res.json()

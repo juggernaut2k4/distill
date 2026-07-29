@@ -93,4 +93,23 @@ describe('injectIframeDiagnosticShim', () => {
     expect(result).toContain('errorBoundaryReported')
     expect(result).toContain('if (errorBoundaryReported) return;')
   })
+
+  // 2026-07-29 — the error-boundary DOM-text detector above can only see that Next.js's OWN fallback
+  // UI rendered, never the real Error/stack, since that fallback only appears after React's internal
+  // error boundary has already caught and swallowed the exception. A real React error boundary placed
+  // inside the page itself (app/(demo)/demo/_diagnostic-error-boundary.tsx) sees the real error first
+  // and needs a way to reach this shim's already-working postReport() sink — this exposes that hook.
+  it('exposes window.__CLIO_REPORT_REACT_ERROR__ so a page-level React error boundary can report the real error/stack, tagged distinctly as react-error-boundary', () => {
+    const html = '<head></head>'
+    const result = injectIframeDiagnosticShim(html, 'ref', 'My Page')
+    expect(result).toContain('window.__CLIO_REPORT_REACT_ERROR__ = function(message, stack){')
+    expect(result).toContain("report('react-error-boundary', message, stack);")
+  })
+
+  it('window.__CLIO_REPORT_REACT_ERROR__ routes through the same single postReport() call site as every other report path (no second fetch call site introduced)', () => {
+    const html = '<head></head>'
+    const result = injectIframeDiagnosticShim(html, 'ref', 'My Page')
+    const fetchCallCount = (result.match(/fetch\('\/api\/partner\/render\/client-error'/g) ?? []).length
+    expect(fetchCallCount).toBe(1)
+  })
 })

@@ -36,7 +36,12 @@ const ClientErrorSchema = z.object({
   clio_session_ref: z.string().uuid(),
   message: z.string().min(1).max(2000),
   stack: z.string().max(4000).optional(),
-  source: z.enum(['error', 'unhandledrejection', 'error-boundary']),
+  // 2026-07-29 — widened for 'react-error-boundary' (a real React error boundary inside the demo
+  // page reporting the actual caught Error, distinct from 'error-boundary''s DOM-text detection).
+  // B2B-45's own lesson applies here too: this schema must be widened BEFORE the new source value is
+  // ever sent, or .safeParse() silently rejects it exactly like the original 'error-boundary' value
+  // was rejected for two days before B2B-44 Fix 2.
+  source: z.enum(['error', 'unhandledrejection', 'error-boundary', 'react-error-boundary']),
 })
 
 // B2B-44 Fix 3 — ordinal-collision-avoidance scheme for glitch_instances rows written by this

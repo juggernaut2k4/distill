@@ -100,6 +100,9 @@ function postReport(payload){
 function report(source, message, stack){
   postReport({ clio_session_ref: ${safeSessionRef}, source: source, message: '[iframe:' + ${safeLabel} + '] ' + message, stack: stack });
 }
+window.__CLIO_REPORT_REACT_ERROR__ = function(message, stack){
+  report('react-error-boundary', message, stack);
+};
 window.addEventListener('error', function (event) {
   report('error', event.message, event.error && event.error.stack);
 });

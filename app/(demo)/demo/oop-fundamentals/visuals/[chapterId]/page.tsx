@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation'
+import DiagnosticErrorBoundary from '../../../_diagnostic-error-boundary'
 import VisualPageShell from '../_shell'
 import WhyOopVisual from '../_visuals/WhyOopVisual'
 import ClassesAndObjectsVisual from '../_visuals/ClassesAndObjectsVisual'
@@ -60,8 +61,10 @@ export default function VisualPage({ params }: { params: { chapterId: string } }
   if (!visual) notFound()
   const { title, subtitle, Component } = visual
   return (
-    <VisualPageShell title={title} subtitle={subtitle}>
-      <Component />
-    </VisualPageShell>
+    <DiagnosticErrorBoundary>
+      <VisualPageShell title={title} subtitle={subtitle}>
+        <Component />
+      </VisualPageShell>
+    </DiagnosticErrorBoundary>
   )
 }
