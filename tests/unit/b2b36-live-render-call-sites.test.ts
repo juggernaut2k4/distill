@@ -90,6 +90,8 @@ const BASE_SESSION: PartnerSessionRow = {
   endUserRole: null,
   endUserName: null,
   endUserIndustry: null,
+  // B2B-50 — new required field on PartnerSessionRow, unrelated to this file's own coverage.
+  providerBotId: null,
 }
 
 const INLINE_SESSION: PartnerSessionRow = {

@@ -254,7 +254,7 @@ export const partnerLiveCutoffJob = inngest.createFunction(
 
     await step.run('mark-session-completed', async () => {
       const supabase = createSupabaseAdminClient()
-      await supabase
+      const { error } = await supabase
         .from('partner_sessions')
         .update({
           status: 'completed',
@@ -265,6 +265,13 @@ export const partnerLiveCutoffJob = inngest.createFunction(
           billed_duration_source: 'wall_clock_fallback',
         })
         .eq('id', clioSessionRef)
+      // Found live 2026-07-29: this write was silently failing a CHECK constraint (migration 087
+      // regression, fixed in migration 103) with no visibility anywhere. Never swallow this again —
+      // a session that fails to reach 'completed' here stays stuck at whatever status it was in,
+      // even though the bot has already been told to leave above.
+      if (error) {
+        console.error('[partner-live-cutoff] mark-session-completed failed:', { clioSessionRef, error })
+      }
       emitPartnerSessionEndedEvent(clioSessionRef)   // NEW — B2B-37
     })
 

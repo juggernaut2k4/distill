@@ -29,6 +29,10 @@ interface PartnerSessionRowShape {
   test_mode: boolean
   updated_at: string
   attendee_joined_at?: string | null
+  // B2B-50 — read by getPartnerSession()/handlePartnerSessionEvent() so the fallback path can
+  // proactively deleteBot(). Fixtures below don't set it, so it resolves to null (the "bot never
+  // dispatched / no bot id known" case) — matching the existing fixtures' pre-B2B-50 shape.
+  provider_bot_id?: string | null
 }
 
 const state: {
@@ -111,6 +115,13 @@ vi.mock('@/lib/supabase', () => ({
 
       throw new Error(`Unexpected table: ${table}`)
     }),
+    // B2B-50 — increment_active_participant_count / decrement_active_participant_count. Defaults
+    // to a non-zero resulting count so the participants-empty debounce event is never
+    // incidentally emitted by tests that aren't specifically exercising that mechanism (covered
+    // separately by tests/unit/b2b50-participant-count-correlation.test.ts).
+    rpc: vi.fn((_name: string, _args: Record<string, unknown>) =>
+      Promise.resolve({ data: { active_participant_count: 1 }, error: null })
+    ),
   })),
 }))
 
@@ -269,7 +280,7 @@ describe('POST /api/attendee/webhook — B2B-10 partner session support', () => 
     // B2B-19 (billing gap 2): the event carries no Attendee timestamp and the
     // row has no attendee_joined_at, so billing falls back to webhook-receipt
     // time, labelled 'attendee_receipt' (distinct from a real Attendee value).
-    expect(handleSessionEndMock).toHaveBeenCalledWith('partner-session-1', 'acct-1', 5, true, 'completed', 'attendee_receipt')
+    expect(handleSessionEndMock).toHaveBeenCalledWith('partner-session-1', 'acct-1', 5, true, null, 'completed', 'attendee_receipt')
   })
 
   it('fatal_error triggers the fallback completer with targetStatus=failed, still billing minutes used', async () => {
@@ -288,7 +299,7 @@ describe('POST /api/attendee/webhook — B2B-10 partner session support', () => 
     await POST(makeRequest(partnerEvent('partner-session-1', 'bot.state_change', { new_state: 'fatal_error' })))
 
     expect(handleSessionEndMock).toHaveBeenCalledTimes(1)
-    expect(handleSessionEndMock).toHaveBeenCalledWith('partner-session-1', 'acct-1', 5, false, 'failed', 'attendee_receipt')
+    expect(handleSessionEndMock).toHaveBeenCalledWith('partner-session-1', 'acct-1', 5, false, null, 'failed', 'attendee_receipt')
   })
 
   // B2B-19 (billing gap 2, AT-11) — when Attendee carries both a join timestamp
@@ -314,7 +325,7 @@ describe('POST /api/attendee/webhook — B2B-10 partner session support', () => 
     )
 
     expect(handleSessionEndMock).toHaveBeenCalledTimes(1)
-    expect(handleSessionEndMock).toHaveBeenCalledWith('partner-session-1', 'acct-1', 10, false, 'completed', 'attendee')
+    expect(handleSessionEndMock).toHaveBeenCalledWith('partner-session-1', 'acct-1', 10, false, null, 'completed', 'attendee')
   })
 
   it('transcript.update is a no-op for a partner session — no DB write, no handleSessionEnd call', async () => {

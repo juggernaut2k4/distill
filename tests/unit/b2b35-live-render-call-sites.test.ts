@@ -92,6 +92,8 @@ const BASE_SESSION: PartnerSessionRow = {
   // is unrelated to B2B-36's own test coverage (tests/unit/b2b36-live-render-call-sites.test.ts).
   endUserName: null,
   endUserIndustry: null,
+  // B2B-50 — new required field on PartnerSessionRow, unrelated to this file's own coverage.
+  providerBotId: null,
 }
 
 const INLINE_SESSION: PartnerSessionRow = {

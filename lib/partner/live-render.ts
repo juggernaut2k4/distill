@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient } from '@/lib/supabase'
+import { getMeetingBotProvider } from '@/lib/meeting-bot/provider'
 import { pullPartnerContent, pullPartnerProfile } from './render-data'
 import { resolvePartnerTheme, getThemeConfig, type CSSCustomProperties } from './theme'
 import { getPromptConfig } from './prompt-config'
@@ -181,6 +182,9 @@ export interface PartnerSessionRow {
   // session (resolves to the 'the participant'/no-industry-clause defaults, unchanged).
   endUserName: string | null
   endUserIndustry: string | null
+  // B2B-50 — the Attendee bot id assigned at dispatch (session-init.ts line 65). Read here so
+  // handleSessionEnd() callers can proactively tell Attendee to leave without a second query.
+  providerBotId: string | null
 }
 
 export async function getPartnerSession(clioSessionRef: string): Promise<PartnerSessionRow | null> {
@@ -188,7 +192,7 @@ export async function getPartnerSession(clioSessionRef: string): Promise<Partner
   const { data } = await supabase
     .from('partner_sessions')
     .select(
-      'id, partner_account_id, content_ref, partner_topic_ref, partner_end_user_ref, status, test_mode, content_source_id, content_pages, content_to_explain, content_title, content_subtitle, end_user_role, end_user_name, end_user_industry'
+      'id, partner_account_id, content_ref, partner_topic_ref, partner_end_user_ref, status, test_mode, content_source_id, content_pages, content_to_explain, content_title, content_subtitle, end_user_role, end_user_name, end_user_industry, provider_bot_id'
     )
     .eq('id', clioSessionRef)
     .maybeSingle()
@@ -211,6 +215,7 @@ export async function getPartnerSession(clioSessionRef: string): Promise<Partner
     endUserRole: (data.end_user_role as string | null) ?? null,
     endUserName: (data.end_user_name as string | null) ?? null,
     endUserIndustry: (data.end_user_industry as string | null) ?? null,
+    providerBotId: (data.provider_bot_id as string | null) ?? null,
   }
 }
 
@@ -724,13 +729,59 @@ export async function handleSessionEnd(
   partnerAccountId: string,
   durationMinutes: number,
   testMode: boolean,
+  // B2B-50 — the bot id to proactively command to leave. Nullable: a session that never
+  // successfully dispatched a bot (status stuck at 'requested') has none; deleteBot() is
+  // correctly skipped in that case, mirroring runTrialCutoffSequence()'s own `if (!providerBotId)
+  // return` guard (inngest/partner-trial-cutoff.ts line 45).
+  providerBotId: string | null,
   targetStatus: 'completed' | 'failed' = 'completed',
   billedDurationSource: 'attendee' | 'attendee_receipt' | 'client_reported' | 'wall_clock_fallback' = 'client_reported',
+  // B2B-50 — optional, additive. Only the new participants-empty debounce path passes
+  // 'all_participants_left'; both pre-existing callers omit it, so their DB write is byte-for-byte
+  // unchanged (end_reason is never touched by their call, exactly as today).
+  endReason?: string | null,
 ): Promise<void> {
   const supabase = createSupabaseAdminClient()
+
+  // B2B-50 — idempotency guard. Now reachable from 3 independent trigger paths that can race for
+  // the same session (client end-session call, Attendee-webhook fallback, new participants-empty
+  // debounce). recordBillableEvent()'s own idempotency hash does not catch a second call here
+  // (occurred_at defaults to now() on every call), so a second call would double-bill. Mirrors the
+  // check the Attendee-webhook fallback (app/api/attendee/webhook/route.ts) already does at its own
+  // call site — moved here so EVERY caller (including the client end-session route, which never had
+  // this guard) is covered.
+  const { data: existing } = await supabase
+    .from('partner_sessions')
+    .select('status')
+    .eq('id', clioSessionRef)
+    .maybeSingle()
+  if (existing?.status === 'completed' || existing?.status === 'failed') {
+    console.log('[live-render] handleSessionEnd called for an already-terminal session — no-op:', { clioSessionRef, status: existing.status })
+    return
+  }
+
+  // B2B-50 — proactively tell the meeting-bot vendor to leave. Reuses the exact deleteBot()
+  // pattern already proven in the two cutoff jobs (inngest/partner-trial-cutoff.ts,
+  // inngest/partner-live-cutoff.ts) verbatim: non-fatal try/catch, session still ends below on
+  // failure. A bot that's already gone (manual removal, crash, or this call arriving via the
+  // Attendee-webhook fallback where Attendee itself already reported it left) safely no-ops via
+  // deleteBot()'s own 404-as-success handling (attendee.ts).
+  if (providerBotId) {
+    try {
+      await getMeetingBotProvider().deleteBot(providerBotId)
+    } catch (err) {
+      console.error('[live-render] deleteBot failed (non-fatal — session still ends below):', err)
+    }
+  }
+
   await supabase
     .from('partner_sessions')
-    .update({ status: targetStatus, ended_at: new Date().toISOString(), billed_duration_source: billedDurationSource })
+    .update({
+      status: targetStatus,
+      ended_at: new Date().toISOString(),
+      billed_duration_source: billedDurationSource,
+      ...(endReason ? { end_reason: endReason } : {}),
+    })
     .eq('id', clioSessionRef)
 
   // B2B-08 — cancel the trial-cutoff job so a normally-ended test session never triggers a

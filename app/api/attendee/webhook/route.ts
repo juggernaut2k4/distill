@@ -10,6 +10,7 @@ import {
 import { inngest } from '@/inngest/client'
 import { handleSessionEnd } from '@/lib/partner/live-render'
 import { getThemeConfig } from '@/lib/partner/theme'
+import { extractAttendeeEventTimestamp, clampDurationMinutes } from '@/lib/partner/attendee-timing'
 
 /**
  * POST /api/attendee/webhook
@@ -133,7 +134,7 @@ async function handleEvent(event: AttendeeWebhookEvent) {
     // Section 4.1 — this is the only change to the pre-existing B2C miss path.
     const { data: partnerSessionRow } = await supabase
       .from('partner_sessions')
-      .select('id, partner_account_id, status, test_mode, updated_at, attendee_joined_at')
+      .select('id, partner_account_id, status, test_mode, updated_at, attendee_joined_at, provider_bot_id')
       .eq('id', userId)
       .maybeSingle()
 
@@ -145,6 +146,7 @@ async function handleEvent(event: AttendeeWebhookEvent) {
         testMode: Boolean(partnerSessionRow.test_mode),
         updatedAt: partnerSessionRow.updated_at as string,
         attendeeJoinedAt: (partnerSessionRow.attendee_joined_at as string | null) ?? null,
+        providerBotId: (partnerSessionRow.provider_bot_id as string | null) ?? null,
       })
       return
     }
@@ -350,42 +352,10 @@ interface PartnerSessionForEvent {
   testMode: boolean
   updatedAt: string
   attendeeJoinedAt: string | null
-}
-
-/**
- * B2B-19 (billing gap 2, CEO build-time condition) — attempts to read an
- * Attendee-provided event/occurrence timestamp from the webhook payload. The
- * `AttendeeWebhookEvent.data` shape is `Record<string, unknown>` with no
- * confirmed timestamp field in this repo, so this probes the plausible
- * candidate keys (Attendee.dev has never delivered an observable signed request
- * in the log window to pin the exact field). Returns an ISO string when a
- * genuine Attendee-carried timestamp is found; null otherwise, in which case
- * the caller falls back to webhook-RECEIPT time and labels it distinctly
- * (`attendee_receipt`) so real Attendee-measured timing is never silently
- * conflated with receipt time.
- */
-function extractAttendeeEventTimestamp(event: AttendeeWebhookEvent): string | null {
-  const candidates: unknown[] = [
-    event.data?.created_at,
-    event.data?.timestamp,
-    event.data?.occurred_at,
-    event.data?.event_time,
-    event.data?.changed_at,
-    event.data?.time,
-    (event as unknown as { created_at?: unknown }).created_at,
-    (event as unknown as { timestamp?: unknown }).timestamp,
-  ]
-  for (const c of candidates) {
-    if (typeof c === 'string' || typeof c === 'number') {
-      const d = new Date(c)
-      if (!Number.isNaN(d.getTime())) return d.toISOString()
-    }
-  }
-  return null
-}
-
-function clampDurationMinutes(ms: number): number {
-  return Math.min(600, Math.max(0, ms / 60000))
+  // B2B-50 — threaded through so the fatal_error/ended fallback path can also proactively tell
+  // Attendee to leave (a safe, cheap no-op in the common case — the bot's typically already gone
+  // by the time this fallback fires).
+  providerBotId: string | null
 }
 
 async function handlePartnerSessionEvent(
@@ -458,7 +428,7 @@ async function handlePartnerSessionEvent(
           billedSource,
         })
 
-        await handleSessionEnd(row.id, row.partnerAccountId, durationMinutes, row.testMode, targetStatus, billedSource)
+        await handleSessionEnd(row.id, row.partnerAccountId, durationMinutes, row.testMode, row.providerBotId, targetStatus, billedSource)
       }
       break
     }
@@ -480,6 +450,13 @@ async function handlePartnerSessionEvent(
       // `eventType !== 'participant_joined' || !participantName` check.
       const participantName = (event.data.participant_name as string | null) ?? ''
       const eventType = event.data.event_type as string | undefined
+      const supabase = createSupabaseAdminClient()
+
+      // Resolve the partner's configured assistant display name once — used by both branches
+      // below to make sure the bot's own presence is never counted as a participant (AT-12).
+      const theme = await getThemeConfig(row.partnerAccountId)
+      const botNameLower = (theme.assistantDisplayName ?? 'clio').toLowerCase()
+      const isBotName = (name: string) => name.toLowerCase().includes(botNameLower) || name.toLowerCase().includes('clio')
 
       // B2B-46 Step 1 — diagnostic only, zero behavioral change. This codebase's
       // 'participant_joined' string is an unverified guess at Attendee's actual event_type
@@ -494,6 +471,28 @@ async function handlePartnerSessionEvent(
           eventType,
           fullPayload: JSON.stringify(event.data),
         })
+
+        // B2B-50 §6.4 — deliberately does NOT match a guessed "leave" string. Any non-join event
+        // on this trigger is treated as a departure. Skips the bot's own name exactly like the
+        // join branch below does, so the bot leaving (deleteBot() tearing down its own presence)
+        // is never miscounted as a participant leaving (AT-12).
+        const isBot = Boolean(participantName) && isBotName(participantName)
+        if (!isBot) {
+          const { data: decremented, error: decrementError } = await supabase
+            .rpc('decrement_active_participant_count', { p_session_id: row.id })
+          if (decrementError) {
+            console.error('[attendee/webhook] decrement_active_participant_count failed (non-fatal):', decrementError.message)
+          } else {
+            const newCount = (decremented as { active_participant_count?: number } | null)?.active_participant_count ?? null
+            console.log('[attendee/webhook] participant left (inferred, non-join event) — active_participant_count now:', newCount, { partnerSessionId: row.id })
+            if (newCount === 0 && row.status !== 'completed' && row.status !== 'failed') {
+              inngest.send({
+                name: 'clio/partner-session.participants-empty',
+                data: { clioSessionRef: row.id, partnerAccountId: row.partnerAccountId },
+              }).catch((err) => console.error('[attendee/webhook] clio/partner-session.participants-empty emit failed:', err))
+            }
+          }
+        }
       }
 
       if (eventType !== 'participant_joined' || !participantName) break
@@ -502,16 +501,18 @@ async function handlePartnerSessionEvent(
       // name, not just the literal "clio" the B2C branch checks, since a
       // partner-branded bot's display name in the meeting roster may not be
       // "Clio".
-      const theme = await getThemeConfig(row.partnerAccountId)
-      const botNameLower = (theme.assistantDisplayName ?? 'clio').toLowerCase()
-      if (participantName.toLowerCase().includes(botNameLower) || participantName.toLowerCase().includes('clio')) break
+      if (isBotName(participantName)) break
 
       const firstName = participantName.split(' ')[0] ?? participantName
 
-      const supabase = createSupabaseAdminClient()
       await supabase.from('partner_sessions')
         .update({ join_greeting_pending: true, join_greeting_participant_first_name: firstName })
         .eq('id', row.id)
+
+      // B2B-50 §6.5 — arms the debounce mechanism above. A no-op update failure here is logged,
+      // non-fatal (mirrors every other best-effort write in this file).
+      const { error: incrementError } = await supabase.rpc('increment_active_participant_count', { p_session_id: row.id })
+      if (incrementError) console.error('[attendee/webhook] increment_active_participant_count failed (non-fatal):', incrementError.message)
 
       console.log('[attendee/webhook] partner session participant.joined — join greeting flag set:', { partnerSessionId: row.id, firstName })
       break

@@ -47,15 +47,21 @@ describe('handleSessionEnd() emits clio/partner-session.ended (B2B-37 §6.2 call
     vi.doMock('@/inngest/client', () => ({ inngest: { send: sendMock } }))
     vi.doMock('@/lib/supabase', () => ({
       createSupabaseAdminClient: () => ({
-        from: () => ({ update: () => ({ eq: async () => ({ error: null }) }) }),
+        from: () => ({
+          select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { status: null } }) }) }),
+          update: () => ({ eq: async () => ({ error: null }) }),
+        }),
       }),
+    }))
+    vi.doMock('@/lib/meeting-bot/provider', () => ({
+      getMeetingBotProvider: () => ({ deleteBot: vi.fn(async () => {}) }),
     }))
     vi.doMock('@/lib/partner/webhooks', () => ({
       recordBillableEvent: vi.fn(async () => ({ dispatchLogId: 'log-1' })),
     }))
 
     const { handleSessionEnd } = await import('@/lib/partner/live-render')
-    await handleSessionEnd('session-1', 'acct-1', 0, false)
+    await handleSessionEnd('session-1', 'acct-1', 0, false, null)
 
     const eventNames = sendMock.mock.calls.map((c) => (c[0] as { name: string }).name)
     expect(eventNames).toContain('clio/partner-live.ended')
@@ -72,15 +78,21 @@ describe('handleSessionEnd() emits clio/partner-session.ended (B2B-37 §6.2 call
     vi.doMock('@/inngest/client', () => ({ inngest: { send: sendMock } }))
     vi.doMock('@/lib/supabase', () => ({
       createSupabaseAdminClient: () => ({
-        from: () => ({ update: () => ({ eq: async () => ({ error: null }) }) }),
+        from: () => ({
+          select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { status: null } }) }) }),
+          update: () => ({ eq: async () => ({ error: null }) }),
+        }),
       }),
+    }))
+    vi.doMock('@/lib/meeting-bot/provider', () => ({
+      getMeetingBotProvider: () => ({ deleteBot: vi.fn(async () => {}) }),
     }))
     vi.doMock('@/lib/partner/webhooks', () => ({
       recordBillableEvent: vi.fn(async () => ({ dispatchLogId: 'log-1' })),
     }))
 
     const { handleSessionEnd } = await import('@/lib/partner/live-render')
-    await handleSessionEnd('session-2', 'acct-1', 0, true)
+    await handleSessionEnd('session-2', 'acct-1', 0, true, null)
 
     const eventNames = sendMock.mock.calls.map((c) => (c[0] as { name: string }).name)
     expect(eventNames).toContain('clio/partner-trial.ended')
@@ -91,15 +103,21 @@ describe('handleSessionEnd() emits clio/partner-session.ended (B2B-37 §6.2 call
     vi.doMock('@/inngest/client', () => ({ inngest: { send: sendMock } }))
     vi.doMock('@/lib/supabase', () => ({
       createSupabaseAdminClient: () => ({
-        from: () => ({ update: () => ({ eq: async () => ({ error: null }) }) }),
+        from: () => ({
+          select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { status: null } }) }) }),
+          update: () => ({ eq: async () => ({ error: null }) }),
+        }),
       }),
+    }))
+    vi.doMock('@/lib/meeting-bot/provider', () => ({
+      getMeetingBotProvider: () => ({ deleteBot: vi.fn(async () => {}) }),
     }))
     vi.doMock('@/lib/partner/webhooks', () => ({
       recordBillableEvent: vi.fn(async () => ({ dispatchLogId: 'log-1' })),
     }))
 
     const { handleSessionEnd } = await import('@/lib/partner/live-render')
-    await handleSessionEnd('session-3', 'acct-1', 0, false, 'failed', 'attendee_receipt')
+    await handleSessionEnd('session-3', 'acct-1', 0, false, null, 'failed', 'attendee_receipt')
 
     const sessionEndedCall = sendMock.mock.calls.find((c) => (c[0] as { name: string }).name === 'clio/partner-session.ended')
     expect(sessionEndedCall?.[0]).toEqual({
