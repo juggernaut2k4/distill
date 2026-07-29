@@ -481,6 +481,21 @@ async function handlePartnerSessionEvent(
       const participantName = (event.data.participant_name as string | null) ?? ''
       const eventType = event.data.event_type as string | undefined
 
+      // B2B-46 Step 1 — diagnostic only, zero behavioral change. This codebase's
+      // 'participant_joined' string is an unverified guess at Attendee's actual event_type
+      // vocabulary (their public docs describe 'join'/'leave', not 'participant_joined'/
+      // 'participant_left') — the same guessing mistake already may have left this very branch's
+      // join-greeting silently non-functional. Logging the raw payload here, before any behavior is
+      // built on top of a second guess, lets the next live test confirm the real "participant left"
+      // event_type value with certainty rather than assuming it.
+      if (eventType !== 'participant_joined') {
+        console.log('[attendee/webhook] participant_events.join_leave — non-join event, raw payload for B2B-46 diagnosis:', {
+          partnerSessionId: row.id,
+          eventType,
+          fullPayload: JSON.stringify(event.data),
+        })
+      }
+
       if (eventType !== 'participant_joined' || !participantName) break
 
       // Skip the bot itself — also checks the partner's configured assistant
