@@ -1,10 +1,10 @@
 import { redirect } from 'next/navigation'
 import { requireChannelPartnerClientAccess } from '@/lib/partner/auth'
 import { createSupabaseAdminClient } from '@/lib/supabase'
-import { getBillingHealth } from '@/app/dashboard/configurator/_billing-health'
+import { getBillingHealth } from '@/app/(with-clerk)/dashboard/configurator/_billing-health'
 import { VISIBLE_SECTIONS, type ConfiguratorSection } from '@/lib/partner/configurator-status'
 import type { AdminPartnerAccount } from '@/lib/partner/admin-accounts'
-import ConfiguratorSurface from '@/app/dashboard/configurator/ConfiguratorSurface'
+import ConfiguratorSurface from '@/app/(with-clerk)/dashboard/configurator/ConfiguratorSurface'
 
 /**
  * /dashboard/channel-partner/clients/[id]/configure — B2B-29

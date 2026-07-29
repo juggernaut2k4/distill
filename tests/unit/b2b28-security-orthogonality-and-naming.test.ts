@@ -165,7 +165,7 @@ describe('AT-25 — /api/admin/sales-partners* routes 403 a non-super-admin call
 // happens via the new, additive migration 094. ─────────────────────────────
 describe('AT-29/AT-30 — TeamClient.tsx naming-collision fix is copy-only (B2B-28), identifiers renamed by B2B-34 Part A', () => {
   const source = fs.readFileSync(
-    path.resolve(__dirname, '../../app/dashboard/admin/team/TeamClient.tsx'),
+    path.resolve(__dirname, '../../app/(with-clerk)/dashboard/admin/team/TeamClient.tsx'),
     'utf8'
   )
 

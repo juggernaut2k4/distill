@@ -1,8 +1,8 @@
 import { redirect } from 'next/navigation'
 import { requireChannelPartnerClientAccess } from '@/lib/partner/auth'
-import { getBillingHealth } from '@/app/dashboard/configurator/_billing-health'
+import { getBillingHealth } from '@/app/(with-clerk)/dashboard/configurator/_billing-health'
 import type { AdminPartnerAccount } from '@/lib/partner/admin-accounts'
-import ApiClient from '@/app/dashboard/configurator/api/ApiClient'
+import ApiClient from '@/app/(with-clerk)/dashboard/configurator/api/ApiClient'
 
 /**
  * /dashboard/channel-partner/clients/[id]/configure/api — B2B-29

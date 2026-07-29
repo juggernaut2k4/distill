@@ -47,7 +47,7 @@ describe('B2B-40 — app/dashboard/page.tsx router', () => {
     mockClerkAuth.mockReturnValue({ userId: 'user_super' })
     mockResolveInternalAdmin.mockResolvedValue({ role: 'super_admin', error: null })
     mockGetPartnerAccountsForClerkUser.mockResolvedValue([])
-    const { default: DashboardPage } = await import('@/app/dashboard/page')
+    const { default: DashboardPage } = await import('@/app/(with-clerk)/dashboard/page')
     await expect(DashboardPage()).rejects.toThrow('REDIRECT:/dashboard/admin')
     expect(mockGetPartnerAccountsForClerkUser).not.toHaveBeenCalled()
   })
@@ -56,7 +56,7 @@ describe('B2B-40 — app/dashboard/page.tsx router', () => {
     mockClerkAuth.mockReturnValue({ userId: 'user_super' })
     mockResolveInternalAdmin.mockResolvedValue({ role: 'super_admin', error: null })
     mockGetPartnerAccountsForClerkUser.mockResolvedValue([{ account_kind: 'channel_partner' }])
-    const { default: DashboardPage } = await import('@/app/dashboard/page')
+    const { default: DashboardPage } = await import('@/app/(with-clerk)/dashboard/page')
     await expect(DashboardPage()).rejects.toThrow('REDIRECT:/dashboard/admin')
     // short-circuits before membership check is ever reached
     expect(mockGetPartnerAccountsForClerkUser).not.toHaveBeenCalled()
@@ -66,7 +66,7 @@ describe('B2B-40 — app/dashboard/page.tsx router', () => {
     mockClerkAuth.mockReturnValue({ userId: 'user_reseller' })
     mockResolveInternalAdmin.mockResolvedValue({ role: 'internal_staff', error: null })
     mockGetPartnerAccountsForClerkUser.mockResolvedValue([{ account_kind: 'channel_partner' }])
-    const { default: DashboardPage } = await import('@/app/dashboard/page')
+    const { default: DashboardPage } = await import('@/app/(with-clerk)/dashboard/page')
     await expect(DashboardPage()).rejects.toThrow('REDIRECT:/dashboard/channel-partner')
   })
 
@@ -74,7 +74,7 @@ describe('B2B-40 — app/dashboard/page.tsx router', () => {
     mockClerkAuth.mockReturnValue({ userId: 'user_reseller2' })
     mockResolveInternalAdmin.mockResolvedValue({ role: null, error: {} })
     mockGetPartnerAccountsForClerkUser.mockResolvedValue([{ account_kind: 'channel_partner' }])
-    const { default: DashboardPage } = await import('@/app/dashboard/page')
+    const { default: DashboardPage } = await import('@/app/(with-clerk)/dashboard/page')
     await expect(DashboardPage()).rejects.toThrow('REDIRECT:/dashboard/channel-partner')
   })
 
@@ -82,13 +82,13 @@ describe('B2B-40 — app/dashboard/page.tsx router', () => {
     mockClerkAuth.mockReturnValue({ userId: 'user_plain' })
     mockResolveInternalAdmin.mockResolvedValue({ role: null, error: {} })
     mockGetPartnerAccountsForClerkUser.mockResolvedValue([])
-    const { default: DashboardPage } = await import('@/app/dashboard/page')
+    const { default: DashboardPage } = await import('@/app/(with-clerk)/dashboard/page')
     await expect(DashboardPage()).rejects.toThrow('REDIRECT:/dashboard/configurator')
   })
 
   it('AT-8: no Clerk session redirects to /sign-in before any lookup', async () => {
     mockClerkAuth.mockReturnValue({ userId: null })
-    const { default: DashboardPage } = await import('@/app/dashboard/page')
+    const { default: DashboardPage } = await import('@/app/(with-clerk)/dashboard/page')
     await expect(DashboardPage()).rejects.toThrow('REDIRECT:/sign-in')
     expect(mockResolveInternalAdmin).not.toHaveBeenCalled()
     expect(mockGetPartnerAccountsForClerkUser).not.toHaveBeenCalled()

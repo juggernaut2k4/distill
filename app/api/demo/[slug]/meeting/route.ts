@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createSupabaseAdminClient } from '@/lib/supabase'
-import { getDemoTopicBySlug } from '@/app/demo/_content'
+import { getDemoTopicBySlug } from '@/app/(demo)/demo/_content'
 import { resolveDemoPasscodeToAccount } from '@/lib/demo/passcode-accounts'
 
 /**

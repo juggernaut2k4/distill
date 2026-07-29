@@ -23,7 +23,7 @@ import path from 'path'
  */
 
 const pageSource = fs.readFileSync(
-  path.resolve(__dirname, '../../app/dashboard/admin/page.tsx'),
+  path.resolve(__dirname, '../../app/(with-clerk)/dashboard/admin/page.tsx'),
   'utf8'
 )
 

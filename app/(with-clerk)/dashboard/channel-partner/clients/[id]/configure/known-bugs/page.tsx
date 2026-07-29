@@ -1,8 +1,8 @@
 import { redirect } from 'next/navigation'
 import { requireChannelPartnerClientAccess } from '@/lib/partner/auth'
-import { getBillingHealth } from '@/app/dashboard/configurator/_billing-health'
+import { getBillingHealth } from '@/app/(with-clerk)/dashboard/configurator/_billing-health'
 import type { AdminPartnerAccount } from '@/lib/partner/admin-accounts'
-import KnownBugsClient from '@/app/dashboard/configurator/known-bugs/KnownBugsClient'
+import KnownBugsClient from '@/app/(with-clerk)/dashboard/configurator/known-bugs/KnownBugsClient'
 
 /**
  * /dashboard/channel-partner/clients/[id]/configure/known-bugs — B2B-29

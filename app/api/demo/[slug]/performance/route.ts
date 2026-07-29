@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseAdminClient } from '@/lib/supabase'
-import { getDemoTopicBySlug } from '@/app/demo/_content'
+import { getDemoTopicBySlug } from '@/app/(demo)/demo/_content'
 import { fetchHumeChatDuration } from '@/lib/voice/hume-native/session-details'
 
 /**

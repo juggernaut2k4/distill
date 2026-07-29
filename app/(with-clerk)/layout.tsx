@@ -2,7 +2,13 @@ import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import { ClerkProvider } from '@clerk/nextjs'
 import { CleanupOrphanedProfile } from '@/components/CleanupOrphanedProfile'
-import './globals.css'
+import '../globals.css'
+
+// B2B-47: This is a root layout for the (with-clerk) route group, sitting alongside the
+// Clerk-free (demo) root layout. Route groups never appear in the URL, but navigating between
+// two different root layouts triggers a full page reload rather than a client-side transition
+// (a documented Next.js characteristic) — do not add a <Link> from a (demo) page into this tree
+// (or vice versa) expecting SPA behavior.
 
 const inter = Inter({ subsets: ['latin'] })
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { flattenBlocksToNarrationText, type ContentBlock } from '@/app/demo/_content'
+import { flattenBlocksToNarrationText, type ContentBlock } from '@/app/(demo)/demo/_content'
 
 /**
  * B2B-35 F1 (docs/specs/B2B-35-requirement-document.md §6.3/§7 AT-3) — tests for the demo's
