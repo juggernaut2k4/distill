@@ -232,6 +232,52 @@ export interface RenderedInlinePage {
   status: 'ok' | 'unavailable'
   contentHtml?: string
   imageDataUri?: string
+  /**
+   * B2B-48 — set only for Clio's own first-party demo pages (mediaType 'html', see
+   * isFirstPartyDemoPageUrl() below). When present, PartnerRenderClient.tsx renders a real
+   * `<iframe src={sourceUrl}>` navigation instead of an opaque `srcDoc`, so the fetched
+   * document's own Next.js router hydration bootstrap gets a real, navigable window.location to
+   * reconcile against (see the file-header comment on buildIframeDiagnosticShim() for the
+   * `about:srcdoc` failure mode this avoids). Mutually exclusive with `contentHtml` — a page has
+   * exactly one of the two set when status is 'ok'. Never set for genuine partner content.
+   */
+  sourceUrl?: string
+}
+
+/**
+ * B2B-48 — true only for a page URL Clio itself serves (its own /demo/** route), never for
+ * genuine partner content. `app/api/demo/[slug]/dispatch/route.ts` is the ONLY caller anywhere in
+ * the codebase that ever supplies Clio's own URLs as content_pages[] (built from
+ * DEMO_CONTENT_BASE_URL) — real partner sessions via `app/api/partner/v1/sessions/route.ts` never
+ * do; there is no page-level flag carried through that table for this, so origin comparison is
+ * the cheapest reliable signal available at this call site.
+ *
+ * Fails CLOSED by design: an unset env var, an unparseable configured URL, or an unparseable page
+ * URL all resolve to `false` (not first-party) — the caller then falls through to the existing
+ * safeFetchPartnerPage()/srcDoc pipeline unchanged, exactly as genuine partner content already
+ * does today. Per CLAUDE.md's "No Hardcoded Hosts" standing rule, no literal host fallback is used
+ * here — only the two env vars this app already reads for exactly this content (see
+ * app/api/demo/[slug]/dispatch/route.ts's own file-header comment on why they're kept separate).
+ */
+function isFirstPartyDemoPageUrl(url: string): boolean {
+  const knownOrigins = [process.env.DEMO_CONTENT_BASE_URL, process.env.NEXT_PUBLIC_APP_URL]
+    .filter((v): v is string => Boolean(v))
+    .map((v) => {
+      try {
+        return new URL(v).origin
+      } catch {
+        return null
+      }
+    })
+    .filter((v): v is string => Boolean(v))
+
+  if (knownOrigins.length === 0) return false
+
+  try {
+    return knownOrigins.includes(new URL(url).origin)
+  } catch {
+    return false
+  }
 }
 
 export type LiveRenderResult =
@@ -421,6 +467,23 @@ async function resolveInlineSessionRender(session: PartnerSessionRow): Promise<L
 
   const rendered: RenderedInlinePage[] = []
   for (const page of pages) {
+    // B2B-48 — Clio's own first-party demo pages skip the fetch-and-reinject-as-srcDoc pipeline
+    // entirely (isFirstPartyDemoPageUrl()'s doc comment above has the full reasoning). No
+    // safeFetchPartnerPage() call, no injectIframeDiagnosticShim() — the raw URL passes straight
+    // through for the render client to load via a real navigation. Genuine partner pages
+    // (isFirstPartyDemoPageUrl() false) are completely unaffected by this branch.
+    if (page.media_type === 'html' && isFirstPartyDemoPageUrl(page.url)) {
+      rendered.push({
+        mediaType: 'html',
+        title: page.title,
+        subtitle: page.subtitle,
+        transitionMarker: page.transition_marker,
+        status: 'ok',
+        sourceUrl: page.url,
+      })
+      continue
+    }
+
     const fetched = await safeFetchPartnerPage(page.url, headers, page.media_type)
     if (fetched.status !== 'ok') {
       rendered.push({

@@ -22,6 +22,22 @@ import { COLORS } from './_styles'
  * Guarded as optional (`typeof window !== 'undefined' && window.__CLIO_REPORT_REACT_ERROR__`) so this
  * component also renders safely standalone (e.g. direct navigation, outside the sandboxed iframe),
  * where that global is never defined.
+ *
+ * B2B-48 (2026-07-29) — the injected shim above only runs when this page is fetched server-side and
+ * reinjected as opaque `srcDoc` (genuine partner-content transport). This page's OWN visuals are now
+ * embedded via a real `<iframe src="...">` navigation instead (see lib/partner/live-render.ts's
+ * isFirstPartyDemoPageUrl()) — no server-side fetch happens for them, so nothing ever injects
+ * `window.__CLIO_REPORT_REACT_ERROR__` and this boundary's componentDidCatch() below is a silent
+ * no-op for these pages: the fallback UI still renders correctly (this.state.hasError still works,
+ * it's purely React-local state), only the /api/partner/render/client-error report is lost.
+ * Deliberately not replaced with a lightweight fallback: the shim's report needs a clio_session_ref
+ * to be useful, and this component has no route-level access to one (it's a static, session-agnostic
+ * page — the ref lives only in the render session that happens to be iframing it) — wiring one
+ * through would mean threading a session identifier into this page's own URL/query string, which is
+ * out of scope for a crash fix and not justified by the residual risk: this exact crash class is
+ * eliminated by construction by the real-navigation fix, and other errors here still degrade to the
+ * same visible "This visual couldn't be displayed." fallback either way, they just stop short of
+ * being reported to that specific sink.
  */
 
 declare global {

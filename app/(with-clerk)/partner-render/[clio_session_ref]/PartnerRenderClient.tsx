@@ -83,6 +83,9 @@ export interface InlinePageProp {
   status: 'ok' | 'unavailable'
   contentHtml?: string
   imageDataUri?: string
+  // B2B-48 — set only for Clio's own first-party demo pages. See lib/partner/live-render.ts's
+  // RenderedInlinePage.sourceUrl doc comment for the full reasoning.
+  sourceUrl?: string
 }
 
 export interface PartnerRenderClientProps {
@@ -413,6 +416,21 @@ export default function PartnerRenderClient({ clioSessionRef, sections, inlinePa
               ) : page.mediaType === 'image' ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={page.imageDataUri} alt={page.title ?? `page ${index + 1}`} className="max-h-full max-w-full object-contain" />
+              ) : page.sourceUrl ? (
+                // B2B-48 — Clio's own first-party demo content: a REAL navigation (src, not
+                // srcDoc) so the fetched page's own Next.js router hydration bootstrap gets a
+                // real, navigable window.location to reconcile against — eliminates the
+                // opaque-origin `about:srcdoc` hydration crash by construction, exactly the way
+                // this page already renders correctly when visited directly in a browser tab.
+                // Sandboxing is otherwise identical to the srcDoc branch below (allow-scripts,
+                // still no allow-same-origin) — this changes only the transport, not the
+                // security boundary.
+                <iframe
+                  title={page.title ?? `page ${index + 1}`}
+                  src={page.sourceUrl}
+                  sandbox="allow-scripts"
+                  className="h-full w-full border-0"
+                />
               ) : (
                 // Sandboxed: allow-scripts but NOT allow-same-origin → partner
                 // script runs in a null/opaque origin and cannot read Clio's
