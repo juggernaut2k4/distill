@@ -11,6 +11,15 @@ export interface HumeAdapterConfig {
   onModeChange: (mode: 'listening' | 'speaking') => void
   onMessage: (text: string, source: 'user' | 'ai') => void
   tools: Record<string, (params: Record<string, unknown>) => Promise<string>>
+  // B2B-49 — optional diagnostic hook for this adapter's own otherwise-silent WS failure paths
+  // (ws.onerror, and ws.onclose's give-up branch). Previously these only ever `console.error`'d —
+  // invisible from the server, and invisible entirely inside the meeting-bot's headless browser.
+  // Deliberately a plain optional callback (not a hard dependency on any reporting sink), matching
+  // this config's existing onError/onConnect/etc. callback style, so callers that don't care (e.g.
+  // WalkthroughClient.tsx) are unaffected — HumeAdapter itself stays decoupled from knowing how or
+  // where a report is sent. Callers that do care (PartnerRenderClient.tsx) pass their own
+  // clioSessionRef-bound wrapper around the shared reportClientError().
+  reportError?: (message: string) => void
   // HUME-SPEAK-01 — true only for Hume-native (supplemental-LLM) sessions.
   // Defaults to falsy for every existing caller (Custom-LLM bridge, keep-alive,
   // show_visual split-mode, reconnect), which must keep sending the
@@ -103,8 +112,17 @@ export class HumeAdapter implements VoiceSessionAdapter {
       }
 
       this.ws.onerror = () => {
-        if (!resolved) { resolved = true; reject(new Error('Hume WebSocket connection failed')) }
-        else { this.config.onError('Hume connection error') }
+        // The WebSocket `error` event never carries a code or reason (that arrives separately via
+        // `onclose`, handled below) — report what we know now so a failure that never reaches
+        // `onclose` at all is still visible, not just a generic rejected promise.
+        if (!resolved) {
+          resolved = true
+          this.config.reportError?.('Hume WebSocket onerror (during connect, before open — no close code available yet)')
+          reject(new Error('Hume WebSocket connection failed'))
+        } else {
+          this.config.reportError?.('Hume WebSocket onerror (after open)')
+          this.config.onError('Hume connection error')
+        }
       }
 
       this.ws.onclose = (event) => {
@@ -120,6 +138,10 @@ export class HumeAdapter implements VoiceSessionAdapter {
         if (event.code === 1008 || this.reconnectAttempts >= HumeAdapter.MAX_RECONNECT) {
           const reason = event.reason || 'no reason given'
           console.error(`[HumeAdapter] WS closed (code ${event.code}) — reason: ${reason}`)
+          // B2B-49 — this is the single most valuable diagnostic in the whole failure path: the
+          // REAL Hume WS close code and reason string. Previously this only ever reached
+          // console.error above, which nobody can see inside the meeting-bot's headless browser.
+          this.config.reportError?.(`Hume EVI WebSocket closed — code ${event.code}, reason: ${reason}`)
           this.config.onError(`Hume EVI WebSocket disconnected: ${reason} (code ${event.code})`)
           this.config.onDisconnect()
           return

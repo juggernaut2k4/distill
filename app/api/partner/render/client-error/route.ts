@@ -41,7 +41,19 @@ const ClientErrorSchema = z.object({
   // B2B-45's own lesson applies here too: this schema must be widened BEFORE the new source value is
   // ever sent, or .safeParse() silently rejects it exactly like the original 'error-boundary' value
   // was rejected for two days before B2B-44 Fix 2.
-  source: z.enum(['error', 'unhandledrejection', 'error-boundary', 'react-error-boundary']),
+  //
+  // B2B-49 — widened again for 'hume-adapter-error' (HumeAdapter's own ws.onerror/ws.onclose
+  // failure paths, carrying the real Hume WS close code/reason) and 'hume-connect-error'
+  // (PartnerRenderClient's connect() outer catch). Same lesson, same discipline: widened here in
+  // the same change that starts sending these values, not after.
+  source: z.enum([
+    'error',
+    'unhandledrejection',
+    'error-boundary',
+    'react-error-boundary',
+    'hume-adapter-error',
+    'hume-connect-error',
+  ]),
 })
 
 // B2B-44 Fix 3 — ordinal-collision-avoidance scheme for glitch_instances rows written by this

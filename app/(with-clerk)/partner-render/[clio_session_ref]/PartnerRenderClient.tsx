@@ -7,20 +7,10 @@ import { HumeAdapter } from '@/lib/voice/hume-adapter'
 import type { TemplateSection } from '@/lib/templates/types'
 import { cssCustomPropertiesToStyleBlock, type CSSCustomProperties } from '@/lib/partner/theme-client-safe'
 import { matchesTransitionMarker } from '@/lib/content/transition-markers'
-
-/** Fire-and-forget report to the diagnostic sink — never throws, never awaited by callers. */
-function reportClientError(clioSessionRef: string, source: 'error' | 'unhandledrejection', message: string, stack?: string) {
-  try {
-    fetch('/api/partner/render/client-error', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ clio_session_ref: clioSessionRef, source, message, stack }),
-      keepalive: true,
-    }).catch(() => {})
-  } catch {
-    /* best-effort only */
-  }
-}
+// B2B-49 — reportClientError() extracted to a shared module (was local to this file, 2026-07-27)
+// so lib/voice/hume-adapter.ts can also report its own silent WS failure paths through it, without
+// HumeAdapter importing from a page-level client component. Logic is unchanged, only relocated.
+import { reportClientError } from '@/lib/partner/report-client-error'
 
 /**
  * 2026-07-27 — found live: an uncaught render error inside one inline page
@@ -246,6 +236,11 @@ export default function PartnerRenderClient({ clioSessionRef, sections, inlinePa
           mediaStream: micStream,
           isNativeMode: true,
           tools: isInline ? inlineTools : templateTools,
+          // B2B-49 — surfaces HumeAdapter's own ws.onerror/ws.onclose failures (including the real
+          // WS close code/reason) to the same Vercel-log-visible sink as every other diagnostic
+          // here. Zero behavior change: HumeAdapter still calls its existing onError/onDisconnect
+          // callbacks exactly as before, this is purely an additional fire-and-forget report.
+          reportError: (message) => reportClientError(clioSessionRef, 'hume-adapter-error', message),
           onConnect: (sessionId) => {
             setStatus('listening')
             if (sessionId) {
@@ -272,7 +267,14 @@ export default function PartnerRenderClient({ clioSessionRef, sections, inlinePa
 
         adapterRef.current = adapter
       } catch (err) {
-        console.error('[partner-render] Voice connect failed:', err instanceof Error ? err.message : err)
+        const message = err instanceof Error ? err.message : String(err)
+        console.error('[partner-render] Voice connect failed:', message)
+        // B2B-49 — previously only console.error'd, invisible inside the meeting-bot's headless
+        // browser. Catches getUserMedia / token-fetch / HumeAdapter.create() setup failures that
+        // reach here (which may include a WS failure already separately reported above as
+        // 'hume-adapter-error' — reporting both is intentional and harmless, each carries different
+        // detail).
+        reportClientError(clioSessionRef, 'hume-connect-error', message, err instanceof Error ? err.stack : undefined)
         setStatus('error')
       }
     }
