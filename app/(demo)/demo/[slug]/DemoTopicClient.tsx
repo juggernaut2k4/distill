@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import type { ReactNode } from 'react'
 import Link from 'next/link'
 import type { DemoTopic } from '../_content'
 import {
@@ -55,14 +56,90 @@ interface PerformanceResponse {
   learner_insight: PerformanceLearnerInsight | null
 }
 
-/** Matches the section-heading inline style already used inside the Course Overview tab below (e.g. "What you'll learn"). */
-const perfSectionHeadingStyle = { fontSize: 15, fontWeight: 700, margin: '20px 0 10px 0' } as const
-
 /** Dimmed heading/body pair for the Performance tab's non-ready states — same COLORS.textMuted-based
  * dimming convention already used for this page's other empty-state tabs (Resources/Discussion/Learning
  * Check), matching the Meeting tab's own dimmed/disabled visual language for "nothing here yet." */
 const perfEmptyHeadingStyle = { fontSize: 18, fontWeight: 700, color: COLORS.textMuted, margin: '24px 0 8px 0' } as const
 const perfEmptyBodyStyle = { fontSize: 14, color: COLORS.textMuted, lineHeight: 1.6, margin: 0 } as const
+
+// B2B-51 (docs/specs/B2B-51-requirement-document.md §6.1/§6.4) — Performance tab "ready" state: a
+// literal Field/Value table, replacing the prior narrative layout. Each row is its own flex container
+// that reflows (Field cell above Value cell) via CSS flex-wrap once the viewport can't fit both
+// columns side by side — no JS breakpoint detection, no media queries, and deliberately no
+// `overflowX: 'auto'` (this file's existing horizontal-scroll pattern for codeBlockStyle/tabRowStyle):
+// this content wraps/grows vertically (prose + bulleted lists), not sideways.
+const perfTableWrapperStyle = { marginTop: 'clamp(20px, 3vw, 28px)' } as const
+
+const perfTableRowStyle = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: '6px 20px',
+  padding: 'clamp(10px, 1.6vw, 14px) 0',
+  borderBottom: `1px solid ${COLORS.border}`,
+} as const
+
+const perfTableHeaderCellStyle = {
+  ...demoLabelStyle,
+  marginBottom: 0,
+} as const
+
+const perfTableFieldCellStyle = {
+  ...demoLabelStyle,
+  color: COLORS.textMuted,
+  marginBottom: 0,
+  flexBasis: 'clamp(100px, 22%, 170px)',
+  minWidth: 100,
+  flexShrink: 0,
+} as const
+
+const perfTableValueCellStyle = {
+  ...chapterBodyStyle,
+  marginBottom: 0,
+  flex: '1 1 260px',
+  minWidth: 0,
+} as const
+
+const perfTableListStyle = {
+  ...listStyle,
+  margin: 0,
+} as const
+
+const perfTableMutedStyle = { color: COLORS.textMuted } as const
+
+/** §6.3 — scalar fields (Duration/Summary/Engagement style): null/empty/missing-parent renders "Not
+ * available" in muted color. Each row evaluates its own condition independently (§8/§9) — no row's
+ * rendering depends on any other row's data being present. */
+function PerfScalarCell({ value }: { value: string | number | null | undefined }) {
+  if (value === null || value === undefined || value === '') {
+    return <span style={perfTableMutedStyle}>Not available</span>
+  }
+  return <>{value}</>
+}
+
+/** §6.2/§6.3/AT-8 — list fields (Action items/Topics of interest/Suggested next topics): always render
+ * as a uniform bulleted list, even for a single item — never collapsed to plain text, never
+ * comma-joined, no pills. Null/absent/empty array renders "None identified" in muted color. */
+function PerfListCell({ items }: { items: string[] | null | undefined }) {
+  if (!items || items.length === 0) {
+    return <span style={perfTableMutedStyle}>None identified</span>
+  }
+  return (
+    <ul style={perfTableListStyle}>
+      {items.map((item, i) => (
+        <li key={i}>{item}</li>
+      ))}
+    </ul>
+  )
+}
+
+function PerfTableRow({ field, children }: { field: string; children: ReactNode }) {
+  return (
+    <div style={perfTableRowStyle}>
+      <div style={perfTableFieldCellStyle}>{field}</div>
+      <div style={perfTableValueCellStyle}>{children}</div>
+    </div>
+  )
+}
 
 /** Both demo topics now have a full set of static visual pages under /demo/{slug}/visuals/{chapterId}. */
 const VISUAL_TOPICS = new Set(['claude-ai', 'oop-fundamentals'])
@@ -689,66 +766,44 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
                   <p style={perfEmptyBodyStyle}>Something went wrong analyzing this meeting. Contact Clio if this keeps happening.</p>
                 </>
               ) : (
-                <div>
-                  <h3 style={perfSectionHeadingStyle}>Duration</h3>
-                  <p style={chapterBodyStyle}>
-                    {performanceData.duration_minutes !== null ? (
+                // B2B-51 — literal Field/Value table of the exact session-outcome fields Clio sends
+                // resellers via the session.insights_ready webhook. Fixed 6-row shape, always in this
+                // order, regardless of which values are populated (§4/§5.2). Deliberately excludes any
+                // internal-only diagnostic data (that lives solely in the dashboard tracker, B2B-17)
+                // and any wire-envelope/identifier fields (§10) — session-outcome content only.
+                <div style={perfTableWrapperStyle}>
+                  <div style={perfTableRowStyle}>
+                    <div style={perfTableHeaderCellStyle}>Field</div>
+                    <div style={perfTableHeaderCellStyle}>Value</div>
+                  </div>
+
+                  <PerfTableRow field="Duration">
+                    {performanceData.duration_minutes !== null && performanceData.duration_minutes !== undefined ? (
                       `${performanceData.duration_minutes} minutes`
                     ) : (
-                      <span style={{ color: COLORS.textMuted }}>Not available</span>
+                      <span style={perfTableMutedStyle}>Not available</span>
                     )}
-                  </p>
+                  </PerfTableRow>
 
-                  <h3 style={perfSectionHeadingStyle}>Action items</h3>
-                  {performanceData.action_items && performanceData.action_items.length > 0 ? (
-                    <ul style={listStyle}>
-                      {performanceData.action_items.map((item, i) => (
-                        <li key={i}>{item.text}</li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p style={{ color: COLORS.textMuted, fontSize: 14, marginBottom: 14 }}>
-                      No action items were identified in this session.
-                    </p>
-                  )}
+                  <PerfTableRow field="Action items">
+                    <PerfListCell items={performanceData.action_items?.map((item) => item.text) ?? null} />
+                  </PerfTableRow>
 
-                  <h3 style={perfSectionHeadingStyle}>Learner insight</h3>
-                  {performanceData.learner_insight ? (
-                    <>
-                      <p style={chapterBodyStyle}>{performanceData.learner_insight.summary}</p>
+                  <PerfTableRow field="Summary">
+                    <PerfScalarCell value={performanceData.learner_insight?.summary} />
+                  </PerfTableRow>
 
-                      {performanceData.learner_insight.topics_of_interest.length > 0 && (
-                        <>
-                          <div style={demoLabelStyle}>Topics of interest</div>
-                          <div style={{ ...pillRowStyle, margin: '0 0 16px 0' }}>
-                            {performanceData.learner_insight.topics_of_interest.map((t, i) => (
-                              <span key={i} style={pillStyle}>
-                                {t}
-                              </span>
-                            ))}
-                          </div>
-                        </>
-                      )}
+                  <PerfTableRow field="Topics of interest">
+                    <PerfListCell items={performanceData.learner_insight?.topics_of_interest ?? null} />
+                  </PerfTableRow>
 
-                      <div style={demoLabelStyle}>Engagement style</div>
-                      <p style={chapterBodyStyle}>{performanceData.learner_insight.engagement_style}</p>
+                  <PerfTableRow field="Engagement style">
+                    <PerfScalarCell value={performanceData.learner_insight?.engagement_style} />
+                  </PerfTableRow>
 
-                      {performanceData.learner_insight.suggested_next_topics.length > 0 && (
-                        <>
-                          <div style={demoLabelStyle}>Suggested next topics</div>
-                          <div style={{ ...pillRowStyle, margin: '0 0 4px 0' }}>
-                            {performanceData.learner_insight.suggested_next_topics.map((t, i) => (
-                              <span key={i} style={pillStyle}>
-                                {t}
-                              </span>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </>
-                  ) : (
-                    <p style={{ color: COLORS.textMuted, fontSize: 14 }}>No learner insight was generated for this session.</p>
-                  )}
+                  <PerfTableRow field="Suggested next topics">
+                    <PerfListCell items={performanceData.learner_insight?.suggested_next_topics ?? null} />
+                  </PerfTableRow>
                 </div>
               )}
             </div>
