@@ -179,12 +179,13 @@ export default function PartnerRenderClient({ clioSessionRef, sections, inlinePa
         connectStartRef.current = Date.now()
 
         // Tool handlers differ per mode. Option 2 keeps its exact prior behavior;
-        // inline routes advance_tab/show_visual through advanceOnTransition.
+        // inline mode: only advance_tab (plus the transcript phrase-match backup below)
+        // advances the page. B2B-58 — show_visual used to be wired identically to
+        // advance_tab, which force-advanced the page before Clio had said anything
+        // about the new section. It is now a page-position no-op.
         const inlineTools = {
           show_visual: async () => {
-            const marker = inlinePages![activeIndexRef.current]?.transitionMarker
-            if (marker) advanceOnTransition(marker)
-            return 'Advanced.'
+            return 'Visual is showing.'
           },
           advance_tab: async () => {
             const marker = inlinePages![activeIndexRef.current]?.transitionMarker

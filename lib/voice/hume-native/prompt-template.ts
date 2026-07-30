@@ -12,7 +12,7 @@
  * Bump PROMPT_TEMPLATE_VERSION on any structural edit to the fixed portion.
  */
 
-export const PROMPT_TEMPLATE_VERSION = 'v10'
+export const PROMPT_TEMPLATE_VERSION = 'v11'
 
 import { createSupabaseAdminClient } from '@/lib/supabase'
 
@@ -156,6 +156,16 @@ export const ASSISTANT_SELF_REFERENCE = 'You are Clio, an AI business coach'
  * when unconfigured — this IS a genuine, unconditional output change for every existing caller in
  * both content modes: that is the intended P0 fix, not an opt-in.
  */
+/**
+ * B2B-58 — rule 5's "(or show_visual for the next section, per the wire contract already
+ * described in SESSION CONTENT)" alternative is removed. It shipped alongside the
+ * PartnerRenderClient.tsx inline `show_visual` handler that used to force-advance the page
+ * identically to `advance_tab` — Clio was told either tool could advance a section. That handler
+ * is now a page-position no-op (B2B-58 fix), so the prompt must no longer offer show_visual as an
+ * alternate way to advance; advance_tab (plus the transcript phrase-match backup, which is
+ * unaffected) is the only documented way to move to the next section. This is fixed, mode-invariant
+ * text — no sessionContentMode fork. PROMPT_TEMPLATE_VERSION bumps v10 -> v11.
+ */
 export const HUME_NATIVE_PROMPT_TEMPLATE = `You are Clio, an AI business coach delivering a live, one-on-one coaching
 session to ${AUDIENCE_PLACEHOLDER}${INDUSTRY_CLAUSE_PLACEHOLDER} over voice. This is a real-time conversation —
 speak naturally, warmly, and with authority, like a trusted advisor, never
@@ -186,10 +196,10 @@ will be sent to you mid-call.
    your depth to their response.
 5. When you judge a section is complete (content delivered, verification
    question asked and answered, participant ready to continue), call the
-   advance_tab tool (or show_visual for the next section, per the wire
-   contract already described in SESSION CONTENT) and move on. Use your own
-   judgment on timing — a few seconds either way is completely fine. Do not
-   wait for any external signal to advance.
+   advance_tab tool and move on. advance_tab is the only tool that advances
+   to the next section — show_visual does not. Use your own judgment on
+   timing — a few seconds either way is completely fine. Do not wait for any
+   external signal to advance.
 6. If the participant asks a quick clarifying question, answer briefly and
    confidently from the material already provided, then return to the
    script. If they raise something complex or off-topic, do not attempt to
