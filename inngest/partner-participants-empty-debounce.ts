@@ -7,11 +7,11 @@ import { clampDurationMinutes } from '@/lib/partner/attendee-timing'
  * B2B-50 §6.6-6.7 — fired when active_participant_count transitions to 0. Deliberately NOT an
  * instant end: per the CEO brief's own explicit caution ("don't end a session because one of
  * several participants left"), a hard immediate cutoff on a momentary reconnect blip (Wi-Fi drop,
- * Meet's own rejoin flow) would be a worse failure mode than a short delay. 90s mirrors the same
- * order of magnitude as partner-live-cutoff.ts's own 60s wrap-up-runway and the observed 45-70s
- * Attendee-webhook fallback latency this brief is otherwise trying to beat — conservative on
- * purpose for this one mechanism only, unlike the "within a few seconds" bar the other 3 paths
- * now meet via the handleSessionEnd() choke point.
+ * Meet's own rejoin flow) would be a worse failure mode than a short delay. 60s (tightened from an
+ * initial 90s per Arun's own request, 2026-07-29) still comfortably covers a momentary reconnect
+ * blip while clearing faster than the observed 45-70s Attendee-webhook fallback latency this brief
+ * is otherwise trying to beat — conservative on purpose for this one mechanism only, unlike the
+ * "within a few seconds" bar the other 3 paths now meet via the handleSessionEnd() choke point.
  *
  * See docs/specs/B2B-50-requirement-document.md §6.7 and AT-9/AT-10/AT-11.
  */
@@ -29,7 +29,7 @@ export const partnerParticipantsEmptyDebounce = inngest.createFunction(
   }) => {
     const { clioSessionRef, partnerAccountId } = event.data
 
-    await step.sleep('debounce-wait', '90s')
+    await step.sleep('debounce-wait', '60s')
 
     const stillEmpty = await step.run('recheck-still-empty', async () => {
       const supabase = createSupabaseAdminClient()
