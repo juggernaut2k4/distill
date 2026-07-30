@@ -42,7 +42,13 @@ export class HumeAdapter implements VoiceSessionAdapter {
   private config: HumeAdapterConfig
   private intentionalClose = false
   private reconnectAttempts = 0
-  private static readonly MAX_RECONNECT = 3
+  // B2B-52 — widened from 3 to 5 (and the backoff below capped at 8s/attempt) after tonight's
+  // confirmed Hume-side WS instability (3 sessions hit ws.onerror/onclose(1006) within ~1hr on
+  // unmodified code — see docs/specs/B2B-52-requirement-document.md §0/§1). This is a bounded
+  // resilience mitigation, not a fix for a code-level bug — B2B-49 Track A's root-cause
+  // investigation remains open. Total retry-wait budget: 1+2+4+8+8 = 23s (§6.1), up from ~7s.
+  private static readonly MAX_RECONNECT = 5
+  private static readonly MAX_RECONNECT_DELAY_MS = 8000
 
   // AUTOGEN-01 Part D — speak-verification state. `onConnect` (chat_metadata) alone
   // is NOT sufficient proof Clio can speak (it only proves basic metadata was
@@ -147,9 +153,10 @@ export class HumeAdapter implements VoiceSessionAdapter {
           return
         }
 
-        // Exponential backoff: 1 s → 2 s → 4 s
+        // Exponential backoff, capped: 1s → 2s → 4s → 8s → 8s (B2B-52 — see MAX_RECONNECT comment
+        // above for the reasoning behind both the attempt count and the 8s cap).
         this.reconnectAttempts++
-        const delay = Math.pow(2, this.reconnectAttempts - 1) * 1000
+        const delay = Math.min(Math.pow(2, this.reconnectAttempts - 1) * 1000, HumeAdapter.MAX_RECONNECT_DELAY_MS)
         console.warn(`[HumeAdapter] WS closed (code ${event.code}, reason: ${event.reason || 'none'}) — reconnect attempt ${this.reconnectAttempts}/${HumeAdapter.MAX_RECONNECT} in ${delay}ms`)
         setTimeout(() => {
           this.openConnection().catch(() => { /* onclose handles further retries */ })
