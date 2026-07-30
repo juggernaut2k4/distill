@@ -153,11 +153,26 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
   }, [topic.slug])
 
   // 2026-07-27 — found live: dispatchSucceeded was a one-time flag with no way to learn the real
-  // Google Meet call had ended, so "✓ Bot is joining the meeting." stayed on screen forever. While
-  // it's true, poll session status and clear it once the session has actually finished (moved past
-  // in_progress), so the operator can relaunch without a manual page refresh.
+  // Google Meet call had ended, so "✓ Bot is joining the meeting." stayed on screen forever,
+  // blocking a relaunch. Simplified 2026-07-29 per Arun's direct instruction: this is a demo-only
+  // affordance (a real partner integration is API-triggered and never shows a "bot is joining"
+  // message at all), so a flat timer is intentionally preferred over trying to track the bot's
+  // real join/session state precisely — just show it, then clear it and let the operator relaunch.
   useEffect(() => {
     if (!dispatchSucceeded) return
+    const t = window.setTimeout(() => setDispatchSucceeded(false), 30000)
+    return () => window.clearTimeout(t)
+  }, [dispatchSucceeded])
+
+  // Separate from the banner above: the Performance tab needs the session's REAL state (duration,
+  // transcript-derived action items, learner insight), which the post-session insights extractor
+  // computes as a genuine background job — not instantaneous, and not on the same 30s timer as the
+  // banner. Found live 2026-07-29: a single poll that stopped as soon as the banner cleared left the
+  // Performance tab frozen on stale "pending" data even after extraction had actually finished,
+  // requiring a manual page refresh. This polls independently of the banner and stops itself only
+  // once the state resolves to something terminal ('ready' or 'extraction_failed').
+  useEffect(() => {
+    if (!dispatchSucceeded && performanceData?.session_state !== 'in_progress' && performanceData?.session_state !== 'pending_extraction') return
     let cancelled = false
     const interval = window.setInterval(() => {
       fetch(`/api/demo/${topic.slug}/performance`)
@@ -165,19 +180,16 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
         .then((data: PerformanceResponse) => {
           if (cancelled) return
           setPerformanceData(data)
-          if (data.session_state !== 'in_progress' && data.session_state !== 'not_dispatched') {
-            setDispatchSucceeded(false)
-          }
         })
         .catch(() => {
-          // Transient poll failure — retry on the next tick rather than resetting state.
+          // Transient poll failure — retry on the next tick rather than giving up.
         })
     }, 10000)
     return () => {
       cancelled = true
       window.clearInterval(interval)
     }
-  }, [dispatchSucceeded, topic.slug])
+  }, [dispatchSucceeded, performanceData?.session_state, topic.slug])
 
   useEffect(() => {
     let cancelled = false
