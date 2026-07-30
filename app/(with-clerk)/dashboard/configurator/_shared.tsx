@@ -209,7 +209,7 @@ export function ConfiguratorNavShell({
 }: {
   accounts: AdminPartnerAccount[]
   activePartnerAccountId: string
-  active: 'configurator' | 'api' | 'docs' | 'known_bugs'
+  active: 'configurator' | 'api' | 'docs' | 'known_bugs' | 'usage'
   billingHealth: BillingHealth
   children: React.ReactNode
   basePath?: string
@@ -222,12 +222,15 @@ export function ConfiguratorNavShell({
     router.push(`${pathname}?partner_account_id=${id}`)
   }
 
-  const navItems: { key: 'configurator' | 'api' | 'docs' | 'known_bugs'; label: string; href: string }[] = [
+  const navItems: { key: 'configurator' | 'api' | 'docs' | 'known_bugs' | 'usage'; label: string; href: string }[] = [
     { key: 'configurator', label: navLabel, href: `${basePath}?partner_account_id=${activePartnerAccountId}` },
     { key: 'api', label: 'API', href: `${basePath}/api?partner_account_id=${activePartnerAccountId}` },
     { key: 'docs', label: 'Docs', href: `${basePath}/docs?partner_account_id=${activePartnerAccountId}` },
+    // B2B-57b §6.5 — Usage data is closer in nature to the Docs/API integration-facing pages than to
+    // Known Bugs' support-ticket-style page, so it's positioned between them.
+    { key: 'usage', label: 'Usage', href: `${basePath}/usage?partner_account_id=${activePartnerAccountId}` },
     // B2B-22 §6.6 — Known Bugs is an ongoing operational/status view, not a Configurator setup step,
-    // so it's a 4th top-nav tab rather than a left-nav step group entry.
+    // so it's a top-nav tab rather than a left-nav step group entry.
     { key: 'known_bugs', label: 'Known Bugs', href: `${basePath}/known-bugs?partner_account_id=${activePartnerAccountId}` },
   ]
 

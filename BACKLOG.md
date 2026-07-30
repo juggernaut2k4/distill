@@ -435,6 +435,16 @@ Pass the actual values. Ensure the conflict key fix (LIVE-02) is applied first s
 **Fix (when picked up):** the brief's own documented fallback — Next.js "multiple root layouts" via route groups, giving `/demo/**` its own root `<html>/<body>` layout with no `ClerkProvider`, and redistributing every other top-level route ((auth), (marketing), dashboard, invite, partner-invite, partner-questionnaire, partner-render, partner-signup, showcase-render, team-invite, test-harness, test-harness-render, walkthrough) into a second route group that keeps the current root layout. Higher blast radius than the client-gate attempt — needs a dedicated session with live click-through testing across every affected route, not another late-night unattended attempt. Fix 4b (the diagnostic shim's error-boundary detection) already shipped and will surface a real signal the next time the crash recurs, which should sharpen root-cause confidence before investing in this restructuring.
 **File:** `app/layout.tsx`, new route-group layouts under `app/(demo)/` and `app/(main)/` or similar (exact grouping TBD)
 
+### B2B-57b-FOLLOWUP — Cross-link Docs `#billing` section to the new Usage page
+**Status:** Not started (trivial, additive follow-up logged per the B2B-57b Requirement Doc §10/§12's
+own condition of CEO approval).
+**What:** `DocsClient.tsx`'s `#billing` section explains the wallet/billing model conceptually but has
+no link to the new reseller-facing Usage log page (`/dashboard/configurator/usage`, B2B-57b) that now
+shows a reseller their actual per-event usage/delivery records. Add one line/link from `#billing` to
+the Usage page, matching the existing `COLORS.cyan` `Link` pattern already used elsewhere in that file
+(e.g. its Integration/Playground cross-links).
+**File:** `app/(with-clerk)/dashboard/configurator/docs/DocsClient.tsx`
+
 ### SCR-01 — Adaptive Script System
 **Status:** ✅ Done — confirmed 2026-07-03. The approved spec (`docs/specs/SCR-01-requirement-document.md`) explicitly descopes the 7-variant system and action-item extraction (Section 10, "Out of Scope") — those live elsewhere:
 - **7 response variants per checkpoint:** built in `lib/content/script-generator.ts` (CONTENT-01's `CheckpointVariants`, 7 named fields v1-v7) as part of CONTENT-01, not this spec.
