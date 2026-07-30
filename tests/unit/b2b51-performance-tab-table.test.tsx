@@ -148,6 +148,7 @@ describe('B2B-51 Performance tab — literal Field/Value table (ready state)', (
       duration_minutes: 2.1,
       action_items: [],
       learner_insight: null,
+      usage: null,
     })
     await renderAndOpenPerformanceTab()
 
@@ -163,8 +164,10 @@ describe('B2B-51 Performance tab — literal Field/Value table (ready state)', (
 
     // List fields -> "None identified" (Action items, Topics of interest, Suggested next topics).
     expect(screen.getAllByText('None identified')).toHaveLength(3)
-    // Scalar fields -> "Not available" (Summary, Engagement style). Duration is populated here.
-    expect(screen.getAllByText('Not available')).toHaveLength(2)
+    // Scalar fields -> "Not available" (Summary, Engagement style, and B2B-57a's 5 Usage rows —
+    // Minutes billed/Generation type/Mode/Event ID/Recorded at — since usage is null here). Duration
+    // is populated in this test, so it's excluded from the count.
+    expect(screen.getAllByText('Not available')).toHaveLength(7)
   })
 
   it('AT-6: non-ready states render no table row markup — only the unchanged message', async () => {
@@ -225,5 +228,96 @@ describe('B2B-51 Performance tab — literal Field/Value table (ready state)', (
     const fieldCell = screen.getByText('Duration')
     const computedField = window.getComputedStyle(fieldCell)
     expect(computedField.flexShrink).toBe('0')
+  })
+})
+
+// B2B-57a (feature-briefs/B2B-57a) — additive "Usage" row group on the same Field/Value table,
+// sourced from the demo session's own usage.voice_minute webhook_dispatch_log row. Extends the
+// FULL_READY_PAYLOAD fixture above with a `usage` object rather than duplicating the whole payload
+// shape, following this file's established mockFetch/renderAndOpenPerformanceTab helpers.
+
+const USAGE_RECORDED_AT_ISO = '2026-07-30T19:41:42.583Z'
+const EXPECTED_RECORDED_AT_TEXT = new Date(USAGE_RECORDED_AT_ISO).toLocaleString('en-US', {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+})
+
+const USAGE_PAYLOAD = {
+  minutes_billed: '4.2 minutes',
+  generation_type: null,
+  mode: 'Test' as const,
+  event_id: '044a3d38-1b8f-4217-9371-98e5b1cd8885',
+  recorded_at: USAGE_RECORDED_AT_ISO,
+}
+
+describe('B2B-57a Performance tab — Usage row group (real usage.voice_minute fields)', () => {
+  it('renders the "Usage" section label and all five fields with their real values when a usage row exists', async () => {
+    mockFetch({ ...FULL_READY_PAYLOAD, usage: USAGE_PAYLOAD })
+    await renderAndOpenPerformanceTab()
+
+    await waitFor(() => expect(screen.getByText('Usage')).toBeInTheDocument())
+
+    expect(screen.getByText('Minutes billed')).toBeInTheDocument()
+    expect(screen.getByText('4.2 minutes')).toBeInTheDocument()
+
+    expect(screen.getByText('Generation type')).toBeInTheDocument()
+    // generation_type is null in this fixture (real voice_minute events carry no generation_type) ->
+    // renders the same muted "Not available" placeholder as every other empty scalar field.
+
+    expect(screen.getByText('Mode')).toBeInTheDocument()
+    expect(screen.getByText('Test')).toBeInTheDocument()
+
+    expect(screen.getByText('Event ID')).toBeInTheDocument()
+    expect(screen.getByText('044a3d38-1b8f-4217-9371-98e5b1cd8885')).toBeInTheDocument()
+
+    expect(screen.getByText('Recorded at')).toBeInTheDocument()
+    expect(screen.getByText(EXPECTED_RECORDED_AT_TEXT)).toBeInTheDocument()
+  })
+
+  it('renders "Live" (not "Test") when the usage payload\'s mode is Live', async () => {
+    mockFetch({ ...FULL_READY_PAYLOAD, usage: { ...USAGE_PAYLOAD, mode: 'Live' as const } })
+    await renderAndOpenPerformanceTab()
+
+    await waitFor(() => expect(screen.getByText('Mode')).toBeInTheDocument())
+    expect(screen.getByText('Live')).toBeInTheDocument()
+    expect(screen.queryByText('Test')).not.toBeInTheDocument()
+  })
+
+  it('renders "Not available" for all five Usage fields, never blank or fabricated, when no usage row exists yet', async () => {
+    mockFetch({ ...FULL_READY_PAYLOAD, usage: null })
+    await renderAndOpenPerformanceTab()
+
+    // The Usage section label and all five field labels are still present (fixed-shape rows, same
+    // convention as the learner-insight rows in AT-5) — only the values are the muted placeholder.
+    await waitFor(() => expect(screen.getByText('Usage')).toBeInTheDocument())
+    expect(screen.getByText('Minutes billed')).toBeInTheDocument()
+    expect(screen.getByText('Generation type')).toBeInTheDocument()
+    expect(screen.getByText('Mode')).toBeInTheDocument()
+    expect(screen.getByText('Event ID')).toBeInTheDocument()
+    expect(screen.getByText('Recorded at')).toBeInTheDocument()
+
+    // Summary/Engagement style are populated by FULL_READY_PAYLOAD's learner_insight, so exactly the
+    // 5 Usage fields render "Not available" here.
+    expect(screen.getAllByText('Not available')).toHaveLength(5)
+  })
+
+  it('does not render the Usage section at all for non-ready session states', async () => {
+    mockFetch({
+      session_state: 'not_dispatched',
+      duration_minutes: null,
+      action_items: null,
+      learner_insight: null,
+      usage: null,
+    })
+    render(<DemoTopicClient topic={TOPIC} />)
+    const tabButton = await screen.findByRole('button', { name: 'Performance' })
+    fireEvent.click(tabButton)
+
+    await waitFor(() => expect(screen.getByText('No meeting dispatched yet.')).toBeInTheDocument())
+    expect(screen.queryByText('Usage')).not.toBeInTheDocument()
+    expect(screen.queryByText('Minutes billed')).not.toBeInTheDocument()
   })
 })

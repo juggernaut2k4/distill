@@ -31,8 +31,23 @@ interface FakeInsightsRow {
   } | null
 }
 
+// B2B-57a — the demo session's own usage.voice_minute webhook_dispatch_log row (or null if none has
+// been recorded yet). Payload shape mirrors the real WebhookPayload fields the route reads.
+interface FakeUsageDispatchRow {
+  payload: {
+    quantity: number | null
+    unit: string | null
+    generation_type: string | null
+    event_id: string
+    occurred_at: string
+    test_mode: boolean
+  }
+  created_at: string
+}
+
 let sessionRow: FakePartnerSession | null = null
 let insightsRow: FakeInsightsRow | null = null
+let usageDispatchRow: FakeUsageDispatchRow | null = null
 
 vi.mock('@/lib/supabase', () => ({
   createSupabaseAdminClient: () => ({
@@ -63,6 +78,23 @@ vi.mock('@/lib/supabase', () => ({
         }
       }
 
+      // B2B-57a — mirrors the route's own .select().eq(clio_session_ref).eq(event_type).order().limit(1).maybeSingle() chain.
+      if (table === 'webhook_dispatch_log') {
+        return {
+          select: () => ({
+            eq: () => ({
+              eq: () => ({
+                order: () => ({
+                  limit: () => ({
+                    maybeSingle: async () => ({ data: usageDispatchRow, error: null }),
+                  }),
+                }),
+              }),
+            }),
+          }),
+        }
+      }
+
       throw new Error(`Unexpected table in test mock: ${table}`)
     },
   }),
@@ -83,6 +115,7 @@ describe('GET /api/demo/[slug]/performance', () => {
   beforeEach(() => {
     sessionRow = null
     insightsRow = null
+    usageDispatchRow = null
     fetchHumeChatDurationMock.mockReset()
     process.env.DEMO_PARTNER_ACCOUNT_ID = 'demo-partner-account-id'
   })
@@ -101,7 +134,13 @@ describe('GET /api/demo/[slug]/performance', () => {
     process.env.DEMO_PARTNER_ACCOUNT_ID = 'PLACEHOLDER_DEMO_PARTNER_ACCOUNT_ID'
     const res = await GET(getRequest(), { params: { slug: 'claude-ai' } })
     const body = await res.json()
-    expect(body).toEqual({ session_state: 'not_dispatched', duration_minutes: null, action_items: null, learner_insight: null })
+    expect(body).toEqual({
+      session_state: 'not_dispatched',
+      duration_minutes: null,
+      action_items: null,
+      learner_insight: null,
+      usage: null,
+    })
     expect(fetchHumeChatDurationMock).not.toHaveBeenCalled()
   })
 
@@ -202,6 +241,7 @@ describe('GET /api/demo/[slug]/performance', () => {
         engagement_style: 'Asks pointed, comparison-driven questions.',
         suggested_next_topics: ['ROI case study'],
       },
+      usage: null, // B2B-57a — no webhook_dispatch_log row mocked in this test
     })
   })
 
@@ -241,5 +281,81 @@ describe('GET /api/demo/[slug]/performance', () => {
     const res = await GET(getRequest(), { params: { slug: 'claude-ai' } })
     const body = await res.json()
     expect(body.duration_minutes).toBe(2.3)
+  })
+
+  // B2B-57a — real usage.voice_minute field group, only queried/surfaced in the 'ready' branch.
+  describe('usage.voice_minute field group (B2B-57a)', () => {
+    beforeEach(() => {
+      sessionRow = { id: 's1', status: 'completed', hume_chat_id: 'chat-1', created_at: '2026-07-23T00:00:00.000Z' }
+      insightsRow = { extraction_status: 'success_empty', action_items: [], learner_insight: null }
+      fetchHumeChatDurationMock.mockResolvedValue({ ok: true, durationSeconds: 300 })
+    })
+
+    it('formats minutes_billed from quantity+unit, maps test_mode to Mode, and passes event_id/occurred_at through', async () => {
+      usageDispatchRow = {
+        payload: {
+          quantity: 4.235,
+          unit: 'minutes',
+          generation_type: null,
+          event_id: 'evt-123',
+          occurred_at: '2026-07-30T19:41:42.583Z',
+          test_mode: true,
+        },
+        created_at: '2026-07-30T19:41:42.748Z',
+      }
+      const res = await GET(getRequest(), { params: { slug: 'claude-ai' } })
+      const body = await res.json()
+      expect(body.usage).toEqual({
+        minutes_billed: '4.2 minutes',
+        generation_type: null,
+        mode: 'Test',
+        event_id: 'evt-123',
+        recorded_at: '2026-07-30T19:41:42.583Z',
+      })
+    })
+
+    it('maps test_mode: false to Mode: "Live"', async () => {
+      usageDispatchRow = {
+        payload: {
+          quantity: 1,
+          unit: 'minutes',
+          generation_type: null,
+          event_id: 'evt-live',
+          occurred_at: '2026-07-30T00:00:00.000Z',
+          test_mode: false,
+        },
+        created_at: '2026-07-30T00:00:00.100Z',
+      }
+      const res = await GET(getRequest(), { params: { slug: 'claude-ai' } })
+      const body = await res.json()
+      expect(body.usage.mode).toBe('Live')
+    })
+
+    it('returns usage: null (never a blank/fabricated object) when no webhook_dispatch_log row exists for this session', async () => {
+      usageDispatchRow = null
+      const res = await GET(getRequest(), { params: { slug: 'claude-ai' } })
+      const body = await res.json()
+      expect(body.usage).toBeNull()
+    })
+
+    it('never surfaces usage data outside the ready state (in_progress)', async () => {
+      sessionRow = { id: 's1', status: 'bot_active', hume_chat_id: 'chat-1', created_at: '2026-07-23T00:00:00.000Z' }
+      usageDispatchRow = {
+        payload: {
+          quantity: 2,
+          unit: 'minutes',
+          generation_type: null,
+          event_id: 'evt-should-not-appear',
+          occurred_at: '2026-07-30T00:00:00.000Z',
+          test_mode: true,
+        },
+        created_at: '2026-07-30T00:00:00.100Z',
+      }
+      fetchHumeChatDurationMock.mockResolvedValue({ ok: false, reason: 'still in progress' })
+      const res = await GET(getRequest(), { params: { slug: 'claude-ai' } })
+      const body = await res.json()
+      expect(body.session_state).toBe('in_progress')
+      expect(body.usage).toBeNull()
+    })
   })
 })

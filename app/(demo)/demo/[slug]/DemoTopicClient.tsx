@@ -49,11 +49,23 @@ interface PerformanceLearnerInsight {
   suggested_next_topics: string[]
 }
 
+// B2B-57a (feature-briefs/B2B-57a) — mirrors the API route's own PerformanceUsage contract. Demo-only
+// usage.voice_minute field group; `mode` is derived from the payload's test_mode boolean only (the
+// brief's text mentions a `live_mode` field that does not actually exist on WebhookPayload).
+interface PerformanceUsage {
+  minutes_billed: string | null
+  generation_type: string | null
+  mode: 'Live' | 'Test'
+  event_id: string
+  recorded_at: string
+}
+
 interface PerformanceResponse {
   session_state: PerformanceSessionState
   duration_minutes: number | null
   action_items: { text: string }[] | null
   learner_insight: PerformanceLearnerInsight | null
+  usage: PerformanceUsage | null
 }
 
 /** Dimmed heading/body pair for the Performance tab's non-ready states — same COLORS.textMuted-based
@@ -105,6 +117,18 @@ const perfTableListStyle = {
 } as const
 
 const perfTableMutedStyle = { color: COLORS.textMuted } as const
+
+// B2B-57a — lightweight section label for the new "Usage" row group. The existing table has no prior
+// sub-heading precedent between its Duration row and its learner-insight rows (confirmed by reading
+// the render block below — it's one flat row list), so this reuses the same label typography/muted
+// color tokens as the rest of the tab (demoLabelStyle + COLORS.textMuted) rather than inventing new
+// visual language, just to give this additive block a visible boundary.
+const perfTableSectionLabelStyle = {
+  ...demoLabelStyle,
+  color: COLORS.textMuted,
+  marginTop: 'clamp(16px, 2.4vw, 22px)',
+  marginBottom: 0,
+} as const
 
 /** §6.3 — scalar fields (Duration/Summary/Engagement style): null/empty/missing-parent renders "Not
  * available" in muted color. Each row evaluates its own condition independently (§8/§9) — no row's
@@ -803,6 +827,32 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
 
                   <PerfTableRow field="Suggested next topics">
                     <PerfListCell items={performanceData.learner_insight?.suggested_next_topics ?? null} />
+                  </PerfTableRow>
+
+                  {/* B2B-57a — this demo session's own real usage.voice_minute billing event, if one
+                      has been recorded yet. Demo-only; each row independently renders "Not available"
+                      via PerfScalarCell when performanceData.usage is null (event not dispatched yet),
+                      never a blank or fabricated value. */}
+                  <div style={perfTableSectionLabelStyle}>Usage</div>
+
+                  <PerfTableRow field="Minutes billed">
+                    <PerfScalarCell value={performanceData.usage?.minutes_billed} />
+                  </PerfTableRow>
+
+                  <PerfTableRow field="Generation type">
+                    <PerfScalarCell value={performanceData.usage?.generation_type} />
+                  </PerfTableRow>
+
+                  <PerfTableRow field="Mode">
+                    <PerfScalarCell value={performanceData.usage?.mode} />
+                  </PerfTableRow>
+
+                  <PerfTableRow field="Event ID">
+                    <PerfScalarCell value={performanceData.usage?.event_id} />
+                  </PerfTableRow>
+
+                  <PerfTableRow field="Recorded at">
+                    <PerfScalarCell value={performanceData.usage ? formatSavedAt(performanceData.usage.recorded_at) : null} />
                   </PerfTableRow>
                 </div>
               )}

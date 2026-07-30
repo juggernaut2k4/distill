@@ -35,11 +35,27 @@ interface LearnerInsight {
   suggested_next_topics: string[]
 }
 
+// B2B-57a — the demo session's own `usage.voice_minute` webhook_dispatch_log row, surfaced back on
+// the Performance tab. `minutes_billed` is pre-formatted server-side ("4.2 minutes", quantity rounded
+// to 1 decimal like duration_minutes already is) since PerfScalarCell renders a single opaque value
+// per the CEO brief's "use PerfScalarCell for all five" instruction. `mode` is derived from the
+// payload's `test_mode` boolean (the brief's own text says "live_mode/test_mode" but only test_mode
+// actually exists on WebhookPayload — confirmed by direct read of lib/partner/webhooks.ts — so this is
+// test_mode-only, flagged to the orchestrator as a minor brief inaccuracy, not a product decision).
+interface PerformanceUsage {
+  minutes_billed: string | null
+  generation_type: string | null
+  mode: 'Live' | 'Test'
+  event_id: string
+  recorded_at: string
+}
+
 interface PerformanceResponse {
   session_state: SessionState
   duration_minutes: number | null
   action_items: { text: string }[] | null
   learner_insight: LearnerInsight | null
+  usage: PerformanceUsage | null
 }
 
 export async function GET(_request: NextRequest, { params }: { params: { slug: string } }) {
@@ -55,6 +71,7 @@ export async function GET(_request: NextRequest, { params }: { params: { slug: s
     duration_minutes: null,
     action_items: null,
     learner_insight: null,
+    usage: null,
   }
 
   // DEMO_PARTNER_ACCOUNT_ID is a one-time infra value the Orchestrator sets (§6.1), not code this Part
@@ -96,6 +113,7 @@ export async function GET(_request: NextRequest, { params }: { params: { slug: s
       duration_minutes: durationMinutes,
       action_items: null,
       learner_insight: null,
+      usage: null,
     } satisfies PerformanceResponse)
   }
 
@@ -112,6 +130,7 @@ export async function GET(_request: NextRequest, { params }: { params: { slug: s
       duration_minutes: durationMinutes,
       action_items: null,
       learner_insight: null,
+      usage: null,
     } satisfies PerformanceResponse)
   }
 
@@ -121,7 +140,45 @@ export async function GET(_request: NextRequest, { params }: { params: { slug: s
       duration_minutes: durationMinutes,
       action_items: null,
       learner_insight: null,
+      usage: null,
     } satisfies PerformanceResponse)
+  }
+
+  // B2B-57a — this demo session's own `usage.voice_minute` webhook_dispatch_log row, keyed by
+  // clio_session_ref = partner_sessions.id (same resolution as every other partner-session join in
+  // this codebase). Most-recent row wins if more than one somehow exists for this session. Only
+  // fetched in the 'ready' branch since that's the only place the Field/Value table (and these rows)
+  // render — matches the brief's "no new fetch/endpoint pattern for one field group" constraint by
+  // extending this existing route rather than adding a second query path.
+  const { data: usageRow } = await supabase
+    .from('webhook_dispatch_log')
+    .select('payload, created_at')
+    .eq('clio_session_ref', sessionRow.id as string)
+    .eq('event_type', 'usage.voice_minute')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  let usage: PerformanceUsage | null = null
+  if (usageRow?.payload) {
+    const payload = usageRow.payload as {
+      quantity: number | null
+      unit: string | null
+      generation_type: string | null
+      event_id: string
+      occurred_at: string
+      test_mode: boolean
+    }
+    usage = {
+      minutes_billed:
+        payload.quantity !== null && payload.quantity !== undefined
+          ? `${Math.round(payload.quantity * 10) / 10} ${payload.unit ?? 'minutes'}`
+          : null,
+      generation_type: payload.generation_type ?? null,
+      mode: payload.test_mode ? 'Test' : 'Live',
+      event_id: payload.event_id,
+      recorded_at: payload.occurred_at,
+    }
   }
 
   // extraction_status is 'success' or 'success_empty' here.
@@ -130,5 +187,6 @@ export async function GET(_request: NextRequest, { params }: { params: { slug: s
     duration_minutes: durationMinutes,
     action_items: (insightsRow.action_items as { text: string }[] | null) ?? [],
     learner_insight: (insightsRow.learner_insight as LearnerInsight | null) ?? null,
+    usage,
   } satisfies PerformanceResponse)
 }
