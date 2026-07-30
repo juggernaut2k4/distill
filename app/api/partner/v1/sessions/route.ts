@@ -8,6 +8,7 @@ import { assertUrlSafe } from '@/lib/partner/ssrf'
 import { generateTransitionMarkers } from '@/lib/content/transition-markers'
 import { CreateSessionSchema, DEFAULT_EXPECTED_DURATION_MINUTES } from '@/lib/partner/session-schema'
 import { inngest } from '@/inngest/client'
+import { TRIAL_MINUTES_LIFETIME_CAP } from '@/lib/billing/trial-minutes'
 
 /**
  * POST /api/partner/v1/sessions
@@ -294,7 +295,7 @@ export async function POST(request: NextRequest) {
 
     const trialMinutesUsed = wallet ? Number(wallet.trial_minutes_used) : 0
     const testMinutesBalance = wallet ? Number(wallet.test_minutes_balance) : 0
-    const availableMinutes = Math.max(0, 20 - trialMinutesUsed) + testMinutesBalance
+    const availableMinutes = Math.max(0, TRIAL_MINUTES_LIFETIME_CAP - trialMinutesUsed) + testMinutesBalance
 
     if (availableMinutes <= 0) {
       await supabase

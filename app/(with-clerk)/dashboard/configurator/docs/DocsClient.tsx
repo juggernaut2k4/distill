@@ -484,6 +484,20 @@ Content-Type: application/json
           exact rate applied to each event type.
         </p>
 
+        <p style={subHeadingStyle}>Free trial &amp; test minutes</p>
+        <p style={bodyStyle}>
+          Every partner account gets a one-time, lifetime 20-minute free trial allowance for sessions
+          dispatched with a test-mode API key — separate from, and never drawn from, your production wallet
+          balance above. Once the trial allowance is used up, you can purchase a 2-hour test block to keep
+          testing.
+        </p>
+        <p style={bodyStyle}>
+          Both are reported on this same endpoint: <code style={monoInline}>trial_minutes_used</code>,{' '}
+          <code style={monoInline}>trial_minutes_remaining</code>, <code style={monoInline}>trial_minutes_cap</code>,
+          and <code style={monoInline}>test_minutes_balance</code>. This only governs test-mode key traffic — it
+          has no effect on live-mode sessions or your production balance.
+        </p>
+
         <p style={subHeadingStyle}>Payment problems &amp; low balance</p>
         <p style={bodyStyle}>
           Your Plan&apos;s payment state is mirrored on the wallet. <strong style={{ color: COLORS.textPrimary }}>Past

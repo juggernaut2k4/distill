@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { requirePartnerApiKey } from '@/lib/partner/auth'
 import { computeBurnRateProjection } from '@/lib/billing/metrics'
+import { TRIAL_MINUTES_LIFETIME_CAP } from '@/lib/billing/trial-minutes'
 
 /**
  * GET /api/partner/v1/wallet
@@ -57,11 +58,16 @@ export async function GET(request: NextRequest) {
 
   const { data: wallet } = await supabase
     .from('partner_wallets')
-    .select('balance_usd, reference_topup_amount_usd, low_balance_alert_fired_at, next_billing_date, created_at, updated_at')
+    .select(
+      'balance_usd, reference_topup_amount_usd, low_balance_alert_fired_at, next_billing_date, created_at, updated_at, trial_minutes_used, test_minutes_balance'
+    )
     .eq('partner_account_id', auth.partnerAccountId)
     .maybeSingle()
 
   const balanceUsd = wallet?.balance_usd != null ? Number(wallet.balance_usd) : 0
+  const trialMinutesUsed = wallet?.trial_minutes_used != null ? Number(wallet.trial_minutes_used) : 0
+  const testMinutesBalance = wallet?.test_minutes_balance != null ? Number(wallet.test_minutes_balance) : 0
+  const trialMinutesRemaining = Math.max(0, TRIAL_MINUTES_LIFETIME_CAP - trialMinutesUsed)
 
   const { data: rates } = await supabase
     .from('billing_rate_versions')
@@ -102,6 +108,10 @@ export async function GET(request: NextRequest) {
     balance_usd: balanceUsd,
     reference_topup_amount_usd: wallet?.reference_topup_amount_usd != null ? Number(wallet.reference_topup_amount_usd) : null,
     low_balance_alert_active: !!wallet?.low_balance_alert_fired_at,
+    trial_minutes_used: trialMinutesUsed,
+    trial_minutes_remaining: trialMinutesRemaining,
+    trial_minutes_cap: TRIAL_MINUTES_LIFETIME_CAP,
+    test_minutes_balance: testMinutesBalance,
     burn_rate_by_event_type: burnRateByEventType,
     avg_daily_burn_usd: projection.avg_daily_burn_usd,
     projected_days_remaining: projection.projected_days_remaining,

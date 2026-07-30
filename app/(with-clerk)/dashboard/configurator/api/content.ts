@@ -133,6 +133,10 @@ export const ENDPOINTS: EndpointDoc[] = [
       balance_usd: 42.315,
       reference_topup_amount_usd: 100.0,
       low_balance_alert_active: false,
+      trial_minutes_used: 6.5,
+      trial_minutes_remaining: 13.5,
+      trial_minutes_cap: 20,
+      test_minutes_balance: 0,
       burn_rate_by_event_type: [{ event_type: 'voice_minute', unit: 'minute', rate_usd: 0.015, rate_basis: 'cogs_placeholder_2026_05_no_margin' }],
       avg_daily_burn_usd: 1.203,
       projected_days_remaining: 35.2,
@@ -143,6 +147,7 @@ export const ENDPOINTS: EndpointDoc[] = [
     responseNotes: [
       'burn_rate_by_event_type always lists all 8 current event types; rate_usd: null means no rate configured yet.',
       'No explicit 4xx handling beyond auth — a DB read failure surfaces as a generic, unstructured 500.',
+      'trial_minutes_used/trial_minutes_remaining/test_minutes_balance are test-mode-only concepts (they gate POST /api/partner/v1/sessions when called with a test-mode API key) but are always present in this response regardless of which key mode you call /wallet with — they simply read 0 used / full cap remaining for an account that has never dispatched a test-mode session.',
     ],
     otherResponses: [{ status: '401/403', meaning: 'same as usage' }],
     playgroundDisabled: false,
