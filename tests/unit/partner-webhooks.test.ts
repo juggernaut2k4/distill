@@ -455,7 +455,6 @@ describe('recordInsightsReadyEvent', () => {
     // B2B-38 (docs/specs/B2B-38-requirement-document.md §6.8) — new required params, defaulted to
     // null here so every pre-existing call site in this file keeps validating its original scenario.
     resellerUniqueId?: string | null
-    humeConfigId?: string | null
   }): Promise<Record<string, unknown>> {
     let capturedRow: Record<string, unknown> | null = null
     const { createSupabaseAdminClient } = await import('@/lib/supabase')
@@ -484,7 +483,6 @@ describe('recordInsightsReadyEvent', () => {
       partnerReference: params.partnerReference,
       endClientId: params.endClientId,
       resellerUniqueId: params.resellerUniqueId ?? null,
-      humeConfigId: params.humeConfigId ?? null,
     })
 
     if (!capturedRow) throw new Error('webhook_dispatch_log.upsert was never called')
@@ -521,33 +519,37 @@ describe('recordInsightsReadyEvent', () => {
     expect(rowA.payload_hash).toBe(rowB.payload_hash)
   })
 
-  // B2B-38 (docs/specs/B2B-38-requirement-document.md §6.8/§7 AT-14) — reseller_id/reseller_unique_id/
-  // hume_config_id on the session.insights_ready reference payload.
-  it('AT-14: includes reseller_id (== partnerAccountId), reseller_unique_id, and hume_config_id on the payload', async () => {
+  // B2B-38 (docs/specs/B2B-38-requirement-document.md §6.8/§7 AT-14) — reseller_id/reseller_unique_id
+  // on the session.insights_ready reference payload. hume_config_id was removed from this payload by
+  // B2B-53 — assertions on it removed below accordingly.
+  it('AT-14: includes reseller_id (== partnerAccountId) and reseller_unique_id on the payload', async () => {
     const row = await captureUpsertedRow({
       partnerReference: null,
       endClientId: 'end-client-99',
       resellerUniqueId: 'order-48213',
-      humeConfigId: 'hume-cfg-abc',
     })
     const payload = row.payload as Record<string, unknown>
     expect(payload.reseller_id).toBe('acct-1')
     expect(payload.reseller_unique_id).toBe('order-48213')
-    expect(payload.hume_config_id).toBe('hume-cfg-abc')
   })
 
-  it('AT-14: reseller_unique_id/hume_config_id are null (not omitted) when the session has none', async () => {
+  it('AT-14: reseller_unique_id is null (not omitted) when the session has none', async () => {
     const row = await captureUpsertedRow({ partnerReference: null, endClientId: null })
     const payload = row.payload as Record<string, unknown>
     expect('reseller_unique_id' in payload).toBe(true)
     expect(payload.reseller_unique_id).toBeNull()
-    expect('hume_config_id' in payload).toBe(true)
-    expect(payload.hume_config_id).toBeNull()
   })
 
-  it('AT-14: the idempotency hash is UNAFFECTED by reseller_unique_id/hume_config_id (not part of the hash input)', async () => {
-    const rowA = await captureUpsertedRow({ partnerReference: 'same-ref', endClientId: null, resellerUniqueId: 'order-a', humeConfigId: 'cfg-a' })
-    const rowB = await captureUpsertedRow({ partnerReference: 'same-ref', endClientId: null, resellerUniqueId: 'order-b', humeConfigId: 'cfg-b' })
+  // B2B-53 — hume_config_id no longer exists on WebhookPayload at all.
+  it('B2B-53: hume_config_id is absent from the session.insights_ready reference payload', async () => {
+    const row = await captureUpsertedRow({ partnerReference: null, endClientId: 'end-client-99', resellerUniqueId: 'order-48213' })
+    const payload = row.payload as Record<string, unknown>
+    expect('hume_config_id' in payload).toBe(false)
+  })
+
+  it('AT-14: the idempotency hash is UNAFFECTED by reseller_unique_id (not part of the hash input)', async () => {
+    const rowA = await captureUpsertedRow({ partnerReference: 'same-ref', endClientId: null, resellerUniqueId: 'order-a' })
+    const rowB = await captureUpsertedRow({ partnerReference: 'same-ref', endClientId: null, resellerUniqueId: 'order-b' })
     expect(rowA.payload_hash).toBe(rowB.payload_hash)
   })
 })
@@ -560,7 +562,7 @@ describe('recordBillableEvent — B2B-38 trace fields', () => {
     state.accountRow = { id: 'acct-1', outbound_signing_secret: 'secret-123' }
   })
 
-  it('AT-14: includes reseller_id (== partnerAccountId) and resolves reseller_unique_id/hume_config_id from the session row', async () => {
+  it('AT-14: includes reseller_id (== partnerAccountId) and resolves reseller_unique_id from the session row', async () => {
     let capturedPayload: Record<string, unknown> | null = null
     const { createSupabaseAdminClient } = await import('@/lib/supabase')
     ;(createSupabaseAdminClient as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce({
@@ -573,7 +575,7 @@ describe('recordBillableEvent — B2B-38 trace fields', () => {
             select: () => ({
               eq: () => ({
                 maybeSingle: () =>
-                  Promise.resolve({ data: { end_client_id: 'end-client-99', reseller_unique_id: 'order-48213', hume_config_id: 'hume-cfg-abc' } }),
+                  Promise.resolve({ data: { end_client_id: 'end-client-99', reseller_unique_id: 'order-48213' } }),
               }),
             }),
           }
@@ -592,7 +594,39 @@ describe('recordBillableEvent — B2B-38 trace fields', () => {
     expect(capturedPayload).not.toBeNull()
     expect(capturedPayload!.reseller_id).toBe('acct-1')
     expect(capturedPayload!.reseller_unique_id).toBe('order-48213')
-    expect(capturedPayload!.hume_config_id).toBe('hume-cfg-abc')
+  })
+
+  // B2B-53 — hume_config_id no longer exists on WebhookPayload at all.
+  it('B2B-53: hume_config_id is absent from the recordBillableEvent payload', async () => {
+    let capturedPayload: Record<string, unknown> | null = null
+    const { createSupabaseAdminClient } = await import('@/lib/supabase')
+    ;(createSupabaseAdminClient as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce({
+      from: (table: string) => {
+        if (table === 'partner_accounts') {
+          return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: state.accountRow }) }) }) }
+        }
+        if (table === 'partner_sessions') {
+          return {
+            select: () => ({
+              eq: () => ({
+                maybeSingle: () =>
+                  Promise.resolve({ data: { end_client_id: 'end-client-99', reseller_unique_id: 'order-48213' } }),
+              }),
+            }),
+          }
+        }
+        return {
+          upsert: (row: Record<string, unknown>) => {
+            capturedPayload = row.payload as Record<string, unknown>
+            return { select: () => ({ maybeSingle: () => Promise.resolve({ data: { id: 'dl-1' } }) }) }
+          },
+        }
+      },
+    })
+
+    await recordBillableEvent({ partnerAccountId: 'acct-1', eventType: 'session.completed', clioSessionRef: 'session-1' })
+
+    expect('hume_config_id' in capturedPayload!).toBe(false)
   })
 
   it('AT-14: reseller_id is always populated even with no clioSessionRef (no session lookup needed)', async () => {
@@ -616,7 +650,6 @@ describe('recordBillableEvent — B2B-38 trace fields', () => {
 
     expect(capturedPayload!.reseller_id).toBe('acct-1')
     expect(capturedPayload!.reseller_unique_id).toBeNull()
-    expect(capturedPayload!.hume_config_id).toBeNull()
   })
 })
 

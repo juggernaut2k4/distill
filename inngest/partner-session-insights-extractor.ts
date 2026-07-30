@@ -314,7 +314,6 @@ export async function extractInsightsForPartnerSession(partnerSessionId: string)
     endClientId: (session.end_client_id as string | null) ?? null,
     // B2B-38 §6.8 — the session's REAL values, fetched above.
     resellerUniqueId: (session.reseller_unique_id as string | null) ?? null,
-    humeConfigId: (session.hume_config_id as string | null) ?? null,
   })
 
   return { status: result.status }
@@ -398,7 +397,6 @@ export async function markInsightsExtractionFailed(partnerSessionId: string, err
       endClientId: embeddedSession?.end_client_id ?? null,
       // B2B-38 §6.9 — threaded through same as endClientId immediately above.
       resellerUniqueId: embeddedSession?.reseller_unique_id ?? null,
-      humeConfigId: embeddedSession?.hume_config_id ?? null,
     })
   }
 }

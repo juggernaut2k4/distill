@@ -4,8 +4,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
  * B2B-38 (docs/specs/B2B-38-requirement-document.md §6.9/§7 AT-19) — covers the TS-side write path
  * that feeds the fanout_glitch_instances() Postgres trigger (migration 099): extractInsights
  * ForPartnerSession() must read reseller_unique_id/hume_config_id off partner_sessions and thread
- * them into the partner_session_insights upsert, and markInsightsExtractionFailed() must thread the
- * same two fields (read via its FK embed) into recordInsightsReadyEvent().
+ * them into the partner_session_insights upsert.
+ *
+ * B2B-53 update: hume_config_id was removed from the outbound reseller webhook payload entirely
+ * (lib/partner/webhooks.ts's WebhookPayload no longer has the field), so it is no longer threaded
+ * into recordInsightsReadyEvent() from either call site below — only reseller_unique_id still is.
+ * hume_config_id is still resolved/written to partner_session_insights for the unrelated
+ * fanout_glitch_instances() trigger purpose described above.
  *
  * The trigger's own fan-out behavior (glitch_instances receiving reseller_id/end_client_id/
  * reseller_unique_id/hume_config_id, and AT-20's "does not re-fire on the daily JSONB purge rewrite"
@@ -121,7 +126,7 @@ describe('AT-19 write path — extractInsightsForPartnerSession threads reseller
     })
   })
 
-  it('threads reseller_unique_id/hume_config_id through to recordInsightsReadyEvent', async () => {
+  it('threads reseller_unique_id through to recordInsightsReadyEvent', async () => {
     partnerSessionsById.ps2 = {
       id: 'ps2',
       partner_account_id: 'acct1',
@@ -135,9 +140,12 @@ describe('AT-19 write path — extractInsightsForPartnerSession threads reseller
 
     await extractInsightsForPartnerSession('ps2')
 
-    expect(recordInsightsReadyEventMock).toHaveBeenCalledWith(
-      expect.objectContaining({ resellerUniqueId: 'order-xyz', humeConfigId: 'hume-cfg-xyz' })
-    )
+    expect(recordInsightsReadyEventMock).toHaveBeenCalledWith(expect.objectContaining({ resellerUniqueId: 'order-xyz' }))
+    // B2B-53 — hume_config_id was removed from the outbound reseller webhook payload; it must no
+    // longer be threaded through to recordInsightsReadyEvent(), even though it's still resolved off
+    // partner_sessions above for the (unrelated) partner_session_insights upsert in the test above.
+    const callArgs = recordInsightsReadyEventMock.mock.calls[0][0] as Record<string, unknown>
+    expect('humeConfigId' in callArgs).toBe(false)
   })
 
   it('writes null for reseller_unique_id/hume_config_id when the session has neither', async () => {
@@ -205,8 +213,11 @@ describe('AT-19 write path — markInsightsExtractionFailed threads reseller_uni
     const { markInsightsExtractionFailed: freshMarkFailed } = await import('@/inngest/partner-session-insights-extractor')
     await freshMarkFailed('ps-failed', 'some retryable error')
 
-    expect(localRecordInsightsReadyEventMock).toHaveBeenCalledWith(
-      expect.objectContaining({ resellerUniqueId: 'order-failed-case', humeConfigId: 'hume-cfg-failed-case' })
-    )
+    expect(localRecordInsightsReadyEventMock).toHaveBeenCalledWith(expect.objectContaining({ resellerUniqueId: 'order-failed-case' }))
+    // B2B-53 — hume_config_id was removed from the outbound reseller webhook payload; it must no
+    // longer be threaded through to recordInsightsReadyEvent(), even though it's still resolved via
+    // the FK embed above (now unused dead data in that select, kept for minimal-footprint diff risk).
+    const callArgs = localRecordInsightsReadyEventMock.mock.calls[0][0] as Record<string, unknown>
+    expect('humeConfigId' in callArgs).toBe(false)
   })
 })

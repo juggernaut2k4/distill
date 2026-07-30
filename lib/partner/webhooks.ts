@@ -54,12 +54,11 @@ export interface WebhookPayload {
   // 'session.insights_ready'. architecture.md §16.7.
   extraction_status?: 'success' | 'success_empty' | 'failed' | null
   action_items?: { text: string }[] | null
-  glitches?: { type: string; description?: string }[] | null
   // B2B-34 Piece 1 (docs/specs/B2B-34-requirement-document.md Part C §6.6) — replaces
   // psychology_keywords?: string[] | null.
   learner_insight?: { summary: string; topics_of_interest: string[]; engagement_style: string; suggested_next_topics: string[] } | null
   // B2B-34 Piece 2 (docs/specs/B2B-34-requirement-document.md Part B §6.3/§6.5) — additive, mirrors
-  // extraction_status?/action_items?/glitches?'s own convention. NOT part of canonicalHashInput()'s
+  // extraction_status?/action_items?'s own convention. NOT part of canonicalHashInput()'s
   // idempotency hash (stays a narrow "core identity of the event" hash). Populated on every event
   // type this function emits, not only session.insights_ready (§6.5).
   end_client_id?: string | null
@@ -70,7 +69,6 @@ export interface WebhookPayload {
   // resolved partner_account_id to proceed.
   reseller_id?: string | null
   reseller_unique_id?: string | null
-  hume_config_id?: string | null
 }
 
 /** Deterministic subset used for the idempotency index — excludes event_id/dispatched_at, which vary per attempt. */
@@ -136,15 +134,14 @@ export async function recordBillableEvent(
   // set. Zero call-site changes required anywhere else in the codebase. A failed/errored lookup is
   // logged and never blocks or reverses this event-recording path (endClientId just stays null).
   // B2B-38 (docs/specs/B2B-38-requirement-document.md §6.8) — extends the existing end_client_id
-  // lookup to also fetch reseller_unique_id/hume_config_id. reseller_id needs no extra query — it is
+  // lookup to also fetch reseller_unique_id. reseller_id needs no extra query — it is
   // already params.partnerAccountId.
   let endClientId: string | null = null
   let resellerUniqueId: string | null = null
-  let humeConfigId: string | null = null
   if (params.clioSessionRef) {
     const { data: sessionRow, error: sessionLookupError } = await supabase
       .from('partner_sessions')
-      .select('end_client_id, reseller_unique_id, hume_config_id')
+      .select('end_client_id, reseller_unique_id')
       .eq('id', params.clioSessionRef)
       .maybeSingle()
     if (sessionLookupError) {
@@ -152,7 +149,6 @@ export async function recordBillableEvent(
     }
     endClientId = (sessionRow?.end_client_id as string | null) ?? null
     resellerUniqueId = (sessionRow?.reseller_unique_id as string | null) ?? null
-    humeConfigId = (sessionRow?.hume_config_id as string | null) ?? null
   }
 
   const payload: WebhookPayload = {
@@ -172,7 +168,6 @@ export async function recordBillableEvent(
     // B2B-38 §6.8 — additive, same non-hashed convention as end_client_id.
     reseller_id: params.partnerAccountId,
     reseller_unique_id: resellerUniqueId,
-    hume_config_id: humeConfigId,
   }
 
   const payloadHash = crypto.createHash('sha256').update(canonicalHashInput(payload)).digest('hex')
@@ -616,7 +611,7 @@ export async function checkDemoLowBalanceAndAlert(
 /**
  * B2B-09 — inserts a REFERENCE-ONLY webhook_dispatch_log row for
  * session.insights_ready. Deliberately does NOT include
- * action_items/glitches/learner_insight (B2B-34 Piece 1 — was psychology_keywords)
+ * action_items/learner_insight (B2B-34 Piece 1 — was psychology_keywords)
  * in the stored payload — that
  * content is reconstructed live from partner_session_insights at each
  * delivery attempt (attemptDispatch(), below), per the Requirement Doc
@@ -640,7 +635,7 @@ export async function checkDemoLowBalanceAndAlert(
  * payload AND the idempotency hash input — both callers now thread the session's real
  * `partner_sessions.partner_reference` value through `partnerReference`, never a hardcoded default;
  * (2) adds `end_client_id` as a new, additive, NON-hashed field (matching how
- * `extraction_status`/`action_items`/`glitches` are already additive-only, non-hashed fields on this
+ * `extraction_status`/`action_items` are already additive-only, non-hashed fields on this
  * same payload).
  */
 export async function recordInsightsReadyEvent(params: {
@@ -653,7 +648,6 @@ export async function recordInsightsReadyEvent(params: {
   // B2B-38 (docs/specs/B2B-38-requirement-document.md §6.8) — caller-supplied, not looked-up
   // internally, mirroring endClientId's own existing convention exactly.
   resellerUniqueId: string | null
-  humeConfigId: string | null
 }): Promise<void> {
   const supabase = createSupabaseAdminClient()
   const { data: account } = await supabase
@@ -677,8 +671,7 @@ export async function recordInsightsReadyEvent(params: {
     // B2B-38 §6.8 — additive.
     reseller_id: params.partnerAccountId,
     reseller_unique_id: params.resellerUniqueId,
-    hume_config_id: params.humeConfigId,
-    // action_items / glitches / learner_insight intentionally omitted — see function doc comment.
+    // action_items / learner_insight intentionally omitted — see function doc comment.
   }
   const payloadHash = crypto
     .createHash('sha256')
@@ -800,19 +793,21 @@ export async function attemptDispatch(row: DueDispatchRow): Promise<'delivered' 
     // the stored reference payload (Requirement Doc Section 6 / Section 11
     // judgment call 2). Reads WHATEVER is currently in
     // partner_session_insights: full detail if within the 30-day retention
-    // window, the purged (type-only glitches, null action_items/learner_insight)
-    // shape if not — graceful degradation, not a special-cased error
-    // (Requirement Doc Section 9). architecture.md §16.7.
+    // window, the purged (null action_items/learner_insight) shape if not —
+    // graceful degradation, not a special-cased error (Requirement Doc
+    // Section 9). architecture.md §16.7. `glitches` is intentionally never
+    // selected here — B2B-53 removed it from the reseller-facing payload
+    // entirely; it stays internal-only (partner_session_insights.glitches,
+    // /dashboard/admin/glitches).
     const { data: live } = await supabase
       .from('partner_session_insights')
-      .select('action_items, glitches, learner_insight')
+      .select('action_items, learner_insight')
       .eq('partner_session_id', row.payload.clio_session_ref as string)
       .maybeSingle()
 
     const fullPayload = {
       ...row.payload,
       action_items: (live?.action_items as WebhookPayload['action_items']) ?? null,
-      glitches: (live?.glitches as WebhookPayload['glitches']) ?? null,
       learner_insight: (live?.learner_insight as WebhookPayload['learner_insight']) ?? null,
     }
     rawBody = JSON.stringify(fullPayload)
