@@ -368,7 +368,7 @@ describe('POST /api/attendee/webhook — B2B-10 partner session support', () => 
       makeRequest(
         partnerEvent('partner-session-1', 'participant_events.join_leave', {
           participant_name: 'Jane End User',
-          event_type: 'participant_joined',
+          event_type: 'join',
         })
       )
     )
@@ -397,7 +397,7 @@ describe('POST /api/attendee/webhook — B2B-10 partner session support', () => 
       makeRequest(
         partnerEvent('partner-session-1', 'participant_events.join_leave', {
           participant_name: 'Aria',
-          event_type: 'participant_joined',
+          event_type: 'join',
         })
       )
     )
@@ -430,7 +430,7 @@ describe('POST /api/attendee/webhook — B2B-10 partner session support', () => 
       makeRequest(
         partnerEvent('partner-session-1', 'participant_events.join_leave', {
           participant_name: '',
-          event_type: 'participant_joined',
+          event_type: 'join',
         })
       )
     )

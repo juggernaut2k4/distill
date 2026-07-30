@@ -458,14 +458,15 @@ async function handlePartnerSessionEvent(
       const botNameLower = (theme.assistantDisplayName ?? 'clio').toLowerCase()
       const isBotName = (name: string) => name.toLowerCase().includes(botNameLower) || name.toLowerCase().includes('clio')
 
-      // B2B-46 Step 1 — diagnostic only, zero behavioral change. This codebase's
-      // 'participant_joined' string is an unverified guess at Attendee's actual event_type
-      // vocabulary (their public docs describe 'join'/'leave', not 'participant_joined'/
-      // 'participant_left') — the same guessing mistake already may have left this very branch's
-      // join-greeting silently non-functional. Logging the raw payload here, before any behavior is
-      // built on top of a second guess, lets the next live test confirm the real "participant left"
-      // event_type value with certainty rather than assuming it.
-      if (eventType !== 'participant_joined') {
+      // B2B-46 Step 1 confirmed live (2026-07-29/30, multiple sessions): Attendee's real
+      // event_type values are 'join' and 'leave' — 'participant_joined' never occurs and was an
+      // unverified guess. Found live 2026-07-30: because both checks below still compared against
+      // that wrong string, EVERY event (including real joins) fell into the "non-join" branch,
+      // decrementing active_participant_count to 0 the moment a participant joined and arming the
+      // B2B-50 empty-session debounce — while also making the join-greeting/increment logic below
+      // permanently dead code (the `break` on the next check never let it run). Now compared
+      // against the confirmed real value.
+      if (eventType !== 'join') {
         console.log('[attendee/webhook] participant_events.join_leave — non-join event, raw payload for B2B-46 diagnosis:', {
           partnerSessionId: row.id,
           eventType,
@@ -495,7 +496,7 @@ async function handlePartnerSessionEvent(
         }
       }
 
-      if (eventType !== 'participant_joined' || !participantName) break
+      if (eventType !== 'join' || !participantName) break
 
       // Skip the bot itself — also checks the partner's configured assistant
       // name, not just the literal "clio" the B2C branch checks, since a

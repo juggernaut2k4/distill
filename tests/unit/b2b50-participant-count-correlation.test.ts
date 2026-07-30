@@ -90,7 +90,7 @@ describe('participant_events.join_leave — active_participant_count correlation
     vi.doMock('@/lib/user-context', () => ({ getOrCreateContext: vi.fn(), updateSentiment: vi.fn(), addUnresolvedQuestion: vi.fn() }))
 
     const { POST } = await import('@/app/api/attendee/webhook/route')
-    await POST(webhookRequest(joinLeaveEvent('participant_joined', 'Jane Doe')))
+    await POST(webhookRequest(joinLeaveEvent('join', 'Jane Doe')))
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(rpcImpl).toHaveBeenCalledWith('increment_active_participant_count', { p_session_id: PARTNER_SESSION_ID })
@@ -195,7 +195,7 @@ describe('participant_events.join_leave — active_participant_count correlation
     vi.doMock('@/lib/user-context', () => ({ getOrCreateContext: vi.fn(), updateSentiment: vi.fn(), addUnresolvedQuestion: vi.fn() }))
 
     const { POST } = await import('@/app/api/attendee/webhook/route')
-    await POST(webhookRequest(joinLeaveEvent('participant_joined', 'Ava')))
+    await POST(webhookRequest(joinLeaveEvent('join', 'Ava')))
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(rpcImpl).not.toHaveBeenCalledWith('increment_active_participant_count', expect.anything())
