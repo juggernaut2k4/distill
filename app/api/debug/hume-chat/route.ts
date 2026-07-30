@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { fetchAllTranscriptEvents } from '@/lib/voice/hume-native/session-details'
 
 export const dynamic = 'force-dynamic'
 
@@ -34,8 +35,18 @@ async function fetchConfig(apiKey: string, configId: string) {
 export async function GET(request: NextRequest) {
   const chatId = request.nextUrl.searchParams.get('chat_id')
   const wantConfig = request.nextUrl.searchParams.get('config')
+  const wantFull = request.nextUrl.searchParams.get('full')
   const apiKey = process.env.HUME_API_KEY
   if (!apiKey) return NextResponse.json({ error: 'HUME_API_KEY not set' }, { status: 500 })
+
+  // ?chat_id=<id>&full=1 — pages through every transcript event (reuses the same helper the
+  // nightly archive job already relies on) instead of just the single page the default branch
+  // below returns. Ad-hoc live diagnostic only, not a new capability — no behavior change to any
+  // other branch of this route.
+  if (chatId && wantFull) {
+    const transcriptEvents = await fetchAllTranscriptEvents(apiKey, chatId)
+    return NextResponse.json({ chat_id: chatId, event_count: transcriptEvents.length, transcriptEvents })
+  }
 
   // Fetch the live config document itself — proves the actual tools/language_model
   // state of the config_id currently referenced by NEXT_PUBLIC_HUME_CONFIG_ID,
