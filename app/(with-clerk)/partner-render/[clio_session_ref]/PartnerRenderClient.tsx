@@ -84,11 +84,26 @@ export interface InlinePageProp {
 export interface PartnerRenderClientProps {
   clioSessionRef: string
   humeConfigId: string | null
+  // B2B-61 Part B (docs/specs/B2B-61-requirement-document.md §14 CEO Addendum) — type-only
+  // addition so page.tsx can pass the server-resolved provider without a tsc failure. NOT
+  // consumed here to construct or branch an adapter — that remains Part A's scope (the
+  // `if (voiceProvider === 'openai_realtime')` branch inside connect() below still reads its own
+  // env-var-based local, unchanged). Part A should replace that local read with this prop once
+  // its own adapter-construction work lands.
+  voiceProvider: 'hume' | 'openai_realtime'
   sections?: RenderedSectionProp[]
   inlinePages?: InlinePageProp[]
 }
 
-export default function PartnerRenderClient({ clioSessionRef, sections, inlinePages, humeConfigId }: PartnerRenderClientProps) {
+export default function PartnerRenderClient({
+  clioSessionRef,
+  sections,
+  inlinePages,
+  humeConfigId,
+  // Declared per §14 CEO Addendum, not yet consumed here — Part A's scope (see the doc comment
+  // on PartnerRenderClientProps above).
+  voiceProvider,
+}: PartnerRenderClientProps) {
   const isInline = Array.isArray(inlinePages)
   const count = isInline ? inlinePages!.length : (sections?.length ?? 0)
 

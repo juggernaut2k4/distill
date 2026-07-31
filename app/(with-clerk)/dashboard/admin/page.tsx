@@ -5,6 +5,7 @@ import { Building2, LayoutTemplate, Bug, Shield, Link2, Users, LucideIcon } from
 import { requireSuperAdmin } from '@/lib/internal-admin/auth'
 import DashboardShell from '@/components/dashboard/DashboardShell'
 import DemoAccessCard from './DemoAccessCard'
+import VoiceProviderCard from './VoiceProviderCard'
 
 /**
  * B2B-40 (docs/specs/B2B-40-requirement-document.md §4.B) — super-admin
@@ -58,6 +59,7 @@ export default async function AdminHomePage() {
 
         <div className="mt-6">
           <DemoAccessCard />
+          <VoiceProviderCard />
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

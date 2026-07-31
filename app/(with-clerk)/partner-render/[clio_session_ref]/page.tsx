@@ -1,5 +1,6 @@
 import { getPartnerSession, resolveLiveSessionRender } from '@/lib/partner/live-render'
 import { getThemeConfig } from '@/lib/partner/theme'
+import { getActiveVoiceProvider } from '@/lib/voice/provider-config'
 import PartnerRenderClient from './PartnerRenderClient'
 
 /**
@@ -69,6 +70,9 @@ export default async function PartnerRenderPage({
   }
 
   const theme = await getThemeConfig(session.partnerAccountId)
+  // B2B-61 Part B — independent sibling call, not nested inside resolveLiveSessionRender()
+  // (Requirement Doc §0/§6: that function's own signature/return type is intentionally untouched).
+  const voiceProvider = await getActiveVoiceProvider()
   const result = await resolveLiveSessionRender(session)
 
   if (result.status !== 'ok') {
@@ -83,6 +87,7 @@ export default async function PartnerRenderPage({
         clioSessionRef={session.id}
         inlinePages={result.inlinePages}
         humeConfigId={result.humeConfigId}
+        voiceProvider={voiceProvider}
       />
     )
   }
@@ -92,6 +97,7 @@ export default async function PartnerRenderPage({
       clioSessionRef={session.id}
       sections={result.sections}
       humeConfigId={result.humeConfigId}
+      voiceProvider={voiceProvider}
     />
   )
 }
