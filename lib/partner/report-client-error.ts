@@ -27,6 +27,9 @@ export type ClientErrorSource =
   // B2B-49 — PartnerRenderClient's connect() outer catch (getUserMedia / token fetch /
   // HumeAdapter.create() setup failures that aren't already-classified WS errors above).
   | 'hume-connect-error'
+  // B2B-61 Part A — OpenAIRealtimeAdapter's own ws.onerror / ws.onclose failure paths, mirroring
+  // 'hume-adapter-error' exactly for the alternate voice provider.
+  | 'openai-realtime-adapter-error'
 
 export function reportClientError(clioSessionRef: string, source: ClientErrorSource, message: string, stack?: string) {
   try {

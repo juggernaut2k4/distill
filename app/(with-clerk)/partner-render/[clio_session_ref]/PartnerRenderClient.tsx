@@ -4,6 +4,8 @@ import { Component, useEffect, useRef, useState } from 'react'
 import type { ErrorInfo, ReactNode } from 'react'
 import TemplateRenderer from '@/components/templates/TemplateRenderer'
 import { HumeAdapter } from '@/lib/voice/hume-adapter'
+import { OpenAIRealtimeAdapter } from '@/lib/voice/openai-realtime-adapter'
+import type { VoiceSessionAdapter } from '@/lib/voice/adapter'
 import type { TemplateSection } from '@/lib/templates/types'
 import { cssCustomPropertiesToStyleBlock, type CSSCustomProperties } from '@/lib/partner/theme-client-safe'
 import { matchesSpokenPhrase, computeStage2Eligibility, STAGE_1_WRAP_UP_PHRASE } from '@/lib/content/transition-markers'
@@ -91,7 +93,9 @@ export default function PartnerRenderClient({ clioSessionRef, sections, inlinePa
   const count = isInline ? inlinePages!.length : (sections?.length ?? 0)
 
   const [status, setStatus] = useState<'connecting' | 'listening' | 'speaking' | 'error' | 'ended'>('connecting')
-  const adapterRef = useRef<HumeAdapter | null>(null)
+  // B2B-61 Part A — typed against the provider-agnostic interface, not HumeAdapter directly, so
+  // this ref works unchanged regardless of which adapter `connect()` below constructs.
+  const adapterRef = useRef<VoiceSessionAdapter | null>(null)
   const connectStartRef = useRef<number | null>(null)
   const endedRef = useRef(false)
 
@@ -198,10 +202,13 @@ export default function PartnerRenderClient({ clioSessionRef, sections, inlinePa
         const micStream = await navigator.mediaDevices.getUserMedia({ audio: true })
         if (cancelled) return
 
-        const tokenRes = await fetch('/api/hume-token')
-        if (!tokenRes.ok) throw new Error(`Hume token fetch failed: ${tokenRes.status}`)
-        const { accessToken } = (await tokenRes.json()) as { accessToken: string }
-        if (cancelled) return
+        // B2B-61 Part A — provider-selection seam. Part B (the admin-toggle UI, a separate BA-gated
+        // track) will replace this env-var read with a real persisted, server-resolved value passed
+        // down as a prop alongside `humeConfigId` — this is deliberately the simplest possible
+        // placeholder until that lands, not a finished product decision. Hume remains the default:
+        // any value other than the literal string 'openai_realtime' resolves to 'hume'.
+        const voiceProvider: 'hume' | 'openai_realtime' =
+          process.env.NEXT_PUBLIC_VOICE_PROVIDER === 'openai_realtime' ? 'openai_realtime' : 'hume'
 
         connectStartRef.current = Date.now()
 
@@ -272,19 +279,10 @@ export default function PartnerRenderClient({ clioSessionRef, sections, inlinePa
             }
           : () => {}
 
-        const adapter = await HumeAdapter.create({
-          accessToken,
-          configId: humeConfigId,
-          userId: clioSessionRef,
-          mediaStream: micStream,
-          isNativeMode: true,
-          tools: isInline ? inlineTools : templateTools,
-          // B2B-49 — surfaces HumeAdapter's own ws.onerror/ws.onclose failures (including the real
-          // WS close code/reason) to the same Vercel-log-visible sink as every other diagnostic
-          // here. Zero behavior change: HumeAdapter still calls its existing onError/onDisconnect
-          // callbacks exactly as before, this is purely an additional fire-and-forget report.
-          reportError: (message) => reportClientError(clioSessionRef, 'hume-adapter-error', message),
-          onConnect: (sessionId) => {
+        // Shared across both providers — VoiceSessionAdapter's callback shapes are provider-agnostic
+        // by design (see adapter.ts), so none of this needs to branch.
+        const sharedCallbacks = {
+          onConnect: (sessionId: string) => {
             setStatus('listening')
             if (sessionId) {
               fetch('/api/partner/render/session-chat-id', {
@@ -295,13 +293,60 @@ export default function PartnerRenderClient({ clioSessionRef, sections, inlinePa
             }
           },
           onDisconnect: () => setStatus('ended'),
-          onError: (message) => {
+          onError: (message: string) => {
             console.error('[partner-render] Voice session error:', message)
             setStatus('error')
           },
-          onModeChange: (mode) => setStatus(mode),
+          onModeChange: (mode: 'listening' | 'speaking') => setStatus(mode),
           onMessage,
-        })
+        }
+
+        let adapter: VoiceSessionAdapter
+
+        if (voiceProvider === 'openai_realtime') {
+          const tokenRes = await fetch('/api/openai-realtime-token')
+          if (!tokenRes.ok) throw new Error(`OpenAI Realtime token fetch failed: ${tokenRes.status}`)
+          const { accessToken, model } = (await tokenRes.json()) as { accessToken: string; model: string }
+          if (cancelled) return
+
+          adapter = await OpenAIRealtimeAdapter.create({
+            ephemeralToken: accessToken,
+            model,
+            // B2B-61 Part A — see OpenAIRealtimeAdapterConfig.instructions doc comment: real,
+            // per-session content wiring for this provider is out of scope for this build. This
+            // placeholder is enough for the adapter/tool-calling/audio pipeline to be exercised,
+            // not enough for a real partner session to teach real material yet.
+            instructions:
+              'You are Clio, an AI business coach delivering a live coaching session over voice. ' +
+              'Use the show_visual, advance_tab, and end_session tools exactly as instructed by their ' +
+              'own descriptions.',
+            userId: clioSessionRef,
+            mediaStream: micStream,
+            tools: isInline ? inlineTools : templateTools,
+            reportError: (message) => reportClientError(clioSessionRef, 'openai-realtime-adapter-error', message),
+            ...sharedCallbacks,
+          })
+        } else {
+          const tokenRes = await fetch('/api/hume-token')
+          if (!tokenRes.ok) throw new Error(`Hume token fetch failed: ${tokenRes.status}`)
+          const { accessToken } = (await tokenRes.json()) as { accessToken: string }
+          if (cancelled) return
+
+          adapter = await HumeAdapter.create({
+            accessToken,
+            configId: humeConfigId,
+            userId: clioSessionRef,
+            mediaStream: micStream,
+            isNativeMode: true,
+            tools: isInline ? inlineTools : templateTools,
+            // B2B-49 — surfaces HumeAdapter's own ws.onerror/ws.onclose failures (including the real
+            // WS close code/reason) to the same Vercel-log-visible sink as every other diagnostic
+            // here. Zero behavior change: HumeAdapter still calls its existing onError/onDisconnect
+            // callbacks exactly as before, this is purely an additional fire-and-forget report.
+            reportError: (message) => reportClientError(clioSessionRef, 'hume-adapter-error', message),
+            ...sharedCallbacks,
+          })
+        }
 
         if (cancelled) {
           await adapter.endSession()
@@ -352,13 +397,13 @@ export default function PartnerRenderClient({ clioSessionRef, sections, inlinePa
         }
 
         if (adapter?.isOpen()) {
-          const sent = adapter.sendWrapUpNudge(data.greeting_text)
+          const sent = adapter.sendWrapUpNudge?.(data.greeting_text)
           if (sent) {
             joinGreetingRetriedRef.current = false
             clearFlag()
           } else if (!joinGreetingRetriedRef.current) {
             joinGreetingRetriedRef.current = true
-            adapter.sendWrapUpNudge(data.greeting_text)
+            adapter.sendWrapUpNudge?.(data.greeting_text)
             clearFlag()
           }
         } else if (!joinGreetingRetriedRef.current) {
@@ -400,13 +445,13 @@ export default function PartnerRenderClient({ clioSessionRef, sections, inlinePa
         }
 
         if (adapter?.isOpen()) {
-          const sent = adapter.sendWrapUpNudge(data.nudge_text)
+          const sent = adapter.sendWrapUpNudge?.(data.nudge_text)
           if (sent) {
             wrapUpRetriedRef.current = false
             clearFlag()
           } else if (!wrapUpRetriedRef.current) {
             wrapUpRetriedRef.current = true
-            adapter.sendWrapUpNudge(data.nudge_text)
+            adapter.sendWrapUpNudge?.(data.nudge_text)
             clearFlag()
           }
         } else if (!wrapUpRetriedRef.current) {

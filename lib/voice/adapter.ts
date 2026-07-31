@@ -49,4 +49,23 @@ export interface VoiceSessionAdapter {
    * If the connection never reaches this state, the callback is simply never called.
    */
   onSpeakVerified(callback: () => void): void
+
+  /**
+   * B2B-61 Part A — optional, provider-agnostic extension point for a one-time, near-end
+   * wrap-up/join-greeting nudge delivered over an already-open connection, without restarting
+   * the session. Added here (rather than left as a Hume-only method) so PartnerRenderClient.tsx's
+   * join-greeting and wrap-up-nudge polls — which call this through a ref typed as
+   * `VoiceSessionAdapter`, not `HumeAdapter` — work unchanged regardless of which adapter is
+   * active. Optional because not every adapter necessarily supports a live nudge; callers must
+   * use optional chaining (`adapter?.sendWrapUpNudge?.(text)`).
+   *   Hume:   pre-existing method, unchanged (see hume-adapter.ts's own HUME-NATIVE-01 doc
+   *           comment for why this must stay a separate method from injectContext()).
+   *   OpenAI: sends an updated `session.update` with amended instructions — OpenAI's Realtime
+   *           API does not reject mid-session instruction updates the way Hume rejects
+   *           `session_settings.system_prompt` under a Custom-LLM config (E0716), so this is a
+   *           real, functional implementation there, not a no-op.
+   * @returns true if the send was attempted without throwing and the connection was open;
+   *   false otherwise. Callers are responsible for their own single-retry-then-give-up policy.
+   */
+  sendWrapUpNudge?(instructionText: string): boolean
 }

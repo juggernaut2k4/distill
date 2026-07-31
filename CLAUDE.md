@@ -177,12 +177,13 @@ Only use packages that are:
 - `framer-motion` — animations (5M+ weekly downloads, actively maintained)
 - `lucide-react` — icons (official, actively maintained)
 - `vitest`, `@playwright/test` — testing
-- `hume` (or the current official Hume EVI SDK package — confirm exact package name against `lib/voice/hume-adapter.ts`) — voice AI, sole voice provider as of 2026-07-13
+- `hume` (or the current official Hume EVI SDK package — confirm exact package name against `lib/voice/hume-adapter.ts`) — voice AI, primary/default voice provider as of 2026-07-13, alternate provider added 2026-07-31 (see next entry)
 - `googleapis` — Google Calendar integration for session scheduling (official Google SDK)
 - `@dagrejs/dagre`, `@xyflow/react` — flow diagram layout and rendering (used in template system)
 - `svix` — Clerk webhook signature verification (official Svix SDK, used by Clerk)
 - `@vercel/sdk` — Vercel Domains API client for partner custom-domain registration/verification (official Vercel SDK, approved 2026-07-13 as part of B2B-05)
 - `docusign-esign` — official DocuSign eSignature Node.js SDK, for sales-partner legal agreement e-signature (approved 2026-07-19, per Arun's direct instruction — the generated agreement content itself is a non-binding draft requiring attorney review before use, this approval covers only the e-signature/document mechanism)
+- OpenAI Realtime (alternate voice provider, added 2026-07-31 per B2B-61 Part A, Hume remains default) — official confirmed npm package is `openai` (openai-node), but this build deliberately does NOT add it as a dependency: `app/api/openai-realtime-token/route.ts` uses raw `fetch()` (structural twin of `app/api/hume-token/route.ts`, which likewise never used the `hume` SDK) and `lib/voice/openai-realtime-adapter.ts` uses raw browser `WebSocket` (mirroring `lib/voice/hume-adapter.ts`'s own SDK-free pattern) — consistent with how this repo's voice-adapter code has always been built. If a future caller needs the typed `openai` SDK for server-side Realtime work, that package name is confirmed correct to add at that time.
 
 **Removed from the approved list under the pivot** (do not use; flag if found in new code):
 - `twilio` — SMS delivery, killed with B2C (no more direct-to-consumer messaging)

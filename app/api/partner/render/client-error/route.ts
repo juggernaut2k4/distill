@@ -46,6 +46,9 @@ const ClientErrorSchema = z.object({
   // failure paths, carrying the real Hume WS close code/reason) and 'hume-connect-error'
   // (PartnerRenderClient's connect() outer catch). Same lesson, same discipline: widened here in
   // the same change that starts sending these values, not after.
+  // B2B-61 Part A — widened again for 'openai-realtime-adapter-error' (OpenAIRealtimeAdapter's
+  // own ws.onerror/ws.onclose failure paths, mirroring 'hume-adapter-error' for the alternate
+  // voice provider). Same lesson, same discipline as the B2B-49 note above.
   source: z.enum([
     'error',
     'unhandledrejection',
@@ -53,6 +56,7 @@ const ClientErrorSchema = z.object({
     'react-error-boundary',
     'hume-adapter-error',
     'hume-connect-error',
+    'openai-realtime-adapter-error',
   ]),
 })
 
