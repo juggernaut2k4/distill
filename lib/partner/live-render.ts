@@ -12,6 +12,7 @@ import { safeFetchPartnerPage } from './ssrf'
 import { inngest } from '@/inngest/client'
 import type { TemplateSection } from '@/lib/templates/types'
 import type { DraftPayload } from './content-generation'
+import { STAGE_1_WRAP_UP_PHRASE, matchesSpokenPhrase } from '@/lib/content/transition-markers'
 
 /**
  * B2B-03 — Live-session render path (Requirement Doc Section 4.C/6.6;
@@ -600,9 +601,16 @@ async function resolveInlineSessionRender(session: PartnerSessionRow): Promise<L
 /**
  * Builds the SESSION CONTENT block for an inline session's assembled prompt.
  * Each page gets a stage-direction (leveraging the fixed template's rule 10 —
- * "never speak bracketed labels aloud") instructing the bot to say the page's
- * unique transition marker naturally AND call the advance tool at the
- * transition point — the dual signal (Requirement Doc Sections 2.2, 5.4).
+ * "never speak bracketed labels aloud") instructing the bot how to transition
+ * off it.
+ *
+ * B2B-60 — replaced the old single-signal instruction (say a system-generated
+ * marker phrase, then call advance_tab) with a natural two-stage cue: a fixed
+ * wrap-up line, then the next page's real title said naturally as Clio
+ * introduces it. `page.transition_marker` is still generated and stored
+ * (unchanged, `lib/content/transition-markers.ts`) but is no longer spoken —
+ * it now serves only as `PartnerRenderClient.tsx`'s internal, opaque dedup
+ * key for the debounce/idempotency layer.
  */
 export function buildInlineSessionContent(session: PartnerSessionRow, pages: InlineContentPage[]): string {
   const blocks: string[] = []
@@ -618,6 +626,21 @@ export function buildInlineSessionContent(session: PartnerSessionRow, pages: Inl
       `Cover each page's material, then move to the next at the transition point described for that page.`
   )
 
+  // B2B-60 §5 — non-blocking collision observability. Same scope of source text as the pattern
+  // computeStage2Eligibility uses client-side (session-level narration + every page's own
+  // narration content), checked once here against the fixed Stage 1 phrase. Never blocks
+  // session creation — there is no fallback phrase to regenerate into (the phrase is fixed and
+  // global by design).
+  const narrationText = [session.contentToExplain, session.contentTitle, session.contentSubtitle, ...pages.map((p) => p.content_text)]
+    .filter((v): v is string => Boolean(v))
+    .join(' ')
+
+  if (matchesSpokenPhrase(narrationText, STAGE_1_WRAP_UP_PHRASE)) {
+    console.warn(
+      `[B2B-60] Session ${session.id}'s narration content is close to the fixed Stage 1 wrap-up phrase ("${STAGE_1_WRAP_UP_PHRASE}"). Not blocking session creation — for awareness only.`
+    )
+  }
+
   pages.forEach((page, index) => {
     const pageNo = index + 1
     const isLast = index === pages.length - 1
@@ -627,15 +650,25 @@ export function buildInlineSessionContent(session: PartnerSessionRow, pages: Inl
     // for every pre-B2B-35 page — this block's output stays byte-identical in that case.
     if (page.content_text) lines.push(`CONTENT TO TEACH ON THIS PAGE:\n${page.content_text}`)
     if (isLast) {
+      // B2B-60 §4c — the spoken-marker instruction is dropped entirely on the final page:
+      // nothing is listening for it (there's no next page), and keeping it would sit directly
+      // next to rule 8's own natural close, reading as a redundant, slightly odd double wrap-up.
       lines.push(
         `[STAGE DIRECTION — DO NOT SAY THE BRACKETED LABEL] This is the final page (transition intent: "${page.transition_trigger}"). ` +
-          `When you have finished covering it and are about to close the session, say this exact phrase naturally as part of your sentence: "${page.transition_marker}". ` +
-          `Then follow the closing sequence and call the end_session tool.`
+          `When you have finished covering it, follow the closing sequence (rule 8) and call the end_session tool.`
       )
     } else {
+      // B2B-60 §4b — the two-stage natural cue, regardless of Stage 2 eligibility (§2): Clio is
+      // always told to say the wrap-up phrase and then naturally name the next section, for a
+      // consistent listening experience. Eligibility (computed client-side in
+      // PartnerRenderClient.tsx via computeStage2Eligibility, from this same pages array) only
+      // ever changes what the CLIENT trusts as a detection signal, never what she's told to say.
+      const nextTitle = pages[index + 1]?.title
+      const namingClause = nextTitle ? ` Then, as you begin the next part, naturally say its name — "${nextTitle}" — before continuing to teach it. Only after you have said the next part's name should you call the advance_tab tool.` : ' Then continue naturally into the next part, and call the advance_tab tool once you begin teaching it.'
       lines.push(
-        `[STAGE DIRECTION — DO NOT SAY THE BRACKETED LABEL] When you have finished covering this page (transition intent: "${page.transition_trigger}") and are about to move to page ${pageNo + 1}, ` +
-          `say this exact phrase naturally as part of your sentence: "${page.transition_marker}". Then call the advance_tab tool.`
+        `[STAGE DIRECTION — DO NOT SAY THE BRACKETED LABEL] When you have finished covering this page (transition intent: "${page.transition_trigger}"), ` +
+          `say "${STAGE_1_WRAP_UP_PHRASE}" naturally as part of your sentence.` +
+          namingClause
       )
     }
     blocks.push(lines.join('\n'))

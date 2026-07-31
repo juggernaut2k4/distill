@@ -6,7 +6,7 @@ import TemplateRenderer from '@/components/templates/TemplateRenderer'
 import { HumeAdapter } from '@/lib/voice/hume-adapter'
 import type { TemplateSection } from '@/lib/templates/types'
 import { cssCustomPropertiesToStyleBlock, type CSSCustomProperties } from '@/lib/partner/theme-client-safe'
-import { matchesTransitionMarker } from '@/lib/content/transition-markers'
+import { matchesSpokenPhrase, computeStage2Eligibility, STAGE_1_WRAP_UP_PHRASE } from '@/lib/content/transition-markers'
 import { shouldAdvanceOnTransition } from '@/lib/partner/advance-transition'
 // B2B-49 — reportClientError() extracted to a shared module (was local to this file, 2026-07-27)
 // so lib/voice/hume-adapter.ts can also report its own silent WS failure paths through it, without
@@ -111,6 +111,20 @@ export default function PartnerRenderClient({ clioSessionRef, sections, inlinePa
   // See lib/partner/advance-transition.ts for the decision logic and full root-cause writeup.
   const lastAdvanceAtRef = useRef<number | null>(null)
 
+  // B2B-60 — two-stage natural transition state. `stage1ArmedRef` tracks whether Clio has said
+  // the fixed Stage 1 wrap-up phrase for the CURRENT page yet; only once armed does Stage 2 (the
+  // next page's title) get checked. Reset to false on every real advance (see
+  // advanceOnTransition below) so a stale armed state can never leak into the next page's
+  // transition. `stage2EligibleRef` is computed once from `inlinePages` (a stable prop for the
+  // session's lifetime) — index i is true iff page i+1's title is a safe, distinctive
+  // transcript-detection target for the transition FROM page i (see computeStage2Eligibility).
+  // Note: `InlinePageProp` carries only title/subtitle (no transitionTrigger or session-level
+  // narration, unlike the server's collision-check scope in buildInlineSessionContent) — this is
+  // the full input the client has available, and it still catches the two most important
+  // collision cases (cross-page title/subtitle collisions and generic/too-short titles).
+  const stage1ArmedRef = useRef(false)
+  const stage2EligibleRef = useRef<boolean[]>(isInline ? computeStage2Eligibility(inlinePages!, '') : [])
+
   // B2B-11 — join-greeting poll (unchanged).
   const joinGreetingRetriedRef = useRef(false)
   // B2B-19 — wrap-up-nudge poll (inline only).
@@ -169,6 +183,7 @@ export default function PartnerRenderClient({ clioSessionRef, sections, inlinePa
    */
   function advanceOnTransition(transitionMarker: string) {
     if (!shouldAdvanceOnTransition(transitionMarker, Date.now(), firedMarkersRef.current, lastAdvanceAtRef)) return
+    stage1ArmedRef.current = false // B2B-60 — reset two-stage arm state on every real advance
     const next = Math.min(activeIndexRef.current + 1, count - 1)
     goToSection(next) // forward-only: never moves backward
   }
@@ -231,14 +246,29 @@ export default function PartnerRenderClient({ clioSessionRef, sections, inlinePa
           },
         }
 
-        // B2B-19 transcript-watch (primary signal, inline only). Extends
-        // RTV-02/03's forward-only, single-hit-decisive pattern: on each `ai`
-        // utterance, if the CURRENT page's unique marker is present, advance.
+        // B2B-60 transcript-watch (primary signal, inline only) — two-stage natural cue.
+        // Extends RTV-02/03's forward-only, single-hit-decisive pattern: Stage 1 arms on the
+        // fixed wrap-up phrase, Stage 2 (the next page's real title) then triggers the advance.
+        // `transitionMarker` is no longer spoken/matched here — it is passed to
+        // advanceOnTransition() purely as the internal dedup key (unchanged plumbing).
         const onMessage = isInline
           ? (text: string, source: string) => {
               if (source !== 'ai' || !text) return
-              const marker = inlinePages![activeIndexRef.current]?.transitionMarker
-              if (marker && matchesTransitionMarker(text, marker)) advanceOnTransition(marker)
+              const idx = activeIndexRef.current
+              const page = inlinePages![idx]
+              if (!page) return
+              if (idx === count - 1) return // last page — no Stage 2 target; see §4a
+              if (!stage2EligibleRef.current[idx]) return // collision/too-generic — advance_tab is sole signal here
+
+              if (!stage1ArmedRef.current) {
+                if (matchesSpokenPhrase(text, STAGE_1_WRAP_UP_PHRASE)) stage1ArmedRef.current = true
+                return
+              }
+
+              const nextTitle = inlinePages![idx + 1]?.title
+              if (nextTitle && matchesSpokenPhrase(text, nextTitle)) {
+                advanceOnTransition(page.transitionMarker) // resets stage1ArmedRef — see above
+              }
             }
           : () => {}
 

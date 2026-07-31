@@ -88,6 +88,115 @@ export interface MarkerPageInput {
 }
 
 /**
+ * B2B-60 — Stage 1 of the two-stage natural transition mechanism: a single,
+ * fixed, global wrap-up phrase Clio says naturally when she's finished
+ * covering a page. Arms detection for Stage 2 (the next page's title — see
+ * `computeStage2Eligibility` / `matchesSpokenPhrase` below). Deliberately one
+ * fixed string, shared across every transition, every session, every partner
+ * — not per-page or per-partner-configurable (Arun's design). Because it
+ * can't be regenerated per-session the way the old random marker could, its
+ * safety comes from being a self-referential, discourse-level clause
+ * ("what I wanted to walk through here") rather than generic business
+ * vocabulary — see the non-blocking collision check in
+ * `lib/partner/live-render.ts`'s `buildInlineSessionContent` (§5 of the
+ * B2B-60 feature brief).
+ */
+export const STAGE_1_WRAP_UP_PHRASE = 'That covers what I wanted to walk through here.'
+
+/**
+ * True iff `phrase`'s word tokens appear in `spokenText` as an ordered,
+ * bounded-proximity subsequence — each successive phrase word must be found
+ * within `maxGap` tokens of the previous match (default 3), preserving
+ * relative order. This is intentionally STRICTER than `matchesTransitionMarker`'s
+ * pure set-membership check: that check is only safe for the old system
+ * because its marker words (kestrel, vellum, ...) are rare enough that set
+ * membership alone is the whole safety margin. Natural-language phrases
+ * reuse common words constantly, so a phrase like "That covers what I wanted
+ * to walk through here" would false-fire under pure set-matching on any
+ * utterance that happens to contain all of those words scattered anywhere,
+ * in any order, over a long enough stretch of narration. Safety here instead
+ * comes from requiring the words to actually appear together, in order, the
+ * way the phrase would be spoken.
+ *
+ * Used for Stage 1 (fixed wrap-up phrase) and Stage 2 (next-page title)
+ * detection in `PartnerRenderClient.tsx`. `matchesTransitionMarker` is
+ * unchanged and untouched, and is no longer used for any live
+ * spoken-transcript matching — `transitionMarker` now serves only as an
+ * internal, never-spoken dedup key.
+ */
+export function matchesSpokenPhrase(spokenText: string, phrase: string, maxGap = 3): boolean {
+  const phraseWords = wordTokens(phrase)
+  if (phraseWords.length === 0) return false
+  const spokenWords = wordTokens(spokenText)
+  if (spokenWords.length === 0) return false
+
+  let searchFrom = 0
+  for (const word of phraseWords) {
+    let found = -1
+    const limit = Math.min(spokenWords.length, searchFrom + maxGap + 1)
+    for (let i = searchFrom; i < limit; i++) {
+      if (spokenWords[i] === word) {
+        found = i
+        break
+      }
+    }
+    if (found === -1) return false
+    searchFrom = found + 1
+  }
+  return true
+}
+
+export interface EligibilityPageInput {
+  title: string | null
+  subtitle?: string | null
+  transitionTrigger?: string | null
+}
+
+/**
+ * B2B-60 — Per-transition (i.e. "advancing FROM page i") eligibility for
+ * Stage-2 transcript detection. Returns an array of length `pages.length`;
+ * index i is true iff page i+1's title is distinctive enough (>= 1 word
+ * token of length >= 4) AND none of its word tokens collide with any OTHER
+ * page's title/subtitle/transitionTrigger or the session narration. The
+ * LAST index is always false (no next page to detect).
+ *
+ * Ineligible transitions simply fall back to the existing `advance_tab`
+ * tool-call as the sole advance signal for that specific transition —
+ * nothing else in the dual-signal system changes, and this can never be
+ * worse than today's shipped reliability.
+ *
+ * Reuses the identical collision-check pattern and scope of source text as
+ * `generateTransitionMarkers`' `forbidden` set, adapted for titles instead
+ * of marker words.
+ */
+export function computeStage2Eligibility(pages: EligibilityPageInput[], narrationText: string): boolean[] {
+  const sessionForbidden = new Set<string>(wordTokens(narrationText))
+
+  // Per-page word sets (title/subtitle/transitionTrigger), built once so each
+  // page's own words can be excluded when checking against "any OTHER page".
+  const perPageWords = pages.map((p) => new Set(wordTokens(`${p.title ?? ''} ${p.subtitle ?? ''} ${p.transitionTrigger ?? ''}`)))
+
+  return pages.map((_, i) => {
+    if (i === pages.length - 1) return false // last index — no next page
+
+    const nextPage = pages[i + 1]
+    const nextTitleWords = wordTokens(nextPage.title)
+    if (!nextTitleWords.some((w) => w.length >= 4)) return false // too short/generic
+
+    // Build the "forbidden" scope for this specific next-title: session narration
+    // plus every OTHER page's title/subtitle/transitionTrigger (excluding the next
+    // page's own entry, since a title trivially contains its own words).
+    const forbidden = new Set<string>(sessionForbidden)
+    perPageWords.forEach((words, j) => {
+      if (j === i + 1) return
+      words.forEach((w) => forbidden.add(w))
+    })
+
+    return !nextTitleWords.some((w) => forbidden.has(w))
+  })
+}
+
+/**
  * Generates one collision-checked marker per page (Requirement Doc Section 2.1).
  * `narrationText` is the union of narration inputs the bot will speak
  * (content_to_explain + per-page titles/subtitles/triggers) — the marker words
