@@ -66,6 +66,21 @@ export async function GET(_request: NextRequest, { params }: { params: { slug: s
   const supabase = createSupabaseAdminClient()
   const demoPartnerAccountId = process.env.DEMO_PARTNER_ACCOUNT_ID
 
+  // TEMPORARY DIAGNOSTIC — CEO agent, B2B-59 root-cause investigation, 2026-07-30/31.
+  // No secret values exposed (boolean/length/short sha only). To be removed immediately after use.
+  if (new URL(_request.url).searchParams.get('_diag') === '1') {
+    return NextResponse.json({
+      _diag: {
+        envPresent: Boolean(demoPartnerAccountId),
+        envLength: (demoPartnerAccountId ?? '').length,
+        envIsPlaceholder: Boolean(demoPartnerAccountId?.startsWith('PLACEHOLDER')),
+        vercelEnv: process.env.VERCEL_ENV ?? null,
+        gitSha: (process.env.VERCEL_GIT_COMMIT_SHA ?? '').slice(0, 12) || null,
+        deploymentUrl: process.env.VERCEL_URL ?? null,
+      },
+    })
+  }
+
   const empty: PerformanceResponse = {
     session_state: 'not_dispatched',
     duration_minutes: null,
