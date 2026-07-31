@@ -7,6 +7,7 @@ import { HumeAdapter } from '@/lib/voice/hume-adapter'
 import type { TemplateSection } from '@/lib/templates/types'
 import { cssCustomPropertiesToStyleBlock, type CSSCustomProperties } from '@/lib/partner/theme-client-safe'
 import { matchesTransitionMarker } from '@/lib/content/transition-markers'
+import { shouldAdvanceOnTransition } from '@/lib/partner/advance-transition'
 // B2B-49 — reportClientError() extracted to a shared module (was local to this file, 2026-07-27)
 // so lib/voice/hume-adapter.ts can also report its own silent WS failure paths through it, without
 // HumeAdapter importing from a page-level client component. Logic is unchanged, only relocated.
@@ -104,6 +105,12 @@ export default function PartnerRenderClient({ clioSessionRef, sections, inlinePa
   // construction (single-threaded JS event loop, single client instance).
   const firedMarkersRef = useRef<Set<string>>(new Set())
 
+  // B2B-59 — timestamp of the last successful advance. Closes the dual-signal race where a
+  // delayed echo of the SAME real transition re-resolves activeIndexRef.current (already moved by
+  // the first signal) into a fresh, not-yet-fired marker and slips past firedMarkersRef's dedup.
+  // See lib/partner/advance-transition.ts for the decision logic and full root-cause writeup.
+  const lastAdvanceAtRef = useRef<number | null>(null)
+
   // B2B-11 — join-greeting poll (unchanged).
   const joinGreetingRetriedRef = useRef(false)
   // B2B-19 — wrap-up-nudge poll (inline only).
@@ -153,10 +160,15 @@ export default function PartnerRenderClient({ clioSessionRef, sections, inlinePa
     return idx < 0 ? activeIndexRef.current : idx
   }
 
-  /** B2B-19 — the single idempotent forward-only advance both signals feed into. */
+  /**
+   * B2B-19 / B2B-59 — the single idempotent forward-only advance both signals feed into.
+   * `shouldAdvanceOnTransition` applies, in order: (1) the B2B-59 time-based debounce — any call
+   * within ADVANCE_DEBOUNCE_MS of the previous successful advance is ignored outright, regardless
+   * of which marker it resolves to; (2) the pre-existing B2B-19 per-marker dedup, unchanged. A
+   * blocked call never touches firedMarkersRef/lastAdvanceAtRef and never moves the page.
+   */
   function advanceOnTransition(transitionMarker: string) {
-    if (firedMarkersRef.current.has(transitionMarker)) return // dedup — second signal is a no-op
-    firedMarkersRef.current.add(transitionMarker)
+    if (!shouldAdvanceOnTransition(transitionMarker, Date.now(), firedMarkersRef.current, lastAdvanceAtRef)) return
     const next = Math.min(activeIndexRef.current + 1, count - 1)
     goToSection(next) // forward-only: never moves backward
   }
