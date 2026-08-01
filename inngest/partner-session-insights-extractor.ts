@@ -354,9 +354,17 @@ export async function extractInsightsForPartnerSession(partnerSessionId: string)
   // 'success_empty'); never throws. Deliberately NOT called from markInsightsExtractionFailed() —
   // on permanent failure the key is left in place, relying only on its 24h TTL, so a human can
   // still inspect the raw transcript while troubleshooting.
-  if (session.voice_provider === 'openai_realtime') {
-    await deleteStoredTranscript(partnerSessionId)
-  }
+  //
+  // TEMPORARILY DISABLED — 2026-08-01, per Arun: while the OpenAI Realtime conversation-quality
+  // issues (missing icebreaker, garbled goodbye) are being diagnosed, transcripts need to survive
+  // past a successful extraction so they can actually be read afterward — deleting immediately on
+  // success defeated that. The transcript-store's own TTL (temporarily shortened to 30 minutes, see
+  // lib/voice/openai-realtime-transcript-store.ts) is the only cleanup mechanism during this window.
+  // Restore this call once these issues are resolved and transcript review is no longer needed.
+  //
+  // if (session.voice_provider === 'openai_realtime') {
+  //   await deleteStoredTranscript(partnerSessionId)
+  // }
 
   return { status: result.status }
 }

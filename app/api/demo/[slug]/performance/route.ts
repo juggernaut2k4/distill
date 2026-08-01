@@ -130,7 +130,7 @@ export async function GET(_request: NextRequest, { params }: { params: { slug: s
     })
   }
 
-  const { data: sessionRow } = await supabase
+  const { data: sessionRow, error: sessionRowError } = await supabase
     .from('partner_sessions')
     .select('id, status, hume_chat_id, created_at')
     .eq('partner_account_id', demoPartnerAccountId)
@@ -138,6 +138,19 @@ export async function GET(_request: NextRequest, { params }: { params: { slug: s
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
+
+  // TEMPORARY DIAGNOSTIC — 2026-08-01, tracking down a live report that this route resolves an
+  // old/wrong session as "latest" despite the DB genuinely having newer rows. Remove once resolved.
+  console.log('[demo/performance][DIAG]', {
+    slug: params.slug,
+    demoPartnerAccountId,
+    resolvedSessionId: sessionRow?.id ?? null,
+    resolvedSessionCreatedAt: sessionRow?.created_at ?? null,
+    resolvedSessionStatus: sessionRow?.status ?? null,
+    sessionRowError: sessionRowError?.message ?? null,
+    entriesCount: entries.length,
+    entriesErrorMessage: entriesError?.message ?? null,
+  })
 
   // duration_minutes resolution is independent of session_state (§6.2) — computed whenever
   // hume_chat_id is non-null, regardless of which branch below is taken.

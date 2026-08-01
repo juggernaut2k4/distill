@@ -80,7 +80,9 @@ describe('openai-realtime-transcript-store — real-credentials branch (mocked @
       'voice-transcript:sess-abc',
       expect.objectContaining({ source: 'ai', text: 'Let’s talk about pricing.' })
     )
-    expect(expireMock).toHaveBeenCalledWith('voice-transcript:sess-abc', 60 * 60 * 24)
+    // TEMPORARY — 2026-08-01: TTL shortened to 30 min for OpenAI-conversation debugging (see
+    // lib/voice/openai-realtime-transcript-store.ts's own doc comment). Revert to 60*60*24 together.
+    expect(expireMock).toHaveBeenCalledWith('voice-transcript:sess-abc', 60 * 30)
     expect(execMock).toHaveBeenCalledTimes(1)
   })
 

@@ -5,7 +5,14 @@ import { Redis } from '@upstash/redis'
  * transcript API at all. See docs/specs/B2B-63-requirement-document.md §6/§11 for full reasoning.
  */
 
-const TRANSCRIPT_TTL_SECONDS = 60 * 60 * 24 // 24 hours — see Requirement Doc §11 Q3 for reasoning
+// TEMPORARY — 2026-08-01, per Arun: shortened from 24 hours to a 30-minute debugging window while
+// the OpenAI Realtime conversation-quality issues (missing icebreaker, garbled goodbye) are being
+// diagnosed, so a transcript survives long enough after a call ends to actually read it — the
+// extractor's own explicit deleteStoredTranscript() call on success is ALSO removed for now (see
+// inngest/partner-session-insights-extractor.ts), so this TTL is the only cleanup mechanism during
+// this window. Revert to 60 * 60 * 24 (see Requirement Doc §11 Q3's original reasoning) and restore
+// the explicit delete call once these issues are resolved and no longer need transcript review.
+const TRANSCRIPT_TTL_SECONDS = 60 * 30
 
 export interface StoredTranscriptTurn {
   source: 'user' | 'ai'

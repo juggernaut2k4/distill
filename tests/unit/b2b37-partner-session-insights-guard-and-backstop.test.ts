@@ -208,7 +208,7 @@ describe('extractInsightsForPartnerSession — B2B-63 voice_provider branch (Red
     expect(insightsBySession.ps_openai_empty?.extraction_status).toBe('success_empty')
   })
 
-  it('deleteStoredTranscript is called exactly once after a successful OpenAI extraction', async () => {
+  it('deleteStoredTranscript is NOT called after a successful OpenAI extraction (temporarily disabled 2026-08-01 for conversation-quality debugging — see extractor\'s own doc comment; revert together with the 30-min TTL in openai-realtime-transcript-store.ts)', async () => {
     partnerSessionsById.ps_openai_del = {
       id: 'ps_openai_del',
       partner_account_id: 'acct1',
@@ -222,8 +222,7 @@ describe('extractInsightsForPartnerSession — B2B-63 voice_provider branch (Red
 
     await extractInsightsForPartnerSession('ps_openai_del')
 
-    expect(deleteStoredTranscriptMock).toHaveBeenCalledWith('ps_openai_del')
-    expect(deleteStoredTranscriptMock).toHaveBeenCalledTimes(1)
+    expect(deleteStoredTranscriptMock).not.toHaveBeenCalled()
   })
 
   it('deleteStoredTranscript is never called for a Hume-provider session', async () => {
