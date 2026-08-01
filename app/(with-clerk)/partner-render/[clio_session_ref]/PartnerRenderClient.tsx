@@ -333,7 +333,23 @@ export default function PartnerRenderClient({
             setStatus('error')
           },
           onModeChange: (mode: 'listening' | 'speaking') => setStatus(mode),
-          onMessage,
+          // B2B-63 (docs/specs/B2B-63-requirement-document.md §6) — wraps, does not replace, the
+          // existing per-mode onMessage closure above (byte-for-byte unchanged behavior, first, for
+          // both modes). Inline-mode-only for this build (§0/§11 Q4) — template mode is being paused
+          // as a separate product decision; isInline is already computed above. Widening this to
+          // cover template mode later, if/when it's reactivated, is a one-word change here (drop
+          // `isInline &&`) — no other part of this design needs to change.
+          onMessage: (text: string, source: 'user' | 'ai') => {
+            onMessage(text, source)
+            if (isInline && voiceProvider === 'openai_realtime' && text.trim()) {
+              fetch('/api/partner/render/transcript-capture', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ clio_session_ref: clioSessionRef, source, text }),
+                keepalive: true,
+              }).catch(() => {}) // best-effort — mirrors reportClientError's exact fire-and-forget pattern
+            }
+          },
         }
 
         let adapter: VoiceSessionAdapter

@@ -109,6 +109,22 @@ vi.mock('@/lib/partner/webhooks', () => ({
   recordInsightsReadyEvent: (...args: unknown[]) => recordInsightsReadyEventMock(...args),
 }))
 
+// B2B-63 — mocked so tests control exactly what Redis "returns" without needing real Upstash
+// credentials. formatOpenAITranscriptLines is the real function (pure, no I/O) so its actual
+// speaker-labeling logic is exercised, not just a stub.
+const getStoredTranscriptTurnsMock = vi.fn()
+const deleteStoredTranscriptMock = vi.fn()
+vi.mock('@/lib/voice/openai-realtime-transcript-store', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/voice/openai-realtime-transcript-store')>(
+    '@/lib/voice/openai-realtime-transcript-store'
+  )
+  return {
+    ...actual,
+    getStoredTranscriptTurns: (...args: unknown[]) => getStoredTranscriptTurnsMock(...args),
+    deleteStoredTranscript: (...args: unknown[]) => deleteStoredTranscriptMock(...args),
+  }
+})
+
 import {
   extractInsightsForPartnerSession,
   partnerSessionInsightsBackstopSweep,
@@ -141,48 +157,96 @@ describe('runInsightsIdempotencyGuard — terminal short-circuit (regression, un
   })
 })
 
-describe('extractInsightsForPartnerSession — 2026-08-01 voice_provider gate (OpenAI has no post-hoc transcript API)', () => {
+describe('extractInsightsForPartnerSession — B2B-63 voice_provider branch (Redis for OpenAI, Hume API unchanged for everyone else)', () => {
   beforeEach(() => {
     partnerSessionsById = {}
     insightsBySession = {}
     fetchAllTranscriptEventsMock.mockReset()
     recordInsightsReadyEventMock.mockReset()
+    getStoredTranscriptTurnsMock.mockReset()
+    deleteStoredTranscriptMock.mockReset()
   })
 
-  it('an OpenAI Realtime session throws a clear, honest error instead of calling Hume\'s transcript API', async () => {
+  it('an OpenAI Realtime session reads from Redis, never calls Hume\'s transcript API, and produces a real extraction result', async () => {
     partnerSessionsById.ps_openai = {
       id: 'ps_openai',
       partner_account_id: 'acct1',
-      hume_chat_id: 'sess_someOpenAiSessionId', // real shape: not a Hume UUID
+      hume_chat_id: 'sess_someOpenAiSessionId', // real shape: not a Hume UUID — irrelevant now, never used for this provider
       test_mode: false,
       partner_reference: null,
       end_client_id: null,
       voice_provider: 'openai_realtime',
     }
+    getStoredTranscriptTurnsMock.mockResolvedValue([
+      { source: 'user', text: 'What does pricing look like?', at: 1 },
+      { source: 'ai', text: 'Happy to walk through tiers.', at: 2 },
+    ])
 
-    await expect(extractInsightsForPartnerSession('ps_openai')).rejects.toThrow(
-      'OpenAI Realtime, which has no post-hoc transcript API'
-    )
+    const result = await extractInsightsForPartnerSession('ps_openai')
+
     expect(fetchAllTranscriptEventsMock).not.toHaveBeenCalled()
+    expect(getStoredTranscriptTurnsMock).toHaveBeenCalledWith('ps_openai')
+    expect(result.status).not.toBe('failed')
+    expect(recordInsightsReadyEventMock).toHaveBeenCalledTimes(1)
   })
 
-  it('the idempotency-claim row is still created before the OpenAI check throws, so a real partner_session_insights row exists for markInsightsExtractionFailed() to update (otherwise the backstop sweep would retry forever)', async () => {
-    partnerSessionsById.ps_openai2 = {
-      id: 'ps_openai2',
+  it('an OpenAI session with zero captured turns resolves to success_empty, not a thrown error (covers both a genuinely silent call and a template-mode session that was never captured)', async () => {
+    partnerSessionsById.ps_openai_empty = {
+      id: 'ps_openai_empty',
       partner_account_id: 'acct1',
-      hume_chat_id: 'sess_anotherOpenAiSessionId',
+      hume_chat_id: 'sess_empty',
       test_mode: false,
       partner_reference: null,
       end_client_id: null,
       voice_provider: 'openai_realtime',
     }
+    getStoredTranscriptTurnsMock.mockResolvedValue([])
 
-    await expect(extractInsightsForPartnerSession('ps_openai2')).rejects.toThrow()
-    expect(insightsBySession.ps_openai2).toBeDefined()
-    expect(insightsBySession.ps_openai2?.extraction_status).toBe('pending')
+    const result = await extractInsightsForPartnerSession('ps_openai_empty')
+
+    expect(result.status).toBe('success_empty')
+    expect(insightsBySession.ps_openai_empty?.extraction_status).toBe('success_empty')
   })
 
-  it('voice_provider undefined/null (every pre-existing session) is unaffected — still calls Hume\'s transcript API as before', async () => {
+  it('deleteStoredTranscript is called exactly once after a successful OpenAI extraction', async () => {
+    partnerSessionsById.ps_openai_del = {
+      id: 'ps_openai_del',
+      partner_account_id: 'acct1',
+      hume_chat_id: 'sess_del',
+      test_mode: false,
+      partner_reference: null,
+      end_client_id: null,
+      voice_provider: 'openai_realtime',
+    }
+    getStoredTranscriptTurnsMock.mockResolvedValue([{ source: 'user', text: 'Hello', at: 1 }])
+
+    await extractInsightsForPartnerSession('ps_openai_del')
+
+    expect(deleteStoredTranscriptMock).toHaveBeenCalledWith('ps_openai_del')
+    expect(deleteStoredTranscriptMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('deleteStoredTranscript is never called for a Hume-provider session', async () => {
+    partnerSessionsById.ps_hume_nodel = {
+      id: 'ps_hume_nodel',
+      partner_account_id: 'acct1',
+      hume_chat_id: 'chat-hume-nodel',
+      test_mode: false,
+      partner_reference: null,
+      end_client_id: null,
+      voice_provider: 'hume',
+    }
+    fetchAllTranscriptEventsMock.mockResolvedValue([
+      { type: 'USER_MESSAGE', message_text: 'Hello' },
+    ])
+
+    await extractInsightsForPartnerSession('ps_hume_nodel')
+
+    expect(deleteStoredTranscriptMock).not.toHaveBeenCalled()
+    expect(getStoredTranscriptTurnsMock).not.toHaveBeenCalled()
+  })
+
+  it('voice_provider undefined/null (every pre-existing session) is unaffected — still calls Hume\'s transcript API as before, never touches Redis', async () => {
     partnerSessionsById.ps_hume = {
       id: 'ps_hume',
       partner_account_id: 'acct1',
@@ -199,6 +263,7 @@ describe('extractInsightsForPartnerSession — 2026-08-01 voice_provider gate (O
 
     await extractInsightsForPartnerSession('ps_hume')
     expect(fetchAllTranscriptEventsMock).toHaveBeenCalledTimes(1)
+    expect(getStoredTranscriptTurnsMock).not.toHaveBeenCalled()
   })
 })
 

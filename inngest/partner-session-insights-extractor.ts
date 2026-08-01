@@ -5,6 +5,7 @@ import { createSupabaseAdminClient } from '@/lib/supabase'
 import { fetchAllTranscriptEvents } from '@/lib/voice/hume-native/session-details' // newly exported, architecture.md §16.6
 import { formatTranscriptLines } from './hume-action-item-extractor' // verbatim reuse, unmodified import
 import { recordInsightsReadyEvent } from '@/lib/partner/webhooks'
+import { getStoredTranscriptTurns, formatOpenAITranscriptLines, deleteStoredTranscript } from '@/lib/voice/openai-realtime-transcript-store'
 
 /**
  * B2B-09 — Session Delivery Extraction Fix + Internal Glitch Dashboard.
@@ -238,36 +239,27 @@ export async function extractInsightsForPartnerSession(partnerSessionId: string)
   )
   if (guard.shortCircuit) return { status: guard.status }
 
-  // 2026-08-01 — found live: this function used to call Hume's transcript API unconditionally,
-  // regardless of which voice provider actually ran the session. For an OpenAI Realtime session,
-  // `hume_chat_id` holds an OpenAI session id (e.g. "sess_...", not a UUID) — Hume's API rejects it
-  // outright ("not a valid UUID"), a confusing wrong-vendor error that looked like a real bug
-  // rather than a known, not-yet-built gap. `voice_provider` (NULL/'hume' vs 'openai_realtime') is
-  // captured once per session at render time (app/(with-clerk)/partner-render/[clio_session_ref]/page.tsx)
+  // B2B-63 (docs/specs/B2B-63-requirement-document.md §6) — replaces the prior unconditional throw
+  // for openai_realtime sessions. `voice_provider` (NULL/'hume' vs 'openai_realtime') is captured
+  // once per session at render time (app/(with-clerk)/partner-render/[clio_session_ref]/page.tsx)
   // from the same system_voice_config toggle the admin dashboard controls — never re-derived from
   // the CURRENT global toggle, which can differ from what this specific session actually used.
-  // OpenAI Realtime has no post-hoc transcript-fetch API at all (confirmed against OpenAI's own
-  // docs — see docs/b2b-pivot-status.md's B2B-61 backlog entry), so there is no vendor call to make
-  // here yet for that provider — this is a placeholder failure with an honest message, not a call
-  // to the wrong API. Deliberately checked AFTER the idempotency guard above (not before): the
-  // guard must run first so a real partner_session_insights row exists to record this failure
-  // against — checking provider first would throw before that row is ever created, and
-  // markInsightsExtractionFailed() below is a no-op with no row to update, which would make the
-  // 30-minute backstop sweep retry this session forever (its eligibility filter never sees a
-  // recorded 'failed' status to count against). Real fix (capturing the transcript live,
-  // client-side, during the session) is tracked separately, not built yet.
+  // OpenAI Realtime has no post-hoc transcript-fetch API at all, so for that provider the
+  // transcript is read back from Redis (captured live, client-side, during the session — see
+  // lib/voice/openai-realtime-transcript-store.ts) instead of calling Hume's API. The Hume branch
+  // below is completely unchanged. Deliberately branches AFTER the idempotency guard above (not
+  // before): the guard must run first so a real partner_session_insights row exists for any
+  // downstream failure to record against.
+  let messageLines: string[]
   if (session.voice_provider === 'openai_realtime') {
-    throw new Error(
-      `Session ${partnerSessionId} used OpenAI Realtime, which has no post-hoc transcript API — ` +
-      'insights extraction is not yet supported for this provider (tracked in docs/b2b-pivot-status.md).'
-    )
+    const turns = await getStoredTranscriptTurns(partnerSessionId) // partnerSessionId === clio_session_ref
+    messageLines = formatOpenAITranscriptLines(turns)
+  } else {
+    const apiKey = process.env.HUME_API_KEY
+    if (!apiKey || apiKey.startsWith('PLACEHOLDER_')) throw new Error('HUME_API_KEY not configured')
+    const transcriptEvents = await fetchAllTranscriptEvents(apiKey, session.hume_chat_id as string)
+    messageLines = formatTranscriptLines(transcriptEvents)
   }
-
-  const apiKey = process.env.HUME_API_KEY
-  if (!apiKey || apiKey.startsWith('PLACEHOLDER_')) throw new Error('HUME_API_KEY not configured')
-
-  const transcriptEvents = await fetchAllTranscriptEvents(apiKey, session.hume_chat_id as string)
-  const messageLines = formatTranscriptLines(transcriptEvents)
 
   let result: {
     status: string
@@ -343,6 +335,14 @@ export async function extractInsightsForPartnerSession(partnerSessionId: string)
     // B2B-38 §6.8 — the session's REAL values, fetched above.
     resellerUniqueId: (session.reseller_unique_id as string | null) ?? null,
   })
+
+  // B2B-63 §4.2/§11 Q3 — best-effort cleanup now that extraction succeeded (terminal 'success' or
+  // 'success_empty'); never throws. Deliberately NOT called from markInsightsExtractionFailed() —
+  // on permanent failure the key is left in place, relying only on its 24h TTL, so a human can
+  // still inspect the raw transcript while troubleshooting.
+  if (session.voice_provider === 'openai_realtime') {
+    await deleteStoredTranscript(partnerSessionId)
+  }
 
   return { status: result.status }
 }
