@@ -186,6 +186,10 @@ export interface PartnerSessionRow {
   // B2B-50 — the Attendee bot id assigned at dispatch (session-init.ts line 65). Read here so
   // handleSessionEnd() callers can proactively tell Attendee to leave without a second query.
   providerBotId: string | null
+  // B2B-62 — optional, session-wide language Clio should CONDUCT the conversation in. Null means
+  // English (every pre-B2B-62 session, and every new session that omits it) — byte-identical to
+  // today's behavior. Source content stays English regardless; only affects spoken output.
+  conversationLanguage: string | null
 }
 
 export async function getPartnerSession(clioSessionRef: string): Promise<PartnerSessionRow | null> {
@@ -193,7 +197,7 @@ export async function getPartnerSession(clioSessionRef: string): Promise<Partner
   const { data } = await supabase
     .from('partner_sessions')
     .select(
-      'id, partner_account_id, content_ref, partner_topic_ref, partner_end_user_ref, status, test_mode, content_source_id, content_pages, content_to_explain, content_title, content_subtitle, end_user_role, end_user_name, end_user_industry, provider_bot_id'
+      'id, partner_account_id, content_ref, partner_topic_ref, partner_end_user_ref, status, test_mode, content_source_id, content_pages, content_to_explain, content_title, content_subtitle, end_user_role, end_user_name, end_user_industry, provider_bot_id, conversation_language'
     )
     .eq('id', clioSessionRef)
     .maybeSingle()
@@ -217,6 +221,7 @@ export async function getPartnerSession(clioSessionRef: string): Promise<Partner
     endUserName: (data.end_user_name as string | null) ?? null,
     endUserIndustry: (data.end_user_industry as string | null) ?? null,
     providerBotId: (data.provider_bot_id as string | null) ?? null,
+    conversationLanguage: (data.conversation_language as string | null) ?? null,
   }
 }
 
@@ -296,6 +301,7 @@ export type LiveRenderResult =
       humeConfigId: string | null
       assistantDisplayName: string
       assembledPrompt: string | null
+      conversationLanguage: string | null
     }
   | {
       status: 'ok'
@@ -305,6 +311,7 @@ export type LiveRenderResult =
       humeConfigId: string | null
       assistantDisplayName: string
       assembledPrompt: string | null
+      conversationLanguage: string | null
     }
 
 /** Builds a short, partner-safe text block from a pulled profile payload — mirrors buildProfileContextForClio's style without depending on that Clerk-keyed function. */
@@ -406,6 +413,8 @@ export async function resolveLiveSessionRender(session: PartnerSessionRow): Prom
         verificationQuestionStyle: promptConfig.verificationQuestionStyle,
         interSectionRecapStyle: promptConfig.interSectionRecapStyle,
       },
+      // B2B-62 — undefined (English, no instruction added) for every pre-B2B-62 session.
+      conversationLanguage: session.conversationLanguage ?? undefined,
     })
     assembledPrompt = prompt
 
@@ -453,6 +462,7 @@ export async function resolveLiveSessionRender(session: PartnerSessionRow): Prom
     humeConfigId,
     assistantDisplayName,
     assembledPrompt,
+    conversationLanguage: session.conversationLanguage,
   }
 }
 
@@ -572,6 +582,8 @@ async function resolveInlineSessionRender(session: PartnerSessionRow): Promise<L
         verificationQuestionStyle: promptConfig.verificationQuestionStyle,
         interSectionRecapStyle: promptConfig.interSectionRecapStyle,
       },
+      // B2B-62 — undefined (English, no instruction added) for every pre-B2B-62 session.
+      conversationLanguage: session.conversationLanguage ?? undefined,
     })
     assembledPrompt = prompt
 
@@ -611,6 +623,7 @@ async function resolveInlineSessionRender(session: PartnerSessionRow): Promise<L
     humeConfigId,
     assistantDisplayName,
     assembledPrompt,
+    conversationLanguage: session.conversationLanguage,
   }
 }
 

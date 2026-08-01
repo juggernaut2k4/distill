@@ -12,7 +12,7 @@
  * Bump PROMPT_TEMPLATE_VERSION on any structural edit to the fixed portion.
  */
 
-export const PROMPT_TEMPLATE_VERSION = 'v11'
+export const PROMPT_TEMPLATE_VERSION = 'v12'
 
 import { createSupabaseAdminClient } from '@/lib/supabase'
 
@@ -77,6 +77,19 @@ export const INDUSTRY_CLAUSE_PLACEHOLDER = '[INDUSTRY CLAUSE]'
  * literal string 'true' (default OFF, byte-identical to pre-B2B-36 output).
  */
 export const PACING_GUIDANCE_PLACEHOLDER = '[PACING GUIDANCE]'
+
+/**
+ * B2B-62 — optional, session-wide instruction to conduct the ENTIRE conversation in a language
+ * other than English, while the reference material in SESSION CONTENT (always English) is
+ * translated and explained live rather than read verbatim. Resolves to '' (no instruction, English
+ * by omission) for every existing caller and every session that doesn't set
+ * `conversation_language` — byte-identical to pre-B2B-62 output. Placed in the same early zone as
+ * TONE_GUIDANCE_PLACEHOLDER (still within Hume's own ~7,000-char voice-styling read window, though
+ * that specific guardrail is Hume-only — see the module-level GUARDRAIL comment above
+ * HUME_NATIVE_PROMPT_TEMPLATE) since language is exactly the kind of instruction that should land
+ * early and unambiguously for either provider.
+ */
+export const LANGUAGE_INSTRUCTION_PLACEHOLDER = '[LANGUAGE INSTRUCTION]'
 
 /** B2B-35 F2 — which of the two content-delivery shapes this session uses. Defaults to
  *  'template' (today's existing behavior) for every caller that omits it. */
@@ -169,7 +182,7 @@ export const ASSISTANT_SELF_REFERENCE = 'You are Clio, an AI business coach'
 export const HUME_NATIVE_PROMPT_TEMPLATE = `You are Clio, an AI business coach delivering a live, one-on-one coaching
 session to ${AUDIENCE_PLACEHOLDER}${INDUSTRY_CLAUSE_PLACEHOLDER} over voice. This is a real-time conversation —
 speak naturally, warmly, and with authority, like a trusted advisor, never
-like a script being read aloud.${TONE_GUIDANCE_PLACEHOLDER}
+like a script being read aloud.${TONE_GUIDANCE_PLACEHOLDER}${LANGUAGE_INSTRUCTION_PLACEHOLDER}
 
 === HOW THIS SESSION WORKS ===
 
@@ -328,6 +341,14 @@ export interface AssembleHumeNativePromptInput {
    * placeholder guess.
    */
   endUserIndustry?: string
+  /**
+   * B2B-62 — optional, free-text language Clio should CONDUCT the conversation in (e.g.
+   * "french", "Spanish", "mandarin"). Undefined/null/empty means English — no instruction is
+   * added, byte-identical to pre-B2B-62 output. Source content in SESSION CONTENT is always
+   * English regardless of this field; the model translates and explains it live rather than
+   * reading it verbatim in English.
+   */
+  conversationLanguage?: string | null
 }
 
 /**
@@ -360,6 +381,25 @@ function buildToneGuidance(field: DualModePromptField | null | undefined): strin
     ? 'use this exact phrasing where natural'
     : 'follow this guidance, in your own words'
   return `\n\nAdditionally, on tone and persona (this only adjusts HOW you sound — it does not change any of the behavioral rules below): ${verb}: "${field.text}"`
+}
+
+/**
+ * B2B-62 — resolves to '' (no instruction, English by omission) when `language` is
+ * undefined/null/blank, so every existing caller and every session that doesn't set this field
+ * gets byte-identical output to pre-B2B-62. `language` is taken as-is (not validated against a
+ * fixed list) and title-cased only for readability in the instruction text — the model itself
+ * resolves the actual language from plain English names like "french" or "Spanish" without any
+ * fixed vocabulary needed here.
+ */
+function buildLanguageInstruction(language: string | null | undefined): string {
+  const trimmed = language?.trim()
+  if (!trimmed) return ''
+  const displayName = trimmed.charAt(0).toUpperCase() + trimmed.slice(1)
+  return `\n\nConduct this entire live session in ${displayName}. All spoken content — your ` +
+    `explanations, questions, and responses — must be in ${displayName}, even though the reference ` +
+    `material provided below in SESSION CONTENT is written in English. Translate and explain that ` +
+    `material naturally and fluently in ${displayName}; never read it verbatim in English, and never ` +
+    `switch languages mid-session unless the participant does so first.`
 }
 
 /**
@@ -470,6 +510,7 @@ export function assembleHumeNativePrompt(input: AssembleHumeNativePromptInput): 
     audienceDescription = 'a senior executive',
     participantName,
     endUserIndustry,
+    conversationLanguage,
   } = input
 
   const contextBlock = [profileContext, intentContext]
@@ -487,6 +528,8 @@ export function assembleHumeNativePrompt(input: AssembleHumeNativePromptInput): 
   // to '' when `promptBehavior` is undefined/null/fully-unconfigured.
   const toneGuidance = buildToneGuidance(promptBehavior?.tonePersona)
   const partnerGuidance = buildPartnerGuidanceBlock(promptBehavior)
+  // B2B-62 — resolves to '' (English, no instruction) when conversationLanguage is absent/blank.
+  const languageInstruction = buildLanguageInstruction(conversationLanguage)
 
   // B2B-35 F2 — resolves rules 1/8/12 by mode; defaults to 'template' (byte-identical to v7).
   const resolvedMode = resolveSessionContentMode(sessionContentMode)
@@ -502,6 +545,7 @@ export function assembleHumeNativePrompt(input: AssembleHumeNativePromptInput): 
 
   const assembled = namedTemplate
     .split(TONE_GUIDANCE_PLACEHOLDER).join(toneGuidance)
+    .split(LANGUAGE_INSTRUCTION_PLACEHOLDER).join(languageInstruction)
     .split(PARTNER_GUIDANCE_PLACEHOLDER).join(partnerGuidance)
     .split(RULE_1_PLACEHOLDER).join(rule1Text)
     .split(RULE_8_PLACEHOLDER).join(rule8Text)

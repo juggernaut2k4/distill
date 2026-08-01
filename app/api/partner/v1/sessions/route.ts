@@ -55,6 +55,7 @@ export async function POST(request: NextRequest) {
     end_user_industry,
     reseller_id,
     reseller_unique_id,
+    language,
   } = parsed.data
 
   const supabase = createSupabaseAdminClient()
@@ -202,6 +203,9 @@ export async function POST(request: NextRequest) {
       // other end_user_* fields.
       end_user_name: end_user_name ?? null,
       end_user_industry: end_user_industry ?? null,
+      // B2B-62 — optional, session-wide conversation language. Null (English) for every request
+      // that omits it, byte-identical to pre-B2B-62 behavior.
+      conversation_language: language ?? null,
       // B2B-38 §6.4/§6.5 — idempotent-replay key (Open Item 2). A replay of the same
       // (partner_account_id, reseller_unique_id) pair fails this insert with a Postgres
       // unique-violation (23505), caught below.

@@ -145,11 +145,12 @@ describe('B2B-41 — regression, rules 1-12 unchanged', () => {
 })
 
 describe('B2B-41 — PROMPT_TEMPLATE_VERSION', () => {
-  // AT-4 — B2B-41 bumped v9 -> v10. B2B-58 has since bumped v10 -> v11 (rule 5's
-  // show_visual-as-alternate-advance wording removed); this assertion is updated to track the
-  // current version rather than re-asserting the now-superseded v10 value.
-  it('PROMPT_TEMPLATE_VERSION is the literal string v11 (not v10)', () => {
-    expect(PROMPT_TEMPLATE_VERSION).toBe('v11')
+  // AT-4 — B2B-41 bumped v9 -> v10. B2B-58 bumped v10 -> v11 (rule 5's
+  // show_visual-as-alternate-advance wording removed). B2B-62 has since bumped v11 -> v12
+  // (LANGUAGE_INSTRUCTION_PLACEHOLDER added to the template source); this assertion is updated to
+  // track the current version rather than re-asserting a now-superseded value.
+  it('PROMPT_TEMPLATE_VERSION is the literal string v12 (not v10 or v11)', () => {
+    expect(PROMPT_TEMPLATE_VERSION).toBe('v12')
   })
 })
 

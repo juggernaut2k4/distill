@@ -98,6 +98,13 @@ export interface PartnerRenderClientProps {
   // to it directly at connect time. Null if prompt assembly failed server-side (session still
   // proceeds without real voice content, mirroring humeConfigId's own null-safe fallback).
   voiceInstructions: string | null
+  // B2B-62 — session-wide language Clio conducts the conversation in. Null means English (every
+  // pre-B2B-62 session). Also gates the two-stage transcript-watch cue below off for any
+  // non-English session — matchesSpokenPhrase/wordTokens (lib/content/transition-markers.ts) are
+  // ASCII-only and cannot correctly match accented-language transcripts, so non-English sessions
+  // fall back to the advance_tab tool call alone (the existing, already-proven ineligible-page
+  // fallback — never worse than today's reliability).
+  conversationLanguage: string | null
   sections?: RenderedSectionProp[]
   inlinePages?: InlinePageProp[]
 }
@@ -109,7 +116,11 @@ export default function PartnerRenderClient({
   humeConfigId,
   voiceProvider,
   voiceInstructions,
+  conversationLanguage,
 }: PartnerRenderClientProps) {
+  // B2B-62 — English (null/absent, or explicitly "english") is the only language the two-stage
+  // transcript-watch cue can safely match against today.
+  const isEnglishSession = !conversationLanguage || conversationLanguage.trim().toLowerCase() === 'english'
   const isInline = Array.isArray(inlinePages)
   const count = isInline ? inlinePages!.length : (sections?.length ?? 0)
 
@@ -148,7 +159,13 @@ export default function PartnerRenderClient({
   // the full input the client has available, and it still catches the two most important
   // collision cases (cross-page title/subtitle collisions and generic/too-short titles).
   const stage1ArmedRef = useRef(false)
-  const stage2EligibleRef = useRef<boolean[]>(isInline ? computeStage2Eligibility(inlinePages!, '') : [])
+  // B2B-62 — non-English sessions get an all-false eligibility array (never computed against real
+  // titles), which forces every transition for that session onto the advance_tab tool call alone —
+  // the same graceful fallback an individually-ineligible page already uses today, just applied
+  // session-wide. See the isEnglishSession/conversationLanguage doc comment above.
+  const stage2EligibleRef = useRef<boolean[]>(
+    isInline && isEnglishSession ? computeStage2Eligibility(inlinePages!, '') : isInline ? inlinePages!.map(() => false) : []
+  )
 
   // B2B-11 — join-greeting poll (unchanged).
   const joinGreetingRetriedRef = useRef(false)

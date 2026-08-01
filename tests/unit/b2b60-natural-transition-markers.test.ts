@@ -155,6 +155,7 @@ describe('B2B-60 — buildInlineSessionContent prompt wording (§4b/§4c)', () =
     endUserName: null,
     endUserIndustry: null,
     providerBotId: null,
+    conversationLanguage: null,
   }
 
   function makePage(overrides: Partial<InlineContentPage> = {}): InlineContentPage {
@@ -272,7 +273,10 @@ describe('B2B-60 — PartnerRenderClient.tsx wiring (source-text assertions, fol
   })
 
   it('declares stage2EligibleRef, computed via computeStage2Eligibility', () => {
-    expect(clientSrc).toMatch(/const stage2EligibleRef = useRef<boolean\[\]>\(.*computeStage2Eligibility\(/)
+    // B2B-62 — this declaration now spans multiple lines (gated by isEnglishSession), so the
+    // regex allows computeStage2Eligibility( to appear anywhere after the useRef<boolean[]>( open,
+    // not just on the same line.
+    expect(clientSrc).toMatch(/const stage2EligibleRef = useRef<boolean\[\]>\([\s\S]*?computeStage2Eligibility\(/)
   })
 
   it('advanceOnTransition resets stage1ArmedRef.current to false between the debounce guard and goToSection', () => {

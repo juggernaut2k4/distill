@@ -37,11 +37,13 @@ describe('B2B-61 Part C — live-render.ts returns the assembled prompt for both
 
   it('resolveLiveSessionRender (template mode) sets and returns assembledPrompt', () => {
     expect(liveRenderSource).toContain('assembledPrompt = prompt')
-    expect(liveRenderSource).toMatch(/mode: 'template',[\s\S]*?assembledPrompt,\s*\n\s*\}/)
+    // B2B-62 added conversationLanguage after assembledPrompt in the return statement, so this no
+    // longer requires assembledPrompt to be the last property before the closing brace.
+    expect(liveRenderSource).toMatch(/mode: 'template',[\s\S]*?assembledPrompt,/)
   })
 
   it('resolveInlineSessionRender (inline mode) sets and returns assembledPrompt', () => {
-    expect(liveRenderSource).toMatch(/mode: 'inline',[\s\S]*?assembledPrompt,\s*\n\s*\}/)
+    expect(liveRenderSource).toMatch(/mode: 'inline',[\s\S]*?assembledPrompt,/)
   })
 })
 

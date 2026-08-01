@@ -74,6 +74,12 @@ export const CreateSessionSchema = z
     // B2B-38 §6.2 — optional. Idempotent-replay key (Open Item 2), scoped per-reseller. Same
     // printable-ASCII/length convention as partner_reference/partner_end_user_ref immediately above.
     reseller_unique_id: z.string().min(1).max(256).regex(PRINTABLE_ASCII).optional(),
+    // B2B-62 — optional, free-text language Clio should CONDUCT the conversation in (e.g.
+    // "french", "Spanish"). Source content stays English regardless — the model translates and
+    // explains it live. Absent/omitted means English, byte-identical to every pre-B2B-62 session
+    // (docs/b2b-pivot-status.md's B2B-62 backlog entry). Not an enum — Claude/gpt-realtime both
+    // already understand plain-language names without a fixed vocabulary to maintain here.
+    language: z.string().trim().min(1).max(60).optional(),
   })
   .refine(
     (data) => {

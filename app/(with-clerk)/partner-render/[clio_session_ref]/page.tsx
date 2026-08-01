@@ -89,6 +89,7 @@ export default async function PartnerRenderPage({
         humeConfigId={result.humeConfigId}
         voiceProvider={voiceProvider}
         voiceInstructions={result.assembledPrompt}
+        conversationLanguage={result.conversationLanguage}
       />
     )
   }
@@ -100,6 +101,7 @@ export default async function PartnerRenderPage({
       humeConfigId={result.humeConfigId}
       voiceProvider={voiceProvider}
       voiceInstructions={result.assembledPrompt}
+      conversationLanguage={result.conversationLanguage}
     />
   )
 }

@@ -25,6 +25,7 @@ const BASE_SESSION: PartnerSessionRow = {
   endUserIndustry: null,
   // B2B-50 — new required field on PartnerSessionRow, unrelated to this file's own coverage.
   providerBotId: null,
+  conversationLanguage: null,
 }
 
 function makePage(overrides: Partial<InlineContentPage> = {}): InlineContentPage {
