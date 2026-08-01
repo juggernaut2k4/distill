@@ -4,52 +4,50 @@ import type { VoiceSessionAdapter } from './adapter'
  * B2B-61 Part A — OpenAI Realtime voice adapter (alternate provider, Hume remains default).
  *
  * ============================================================================================
- * SPIKE STATUS — READ BEFORE TRUSTING THIS FILE IN PRODUCTION
+ * SPIKE STATUS — updated 2026-07-31 after a REAL live connectivity spike
  * ============================================================================================
- * The brief for this build (.claude/agents/clio/feature-briefs/
- * B2B-61-openai-realtime-voice-adapter-and-admin-toggle.md) makes a live connectivity spike the
- * mandatory first gate before writing this file, specifically to confirm — against a real
- * WebSocket, not documentation — the actual audio frame format/sample rate, tool-call event
- * shapes, and interruption event shapes.
+ * `OPENAI_REALTIME_API_KEY` became available in this environment (added to Vercel Production +
+ * Preview) after this file was first written from documentation alone. The mandatory spike was
+ * then actually run: a real ephemeral token minted via the live production
+ * /api/openai-realtime-token route, a real WebSocket opened directly against
+ * wss://api.openai.com/v1/realtime, real session.update / response.create / tool-call /
+ * synthetic-barge-in round trips observed end to end (3 separate live runs). Findings:
  *
- * `OPENAI_REALTIME_API_KEY` was NOT set in this build environment (confirmed via `env | grep
- * OPENAI` before starting — nothing found). A real spike could not be performed. What follows
- * instead: every event name, payload shape, and connection mechanism below was cross-checked
- * against OpenAI's OWN CURRENT documentation, fetched live during this build on 2026-07-31
- * (developers.openai.com/api/docs/guides/realtime-websocket, realtime-conversations,
- * realtime-vad — not training-data recollection). Specifically confirmed from those live pages:
- *   - WS URL:        wss://api.openai.com/v1/realtime?model=gpt-realtime-2.1  (literal example
- *                     from the docs page)
- *   - Browser auth:  subprotocols array ["realtime", "openai-insecure-api-key.<token>",
- *                     "openai-beta.realtime-v1"] — browsers cannot set a WebSocket Authorization
- *                     header, so this subprotocol mechanism is the documented workaround.
- *   - Audio format:  audio/pcm, 24000 Hz, confirmed in the session.update example.
- *   - Tool shape:    flat { type: 'function', name, description, parameters } (NOT the nested
- *                     Chat-Completions-style { type:'function', function:{...} } shape).
- *   - Function-call flow: response.output_item.done (item.type === 'function_call') is where the
- *                     call is executed, per OpenAI's own docs text: "the function is executed in
- *                     the response.output_item.done event." Result sent back via
- *                     conversation.item.create (type: function_call_output), followed by an
- *                     explicit response.create to resume the model's turn.
- *   - Interrupt:      turn_detection.interrupt_response is a real, documented field; exact
- *                     end-to-end truncation mechanics on the wire were NOT confirmed (the VAD
- *                     guide page describes the config field but not the full event sequence).
+ *   CONFIRMED CORRECT, exactly as this file assumed:
+ *   - Audio format: audio/pcm, 24000 Hz, both directions — echoed back verbatim in
+ *     session.updated.
+ *   - Tool shape: flat { type: 'function', name, description, parameters } — echoed back
+ *     verbatim.
+ *   - Function-call flow: response.output_item.done (item.type === 'function_call', with
+ *     .name/.call_id/.arguments) is genuinely where the completed call lands; a live tool-result
+ *     round trip (conversation.item.create type:'function_call_output' + explicit
+ *     response.create) was sent back and the model correctly resumed speaking, referencing the
+ *     result.
+ *   - response.output_audio.delta (base64 PCM16 chunks) and response.output_audio_transcript.done
+ *     (assistant transcript) fire with exactly these names/shapes.
+ *   - session.created fires before session.updated, as this file's handleMessage assumed.
+ *   - input_audio_buffer.speech_started fires (confirmed by streaming synthetic audio mid-response)
+ *     with the exact type name this file's barge-in branch listens for.
  *
- * NOT independently confirmed against a live account (best-documented-effort only, matching
- * training-era Realtime API conventions plus what the fetched pages did show): the exact
- * `session.created` vs `session.updated` firing order/timing, `response.output_audio_transcript
- * .delta/.done` naming for assistant speech transcript, `conversation.item.input_audio
- * _transcription.completed` for user speech transcript, and the precise client_secret response
- * envelope from POST /v1/realtime/client_secrets (see app/api/openai-realtime-token/route.ts's
- * own doc comment — it defensively parses two possible response shapes for this reason).
+ *   CONFIRMED WRONG, fixed and re-verified live before OPENAI_REALTIME_ADAPTER_AVAILABLE was
+ *   flipped to true (see lib/voice/provider-availability.ts):
+ *   - The 'openai-beta.realtime-v1' WS subprotocol (originally the 3rd entry in `protocols` below)
+ *     is REMOVED — it triggered an immediate, connection-killing server error under the current
+ *     GA API: { error: { code: 'beta_api_shape_disabled', message: "The Realtime Beta API is no
+ *     longer supported. Please use /v1/realtime for the GA API." } }, WS closed code 4000. The
+ *     2-entry protocol list below (['realtime', 'openai-insecure-api-key.<token>']) is what was
+ *     actually re-verified working live.
  *
- * Every `onmessage` branch below degrades harmlessly (falls through to `default: break`,
- * mirroring HumeAdapter's own try/catch-and-ignore parse discipline) if an assumed event name
- * turns out to be wrong — this adapter will not crash on an unexpected event, but a wrong
- * assumption could mean a real signal (e.g. a transcript, or a tool call) is silently missed.
- * **Before this adapter is used for any real partner session, run one real live-call test round
- * and diff actual received event names against the list above** — this is the deferred spike,
- * not a substitute for it.
+ *   STILL NOT independently observed live (lower risk, not exercised by this spike): the exact
+ *   `conversation.item.input_audio_transcription.completed` event for user speech transcript
+ *   (no real speech audio was available to send from this headless environment — only synthetic
+ *   noise, which triggered speech_started but not a transcribable utterance), and the full
+ *   server-side response-truncation wire sequence on a genuine mid-sentence interruption (the
+ *   speech_started event itself — which is all this adapter's own barge-in branch depends on —
+ *   was confirmed; deeper truncation mechanics were not).
+ *
+ * Every `onmessage` branch below still degrades harmlessly (falls through to `default: break`)
+ * if an event name turns out to be wrong for a case not covered above.
  * ============================================================================================
  *
  * Interface contract: implements VoiceSessionAdapter (lib/voice/adapter.ts) to the same bar
@@ -155,13 +153,18 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
     return new Promise((resolve, reject) => {
       const url = `wss://api.openai.com/v1/realtime?model=${encodeURIComponent(this.config.model)}`
       // Browser WebSocket cannot set an Authorization header — this subprotocol-based auth
-      // mechanism is OpenAI's own documented workaround for browser/client connections (confirmed
-      // live against developers.openai.com/api/docs/guides/realtime-websocket during this build;
-      // see the top-of-file spike-status comment). UNVERIFIED against a real live connection.
+      // mechanism is OpenAI's own documented workaround for browser/client connections.
+      // B2B-61 live connectivity spike (2026-07-31, real WS against a real minted token) CONFIRMED
+      // this two-entry list connects and accepts session.update. The originally-built third entry,
+      // 'openai-beta.realtime-v1', was REMOVED after the spike showed it triggers an immediate,
+      // connection-killing server error on the current GA API:
+      //   { type: 'error', error: { code: 'beta_api_shape_disabled',
+      //     message: 'The Realtime Beta API is no longer supported. Please use /v1/realtime for
+      //     the GA API.' } }  — WS closes with code 4000.
+      // Do not re-add that subprotocol.
       const protocols = [
         'realtime',
         `openai-insecure-api-key.${this.config.ephemeralToken}`,
-        'openai-beta.realtime-v1',
       ]
 
       let resolved = false

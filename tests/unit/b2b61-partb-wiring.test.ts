@@ -61,8 +61,9 @@ describe('B2B-61 Part B — PartnerRenderClient.tsx props-interface type additio
     expect(clientSource).toMatch(/voiceProvider,?\s*\n?\}:\s*PartnerRenderClientProps/)
   })
 
-  it('does NOT touch the existing provider-selection branch inside connect() — the env-var-based local read is unchanged', () => {
-    expect(clientSource).toContain(
+  it('connect() reads the provider directly from the voiceProvider prop, not a client-side env var (Part A seam closed 2026-07-31 after the live connectivity spike confirmed the adapter)', () => {
+    expect(clientSource).not.toContain('NEXT_PUBLIC_VOICE_PROVIDER')
+    expect(clientSource).not.toContain(
       "process.env.NEXT_PUBLIC_VOICE_PROVIDER === 'openai_realtime' ? 'openai_realtime' : 'hume'"
     )
     expect(clientSource).toContain("if (voiceProvider === 'openai_realtime') {")

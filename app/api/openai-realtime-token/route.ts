@@ -14,16 +14,20 @@ const DEFAULT_MODEL = 'gpt-realtime-2.1'
  * B2B-61 Part A — structural twin of app/api/hume-token/route.ts: server-minted,
  * short-lived auth, NO_CACHE, typed error responses, secrets from process.env only.
  *
- * UNVERIFIED AGAINST A LIVE ACCOUNT — no OPENAI_REALTIME_API_KEY was available in this build
- * environment (confirmed via `env | grep OPENAI` before starting: not set). The mandatory
- * connectivity spike this brief calls for (docs/... — see B2B-61 brief §"Spike first") could
- * NOT be performed for real. The request/response shape below is assembled from OpenAI's own
- * current documentation (developers.openai.com/api/reference/resources/realtime/subresources/
- * sessions/methods/create, and the "Ephemeral Tokens" community/docs material describing
- * POST /v1/realtime/client_secrets) but has NOT been confirmed against a real HTTP call. Before
- * this route is used for a real session, mint one real token by hand (`curl` against this route
- * with a real key set) and confirm the response actually contains `client_secret.value` /
- * `client_secret.expires_at` in the shape assumed below — adjust the parsing below if not.
+ * VERIFIED LIVE 2026-07-31 once OPENAI_REALTIME_API_KEY became available in this environment.
+ * `data.client_secret.value` / `data.client_secret.expires_at` is the real shape OpenAI returns —
+ * the top-level `data.value`/`data.expires_at` fallback below was never needed live but is left in
+ * place as a harmless defensive fallback.
+ *
+ * BUG FOUND AND FIXED BY THE LIVE SPIKE: the outbound `fetch()` below originally had no explicit
+ * `cache` option. Next.js's fetch Data Cache was silently caching this POST to OpenAI, so repeated
+ * calls to this route within a short window returned the IDENTICAL client_secret (confirmed: 4
+ * consecutive calls spanning 2+ minutes returned the same `ek_...` token and expires_at). Since
+ * OpenAI's ephemeral tokens are single-use (`ephemeral_token_already_used` on a second WS connect
+ * attempt), this meant any connection attempt — successful or failed — could silently burn the
+ * token that every other caller would then also receive, breaking real session starts for up to
+ * the token's ~10min lifetime. Fixed by adding `cache: 'no-store'` below; re-verified live
+ * (3 consecutive calls after the fix returned 3 distinct tokens).
  *
  * Normalized response shape ({ accessToken, expiresIn }) deliberately matches
  * app/api/hume-token/route.ts's response shape exactly, so both providers' token routes are
@@ -46,6 +50,7 @@ export async function GET() {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ session: { type: 'realtime', model } }),
+    cache: 'no-store',
   })
 
   if (!res.ok) {

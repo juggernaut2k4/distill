@@ -4,10 +4,20 @@
  * the UI (app/(with-clerk)/dashboard/admin/VoiceProviderCard.tsx) and,
  * defense-in-depth, in the PATCH /api/admin/voice-config route itself.
  *
- * Owned by Part A (the OpenAI Realtime adapter build, tracked separately in
- * the B2B-61 feature brief) — flip to `true` only once
- * lib/voice/openai-realtime-adapter.ts is live-call verified end-to-end
- * (per the feature brief's own spike-first requirement). This file has no
- * other purpose and should not accumulate unrelated flags.
+ * Flipped to `true` 2026-07-31 after a real live connectivity spike against
+ * OpenAI's Realtime API (real ephemeral token minted via the production
+ * /api/openai-realtime-token route, real WebSocket, real session.update,
+ * real tool-call round trip, real barge-in event) confirmed the adapter's
+ * assumptions — audio format (audio/pcm @ 24000Hz), tool-call event shapes
+ * (response.output_item.done / function_call_arguments.delta+done), and
+ * interruption (input_audio_buffer.speech_started) all matched what
+ * lib/voice/openai-realtime-adapter.ts expects. Two real bugs surfaced by the
+ * spike were fixed and re-verified live before this flip: (1) the
+ * 'openai-beta.realtime-v1' WS subprotocol triggered a hard
+ * beta_api_shape_disabled error under the current GA API — removed; (2) the
+ * token route's outbound fetch to OpenAI lacked `cache: 'no-store'`, so
+ * Next.js's Data Cache was silently serving the same (often already-used)
+ * ephemeral token to repeated callers — fixed. This file has no other
+ * purpose and should not accumulate unrelated flags.
  */
-export const OPENAI_REALTIME_ADAPTER_AVAILABLE = false
+export const OPENAI_REALTIME_ADAPTER_AVAILABLE = true

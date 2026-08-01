@@ -84,12 +84,11 @@ export interface InlinePageProp {
 export interface PartnerRenderClientProps {
   clioSessionRef: string
   humeConfigId: string | null
-  // B2B-61 Part B (docs/specs/B2B-61-requirement-document.md §14 CEO Addendum) — type-only
-  // addition so page.tsx can pass the server-resolved provider without a tsc failure. NOT
-  // consumed here to construct or branch an adapter — that remains Part A's scope (the
-  // `if (voiceProvider === 'openai_realtime')` branch inside connect() below still reads its own
-  // env-var-based local, unchanged). Part A should replace that local read with this prop once
-  // its own adapter-construction work lands.
+  // B2B-61 Part B (docs/specs/B2B-61-requirement-document.md §14 CEO Addendum) — server-resolved
+  // provider, read from the persisted system_voice_config toggle by the parent server component
+  // alongside `humeConfigId`. Consumed directly in connect() below (2026-07-31, once Part A's
+  // live connectivity spike confirmed the adapter's assumptions) to select which adapter to
+  // construct — Hume remains the default for any value other than 'openai_realtime'.
   voiceProvider: 'hume' | 'openai_realtime'
   sections?: RenderedSectionProp[]
   inlinePages?: InlinePageProp[]
@@ -100,8 +99,6 @@ export default function PartnerRenderClient({
   sections,
   inlinePages,
   humeConfigId,
-  // Declared per §14 CEO Addendum, not yet consumed here — Part A's scope (see the doc comment
-  // on PartnerRenderClientProps above).
   voiceProvider,
 }: PartnerRenderClientProps) {
   const isInline = Array.isArray(inlinePages)
@@ -217,14 +214,11 @@ export default function PartnerRenderClient({
         const micStream = await navigator.mediaDevices.getUserMedia({ audio: true })
         if (cancelled) return
 
-        // B2B-61 Part A — provider-selection seam. Part B (the admin-toggle UI, a separate BA-gated
-        // track) will replace this env-var read with a real persisted, server-resolved value passed
-        // down as a prop alongside `humeConfigId` — this is deliberately the simplest possible
-        // placeholder until that lands, not a finished product decision. Hume remains the default:
-        // any value other than the literal string 'openai_realtime' resolves to 'hume'.
-        const voiceProvider: 'hume' | 'openai_realtime' =
-          process.env.NEXT_PUBLIC_VOICE_PROVIDER === 'openai_realtime' ? 'openai_realtime' : 'hume'
-
+        // B2B-61 Part A/B seam closed 2026-07-31: `voiceProvider` now comes from the component's
+        // own prop (server-resolved from the persisted system_voice_config toggle — see the parent
+        // server component that computes it alongside `humeConfigId`), not a client-side env-var
+        // read. Hume remains the default: PartnerRenderClientProps types this 'hume' | 'openai_realtime'
+        // with no other value possible.
         connectStartRef.current = Date.now()
 
         // Tool handlers differ per mode. Option 2 keeps its exact prior behavior;
