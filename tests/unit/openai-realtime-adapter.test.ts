@@ -535,21 +535,60 @@ describe('OpenAIRealtimeAdapter.endSession waits for playback to finish (2026-08
 /**
  * 2026-08-01 — Marin never spoke first because OpenAI's Realtime API (unlike Hume's EVI) never
  * generates a turn on its own; it only responds to user audio or an explicit response.create.
- * Source-text assertion since exercising ws.onopen requires openConnection()'s real
- * WebSocket/AudioContext construction, which this test file's own convention (see header comment)
- * deliberately avoids.
+ *
+ * 2026-08-01 (round 2) — Arun's live test found the mandatory opening icebreaker/agenda (rule 1)
+ * was getting skipped. Root cause: the original fix sent response.create from ws.onopen, in the
+ * same synchronous tick as session.update, without waiting for the server to actually confirm it
+ * landed — risking the model's first turn generating against not-yet-bound instructions. Moved to
+ * fire only once session.updated actually arrives (handleMessage), so these are now real
+ * behavioral tests via feedMessage()/installFakeSocket(), not just source-text assertions.
  */
-describe('OpenAIRealtimeAdapter sends an initial response.create so Clio speaks first (2026-08-01)', () => {
-  it('sends response.create, guarded by hasTriggeredInitialResponse, inside ws.onopen', () => {
+describe('OpenAIRealtimeAdapter sends an initial response.create so Clio speaks first (2026-08-01, round 2: gated on session.updated)', () => {
+  it('sends response.create the moment session.updated arrives, guarded by hasTriggeredInitialResponse', async () => {
+    const adapter = makeAdapter()
+    const send = installFakeSocket(adapter)
+
+    await feedMessage(adapter, { type: 'session.updated', session: { id: 'sess-1' } })
+
+    const payloads = send.mock.calls.map((call) => JSON.parse(call[0] as string))
+    expect(payloads).toContainEqual({ type: 'response.create' })
+  })
+
+  it('does NOT send response.create on session.created alone (must wait for the actual session.updated ack)', async () => {
+    const adapter = makeAdapter()
+    const send = installFakeSocket(adapter)
+
+    await feedMessage(adapter, { type: 'session.created', session: { id: 'sess-1' } })
+
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('fires only once even if session.updated arrives again (mirrors a mid-session reconnect, no re-greet)', async () => {
+    const adapter = makeAdapter()
+    const send = installFakeSocket(adapter)
+
+    await feedMessage(adapter, { type: 'session.updated', session: { id: 'sess-1' } })
+    const countAfterFirst = send.mock.calls.filter(
+      (call) => JSON.parse(call[0] as string).type === 'response.create'
+    ).length
+    expect(countAfterFirst).toBe(1)
+
+    await feedMessage(adapter, { type: 'session.updated', session: { id: 'sess-1' } })
+    const countAfterSecond = send.mock.calls.filter(
+      (call) => JSON.parse(call[0] as string).type === 'response.create'
+    ).length
+    expect(countAfterSecond).toBe(1)
+  })
+
+  it('the guard flag defaults to false and is a private instance field', () => {
+    expect(adapterSource).toContain('private hasTriggeredInitialResponse = false')
+  })
+
+  it('response.create is no longer sent from inside ws.onopen (moved to the session.updated handler)', () => {
     const onOpenBody = adapterSource.slice(
       adapterSource.indexOf('this.ws.onopen = () => {'),
       adapterSource.indexOf('this.ws.onerror = () => {')
     )
-    expect(onOpenBody).toContain('hasTriggeredInitialResponse')
-    expect(onOpenBody).toContain("type: 'response.create'")
-  })
-
-  it('the guard flag defaults to false and is a private instance field (fires once per adapter instance, including across reconnects)', () => {
-    expect(adapterSource).toContain('private hasTriggeredInitialResponse = false')
+    expect(onOpenBody).not.toContain("type: 'response.create'")
   })
 })

@@ -157,10 +157,11 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
   // connect), OpenAI's Realtime API never generates a turn on its own — it only responds to user
   // audio or an explicit `response.create`. This adapter sent session.update then just started
   // listening, so the assembled prompt's own rule 1 ("Open the session warmly...") never actually
-  // got a turn to execute. Fires exactly once per adapter instance (first successful
-  // session.update only, never on a reconnect mid-session) — reconnecting should resume silently,
-  // not have Clio re-greet/restart, mirroring the join-greeting flow's own "do not restart"
-  // framing (app/api/partner/render/join-greeting/[clio_session_ref]/route.ts).
+  // got a turn to execute. Fires exactly once per adapter instance (first confirmed
+  // session.updated ack only, never on a reconnect mid-session — see the session.updated case in
+  // handleMessage() for where this now actually sends) — reconnecting should resume silently, not
+  // have Clio re-greet/restart, mirroring the join-greeting flow's own "do not restart" framing
+  // (app/api/partner/render/join-greeting/[clio_session_ref]/route.ts).
   private hasTriggeredInitialResponse = false
 
   // 2026-08-01 — 'playback_complete' gate mode's held-back transcript, waiting for the audio queue
@@ -239,11 +240,14 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
                 // gpt-realtime-native voices — better fit for an energetic, educational
                 // teaching persona than the legacy 'alloy'/'verse' voices.
                 voice: 'marin',
-                // 2026-08-01 — per Arun: still felt fast even with the persona/pacing
-                // instructions (lib/voice/openai-realtime-persona.ts) alone. Deterministic
-                // playback-rate lever (OpenAI's own field, range 0.25-1.5, default 1.0). Tried 0.7
-                // (30% slower) first; Arun asked to reset to 1.0 baseline then move to 0.9 instead.
-                speed: 0.9,
+                // 2026-08-01 (round 2) — per Arun, after live-testing 0.9: reset to the 1.0
+                // baseline. The warmth/slowness he's after is being pursued through the persona
+                // instructions (lib/voice/openai-realtime-persona.ts's Pacing/Emotion sections)
+                // instead of this deterministic playback-rate lever — a flat rate multiplier makes
+                // every word uniformly slower/robotic, whereas the desired effect (pausing after
+                // key points, slowing for complex ideas, staying natural elsewhere) needs to vary
+                // within a sentence, which only prompt-level pacing guidance can do.
+                speed: 1.0,
               },
             },
             tools: OPENAI_REALTIME_TOOLS,
@@ -251,13 +255,15 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
           },
         }))
 
-        // 2026-08-01 — kicks off Clio's first turn per the doc comment on
-        // hasTriggeredInitialResponse above. Once only, ever, for this adapter instance.
-        if (!this.hasTriggeredInitialResponse) {
-          this.hasTriggeredInitialResponse = true
-          this.ws?.send(JSON.stringify({ type: 'response.create' }))
-        }
-
+        // 2026-08-01 (round 2) — Arun, live test: Marin greeted but skipped the mandated
+        // icebreaker/agenda opening (prompt-template.ts rule 1). Root cause: `response.create` was
+        // sent here, in the same synchronous tick as `session.update`, without waiting for the
+        // server to actually apply it. OpenAI's own session.update is asynchronous — the live spike
+        // (see top-of-file SPIKE STATUS) observed it only gets confirmed later via a `session.updated`
+        // event. Firing response.create before that ack risks the model generating its first turn
+        // against not-yet-bound (or default/blank) instructions, silently skipping rule 1's mandatory
+        // opening content. Moved to the `session.updated` case in handleMessage() below, so the
+        // first turn only ever generates once the server has actually confirmed instructions landed.
         this.startMicCapture()
         if (!resolved) { resolved = true; resolve() }
       }
@@ -324,6 +330,14 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
           this.connected = true
           this.hasSessionReady = true
           this.config.onConnect(this.sessionId)
+
+          // 2026-08-01 (round 2) — see the onopen doc comment above: fires Clio's first turn only
+          // now that the server has actually confirmed instructions landed, exactly once per
+          // adapter instance (never on a reconnect mid-session, matching the original intent).
+          if (!this.hasTriggeredInitialResponse) {
+            this.hasTriggeredInitialResponse = true
+            this.ws?.send(JSON.stringify({ type: 'response.create' }))
+          }
         }
         break
       }

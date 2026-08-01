@@ -78,9 +78,10 @@ describe('B2B-61 Part C — voice selection', () => {
     expect(adapterSource).toContain("voice: 'marin'")
   })
 
-  it('requests speed: 0.9 per Arun\'s 2026-08-01 request (tried 0.7 first, then asked to reset to 1.0 baseline and use 0.9 instead)', () => {
+  it('requests speed: 1.0 (2026-08-01 round 2: reverted from 0.9 after live test — warmth/pacing now pursued via persona instructions, not the flat rate lever)', () => {
     expect(adapterSource).not.toContain('speed: 0.7')
-    expect(adapterSource).toContain('speed: 0.9')
+    expect(adapterSource).not.toContain('speed: 0.9')
+    expect(adapterSource).toContain('speed: 1.0')
   })
 })
 
@@ -95,16 +96,21 @@ describe('B2B-61 Part C — OpenAI voice delivery persona (2026-08-01, Arun\'s e
     expect(clientSource).toMatch(/instructions:\s*\n\s*`\$\{OPENAI_VOICE_PERSONA_INSTRUCTIONS\}\\n\\n\$\{/)
   })
 
-  it('the persona module contains every section of Arun\'s exact wording, verbatim', () => {
-    expect(personaSource).toContain('Accent/Affect: Warm, cheerful, energetic, and welcoming')
+  it('the persona module contains every section, reworked 2026-08-01 round 2 toward calm/unhurried per Arun\'s live-test feedback', () => {
+    expect(personaSource).toContain('Accent/Affect: Warm, calm, and welcoming, like a patient, unhurried mentor')
     expect(personaSource).toContain('Tone: Encouraging, educational, and conversational.')
-    expect(personaSource).toContain('Pacing: Steady and engaging. Slow down for complex ideas')
-    expect(personaSource).toContain('Emotion: Genuinely excited, positive, and supportive.')
+    expect(personaSource).toContain('Pacing: Slow and deliberate, never rushed.')
+    expect(personaSource).toContain('Emotion: Warm, genuine, and supportive.')
     expect(personaSource).toContain('Pronunciation: Speak clearly and articulate important terminology')
     expect(personaSource).toContain('Teaching Style: Break information into clear, manageable steps.')
-    expect(personaSource).toContain('Personality Affect: Friendly, approachable, uplifting, and confidently knowledgeable.')
+    expect(personaSource).toContain('Personality Affect: Friendly, approachable, and confidently knowledgeable.')
     expect(personaSource).toContain('Interaction Style: Encourage participation and curiosity.')
-    expect(personaSource).toContain('Overall Experience: Create a warm and engaging learning environment')
+    expect(personaSource).toContain('Overall Experience: Create a warm, calm, and unhurried learning environment')
+  })
+
+  it('reinforces (OpenAI-only) that end_session must never be called without an audible goodbye first, per Arun\'s 2026-08-01 round 2 report of a silent disconnect', () => {
+    expect(personaSource).toContain('Session Closing:')
+    expect(personaSource).toContain('never call end_session silently')
   })
 
   it('is never referenced by hume-adapter.ts or the shared prompt template (OpenAI-only, does not affect Hume)', () => {
