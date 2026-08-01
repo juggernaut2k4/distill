@@ -77,6 +77,10 @@ describe('B2B-61 Part C — voice selection', () => {
     expect(adapterSource).not.toContain("voice: 'alloy'")
     expect(adapterSource).toContain("voice: 'marin'")
   })
+
+  it('requests a 30% slowdown (speed: 0.7) per Arun\'s 2026-08-01 request', () => {
+    expect(adapterSource).toContain('speed: 0.7')
+  })
 })
 
 describe('B2B-61 Part C — OpenAI voice delivery persona (2026-08-01, Arun\'s exact wording)', () => {

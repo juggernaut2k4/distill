@@ -228,6 +228,12 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
                 // gpt-realtime-native voices — better fit for an energetic, educational
                 // teaching persona than the legacy 'alloy'/'verse' voices.
                 voice: 'marin',
+                // 2026-08-01 — per Arun: still felt fast even with the persona/pacing
+                // instructions (lib/voice/openai-realtime-persona.ts) alone. Deterministic
+                // playback-rate lever (OpenAI's own field, range 0.25-1.5, default 1.0) — 0.7 is a
+                // literal 30% slowdown. Only settable at session start / between turns per
+                // OpenAI's docs, which is exactly when this fires.
+                speed: 0.7,
               },
             },
             tools: OPENAI_REALTIME_TOOLS,
