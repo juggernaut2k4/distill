@@ -487,13 +487,26 @@ INFRA-* (Mia Digital LLC migration) — parallel, non-blocking, land before prod
     which Hume EVI tends to emit more incrementally (closer to per-utterance/per-sentence granularity,
     each nearer its own audio chunk) — this may be why B2B-59/60's live testing against Hume didn't
     surface this specific symptom.
-  - **Not critical, no fix needed immediately** (Arun's own framing). Possible directions to discuss
-    before building anything: (a) gate the phrase-match on actual audio-playback completion instead of
-    transcript-completion for the OpenAI adapter specifically (would need a "played through" signal,
-    not just decoded/queued), (b) add a deliberate small delay after a transcript-done match before
-    advancing, sized to typical audio-queue depth, (c) switch to accumulating `response.output_audio_transcript.delta`
-    events and matching progressively, closer to Hume's incremental cadence. All three are real design
-    tradeoffs, not obvious wins — discuss before implementing.
+  - **Not critical, no fix needed immediately** (Arun's own framing). Three candidate directions,
+    Arun's explicit order: (a) gate the phrase-match on actual audio-playback completion, (b) switch
+    to accumulating `response.output_audio_transcript.delta` and matching progressively, (c) a fixed
+    delay sized to typical audio-queue depth.
+  - **(a) built and shipped 2026-08-01, as a toggle — not yet the default.** `lib/voice/openai-realtime-adapter.ts`
+    gained `transcriptGateMode?: 'immediate' | 'playback_complete'` on `OpenAIRealtimeAdapterConfig`.
+    Default (omitted, or `'immediate'`) is byte-for-byte today's existing behavior — zero risk.
+    `'playback_complete'` holds the transcript in a new `pendingAiTranscript` field instead of firing
+    `onMessage` immediately, IF the audio queue is still playing/queued at that moment, and flushes it
+    from `drainQueue()`'s own empty base case (`flushPendingAiTranscriptIfDrained()`) — the real
+    "audio actually finished playing" signal, not just "text arrived." Fires immediately with zero
+    added delay if the queue already happens to be drained by the time the transcript arrives (no
+    unnecessary wait). An interruption (`input_audio_buffer.speech_started`) discards any pending
+    transcript rather than letting it fire late after a barge-in. `PartnerRenderClient.tsx` reads
+    `NEXT_PUBLIC_OPENAI_TRANSCRIPT_GATE_MODE` — **unset today, so this is still off in production**;
+    set it to the literal string `playback_complete` in Vercel and redeploy to turn it on, unset (or
+    remove the var) to revert instantly with no code change. `tsc`/`npm run build`/`vitest run` all
+    clean (1181/1182, same known pre-existing flake); 13 new tests. **Not yet live-tested** — next
+    step is a real call with the env var set, to see if it actually fixes the timing Arun heard.
+    (b) and (c) not started — try (a) live first per Arun's own ordering.
 
 - **Attendee webhook signature hard-enforcement.** `app/api/attendee/webhook/route.ts` was found (2026-07-14/15
   overnight audit) with signature verification computed but never enforced — any POST claiming to be from
