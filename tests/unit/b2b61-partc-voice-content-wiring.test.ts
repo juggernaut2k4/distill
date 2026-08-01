@@ -78,8 +78,9 @@ describe('B2B-61 Part C — voice selection', () => {
     expect(adapterSource).toContain("voice: 'marin'")
   })
 
-  it('requests a 30% slowdown (speed: 0.7) per Arun\'s 2026-08-01 request', () => {
-    expect(adapterSource).toContain('speed: 0.7')
+  it('requests speed: 0.9 per Arun\'s 2026-08-01 request (tried 0.7 first, then asked to reset to 1.0 baseline and use 0.9 instead)', () => {
+    expect(adapterSource).not.toContain('speed: 0.7')
+    expect(adapterSource).toContain('speed: 0.9')
   })
 })
 

@@ -1,6 +1,10 @@
 import { describe, it, expect, vi } from 'vitest'
+import fs from 'fs'
+import path from 'path'
 import { OpenAIRealtimeAdapter, type OpenAIRealtimeAdapterConfig } from '@/lib/voice/openai-realtime-adapter'
 import { OPENAI_REALTIME_TOOLS } from '@/lib/voice/openai-realtime-tools'
+
+const adapterSource = fs.readFileSync(path.resolve(__dirname, '../../lib/voice/openai-realtime-adapter.ts'), 'utf8')
 
 /**
  * B2B-61 Part A — unit tests for OpenAIRealtimeAdapter's pure/testable logic, following the
@@ -36,11 +40,13 @@ function feedMessage(adapter: OpenAIRealtimeAdapter, msg: Record<string, unknown
   return (adapter as unknown as { handleMessage: (m: Record<string, unknown>) => Promise<void> }).handleMessage(msg)
 }
 
-/** Installs a fake `ws` with a spyable `.send()` directly onto the private field, mirroring how
- *  these tests bypass openConnection() entirely — no real WebSocket construction needed. */
+/** Installs a fake `ws` with a spyable `.send()` (and a no-op `.close()`, needed by endSession())
+ *  directly onto the private field, mirroring how these tests bypass openConnection() entirely —
+ *  no real WebSocket construction needed. */
 function installFakeSocket(adapter: OpenAIRealtimeAdapter) {
   const send = vi.fn()
-  ;(adapter as unknown as { ws: { send: typeof send; readyState: number } }).ws = { send, readyState: 1 }
+  const close = vi.fn()
+  ;(adapter as unknown as { ws: { send: typeof send; close: typeof close; readyState: number } }).ws = { send, close, readyState: 1 }
   return send
 }
 
@@ -438,5 +444,112 @@ describe('OpenAIRealtimeAdapter simple interface members', () => {
   it('getInputVolume always returns 0 (no provider API for this, matching HumeAdapter)', () => {
     const adapter = makeAdapter()
     expect(adapter.getInputVolume()).toBe(0)
+  })
+})
+
+/**
+ * 2026-08-01 — endSession() no longer tears down audio synchronously; it waits for any
+ * queued/in-flight playback (e.g. Clio's own spoken goodbye) to actually finish before closing
+ * anything. Root cause this fixes: the old clearAudioQueue()+audioCtx.close() sequence cut the
+ * goodbye off mid-sentence every time, since audioCtx.close() stops audio already mid-flight too,
+ * contrary to clearAudioQueue()'s own "does not stop audio already mid-flight" doc comment.
+ */
+describe('OpenAIRealtimeAdapter.endSession waits for playback to finish (2026-08-01)', () => {
+  it('resolves immediately when nothing is queued or playing', async () => {
+    const adapter = makeAdapter()
+    installFakeSocket(adapter)
+    await expect(adapter.endSession()).resolves.toBeUndefined()
+  })
+
+  it('does not resolve while audio is still playing, and resolves once it stops', async () => {
+    vi.useFakeTimers()
+    try {
+      const adapter = makeAdapter()
+      installFakeSocket(adapter)
+      ;(adapter as unknown as { isPlaying: boolean }).isPlaying = true
+
+      let resolved = false
+      const promise = adapter.endSession().then(() => { resolved = true })
+
+      await vi.advanceTimersByTimeAsync(500)
+      expect(resolved).toBe(false)
+
+      ;(adapter as unknown as { isPlaying: boolean }).isPlaying = false
+      await vi.advanceTimersByTimeAsync(200)
+      await promise
+      expect(resolved).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not resolve while chunks remain queued, even if not currently mid-chunk', async () => {
+    vi.useFakeTimers()
+    try {
+      const adapter = makeAdapter()
+      installFakeSocket(adapter)
+      ;(adapter as unknown as { audioQueue: Uint8Array[] }).audioQueue = [new Uint8Array([1, 2, 3])]
+
+      let resolved = false
+      const promise = adapter.endSession().then(() => { resolved = true })
+
+      await vi.advanceTimersByTimeAsync(500)
+      expect(resolved).toBe(false)
+
+      ;(adapter as unknown as { audioQueue: Uint8Array[] }).audioQueue = []
+      await vi.advanceTimersByTimeAsync(200)
+      await promise
+      expect(resolved).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('gives up after the bounded timeout rather than hanging forever on a stuck queue', async () => {
+    vi.useFakeTimers()
+    try {
+      const adapter = makeAdapter()
+      installFakeSocket(adapter)
+      ;(adapter as unknown as { isPlaying: boolean }).isPlaying = true // never cleared — simulates a stuck state
+
+      let resolved = false
+      const promise = adapter.endSession().then(() => { resolved = true })
+
+      await vi.advanceTimersByTimeAsync(8100)
+      await promise
+      expect(resolved).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('no longer drops queued chunks via clearAudioQueue() before closing (removed from endSession)', () => {
+    // Source-level guard: endSession() itself must not call clearAudioQueue() anymore -- that was
+    // the mechanism that discarded not-yet-started goodbye audio.
+    const endSessionBody = adapterSource.slice(adapterSource.indexOf('async endSession('), adapterSource.indexOf('setVolume('))
+    expect(endSessionBody).not.toContain('clearAudioQueue')
+    expect(endSessionBody).toContain('waitForPlaybackToFinish')
+  })
+})
+
+/**
+ * 2026-08-01 — Marin never spoke first because OpenAI's Realtime API (unlike Hume's EVI) never
+ * generates a turn on its own; it only responds to user audio or an explicit response.create.
+ * Source-text assertion since exercising ws.onopen requires openConnection()'s real
+ * WebSocket/AudioContext construction, which this test file's own convention (see header comment)
+ * deliberately avoids.
+ */
+describe('OpenAIRealtimeAdapter sends an initial response.create so Clio speaks first (2026-08-01)', () => {
+  it('sends response.create, guarded by hasTriggeredInitialResponse, inside ws.onopen', () => {
+    const onOpenBody = adapterSource.slice(
+      adapterSource.indexOf('this.ws.onopen = () => {'),
+      adapterSource.indexOf('this.ws.onerror = () => {')
+    )
+    expect(onOpenBody).toContain('hasTriggeredInitialResponse')
+    expect(onOpenBody).toContain("type: 'response.create'")
+  })
+
+  it('the guard flag defaults to false and is a private instance field (fires once per adapter instance, including across reconnects)', () => {
+    expect(adapterSource).toContain('private hasTriggeredInitialResponse = false')
   })
 })

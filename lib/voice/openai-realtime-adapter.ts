@@ -152,6 +152,17 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
   // Per-response bookkeeping for the "first audio delta of a response = now speaking" signal.
   private currentResponseSpeaking = false
 
+  // 2026-08-01 — Arun: "Marin needs to start speaking once joined the call. currently it waits for
+  // user to start the conversation." Root cause: unlike Hume's EVI (which auto-initiates on
+  // connect), OpenAI's Realtime API never generates a turn on its own — it only responds to user
+  // audio or an explicit `response.create`. This adapter sent session.update then just started
+  // listening, so the assembled prompt's own rule 1 ("Open the session warmly...") never actually
+  // got a turn to execute. Fires exactly once per adapter instance (first successful
+  // session.update only, never on a reconnect mid-session) — reconnecting should resume silently,
+  // not have Clio re-greet/restart, mirroring the join-greeting flow's own "do not restart"
+  // framing (app/api/partner/render/join-greeting/[clio_session_ref]/route.ts).
+  private hasTriggeredInitialResponse = false
+
   // 2026-08-01 — 'playback_complete' gate mode's held-back transcript, waiting for the audio queue
   // to actually drain before onMessage fires. Null whenever nothing is pending. Single-slot by
   // design: this adapter only ever has one response in flight at a time (mirrors
@@ -230,16 +241,22 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
                 voice: 'marin',
                 // 2026-08-01 — per Arun: still felt fast even with the persona/pacing
                 // instructions (lib/voice/openai-realtime-persona.ts) alone. Deterministic
-                // playback-rate lever (OpenAI's own field, range 0.25-1.5, default 1.0) — 0.7 is a
-                // literal 30% slowdown. Only settable at session start / between turns per
-                // OpenAI's docs, which is exactly when this fires.
-                speed: 0.7,
+                // playback-rate lever (OpenAI's own field, range 0.25-1.5, default 1.0). Tried 0.7
+                // (30% slower) first; Arun asked to reset to 1.0 baseline then move to 0.9 instead.
+                speed: 0.9,
               },
             },
             tools: OPENAI_REALTIME_TOOLS,
             tool_choice: 'auto',
           },
         }))
+
+        // 2026-08-01 — kicks off Clio's first turn per the doc comment on
+        // hasTriggeredInitialResponse above. Once only, ever, for this adapter instance.
+        if (!this.hasTriggeredInitialResponse) {
+          this.hasTriggeredInitialResponse = true
+          this.ws?.send(JSON.stringify({ type: 'response.create' }))
+        }
 
         this.startMicCapture()
         if (!resolved) { resolved = true; resolve() }
@@ -597,12 +614,44 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
     }
   }
 
+  /**
+   * 2026-08-01 — Arun: "only after it greets [says goodbye] should [end_session] trigger."
+   * Root cause found: the shared prompt's own rule 8/13 already tell Clio to speak a goodbye and
+   * call end_session "immediately after, in the same turn" — but this method used to tear down
+   * audio synchronously the instant the tool call resolved, via clearAudioQueue() (drops
+   * not-yet-started chunks) followed immediately by audioCtx.close() (which stops ALL audio
+   * rendering, including whatever chunk was already mid-playback, contrary to clearAudioQueue's
+   * own "does not stop audio already mid-flight" doc comment — audioCtx.close() overrode that).
+   * Net effect: Clio's spoken goodbye was getting cut off mid-sentence, or never finishing, every
+   * time — end_session was tearing down audio output before the goodbye had actually finished
+   * PLAYING, even though the model had already finished GENERATING it.
+   *
+   * Fix: no longer clears the queue — waits for it to drain naturally (waitForPlaybackToFinish())
+   * before closing anything, so the goodbye (or whatever was queued) plays out in full first.
+   * Bounded by a timeout so a stuck/never-draining queue can't hang teardown indefinitely.
+   */
   async endSession(): Promise<void> {
     this.intentionalClose = true
     this.stopMicCapture()
-    this.clearAudioQueue()
+    await this.waitForPlaybackToFinish()
     this.ws?.close()
     try { await this.audioCtx?.close() } catch { /* noop */ }
+  }
+
+  /** See endSession()'s doc comment. Resolves immediately if nothing is queued/playing. */
+  private waitForPlaybackToFinish(timeoutMs = 8000): Promise<void> {
+    if (!this.isPlaying && this.audioQueue.length === 0) return Promise.resolve()
+    return new Promise((resolve) => {
+      const start = Date.now()
+      const check = () => {
+        if ((!this.isPlaying && this.audioQueue.length === 0) || Date.now() - start > timeoutMs) {
+          resolve()
+          return
+        }
+        setTimeout(check, 100)
+      }
+      check()
+    })
   }
 
   setVolume(volume: number): void {
