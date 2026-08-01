@@ -452,6 +452,66 @@ INFRA-* (Mia Digital LLC migration) — parallel, non-blocking, land before prod
 
 ## Backlog — deferred, not forgotten
 
+- **B2B-61 — OpenAI Realtime sessions can never get insights-extraction, because OpenAI has no
+  post-hoc transcript retrieval API at all (not just a Hume-specific bug).** Found 2026-08-01
+  investigating the extraction gap logged above. Confirmed via OpenAI's own current docs
+  (`developers.openai.com/api/docs/guides/realtime-conversations`) and developer-community threads:
+  there is currently **no REST endpoint to fetch a past Realtime session's transcript** after the
+  session ends — developers have explicitly requested a `GET /v1/realtime/calls/{call_id}/transcript`
+  endpoint or a `realtime.call.completed` webhook and neither exists yet. This means the fix is not
+  "swap which vendor API `extractInsightsForPartnerSession()` calls" — Hume's approach (fetch full
+  transcript post-hoc by chat_id) has no OpenAI equivalent to swap in. **The only viable path**: capture
+  the transcript live, client-side, during the session (the adapter already receives
+  `response.output_audio_transcript.done` for Clio's turns and an equivalent user-transcript event —
+  see `lib/voice/openai-realtime-adapter.ts`), persist those turns ourselves as the session runs
+  (new storage, e.g. append to `partner_sessions` or a new table), and feed that self-captured
+  transcript into the extraction step instead of calling out to a vendor API for OpenAI sessions.
+  Real design work, not a quick fix — logged here, not started.
+
+- **B2B-59/60 — natural two-stage transition cue may fire early under OpenAI Realtime specifically,
+  because of an architectural difference in how/when transcript-complete text arrives relative to
+  audio playback.** Found 2026-08-01 during the first live OpenAI voice test: Arun observed the page
+  advancing before Clio finished saying the Stage 1 wrap-up phrase ("That covers what I wanted to
+  walk through here.") and naming the next section — the explanation content itself was complete and
+  correct, just the visual transition looked early relative to what he heard.
+  - **Leading hypothesis, grounded in code, not yet confirmed with real instrumented timestamps**:
+    `PartnerRenderClient.tsx`'s two-stage matcher (`matchesSpokenPhrase`, `lib/content/transition-markers.ts`)
+    runs on whatever text `onMessage(text, 'ai')` delivers. For OpenAI
+    (`lib/voice/openai-realtime-adapter.ts`), that fires on `response.output_audio_transcript.done` —
+    the FULL transcript for an entire response turn, delivered once text generation completes. The
+    corresponding PCM16 audio for that same (possibly multi-sentence) turn is still streaming/playing
+    back in the browser's audio queue at that moment — transcript-complete is not the same instant as
+    audio-finished-playing. So the phrase match (and the resulting page advance) can fire as soon as
+    the model finishes GENERATING the text, before the participant has actually HEARD all of it.
+  - By contrast, Hume's adapter (`lib/voice/hume-adapter.ts`) fires `onMessage` on `assistant_message`,
+    which Hume EVI tends to emit more incrementally (closer to per-utterance/per-sentence granularity,
+    each nearer its own audio chunk) — this may be why B2B-59/60's live testing against Hume didn't
+    surface this specific symptom.
+  - **Not critical, no fix needed immediately** (Arun's own framing). Possible directions to discuss
+    before building anything: (a) gate the phrase-match on actual audio-playback completion instead of
+    transcript-completion for the OpenAI adapter specifically (would need a "played through" signal,
+    not just decoded/queued), (b) add a deliberate small delay after a transcript-done match before
+    advancing, sized to typical audio-queue depth, (c) switch to accumulating `response.output_audio_transcript.delta`
+    events and matching progressively, closer to Hume's incremental cadence. All three are real design
+    tradeoffs, not obvious wins — discuss before implementing.
+
+- **Screen-share blur — inconclusive, needs more investigation before it's actionable.** Arun asked
+  2026-08-01 whether the blurry shared screen is because Attendee is self-hosted, and whether hosting
+  our own instance would fix it. Checked: `lib/meeting-bot/attendee.ts`'s `BASE_URL` is
+  `https://app.attendee.dev/api/v1` — **we are using Attendee's hosted cloud API today, not
+  self-hosting.** Attendee is genuinely open-source and self-hostable (confirmed via
+  `github.com/attendee-labs/attendee` and `attendee.dev/blog/self-hosting-attendee`), but that post's
+  own stated benefits are cost and infrastructure/data control — **it makes no claim of any
+  video-quality, resolution, or bitrate improvement from self-hosting**, and neither our own
+  `createBot()` call nor Attendee's public docs expose any screen-share resolution/bitrate/quality
+  parameter today. So self-hosting is not confirmed to fix this — the blur is more likely inherent to
+  Attendee's own screen-capture-to-meeting encoding pipeline (their bot's headless-browser screen
+  capture → video encode → the meeting platform's own screen-share compression), which isn't
+  something either hosting model currently exposes control over from our side. **Real next step,
+  not yet done**: either test empirically against a self-hosted instance to see if it's actually
+  different, or ask Attendee's own support/docs directly whether any quality knob exists — don't
+  assume self-hosting is the fix without confirming.
+
 - **Attendee webhook signature hard-enforcement.** `app/api/attendee/webhook/route.ts` was found (2026-07-14/15
   overnight audit) with signature verification computed but never enforced — any POST claiming to be from
   Attendee was accepted. Fixed 2026-07-15 with Attendee's real documented signing algorithm (canonical-JSON
@@ -461,6 +521,28 @@ INFRA-* (Mia Digital LLC migration) — parallel, non-blocking, land before prod
   out separately later, don't let it block the reuse work below. **Next step when picked up**: watch Vercel
   logs for `[attendee/webhook] sig_match:` on the next real session, confirm `true`, then flip the `if
   (!match)` branch to `return 401` instead of falling through.
+  - **2026-08-01 — the "next step" condition above is now met.** Checked Vercel runtime logs for the
+    B2B-61 Part C live voice test session (`partner_sessions.id = 32c766b2-0a79-434e-abf7-03cf50c4cd01`,
+    real Attendee bot `bot_CB1F5MuvlwaOOaEL`): every `POST /api/attendee/webhook` call in that session
+    logged `[attendee/webhook] sig_match: true` (multiple `transcript.update` events, real traffic, not
+    a test fixture). Zero mismatches observed. This is the first real confirmation this soft-verify mode
+    was waiting on — flipping to hard `401` enforcement is now unblocked whenever this gets picked up,
+    though still not done automatically here per Arun's original "sort this out separately" instruction.
+
+- **UI polish — `window.confirm()` in VoiceProviderCard.tsx flags a false-positive INP warning.**
+  Found 2026-08-01 while live-testing B2B-61 Part C: DevTools reported "Event handlers on this element
+  blocked UI updates for 1,351.5ms" on the "Save changes" button
+  (`app/(with-clerk)/dashboard/admin/VoiceProviderCard.tsx:191`). Root cause confirmed by direct code
+  read, not guessed: `handleSaveClick()` calls the native, synchronous `window.confirm(CONFIRM_MESSAGE)`
+  before saving — a deliberate, spec'd safety gate (B2B-61 §4/§5's confirm-dialog wireframe), not
+  runaway code. `window.confirm()` blocks the main thread until dismissed, and Chrome's INP measurement
+  attributes that entire wait (however long the admin takes to read and click OK) to the click handler —
+  it cannot distinguish "slow JS" from "waiting on a native blocking dialog." Not a real performance bug;
+  no actual expensive computation runs in the handler. **Real fix, not yet done** (Arun: "note this down
+  and let's fix after resolving our current" — deferred, not urgent): swap `window.confirm()` for a
+  custom non-blocking async modal with the same two-step confirm gate, which would clear the INP flag
+  without changing the safety behavior. Small UI behavior change to an already-approved spec screen —
+  flag for a quick nod before building, don't just do it silently.
 
 - **Reconstruct lost B2B-06/07/08/09 governance documents.** A concurrent-agent `git stash` collision
   during the parallel B2B-06/07/08/09 build spree (2026-07-15) wiped, and nobody caught: all 4 CEO
