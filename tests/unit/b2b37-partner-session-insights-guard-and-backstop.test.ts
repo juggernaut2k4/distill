@@ -31,6 +31,9 @@ interface FakePartnerSession {
   test_mode: boolean
   partner_reference: string | null
   end_client_id: string | null
+  // 2026-08-01 — undefined/null means hume (every pre-existing test session), matching migration
+  // 106's own default. Only set explicitly in the openai_realtime-specific test below.
+  voice_provider?: 'hume' | 'openai_realtime' | null
 }
 
 interface FakeInsightsRow {
@@ -135,6 +138,67 @@ describe('runInsightsIdempotencyGuard — terminal short-circuit (regression, un
     expect(result).toEqual({ status: 'already_terminal' })
     expect(fetchAllTranscriptEventsMock).not.toHaveBeenCalled()
     expect(recordInsightsReadyEventMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('extractInsightsForPartnerSession — 2026-08-01 voice_provider gate (OpenAI has no post-hoc transcript API)', () => {
+  beforeEach(() => {
+    partnerSessionsById = {}
+    insightsBySession = {}
+    fetchAllTranscriptEventsMock.mockReset()
+    recordInsightsReadyEventMock.mockReset()
+  })
+
+  it('an OpenAI Realtime session throws a clear, honest error instead of calling Hume\'s transcript API', async () => {
+    partnerSessionsById.ps_openai = {
+      id: 'ps_openai',
+      partner_account_id: 'acct1',
+      hume_chat_id: 'sess_someOpenAiSessionId', // real shape: not a Hume UUID
+      test_mode: false,
+      partner_reference: null,
+      end_client_id: null,
+      voice_provider: 'openai_realtime',
+    }
+
+    await expect(extractInsightsForPartnerSession('ps_openai')).rejects.toThrow(
+      'OpenAI Realtime, which has no post-hoc transcript API'
+    )
+    expect(fetchAllTranscriptEventsMock).not.toHaveBeenCalled()
+  })
+
+  it('the idempotency-claim row is still created before the OpenAI check throws, so a real partner_session_insights row exists for markInsightsExtractionFailed() to update (otherwise the backstop sweep would retry forever)', async () => {
+    partnerSessionsById.ps_openai2 = {
+      id: 'ps_openai2',
+      partner_account_id: 'acct1',
+      hume_chat_id: 'sess_anotherOpenAiSessionId',
+      test_mode: false,
+      partner_reference: null,
+      end_client_id: null,
+      voice_provider: 'openai_realtime',
+    }
+
+    await expect(extractInsightsForPartnerSession('ps_openai2')).rejects.toThrow()
+    expect(insightsBySession.ps_openai2).toBeDefined()
+    expect(insightsBySession.ps_openai2?.extraction_status).toBe('pending')
+  })
+
+  it('voice_provider undefined/null (every pre-existing session) is unaffected — still calls Hume\'s transcript API as before', async () => {
+    partnerSessionsById.ps_hume = {
+      id: 'ps_hume',
+      partner_account_id: 'acct1',
+      hume_chat_id: 'chat-hume-1',
+      test_mode: false,
+      partner_reference: null,
+      end_client_id: null,
+      // voice_provider omitted entirely — matches every session created before migration 106
+    }
+    fetchAllTranscriptEventsMock.mockResolvedValue([
+      { type: 'USER_MESSAGE', message_text: 'What does pricing look like?' },
+      { type: 'AGENT_MESSAGE', message_text: 'Happy to walk through tiers.' },
+    ])
+
+    await extractInsightsForPartnerSession('ps_hume')
+    expect(fetchAllTranscriptEventsMock).toHaveBeenCalledTimes(1)
   })
 })
 

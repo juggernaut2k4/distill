@@ -217,7 +217,10 @@ export async function extractInsightsForPartnerSession(partnerSessionId: string)
     // partner_reference/end_client_id, threaded through to recordInsightsReadyEvent() below.
     // B2B-38 (docs/specs/B2B-38-requirement-document.md §6.9) — extended further to include
     // reseller_unique_id/hume_config_id.
-    .select('id, partner_account_id, hume_chat_id, test_mode, partner_reference, end_client_id, reseller_unique_id, hume_config_id')
+    // 2026-08-01 — extended further to include voice_provider (migration 106), so this function
+    // can tell which vendor a given session actually used instead of blindly calling Hume's API
+    // for every session regardless of provider.
+    .select('id, partner_account_id, hume_chat_id, test_mode, partner_reference, end_client_id, reseller_unique_id, hume_config_id, voice_provider')
     .eq('id', partnerSessionId)
     .maybeSingle()
 
@@ -234,6 +237,31 @@ export async function extractInsightsForPartnerSession(partnerSessionId: string)
     (session.hume_config_id as string | null) ?? null
   )
   if (guard.shortCircuit) return { status: guard.status }
+
+  // 2026-08-01 — found live: this function used to call Hume's transcript API unconditionally,
+  // regardless of which voice provider actually ran the session. For an OpenAI Realtime session,
+  // `hume_chat_id` holds an OpenAI session id (e.g. "sess_...", not a UUID) — Hume's API rejects it
+  // outright ("not a valid UUID"), a confusing wrong-vendor error that looked like a real bug
+  // rather than a known, not-yet-built gap. `voice_provider` (NULL/'hume' vs 'openai_realtime') is
+  // captured once per session at render time (app/(with-clerk)/partner-render/[clio_session_ref]/page.tsx)
+  // from the same system_voice_config toggle the admin dashboard controls — never re-derived from
+  // the CURRENT global toggle, which can differ from what this specific session actually used.
+  // OpenAI Realtime has no post-hoc transcript-fetch API at all (confirmed against OpenAI's own
+  // docs — see docs/b2b-pivot-status.md's B2B-61 backlog entry), so there is no vendor call to make
+  // here yet for that provider — this is a placeholder failure with an honest message, not a call
+  // to the wrong API. Deliberately checked AFTER the idempotency guard above (not before): the
+  // guard must run first so a real partner_session_insights row exists to record this failure
+  // against — checking provider first would throw before that row is ever created, and
+  // markInsightsExtractionFailed() below is a no-op with no row to update, which would make the
+  // 30-minute backstop sweep retry this session forever (its eligibility filter never sees a
+  // recorded 'failed' status to count against). Real fix (capturing the transcript live,
+  // client-side, during the session) is tracked separately, not built yet.
+  if (session.voice_provider === 'openai_realtime') {
+    throw new Error(
+      `Session ${partnerSessionId} used OpenAI Realtime, which has no post-hoc transcript API — ` +
+      'insights extraction is not yet supported for this provider (tracked in docs/b2b-pivot-status.md).'
+    )
+  }
 
   const apiKey = process.env.HUME_API_KEY
   if (!apiKey || apiKey.startsWith('PLACEHOLDER_')) throw new Error('HUME_API_KEY not configured')

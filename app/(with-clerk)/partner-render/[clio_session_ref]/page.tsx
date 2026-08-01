@@ -1,6 +1,7 @@
 import { getPartnerSession, resolveLiveSessionRender } from '@/lib/partner/live-render'
 import { getThemeConfig } from '@/lib/partner/theme'
 import { getActiveVoiceProvider } from '@/lib/voice/provider-config'
+import { createSupabaseAdminClient } from '@/lib/supabase'
 import PartnerRenderClient from './PartnerRenderClient'
 
 /**
@@ -73,6 +74,22 @@ export default async function PartnerRenderPage({
   // B2B-61 Part B — independent sibling call, not nested inside resolveLiveSessionRender()
   // (Requirement Doc §0/§6: that function's own signature/return type is intentionally untouched).
   const voiceProvider = await getActiveVoiceProvider()
+
+  // 2026-08-01 — persist which provider THIS session actually used. The extraction job
+  // (inngest/partner-session-insights-extractor.ts) reads this back later, possibly long after
+  // the global toggle above may have changed — it must never re-derive "which provider did this
+  // session use" from the toggle's CURRENT state. Best-effort: a failed write here does not block
+  // the render; it only means this one session's extraction can't tell Hume from OpenAI later
+  // (falls back to the Hume path, today's existing behavior, not a new failure mode).
+  const supabase = createSupabaseAdminClient()
+  const { error: voiceProviderWriteError } = await supabase
+    .from('partner_sessions')
+    .update({ voice_provider: voiceProvider })
+    .eq('id', session.id)
+  if (voiceProviderWriteError) {
+    console.error('[partner-render] failed to persist voice_provider (non-fatal):', { sessionId: session.id, error: voiceProviderWriteError })
+  }
+
   const result = await resolveLiveSessionRender(session)
 
   if (result.status !== 'ok') {
