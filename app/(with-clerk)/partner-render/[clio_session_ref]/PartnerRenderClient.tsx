@@ -5,6 +5,7 @@ import type { ErrorInfo, ReactNode } from 'react'
 import TemplateRenderer from '@/components/templates/TemplateRenderer'
 import { HumeAdapter } from '@/lib/voice/hume-adapter'
 import { OpenAIRealtimeAdapter } from '@/lib/voice/openai-realtime-adapter'
+import { OPENAI_VOICE_PERSONA_INSTRUCTIONS } from '@/lib/voice/openai-realtime-persona'
 import type { VoiceSessionAdapter } from '@/lib/voice/adapter'
 import type { TemplateSection } from '@/lib/templates/types'
 import { cssCustomPropertiesToStyleBlock, type CSSCustomProperties } from '@/lib/partner/theme-client-safe'
@@ -336,11 +337,18 @@ export default function PartnerRenderClient({
             // prose already, so no per-provider rewriting was needed. Falls back to a minimal
             // placeholder only if server-side prompt assembly failed for this session (mirrors
             // humeConfigId's own null-safe degrade — session proceeds, just without real content).
+            //
+            // 2026-08-01 — OPENAI_VOICE_PERSONA_INSTRUCTIONS (lib/voice/openai-realtime-persona.ts)
+            // prepended per Arun's exact wording, addressing "marin speaks a little faster than I'd
+            // like." OpenAI-only: this text is never sent to Hume, and the shared assembleHumeNativePrompt
+            // content/behavior instructions below it are untouched.
             instructions:
-              voiceInstructions ??
-              'You are Clio, an AI business coach delivering a live coaching session over voice. ' +
-              'Use the show_visual, advance_tab, and end_session tools exactly as instructed by their ' +
-              'own descriptions.',
+              `${OPENAI_VOICE_PERSONA_INSTRUCTIONS}\n\n${
+                voiceInstructions ??
+                'You are Clio, an AI business coach delivering a live coaching session over voice. ' +
+                'Use the show_visual, advance_tab, and end_session tools exactly as instructed by their ' +
+                'own descriptions.'
+              }`,
             // 2026-08-01 — experiment toggle for the premature-page-advance investigation
             // (docs/b2b-pivot-status.md's B2B-59/60 backlog entry). Read directly from an env var
             // (not a DB-backed admin toggle like voiceProvider) so it's instantly revertible —

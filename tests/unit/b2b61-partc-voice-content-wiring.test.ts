@@ -66,7 +66,7 @@ describe('B2B-61 Part C — PartnerRenderClient.tsx uses real content for the Op
   })
 
   it('OpenAIRealtimeAdapter.create() is given voiceInstructions, falling back to the placeholder only when null', () => {
-    expect(clientSource).toMatch(/instructions:\s*\n\s*voiceInstructions\s*\?\?/)
+    expect(clientSource).toMatch(/voiceInstructions\s*\?\?/)
   })
 })
 
@@ -74,5 +74,36 @@ describe('B2B-61 Part C — voice selection', () => {
   it('openai-realtime-adapter.ts requests the "marin" voice, not the placeholder "alloy"', () => {
     expect(adapterSource).not.toContain("voice: 'alloy'")
     expect(adapterSource).toContain("voice: 'marin'")
+  })
+})
+
+describe('B2B-61 Part C — OpenAI voice delivery persona (2026-08-01, Arun\'s exact wording)', () => {
+  const personaSource = fs.readFileSync(path.resolve(__dirname, '../../lib/voice/openai-realtime-persona.ts'), 'utf8')
+
+  it('imports OPENAI_VOICE_PERSONA_INSTRUCTIONS from its own dedicated module', () => {
+    expect(clientSource).toContain("import { OPENAI_VOICE_PERSONA_INSTRUCTIONS } from '@/lib/voice/openai-realtime-persona'")
+  })
+
+  it('prepends the persona instructions ahead of the real session content in the OpenAI instructions field', () => {
+    expect(clientSource).toMatch(/instructions:\s*\n\s*`\$\{OPENAI_VOICE_PERSONA_INSTRUCTIONS\}\\n\\n\$\{/)
+  })
+
+  it('the persona module contains every section of Arun\'s exact wording, verbatim', () => {
+    expect(personaSource).toContain('Accent/Affect: Warm, cheerful, energetic, and welcoming')
+    expect(personaSource).toContain('Tone: Encouraging, educational, and conversational.')
+    expect(personaSource).toContain('Pacing: Steady and engaging. Slow down for complex ideas')
+    expect(personaSource).toContain('Emotion: Genuinely excited, positive, and supportive.')
+    expect(personaSource).toContain('Pronunciation: Speak clearly and articulate important terminology')
+    expect(personaSource).toContain('Teaching Style: Break information into clear, manageable steps.')
+    expect(personaSource).toContain('Personality Affect: Friendly, approachable, uplifting, and confidently knowledgeable.')
+    expect(personaSource).toContain('Interaction Style: Encourage participation and curiosity.')
+    expect(personaSource).toContain('Overall Experience: Create a warm and engaging learning environment')
+  })
+
+  it('is never referenced by hume-adapter.ts or the shared prompt template (OpenAI-only, does not affect Hume)', () => {
+    const humeAdapterSource = fs.readFileSync(path.resolve(__dirname, '../../lib/voice/hume-adapter.ts'), 'utf8')
+    const promptTemplateSource = fs.readFileSync(path.resolve(__dirname, '../../lib/voice/hume-native/prompt-template.ts'), 'utf8')
+    expect(humeAdapterSource).not.toContain('OPENAI_VOICE_PERSONA_INSTRUCTIONS')
+    expect(promptTemplateSource).not.toContain('OPENAI_VOICE_PERSONA_INSTRUCTIONS')
   })
 })
