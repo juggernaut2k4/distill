@@ -14,6 +14,8 @@ describe('openai-realtime-transcript-store — placeholder-credentials branch (n
     vi.resetModules()
     delete process.env.UPSTASH_REDIS_REST_URL
     delete process.env.UPSTASH_REDIS_REST_TOKEN
+    delete process.env.KV_REST_API_URL
+    delete process.env.KV_REST_API_TOKEN
   })
 
   it('appendTranscriptTurn logs and no-ops without throwing', async () => {
@@ -128,6 +130,45 @@ describe('openai-realtime-transcript-store — real-credentials branch (mocked @
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     await expect(deleteStoredTranscript('sess-abc')).resolves.toBeUndefined()
     errorSpy.mockRestore()
+  })
+})
+
+describe('openai-realtime-transcript-store — KV_REST_API_URL/TOKEN fallback (2026-08-01)', () => {
+  // The actual Vercel Marketplace product for this ("Upstash for Redis", slug upstash/upstash-kv)
+  // provisions KV_REST_API_URL/KV_REST_API_TOKEN, not UPSTASH_REDIS_REST_URL/TOKEN — confirmed via
+  // `npx vercel integration guide upstash/upstash-kv --framework nextjs`. This module's isPlaceholder
+  // check must recognize those names too, or a correctly-installed integration would still look
+  // like "missing credentials" and silently stay in mock mode forever.
+  beforeEach(() => {
+    vi.resetModules()
+    delete process.env.UPSTASH_REDIS_REST_URL
+    delete process.env.UPSTASH_REDIS_REST_TOKEN
+    process.env.KV_REST_API_URL = 'https://real-looking-kv-url.upstash.io'
+    process.env.KV_REST_API_TOKEN = 'real-looking-kv-token'
+
+    vi.doMock('@upstash/redis', () => ({
+      Redis: {
+        fromEnv: () => ({
+          pipeline: () => ({ rpush: () => ({ expire: () => ({ exec: async () => undefined }) }) }),
+          lrange: async () => [],
+          del: async () => 1,
+        }),
+      },
+    }))
+  })
+
+  it('is NOT treated as placeholder when only KV_REST_API_URL/TOKEN are set (no UPSTASH_ vars at all)', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const { appendTranscriptTurn } = await import('@/lib/voice/openai-realtime-transcript-store')
+
+    await appendTranscriptTurn('sess-kv', 'user', 'hello via KV-named vars')
+
+    // If this were still (incorrectly) treated as a placeholder, it would log a [MOCK] line instead
+    // of actually attempting the real Redis call path.
+    expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining('[MOCK'))
+    logSpy.mockRestore()
+    delete process.env.KV_REST_API_URL
+    delete process.env.KV_REST_API_TOKEN
   })
 })
 

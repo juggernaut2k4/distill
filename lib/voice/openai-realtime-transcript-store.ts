@@ -17,11 +17,19 @@ function transcriptKey(clioSessionRef: string): string {
   return `voice-transcript:${clioSessionRef}`
 }
 
+// 2026-08-01 — found while walking through Vercel Marketplace setup: @upstash/redis's own
+// Redis.fromEnv() already falls back from UPSTASH_REDIS_REST_URL/TOKEN to KV_REST_API_URL/TOKEN
+// (confirmed by direct read of node_modules/@upstash/redis/nodejs.js's fromEnv() implementation —
+// "compatibility with Vercel KV and other platforms that may use different naming conventions").
+// The actual Vercel Marketplace product for this ("Upstash for Redis", slug upstash/upstash-kv)
+// provisions the KV_REST_API_URL/KV_REST_API_TOKEN names, not the UPSTASH_ ones. This guard must
+// check the SAME two name pairs the SDK itself accepts, or a correctly-installed integration would
+// still look like "missing credentials" here and silently stay in mock mode forever.
+const resolvedUrl = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL
+const resolvedToken = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN
+
 const isPlaceholder =
-  !process.env.UPSTASH_REDIS_REST_URL ||
-  !process.env.UPSTASH_REDIS_REST_TOKEN ||
-  process.env.UPSTASH_REDIS_REST_URL.startsWith('PLACEHOLDER') ||
-  process.env.UPSTASH_REDIS_REST_TOKEN.startsWith('PLACEHOLDER')
+  !resolvedUrl || !resolvedToken || resolvedUrl.startsWith('PLACEHOLDER') || resolvedToken.startsWith('PLACEHOLDER')
 
 const redis = isPlaceholder ? null : Redis.fromEnv()
 
