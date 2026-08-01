@@ -275,6 +275,121 @@ describe('OpenAIRealtimeAdapter transcript events', () => {
   })
 })
 
+/**
+ * 2026-08-01 — 'playback_complete' transcriptGateMode, the toggleable experiment for the
+ * premature-page-advance investigation (docs/b2b-pivot-status.md's B2B-59/60 backlog entry).
+ * `flushPendingAiTranscriptIfDrained()` is exercised directly (reaching into private state, same
+ * convention as the interruption suite above) since it's the real "audio finished playing" signal
+ * drainQueue() calls — no real AudioContext needed to test the gating logic itself.
+ */
+function getPrivate<T>(adapter: OpenAIRealtimeAdapter, key: string): T {
+  return (adapter as unknown as Record<string, T>)[key]
+}
+
+function setPrivate(adapter: OpenAIRealtimeAdapter, key: string, value: unknown): void {
+  ;(adapter as unknown as Record<string, unknown>)[key] = value
+}
+
+function flushIfDrained(adapter: OpenAIRealtimeAdapter): void {
+  ;(adapter as unknown as { flushPendingAiTranscriptIfDrained: () => void }).flushPendingAiTranscriptIfDrained()
+}
+
+describe('OpenAIRealtimeAdapter transcriptGateMode (2026-08-01 experiment toggle)', () => {
+  it('defaults to immediate behavior when transcriptGateMode is omitted — no regression to existing sessions', async () => {
+    const onMessage = vi.fn()
+    const adapter = makeAdapter({ onMessage })
+    setPrivate(adapter, 'isPlaying', true) // audio still "playing" — immediate mode ignores this entirely
+
+    await feedMessage(adapter, { type: 'response.output_audio_transcript.done', transcript: 'Immediate by default.' })
+
+    expect(onMessage).toHaveBeenCalledWith('Immediate by default.', 'ai')
+    expect(getPrivate(adapter, 'pendingAiTranscript')).toBeNull()
+  })
+
+  it('immediate mode fires right away even with transcriptGateMode explicitly set to "immediate"', async () => {
+    const onMessage = vi.fn()
+    const adapter = makeAdapter({ onMessage, transcriptGateMode: 'immediate' })
+    setPrivate(adapter, 'isPlaying', true)
+
+    await feedMessage(adapter, { type: 'response.output_audio_transcript.done', transcript: 'Still immediate.' })
+
+    expect(onMessage).toHaveBeenCalledWith('Still immediate.', 'ai')
+  })
+
+  it('playback_complete mode defers onMessage while audio is still playing', async () => {
+    const onMessage = vi.fn()
+    const adapter = makeAdapter({ onMessage, transcriptGateMode: 'playback_complete' })
+    setPrivate(adapter, 'isPlaying', true)
+
+    await feedMessage(adapter, { type: 'response.output_audio_transcript.done', transcript: 'Wait for it.' })
+
+    expect(onMessage).not.toHaveBeenCalled()
+    expect(getPrivate(adapter, 'pendingAiTranscript')).toBe('Wait for it.')
+  })
+
+  it('playback_complete mode defers while chunks are still queued, even if not currently mid-chunk', async () => {
+    const onMessage = vi.fn()
+    const adapter = makeAdapter({ onMessage, transcriptGateMode: 'playback_complete' })
+    setPrivate(adapter, 'isPlaying', false)
+    setPrivate(adapter, 'audioQueue', [new Uint8Array([1, 2, 3])])
+
+    await feedMessage(adapter, { type: 'response.output_audio_transcript.done', transcript: 'Still queued.' })
+
+    expect(onMessage).not.toHaveBeenCalled()
+    expect(getPrivate(adapter, 'pendingAiTranscript')).toBe('Still queued.')
+  })
+
+  it('playback_complete mode fires immediately if the queue is already fully drained when the transcript arrives', async () => {
+    const onMessage = vi.fn()
+    const adapter = makeAdapter({ onMessage, transcriptGateMode: 'playback_complete' })
+    // isPlaying: false, audioQueue: [] — default state, matches "nothing left to play"
+
+    await feedMessage(adapter, { type: 'response.output_audio_transcript.done', transcript: 'Already caught up.' })
+
+    expect(onMessage).toHaveBeenCalledWith('Already caught up.', 'ai')
+    expect(getPrivate(adapter, 'pendingAiTranscript')).toBeNull()
+  })
+
+  it('flushes the deferred transcript exactly when the playback queue actually drains', async () => {
+    const onMessage = vi.fn()
+    const adapter = makeAdapter({ onMessage, transcriptGateMode: 'playback_complete' })
+    setPrivate(adapter, 'isPlaying', true)
+
+    await feedMessage(adapter, { type: 'response.output_audio_transcript.done', transcript: 'Deferred text.' })
+    expect(onMessage).not.toHaveBeenCalled()
+
+    flushIfDrained(adapter) // the real "drainQueue() hit its empty base case" signal
+    expect(onMessage).toHaveBeenCalledWith('Deferred text.', 'ai')
+    expect(getPrivate(adapter, 'pendingAiTranscript')).toBeNull()
+  })
+
+  it('flushing is a no-op when nothing is pending (safe to call unconditionally from drainQueue)', () => {
+    const onMessage = vi.fn()
+    const adapter = makeAdapter({ onMessage, transcriptGateMode: 'playback_complete' })
+
+    flushIfDrained(adapter)
+
+    expect(onMessage).not.toHaveBeenCalled()
+  })
+
+  it('an interruption (input_audio_buffer.speech_started) discards a pending transcript rather than eventually firing it', async () => {
+    const onMessage = vi.fn()
+    const adapter = makeAdapter({ onMessage, transcriptGateMode: 'playback_complete' })
+    setPrivate(adapter, 'isPlaying', true)
+
+    await feedMessage(adapter, { type: 'response.output_audio_transcript.done', transcript: 'Interrupted mid-flight.' })
+    expect(getPrivate(adapter, 'pendingAiTranscript')).toBe('Interrupted mid-flight.')
+
+    await feedMessage(adapter, { type: 'input_audio_buffer.speech_started' })
+    expect(getPrivate(adapter, 'pendingAiTranscript')).toBeNull()
+
+    // Simulates the in-flight chunk's onended firing afterward and calling drainQueue(), which
+    // hits the (now-cleared) empty base case and calls flushPendingAiTranscriptIfDrained() again.
+    flushIfDrained(adapter)
+    expect(onMessage).not.toHaveBeenCalled()
+  })
+})
+
 describe('OpenAIRealtimeAdapter unknown/unexpected events', () => {
   it('never throws on an unrecognized event type', async () => {
     const adapter = makeAdapter()

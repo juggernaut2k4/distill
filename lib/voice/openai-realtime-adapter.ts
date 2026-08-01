@@ -77,6 +77,19 @@ export interface OpenAIRealtimeAdapterConfig {
    * still needs real content wiring before an OpenAI-provider session can teach real material.
    */
   instructions: string
+  /**
+   * 2026-08-01 — experiment toggle for the premature-page-advance investigation (see
+   * docs/b2b-pivot-status.md's B2B-59/60 backlog entry). Default `'immediate'` reproduces today's
+   * exact, unchanged behavior byte-for-byte: `onMessage('ai', ...)` fires the instant
+   * `response.output_audio_transcript.done` arrives, regardless of whether this response's audio
+   * has actually finished playing back. `'playback_complete'` defers that call until the audio
+   * queue has actually drained (see `flushPendingAiTranscriptIfDrained()`), so the phrase-match
+   * driving page transitions only evaluates against audio the participant has actually heard.
+   * Deliberately a config field (not a module-level env read inside this file) so callers control
+   * it explicitly and it stays trivially revertible — set `transcriptGateMode: 'immediate'` (or
+   * simply omit it) to fall back to current behavior instantly, no adapter changes needed.
+   */
+  transcriptGateMode?: 'immediate' | 'playback_complete'
   /** Session ref, used only for logging/reporting parity with Hume's `userId`. */
   userId: string
   mediaStream: MediaStream
@@ -138,6 +151,14 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
 
   // Per-response bookkeeping for the "first audio delta of a response = now speaking" signal.
   private currentResponseSpeaking = false
+
+  // 2026-08-01 — 'playback_complete' gate mode's held-back transcript, waiting for the audio queue
+  // to actually drain before onMessage fires. Null whenever nothing is pending. Single-slot by
+  // design: this adapter only ever has one response in flight at a time (mirrors
+  // currentResponseSpeaking's own single-active-response assumption) — a second transcript.done
+  // arriving while one is still pending would indicate that assumption broke, so it's logged
+  // rather than silently overwritten.
+  private pendingAiTranscript: string | null = null
 
   constructor(config: OpenAIRealtimeAdapterConfig) {
     this.config = config
@@ -326,7 +347,22 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
 
       case 'response.output_audio_transcript.done': {
         const text = (msg.transcript as string | undefined) ?? ''
-        if (text) this.config.onMessage(text, 'ai')
+        if (!text) break
+
+        // 2026-08-01 — 'immediate' (default, omitted config) is byte-for-byte today's existing
+        // behavior: fire right away regardless of playback state. 'playback_complete' only defers
+        // when there's actually audio still queued/playing for this response — if playback has
+        // already caught up (queue empty) by the time the transcript arrives, there's nothing to
+        // gain by waiting, so it still fires immediately in that case too.
+        if (this.config.transcriptGateMode === 'playback_complete' && (this.isPlaying || this.audioQueue.length > 0)) {
+          if (this.pendingAiTranscript !== null) {
+            console.warn('[OpenAIRealtimeAdapter] pendingAiTranscript overwritten before it was flushed — a second response.output_audio_transcript.done arrived while one was still pending playback drain.')
+          }
+          this.pendingAiTranscript = text
+          break
+        }
+
+        this.config.onMessage(text, 'ai')
         break
       }
 
@@ -456,6 +492,7 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
   private async drainQueue() {
     if (!this.audioCtx || this.audioQueue.length === 0) {
       this.isPlaying = false
+      this.flushPendingAiTranscriptIfDrained()
       return
     }
     this.isPlaying = true
@@ -480,11 +517,34 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
     }
   }
 
+  /**
+   * 2026-08-01 — 'playback_complete' gate mode's flush point. Called every time the playback
+   * queue actually empties (drainQueue()'s own base case — the real "audio has finished playing"
+   * signal, not just "transcript text arrived"). A no-op when nothing is pending, so it's always
+   * safe to call unconditionally from drainQueue(). Split into its own method (rather than inlined)
+   * so it's directly unit-testable without needing a real AudioContext/AudioBufferSourceNode.
+   */
+  private flushPendingAiTranscriptIfDrained() {
+    if (this.pendingAiTranscript === null) return
+    const text = this.pendingAiTranscript
+    this.pendingAiTranscript = null
+    this.config.onMessage(text, 'ai')
+  }
+
   // Matches HumeAdapter's clearAudioQueue() exactly: drops queued-but-not-yet-started chunks,
   // does not stop audio already mid-flight. Same interruption contract, not reinterpreted.
+  //
+  // 2026-08-01 — also discards (never fires) any pendingAiTranscript. An interruption means the
+  // participant started talking over Clio mid-response — the phrase-match this transcript was
+  // being held for was never actually heard in full, so firing it later (once whatever chunk is
+  // still mid-flight eventually calls drainQueue() again and hits the now-empty queue) would
+  // trigger a page advance off audio that was cut short. Only meaningful under
+  // transcriptGateMode: 'playback_complete' — a no-op otherwise, since pendingAiTranscript is
+  // never set in 'immediate' mode.
   private clearAudioQueue() {
     this.audioQueue = []
     this.isPlaying = false
+    this.pendingAiTranscript = null
   }
 
   // ── VoiceSessionAdapter ───────────────────────────────────────────────────

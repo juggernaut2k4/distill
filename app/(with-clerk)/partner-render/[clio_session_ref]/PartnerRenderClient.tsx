@@ -341,6 +341,15 @@ export default function PartnerRenderClient({
               'You are Clio, an AI business coach delivering a live coaching session over voice. ' +
               'Use the show_visual, advance_tab, and end_session tools exactly as instructed by their ' +
               'own descriptions.',
+            // 2026-08-01 — experiment toggle for the premature-page-advance investigation
+            // (docs/b2b-pivot-status.md's B2B-59/60 backlog entry). Read directly from an env var
+            // (not a DB-backed admin toggle like voiceProvider) so it's instantly revertible —
+            // unset or misconfigure it and this falls back to 'immediate', today's exact existing
+            // behavior, with zero code changes needed. See OpenAIRealtimeAdapterConfig.transcriptGateMode.
+            transcriptGateMode:
+              process.env.NEXT_PUBLIC_OPENAI_TRANSCRIPT_GATE_MODE === 'playback_complete'
+                ? 'playback_complete'
+                : 'immediate',
             userId: clioSessionRef,
             mediaStream: micStream,
             tools: isInline ? inlineTools : templateTools,
