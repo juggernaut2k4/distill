@@ -150,7 +150,12 @@ Content-Type: application/json
 { "meeting_url": "https://meet.google.com/abc-defg-hij",
   "reseller_id": "<your partner_account_id>",
   "reseller_unique_id": "order-48213",
-  "partner_topic_ref": "onboarding-101" }
+  "content_source_id": "11111111-1111-1111-1111-111111111111",
+  "content_pages": [
+    { "url": "https://content.partner.example.com/1.html",
+      "media_type": "html",
+      "transition_trigger": "after page one" } ],
+  "end_user_name": "Jordan Lee" }
 
 → 201 { clio_session_ref, status: "bot_active", render_url, reseller_unique_id: "order-48213" }`}
             </pre>

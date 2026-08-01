@@ -6,7 +6,7 @@ import { resolveEffectiveRate } from '@/lib/partner/webhooks'
 import { getContentSource } from '@/lib/partner/content-sources'
 import { assertUrlSafe } from '@/lib/partner/ssrf'
 import { generateTransitionMarkers } from '@/lib/content/transition-markers'
-import { CreateSessionSchema, DEFAULT_EXPECTED_DURATION_MINUTES } from '@/lib/partner/session-schema'
+import { CreateSessionSchema, DEFAULT_EXPECTED_DURATION_MINUTES, isTemplateModeEnabled } from '@/lib/partner/session-schema'
 import { inngest } from '@/inngest/client'
 import { TRIAL_MINUTES_LIFETIME_CAP } from '@/lib/billing/trial-minutes'
 
@@ -60,6 +60,27 @@ export async function POST(request: NextRequest) {
 
   const supabase = createSupabaseAdminClient()
   const isInline = Boolean(content_pages)
+
+  // ─── B2B-64 (docs/specs/B2B-64-requirement-document.md §4/§6) — Option 2 session-creation guard.
+  // Runs immediately after Zod success, before every other pre-flight — no partner_sessions row is
+  // ever created, no dispatch attempted, no cost incurred for a rejected Option-2 request. A
+  // request supplying BOTH content_pages and partner_topic_ref/content_ref never reaches here —
+  // CreateSessionSchema's own "exactly one of" refine already failed inside safeParse() above,
+  // returning the generic Validation-failed 422 first (§4 State D). Guard, not deletion: the schema
+  // fields and this route's Option-2 logic below are untouched — re-enabling is a one-line env var
+  // flip (TEMPLATE_MODE_SESSIONS_ENABLED=true), no code change.
+  if (!isInline && !isTemplateModeEnabled()) {
+    return NextResponse.json(
+      {
+        error: {
+          code: 'content_reference_not_supported',
+          message:
+            'Creating a session with partner_topic_ref or content_ref is not currently supported. Use inline content (content_pages) instead — see the Docs page for the current integration guide.',
+        },
+      },
+      { status: 422 }
+    )
+  }
 
   // ─── B2B-38 (docs/specs/B2B-38-requirement-document.md §6.5) — reseller_id mismatch pre-flight
   // (Open Item 1). Runs before client_id's own pre-flight and before any row insert — a mismatched

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest'
 import { NextRequest, NextResponse } from 'next/server'
 
 /**
@@ -116,6 +116,14 @@ function makeRequest(body: Record<string, unknown>, authHeader = 'Bearer clio_li
 
 describe('POST /api/partner/v1/sessions', () => {
   beforeEach(() => {
+    // B2B-64 (docs/specs/B2B-64-requirement-document.md §7 State B) — this entire file predates
+    // B2B-64 and tests pre-existing session-creation behavior using Option 2 (partner_topic_ref)
+    // request bodies by default (makeRequest()). Enabling the guard here restores byte-identical
+    // pre-existing behavior for those tests — the guard's own condition (!isInline && ...) never
+    // affects an Option-1 (inline) request regardless of this flag, so this is safe for every test
+    // in this file, not just the Option-2 ones. B2B-64's own guard-placement tests live in
+    // tests/unit/b2b64-template-mode-guard.test.ts, not here.
+    process.env.TEMPLATE_MODE_SESSIONS_ENABLED = 'true'
     vi.clearAllMocks()
     insertedRows.length = 0
     traceLogInsertedRows.length = 0
@@ -710,6 +718,10 @@ describe('POST /api/partner/v1/sessions', () => {
       expect(res.status).toBe(201)
       expect('reseller_unique_id' in json).toBe(false)
     })
+  })
+
+  afterAll(() => {
+    delete process.env.TEMPLATE_MODE_SESSIONS_ENABLED
   })
 })
 

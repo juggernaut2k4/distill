@@ -40,8 +40,8 @@ export const ENDPOINTS: EndpointDoc[] = [
     rateLimit: '60 requests/minute per partner account.',
     requestFields: [
       { field: 'meeting_url', type: 'string (URL)', required: 'Yes', notes: 'Must be a valid URL.' },
-      { field: 'partner_topic_ref', type: 'string', required: 'No*', notes: '1–512 printable-ASCII chars.' },
-      { field: 'content_ref', type: 'string (UUID)', required: 'No*', notes: '' },
+      { field: 'content_pages', type: 'array', required: 'Yes*', notes: 'Inline content pages — see below.' },
+      { field: 'content_source_id', type: 'string (UUID)', required: 'Yes*', notes: 'Required together with content_pages.' },
       { field: 'partner_end_user_ref', type: 'string', required: 'No', notes: '1–256 printable-ASCII chars.' },
       {
         field: 'partner_reference',
@@ -52,12 +52,16 @@ export const ENDPOINTS: EndpointDoc[] = [
     ],
     exampleRequestBody: {
       meeting_url: 'https://meet.google.com/abc-defg-hij',
-      partner_topic_ref: 'onboarding-101',
+      content_source_id: '11111111-1111-1111-1111-111111111111',
+      content_pages: [
+        { url: 'https://content.partner.example.com/1.html', media_type: 'html', transition_trigger: 'after page one' },
+      ],
+      end_user_name: 'Jordan Lee',
       partner_reference: 'acct_492',
     },
     exampleResponse: { clio_session_ref: 'uuid', status: 'bot_active', render_url: 'string' },
     responseNotes: [
-      '* At least one of partner_topic_ref or content_ref is required.',
+      '* content_pages and content_source_id must both be present — Clio only supports inline content delivery for new sessions.',
       '401/403/429 use { error: { code, message, request_id } }.',
       '402/500 use { error: { code, message } } — no request_id.',
       '422 uses { error: "Validation failed", details } — error is a plain string here, not an object.',

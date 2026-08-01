@@ -13,6 +13,19 @@ const PRINTABLE_ASCII = /^[\x20-\x7E]+$/
 
 export const DEFAULT_EXPECTED_DURATION_MINUTES = 30
 
+/**
+ * B2B-64 (docs/specs/B2B-64-requirement-document.md §6) — Option 2 (partner_topic_ref/content_ref)
+ * session-creation guard. Defaults to disabled (rejects Option 2 session creation) per Arun's
+ * 2026-08-01 commitment to inline-only going forward. Strict `=== 'true'` check, matching this
+ * repo's existing `_ENABLED`-flag-family convention (RTV_MARKER_GENERATION_ENABLED,
+ * HUME_NATIVE_PACING_GUIDANCE_ENABLED) — no truthy-string leniency. A guard, not a deletion:
+ * CreateSessionSchema's Option-2 fields/refine logic below are untouched, so re-enabling this is a
+ * one-line env var flip, no code change.
+ */
+export function isTemplateModeEnabled(): boolean {
+  return process.env.TEMPLATE_MODE_SESSIONS_ENABLED === 'true'
+}
+
 export const ContentPageSchema = z.object({
   url: z.string().url(),
   media_type: z.enum(['html', 'image']),

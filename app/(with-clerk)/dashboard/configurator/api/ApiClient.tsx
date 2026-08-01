@@ -138,26 +138,33 @@ function EndpointCard({ endpoint }: { endpoint: EndpointDoc }) {
       {endpoint.requestFields && (
         <>
           <p style={{ fontSize: 12, fontWeight: 600, color: COLORS.textSecondary, marginBottom: 6 }}>Request fields</p>
-          <table style={tableStyle}>
-            <thead>
-              <tr>
-                <th style={thStyle}>Field</th>
-                <th style={thStyle}>Type</th>
-                <th style={thStyle}>Required</th>
-                <th style={thStyle}>Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {endpoint.requestFields.map((f) => (
-                <tr key={f.field}>
-                  <td style={{ ...tdStyle, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{f.field}</td>
-                  <td style={tdStyle}>{f.type}</td>
-                  <td style={tdStyle}>{f.required}</td>
-                  <td style={tdStyle}>{f.notes || '—'}</td>
+          {/* B2B-64 (docs/specs/B2B-64-requirement-document.md §9) — this table's row content just
+              changed (Option 2 fields swapped for Option 1); it had no horizontal-scroll wrapper,
+              a genuine responsive gap in the exact table being edited. Scoped to only this one
+              table, per the standing responsive rule's "no wider audit" limit — queryParams and
+              otherResponses below are untouched. */}
+          <div style={{ overflowX: 'auto' }}>
+            <table style={tableStyle}>
+              <thead>
+                <tr>
+                  <th style={thStyle}>Field</th>
+                  <th style={thStyle}>Type</th>
+                  <th style={thStyle}>Required</th>
+                  <th style={thStyle}>Notes</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {endpoint.requestFields.map((f) => (
+                  <tr key={f.field}>
+                    <td style={{ ...tdStyle, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{f.field}</td>
+                    <td style={tdStyle}>{f.type}</td>
+                    <td style={tdStyle}>{f.required}</td>
+                    <td style={tdStyle}>{f.notes || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </>
       )}
 
