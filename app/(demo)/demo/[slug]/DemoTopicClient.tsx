@@ -805,76 +805,7 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
                   <h3 style={perfEmptyHeadingStyle}>Performance data is being prepared.</h3>
                   <p style={perfEmptyBodyStyle}>This usually takes a few minutes after the meeting ends. Check back shortly.</p>
                 </>
-              ) : (performanceData.entries ?? []).length > 0 ? (
-                // B2B-65 (docs/specs/B2B-65-requirement-document.md §4.B) — the accumulating entries
-                // list takes priority over every latest-single-dispatch state below it, including
-                // 'ready' (a previously-successful entry must never disappear just because the most
-                // recent dispatch happened to fail or is still mid-flight). State B3's muted
-                // processing note appears only above the list, only while the LATEST dispatch is
-                // still in flight — State B4 (latest failed) shows no error copy at all, just the
-                // entries, by simply not matching either condition below.
-                <>
-                  {(performanceData.session_state === 'in_progress' || performanceData.session_state === 'pending_extraction') && (
-                    <p style={perfEntriesProcessingNoteStyle}>A new session is being processed and will be added here once ready.</p>
-                  )}
-                  <div style={perfTableWrapperStyle}>
-                    {(performanceData.entries ?? []).map((entry, i) => (
-                      <div key={i} style={perfEntryCardStyle}>
-                        <p style={perfEntryTimestampStyle}>{formatSavedAt(entry.extracted_at)}</p>
-
-                        <PerfTableRow field="Action items">
-                          <PerfListCell items={entry.action_items.map((item) => item.text)} />
-                        </PerfTableRow>
-
-                        <PerfTableRow field="Summary">
-                          <PerfScalarCell value={entry.summary} />
-                        </PerfTableRow>
-
-                        <PerfTableRow field="Topics of interest">
-                          <PerfListCell items={entry.topics_of_interest} />
-                        </PerfTableRow>
-
-                        <PerfTableRow field="Engagement style">
-                          <PerfScalarCell value={entry.engagement_style} />
-                        </PerfTableRow>
-
-                        <PerfTableRow field="Suggested next topics">
-                          <PerfListCell items={entry.suggested_next_topics} />
-                        </PerfTableRow>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              ) : performanceData.session_state === 'not_dispatched' ? (
-                // B2B-65 — spec self-contradiction found during build, flagged to the
-                // Orchestrator/CEO rather than silently resolved: §4.B's opening paragraph states
-                // non-ready states "keep their exact current copy" (confirmed correct by this
-                // component's own pre-existing test, b2b51-performance-tab-table.test.tsx AT-6,
-                // which asserts this exact "No meeting dispatched yet." text and predates this
-                // feature) — but §7's acceptance criteria also demand the NEW "No performance
-                // examples yet." copy for "0 visible entries (fresh demo topic...)", which is
-                // exactly this same not_dispatched case. Resolved by keeping the pre-existing,
-                // tested copy unchanged (the narrower, less destructive reading, and the one an
-                // existing regression test already locks in) rather than picking the acceptance
-                // criterion's literal wording — needs an explicit decision from Arun/CEO if the new
-                // copy is actually wanted here instead.
-                <>
-                  <h3 style={perfEmptyHeadingStyle}>No meeting dispatched yet.</h3>
-                  <p style={perfEmptyBodyStyle}>
-                    Once the bot has joined a meeting for this course, its performance data will appear here.
-                  </p>
-                </>
-              ) : performanceData.session_state === 'in_progress' || performanceData.session_state === 'pending_extraction' ? (
-                <>
-                  <h3 style={perfEmptyHeadingStyle}>Performance data is being prepared.</h3>
-                  <p style={perfEmptyBodyStyle}>This usually takes a few minutes after the meeting ends. Check back shortly.</p>
-                </>
-              ) : performanceData.session_state === 'extraction_failed' ? (
-                <>
-                  <h3 style={perfEmptyHeadingStyle}>Performance data couldn&apos;t be generated.</h3>
-                  <p style={perfEmptyBodyStyle}>Something went wrong analyzing this meeting. Contact Clio if this keeps happening.</p>
-                </>
-              ) : (
+              ) : performanceData.session_state === 'ready' && (performanceData.entries ?? []).length === 0 ? (
                 // B2B-51 — literal Field/Value table of the exact session-outcome fields Clio sends
                 // resellers via the session.insights_ready webhook. Fixed 6-row shape, always in this
                 // order, regardless of which values are populated (§4/§5.2). Deliberately excludes any
@@ -940,6 +871,78 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
                     <PerfScalarCell value={performanceData.usage ? formatSavedAt(performanceData.usage.recorded_at) : null} />
                   </PerfTableRow>
                 </div>
+              ) : (
+                // B2B-65 (updated 2026-08-01 per Arun — replaces the four separate "no
+                // meeting/being prepared/couldn't be generated" text states this branch used to
+                // show): always render the table shell — Field/Value header plus either the real
+                // accumulated entries, or a single empty placeholder row set with the exact same
+                // shape (muted "Not available"/"None identified" per field, via the same
+                // PerfScalarCell/PerfListCell null-handling every other row already uses) — so the
+                // page never shows a blank message, and a real entry just populates into the same
+                // structure once one exists. The muted "being processed" note still appears above
+                // the table while the latest dispatch is still in flight, whether or not any
+                // entries have accumulated yet.
+                <>
+                  {(performanceData.session_state === 'in_progress' || performanceData.session_state === 'pending_extraction') && (
+                    <p style={perfEntriesProcessingNoteStyle}>A new session is being processed and will be added here once ready.</p>
+                  )}
+                  <div style={perfTableWrapperStyle}>
+                    <div style={perfTableRowStyle}>
+                      <div style={perfTableHeaderCellStyle}>Field</div>
+                      <div style={perfTableHeaderCellStyle}>Value</div>
+                    </div>
+
+                    {(performanceData.entries ?? []).length > 0 ? (
+                      (performanceData.entries ?? []).map((entry, i) => (
+                        <div key={i} style={perfEntryCardStyle}>
+                          <p style={perfEntryTimestampStyle}>{formatSavedAt(entry.extracted_at)}</p>
+
+                          <PerfTableRow field="Action items">
+                            <PerfListCell items={entry.action_items.map((item) => item.text)} />
+                          </PerfTableRow>
+
+                          <PerfTableRow field="Summary">
+                            <PerfScalarCell value={entry.summary} />
+                          </PerfTableRow>
+
+                          <PerfTableRow field="Topics of interest">
+                            <PerfListCell items={entry.topics_of_interest} />
+                          </PerfTableRow>
+
+                          <PerfTableRow field="Engagement style">
+                            <PerfScalarCell value={entry.engagement_style} />
+                          </PerfTableRow>
+
+                          <PerfTableRow field="Suggested next topics">
+                            <PerfListCell items={entry.suggested_next_topics} />
+                          </PerfTableRow>
+                        </div>
+                      ))
+                    ) : (
+                      <>
+                        <PerfTableRow field="Action items">
+                          <PerfListCell items={null} />
+                        </PerfTableRow>
+
+                        <PerfTableRow field="Summary">
+                          <PerfScalarCell value={null} />
+                        </PerfTableRow>
+
+                        <PerfTableRow field="Topics of interest">
+                          <PerfListCell items={null} />
+                        </PerfTableRow>
+
+                        <PerfTableRow field="Engagement style">
+                          <PerfScalarCell value={null} />
+                        </PerfTableRow>
+
+                        <PerfTableRow field="Suggested next topics">
+                          <PerfListCell items={null} />
+                        </PerfTableRow>
+                      </>
+                    )}
+                  </div>
+                </>
               )}
             </div>
           )}

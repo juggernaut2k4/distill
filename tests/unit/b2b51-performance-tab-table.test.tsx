@@ -170,24 +170,32 @@ describe('B2B-51 Performance tab — literal Field/Value table (ready state)', (
     expect(screen.getAllByText('Not available')).toHaveLength(7)
   })
 
-  it('AT-6: non-ready states render no table row markup — only the unchanged message', async () => {
+  it('AT-6 (updated 2026-08-01 per Arun): non-ready states with zero entries render the table headers + an empty placeholder row set, never a blank text message', async () => {
     mockFetch({
       session_state: 'not_dispatched',
       duration_minutes: null,
       action_items: null,
       learner_insight: null,
+      usage: null,
+      entries: [],
     })
     render(<DemoTopicClient topic={TOPIC} />)
     const tabButton = await screen.findByRole('button', { name: 'Performance' })
     fireEvent.click(tabButton)
 
-    await waitFor(() => expect(screen.getByText('No meeting dispatched yet.')).toBeInTheDocument())
-
-    // None of the table's fixed field labels should ever appear for a non-ready state.
+    await waitFor(() => expect(screen.getByText('Field')).toBeInTheDocument())
+    expect(screen.getByText('Value')).toBeInTheDocument()
+    expect(screen.getByText('Action items')).toBeInTheDocument()
+    expect(screen.getByText('Summary')).toBeInTheDocument()
+    expect(screen.getByText('Topics of interest')).toBeInTheDocument()
+    expect(screen.getByText('Engagement style')).toBeInTheDocument()
+    expect(screen.getByText('Suggested next topics')).toBeInTheDocument()
+    // Duration/Usage are exclusive to the real-single-session ('ready') table, not this shell.
     expect(screen.queryByText('Duration')).not.toBeInTheDocument()
-    expect(screen.queryByText('Action items')).not.toBeInTheDocument()
-    expect(screen.queryByText('Summary')).not.toBeInTheDocument()
-    expect(document.querySelector('table')).toBeNull()
+    expect(screen.queryByText('Usage')).not.toBeInTheDocument()
+    // Every row's value is the muted placeholder — no fabricated content.
+    expect(screen.getAllByText('None identified').length).toBe(3) // Action items/Topics of interest/Suggested next topics
+    expect(screen.getAllByText('Not available').length).toBe(2) // Summary/Engagement style
   })
 
   it('AT-8: a single-item Topics of interest array still renders as a one-item bulleted list', async () => {
@@ -304,19 +312,20 @@ describe('B2B-57a Performance tab — Usage row group (real usage.voice_minute f
     expect(screen.getAllByText('Not available')).toHaveLength(5)
   })
 
-  it('does not render the Usage section at all for non-ready session states', async () => {
+  it('does not render the Usage section at all for non-ready session states (updated 2026-08-01: now the empty table shell, not a text message)', async () => {
     mockFetch({
       session_state: 'not_dispatched',
       duration_minutes: null,
       action_items: null,
       learner_insight: null,
       usage: null,
+      entries: [],
     })
     render(<DemoTopicClient topic={TOPIC} />)
     const tabButton = await screen.findByRole('button', { name: 'Performance' })
     fireEvent.click(tabButton)
 
-    await waitFor(() => expect(screen.getByText('No meeting dispatched yet.')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('Field')).toBeInTheDocument())
     expect(screen.queryByText('Usage')).not.toBeInTheDocument()
     expect(screen.queryByText('Minutes billed')).not.toBeInTheDocument()
   })
@@ -390,7 +399,7 @@ describe('B2B-65 Performance tab — accumulating entries list', () => {
     expect(summaries.length).toBeGreaterThanOrEqual(2)
   })
 
-  it('falls back to the pre-existing not_dispatched empty copy when entries is empty (no crash on a missing/older entries field)', async () => {
+  it('falls back to the empty table shell (no crash) when entries is missing entirely from the response', async () => {
     mockFetch({
       session_state: 'not_dispatched',
       duration_minutes: null,
@@ -402,6 +411,7 @@ describe('B2B-65 Performance tab — accumulating entries list', () => {
     })
     await renderAndOpenPerformanceTab()
 
-    await waitFor(() => expect(screen.getByText('No meeting dispatched yet.')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('Field')).toBeInTheDocument())
+    expect(screen.getAllByText('None identified').length).toBe(3)
   })
 })
