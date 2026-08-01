@@ -495,23 +495,6 @@ INFRA-* (Mia Digital LLC migration) — parallel, non-blocking, land before prod
     events and matching progressively, closer to Hume's incremental cadence. All three are real design
     tradeoffs, not obvious wins — discuss before implementing.
 
-- **Screen-share blur — inconclusive, needs more investigation before it's actionable.** Arun asked
-  2026-08-01 whether the blurry shared screen is because Attendee is self-hosted, and whether hosting
-  our own instance would fix it. Checked: `lib/meeting-bot/attendee.ts`'s `BASE_URL` is
-  `https://app.attendee.dev/api/v1` — **we are using Attendee's hosted cloud API today, not
-  self-hosting.** Attendee is genuinely open-source and self-hostable (confirmed via
-  `github.com/attendee-labs/attendee` and `attendee.dev/blog/self-hosting-attendee`), but that post's
-  own stated benefits are cost and infrastructure/data control — **it makes no claim of any
-  video-quality, resolution, or bitrate improvement from self-hosting**, and neither our own
-  `createBot()` call nor Attendee's public docs expose any screen-share resolution/bitrate/quality
-  parameter today. So self-hosting is not confirmed to fix this — the blur is more likely inherent to
-  Attendee's own screen-capture-to-meeting encoding pipeline (their bot's headless-browser screen
-  capture → video encode → the meeting platform's own screen-share compression), which isn't
-  something either hosting model currently exposes control over from our side. **Real next step,
-  not yet done**: either test empirically against a self-hosted instance to see if it's actually
-  different, or ask Attendee's own support/docs directly whether any quality knob exists — don't
-  assume self-hosting is the fix without confirming.
-
 - **Attendee webhook signature hard-enforcement.** `app/api/attendee/webhook/route.ts` was found (2026-07-14/15
   overnight audit) with signature verification computed but never enforced — any POST claiming to be from
   Attendee was accepted. Fixed 2026-07-15 with Attendee's real documented signing algorithm (canonical-JSON
