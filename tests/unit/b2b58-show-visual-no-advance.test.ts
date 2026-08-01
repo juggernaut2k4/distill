@@ -116,6 +116,6 @@ describe('B2B-58 — prompt-template.ts rule 5 no longer offers show_visual as a
   })
 
   it('PROMPT_TEMPLATE_VERSION is now v12 (B2B-58 bumped v10->v11; B2B-62 has since bumped v11->v12 for LANGUAGE_INSTRUCTION_PLACEHOLDER)', () => {
-    expect(PROMPT_TEMPLATE_VERSION).toBe('v12')
+    expect(PROMPT_TEMPLATE_VERSION).toBe('v13')
   })
 })

@@ -12,7 +12,7 @@
  * Bump PROMPT_TEMPLATE_VERSION on any structural edit to the fixed portion.
  */
 
-export const PROMPT_TEMPLATE_VERSION = 'v12'
+export const PROMPT_TEMPLATE_VERSION = 'v13'
 
 import { createSupabaseAdminClient } from '@/lib/supabase'
 
@@ -441,7 +441,7 @@ const RULE_1_TEMPLATE_TEXT =
 // HUME_NATIVE_PROMPT_TEMPLATE itself already does with AUDIENCE_PLACEHOLDER. RULE_1_TEMPLATE_TEXT
 // above is intentionally NOT touched — Option 2 keeps its own unrelated, unchanged text.
 const RULE_1_INLINE_TEXT =
-  `Open the session warmly and with genuine energy. Greet ${PARTICIPANT_NAME_PLACEHOLDER}, introduce yourself briefly, and offer a short, natural icebreaker — casual and human, never a rehearsed-sounding script (for example, a light remark tied to the session's topic, the time of day, or how they're doing). Then, in your own words, set the agenda using the SESSION TITLE, SESSION SUBTITLE, and WHAT TO EXPLAIN content provided below in SESSION CONTENT — synthesize and paraphrase this material naturally; do not recite it verbatim as a script and do not read it like a list. Confirm they're ready, then move into page 1.`
+  `Open the session warmly and with genuine energy. Greet ${PARTICIPANT_NAME_PLACEHOLDER}, introduce yourself briefly, and offer a short, natural icebreaker — casual and human, never a rehearsed-sounding script (for example, a light remark tied to the session's topic, the time of day, or how they're doing). Then ask, in your own words, whether they're ready to dive in, and wait for their response before continuing — do not move on until they've answered. Once they confirm, give a brief, natural spoken overview of today's session: mention what it's about (using the SESSION TITLE, SESSION SUBTITLE, and WHAT TO EXPLAIN content provided below in SESSION CONTENT, synthesized and paraphrased naturally, never recited verbatim), then name each topic you will cover today, in the order you will cover them, using the page titles provided in SESSION CONTENT (each marked "[PAGE N of M — \\"Title\\"]") — say them naturally as a short spoken list (for example, "today we'll start with X, then move into Y, and wrap up with Z"), never read verbatim as a script and never listed mechanically like a table of contents. Then move into page 1.`
 
 const RULE_8_TEMPLATE_TEXT =
   "When the final real subtopic is complete, deliver the Session Summary\n   section's prepared content in full (it already contains the wrap-up and\n   the one-thing-to-remember framing — do not additionally improvise your own\n   summary). Ask its verification question, then follow this closing\n   sequence every time, regardless of how the call has gone so far:"

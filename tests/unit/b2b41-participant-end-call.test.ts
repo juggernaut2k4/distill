@@ -150,7 +150,7 @@ describe('B2B-41 — PROMPT_TEMPLATE_VERSION', () => {
   // (LANGUAGE_INSTRUCTION_PLACEHOLDER added to the template source); this assertion is updated to
   // track the current version rather than re-asserting a now-superseded value.
   it('PROMPT_TEMPLATE_VERSION is the literal string v12 (not v10 or v11)', () => {
-    expect(PROMPT_TEMPLATE_VERSION).toBe('v12')
+    expect(PROMPT_TEMPLATE_VERSION).toBe('v13')
   })
 })
 

@@ -110,7 +110,13 @@ describe('B2B-61 Part C — OpenAI voice delivery persona (2026-08-01, Arun\'s e
 
   it('reinforces (OpenAI-only) that end_session must never be called without an audible goodbye first, per Arun\'s 2026-08-01 round 2 report of a silent disconnect', () => {
     expect(personaSource).toContain('Session Closing:')
-    expect(personaSource).toContain('never call end_session silently')
+    expect(personaSource).toContain('Never end a call silently')
+    // 2026-08-01 round 3 — Arun found she was narrating the instruction itself ("I will close it
+    // with a warm goodbye") rather than just saying goodbye naturally. Reworded away from
+    // meta-referencing "your instructions"/"the tool" toward plain output guidance with concrete
+    // example lines, plus an explicit "never narrate what you're about to say" guard.
+    expect(personaSource).not.toContain('end_session tool')
+    expect(personaSource).toContain('never describe or narrate what you are about to say')
   })
 
   it('is never referenced by hume-adapter.ts or the shared prompt template (OpenAI-only, does not affect Hume)', () => {
