@@ -6,6 +6,7 @@ import { fetchAllTranscriptEvents } from '@/lib/voice/hume-native/session-detail
 import { formatTranscriptLines } from './hume-action-item-extractor' // verbatim reuse, unmodified import
 import { recordInsightsReadyEvent } from '@/lib/partner/webhooks'
 import { getStoredTranscriptTurns, formatOpenAITranscriptLines, deleteStoredTranscript } from '@/lib/voice/openai-realtime-transcript-store'
+import { getDemoPerformanceAppendEnabled } from '@/lib/demo/performance-config'
 
 /**
  * B2B-09 — Session Delivery Extraction Fix + Internal Glitch Dashboard.
@@ -302,6 +303,18 @@ export async function extractInsightsForPartnerSession(partnerSessionId: string)
     }
   }
 
+  // B2B-65 (docs/specs/B2B-65-requirement-document.md §6.3) — demo_performance_visible is set
+  // once, permanently, at this exact write, based on the demo-performance toggle's state at this
+  // exact moment. Real (non-demo) sessions always get `false` since their partner_account_id
+  // never equals DEMO_PARTNER_ACCOUNT_ID — zero behavior change for any real-partner session, and
+  // extraction itself is never gated by this toggle (only whether the result gets appended to the
+  // public Performance tab's list is).
+  const isDemoSession = session.partner_account_id === process.env.DEMO_PARTNER_ACCOUNT_ID
+  const shouldMakeVisible =
+    isDemoSession &&
+    (result.extraction_status === 'success' || result.extraction_status === 'success_empty') &&
+    (await getDemoPerformanceAppendEnabled())
+
   const { error: writeError } = await supabase
     .from('partner_session_insights')
     .update({
@@ -312,6 +325,7 @@ export async function extractInsightsForPartnerSession(partnerSessionId: string)
       transcript_event_count: result.eventCount,
       error_message: result.isMock ? '[MOCK] ANTHROPIC_API_KEY not configured — mock data written' : null,
       extracted_at: new Date().toISOString(),
+      demo_performance_visible: shouldMakeVisible,
     })
     .eq('partner_session_id', partnerSessionId)
 

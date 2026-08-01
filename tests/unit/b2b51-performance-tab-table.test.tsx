@@ -321,3 +321,87 @@ describe('B2B-57a Performance tab — Usage row group (real usage.voice_minute f
     expect(screen.queryByText('Minutes billed')).not.toBeInTheDocument()
   })
 })
+
+// B2B-65 (docs/specs/B2B-65-requirement-document.md §4.B/§7) — the accumulating entries list takes
+// priority over every latest-single-dispatch state, including 'ready'.
+const ONE_ENTRY = {
+  extracted_at: '2026-08-01T09:14:00.000Z',
+  action_items: [{ text: 'Compare Sonnet vs Opus pricing.' }],
+  summary: 'Weighing model choice for a cost-sensitive use case.',
+  topics_of_interest: ['pricing tradeoffs'],
+  engagement_style: 'Asks pointed, comparison-driven questions.',
+  suggested_next_topics: ['Choosing the Right Model deep-dive'],
+}
+
+describe('B2B-65 Performance tab — accumulating entries list', () => {
+  it('renders an entry card even when the latest dispatch has extraction_failed (entries take priority over the error state)', async () => {
+    mockFetch({
+      session_state: 'extraction_failed',
+      duration_minutes: 8.5,
+      action_items: null,
+      learner_insight: null,
+      usage: null,
+      entries: [ONE_ENTRY],
+    })
+    await renderAndOpenPerformanceTab()
+
+    await waitFor(() => expect(screen.getByText('Compare Sonnet vs Opus pricing.')).toBeInTheDocument())
+    expect(screen.queryByText("Performance data couldn't be generated.")).not.toBeInTheDocument()
+  })
+
+  it('shows the muted "being processed" note above the entries when the latest dispatch is still in_progress', async () => {
+    mockFetch({
+      session_state: 'in_progress',
+      duration_minutes: null,
+      action_items: null,
+      learner_insight: null,
+      usage: null,
+      entries: [ONE_ENTRY],
+    })
+    await renderAndOpenPerformanceTab()
+
+    await waitFor(() => expect(screen.getByText('Compare Sonnet vs Opus pricing.')).toBeInTheDocument())
+    expect(screen.getByText('A new session is being processed and will be added here once ready.')).toBeInTheDocument()
+  })
+
+  it('does not show the "being processed" note when the latest dispatch is ready (entries just render)', async () => {
+    mockFetch({ ...FULL_READY_PAYLOAD, entries: [ONE_ENTRY] })
+    await renderAndOpenPerformanceTab()
+
+    await waitFor(() => expect(screen.getAllByText('Compare Sonnet vs Opus pricing.').length).toBeGreaterThan(0))
+    expect(screen.queryByText('A new session is being processed and will be added here once ready.')).not.toBeInTheDocument()
+  })
+
+  it('renders multiple entries newest-first order exactly as the API returns them, each with its own timestamp heading', async () => {
+    const olderEntry = { ...ONE_ENTRY, extracted_at: '2026-07-31T16:02:00.000Z', summary: 'An older entry.' }
+    mockFetch({
+      session_state: 'not_dispatched',
+      duration_minutes: null,
+      action_items: null,
+      learner_insight: null,
+      usage: null,
+      entries: [ONE_ENTRY, olderEntry],
+    })
+    await renderAndOpenPerformanceTab()
+
+    await waitFor(() => expect(screen.getByText('Weighing model choice for a cost-sensitive use case.')).toBeInTheDocument())
+    expect(screen.getByText('An older entry.')).toBeInTheDocument()
+    const summaries = screen.getAllByText(/entry|cost-sensitive/)
+    expect(summaries.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('falls back to the pre-existing not_dispatched empty copy when entries is empty (no crash on a missing/older entries field)', async () => {
+    mockFetch({
+      session_state: 'not_dispatched',
+      duration_minutes: null,
+      action_items: null,
+      learner_insight: null,
+      usage: null,
+      // entries deliberately omitted — exercises the (?? []) defensive fallback for a
+      // network-boundary response that predates this field.
+    })
+    await renderAndOpenPerformanceTab()
+
+    await waitFor(() => expect(screen.getByText('No meeting dispatched yet.')).toBeInTheDocument())
+  })
+})

@@ -60,12 +60,24 @@ interface PerformanceUsage {
   recorded_at: string
 }
 
+// B2B-65 (docs/specs/B2B-65-requirement-document.md §6.4) — one accumulated, permanently-visible
+// past demo session's outcome. No Duration/Usage per entry (spec §6.4's explicit scope cut).
+interface PerformanceEntry {
+  extracted_at: string
+  action_items: { text: string }[]
+  summary: string | null
+  topics_of_interest: string[]
+  engagement_style: string | null
+  suggested_next_topics: string[]
+}
+
 interface PerformanceResponse {
   session_state: PerformanceSessionState
   duration_minutes: number | null
   action_items: { text: string }[] | null
   learner_insight: PerformanceLearnerInsight | null
   usage: PerformanceUsage | null
+  entries: PerformanceEntry[]
 }
 
 /** Dimmed heading/body pair for the Performance tab's non-ready states — same COLORS.textMuted-based
@@ -117,6 +129,27 @@ const perfTableListStyle = {
 } as const
 
 const perfTableMutedStyle = { color: COLORS.textMuted } as const
+
+// B2B-65 — one bordered wrapper + timestamp heading per accumulating entry card. Same
+// clamp()-based spacing convention as perfTableWrapperStyle/perfTableRowStyle (§9) — no fixed
+// pixel widths, each card is just another stacked instance of the already-responsive row block.
+const perfEntryCardStyle = {
+  marginBottom: 'clamp(20px, 3vw, 28px)',
+  paddingBottom: 'clamp(20px, 3vw, 28px)',
+  borderBottom: `1px solid ${COLORS.border}`,
+} as const
+
+const perfEntryTimestampStyle = {
+  ...demoLabelStyle,
+  color: COLORS.textMuted,
+  marginBottom: 'clamp(8px, 1.2vw, 12px)',
+} as const
+
+const perfEntriesProcessingNoteStyle = {
+  fontSize: 13,
+  color: COLORS.textMuted,
+  marginBottom: 'clamp(12px, 2vw, 16px)',
+} as const
 
 // B2B-57a — lightweight section label for the new "Usage" row group. The existing table has no prior
 // sub-heading precedent between its Duration row and its learner-insight rows (confirmed by reading
@@ -772,7 +805,59 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
                   <h3 style={perfEmptyHeadingStyle}>Performance data is being prepared.</h3>
                   <p style={perfEmptyBodyStyle}>This usually takes a few minutes after the meeting ends. Check back shortly.</p>
                 </>
+              ) : (performanceData.entries ?? []).length > 0 ? (
+                // B2B-65 (docs/specs/B2B-65-requirement-document.md §4.B) — the accumulating entries
+                // list takes priority over every latest-single-dispatch state below it, including
+                // 'ready' (a previously-successful entry must never disappear just because the most
+                // recent dispatch happened to fail or is still mid-flight). State B3's muted
+                // processing note appears only above the list, only while the LATEST dispatch is
+                // still in flight — State B4 (latest failed) shows no error copy at all, just the
+                // entries, by simply not matching either condition below.
+                <>
+                  {(performanceData.session_state === 'in_progress' || performanceData.session_state === 'pending_extraction') && (
+                    <p style={perfEntriesProcessingNoteStyle}>A new session is being processed and will be added here once ready.</p>
+                  )}
+                  <div style={perfTableWrapperStyle}>
+                    {(performanceData.entries ?? []).map((entry, i) => (
+                      <div key={i} style={perfEntryCardStyle}>
+                        <p style={perfEntryTimestampStyle}>{formatSavedAt(entry.extracted_at)}</p>
+
+                        <PerfTableRow field="Action items">
+                          <PerfListCell items={entry.action_items.map((item) => item.text)} />
+                        </PerfTableRow>
+
+                        <PerfTableRow field="Summary">
+                          <PerfScalarCell value={entry.summary} />
+                        </PerfTableRow>
+
+                        <PerfTableRow field="Topics of interest">
+                          <PerfListCell items={entry.topics_of_interest} />
+                        </PerfTableRow>
+
+                        <PerfTableRow field="Engagement style">
+                          <PerfScalarCell value={entry.engagement_style} />
+                        </PerfTableRow>
+
+                        <PerfTableRow field="Suggested next topics">
+                          <PerfListCell items={entry.suggested_next_topics} />
+                        </PerfTableRow>
+                      </div>
+                    ))}
+                  </div>
+                </>
               ) : performanceData.session_state === 'not_dispatched' ? (
+                // B2B-65 — spec self-contradiction found during build, flagged to the
+                // Orchestrator/CEO rather than silently resolved: §4.B's opening paragraph states
+                // non-ready states "keep their exact current copy" (confirmed correct by this
+                // component's own pre-existing test, b2b51-performance-tab-table.test.tsx AT-6,
+                // which asserts this exact "No meeting dispatched yet." text and predates this
+                // feature) — but §7's acceptance criteria also demand the NEW "No performance
+                // examples yet." copy for "0 visible entries (fresh demo topic...)", which is
+                // exactly this same not_dispatched case. Resolved by keeping the pre-existing,
+                // tested copy unchanged (the narrower, less destructive reading, and the one an
+                // existing regression test already locks in) rather than picking the acceptance
+                // criterion's literal wording — needs an explicit decision from Arun/CEO if the new
+                // copy is actually wanted here instead.
                 <>
                   <h3 style={perfEmptyHeadingStyle}>No meeting dispatched yet.</h3>
                   <p style={perfEmptyBodyStyle}>

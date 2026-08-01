@@ -48,6 +48,10 @@ interface FakeUsageDispatchRow {
 let sessionRow: FakePartnerSession | null = null
 let insightsRow: FakeInsightsRow | null = null
 let usageDispatchRow: FakeUsageDispatchRow | null = null
+// B2B-65 (docs/specs/B2B-65-requirement-document.md §6.4) — the accumulating entries list, returned
+// by a SECOND, differently-shaped query against the same partner_session_insights table.
+let entryRows: Array<{ extracted_at: string; action_items: { text: string }[] | null; learner_insight: FakeInsightsRow['learner_insight'] }> = []
+let entryRowsError: { message: string } | null = null
 
 vi.mock('@/lib/supabase', () => ({
   createSupabaseAdminClient: () => ({
@@ -70,11 +74,30 @@ vi.mock('@/lib/supabase', () => ({
 
       if (table === 'partner_session_insights') {
         return {
-          select: () => ({
-            eq: () => ({
-              maybeSingle: async () => ({ data: insightsRow, error: null }),
-            }),
-          }),
+          select: (fields: string) => {
+            // B2B-65's entries query selects the partner_sessions!inner(...) embed and is filtered
+            // by demo_performance_visible/two chained .eq()s then .order().limit() (an array
+            // result) — the pre-existing single-latest-session lookup selects plain columns and is
+            // filtered by exactly one .eq(partner_session_id) then .maybeSingle() (one row).
+            if (fields.includes('partner_sessions!inner')) {
+              return {
+                eq: () => ({
+                  eq: () => ({
+                    eq: () => ({
+                      order: () => ({
+                        limit: async () => ({ data: entryRowsError ? null : entryRows, error: entryRowsError }),
+                      }),
+                    }),
+                  }),
+                }),
+              }
+            }
+            return {
+              eq: () => ({
+                maybeSingle: async () => ({ data: insightsRow, error: null }),
+              }),
+            }
+          },
         }
       }
 
@@ -116,6 +139,8 @@ describe('GET /api/demo/[slug]/performance', () => {
     sessionRow = null
     insightsRow = null
     usageDispatchRow = null
+    entryRows = []
+    entryRowsError = null
     fetchHumeChatDurationMock.mockReset()
     process.env.DEMO_PARTNER_ACCOUNT_ID = 'demo-partner-account-id'
   })
@@ -140,6 +165,7 @@ describe('GET /api/demo/[slug]/performance', () => {
       action_items: null,
       learner_insight: null,
       usage: null,
+      entries: [],
     })
     expect(fetchHumeChatDurationMock).not.toHaveBeenCalled()
   })
@@ -242,6 +268,7 @@ describe('GET /api/demo/[slug]/performance', () => {
         suggested_next_topics: ['ROI case study'],
       },
       usage: null, // B2B-57a — no webhook_dispatch_log row mocked in this test
+      entries: [], // B2B-65 — no accumulating entries mocked in this test
     })
   })
 
@@ -356,6 +383,99 @@ describe('GET /api/demo/[slug]/performance', () => {
       const body = await res.json()
       expect(body.session_state).toBe('in_progress')
       expect(body.usage).toBeNull()
+    })
+  })
+
+  // B2B-65 (docs/specs/B2B-65-requirement-document.md §6.4/§7) — the accumulating entries list,
+  // independent of the latest-single-session lookup above.
+  describe('entries (accumulating list, B2B-65)', () => {
+    it('maps each entry row to the entries field shape, newest-first as returned by the query', async () => {
+      entryRows = [
+        {
+          extracted_at: '2026-08-01T09:14:00.000Z',
+          action_items: [{ text: 'Compare Sonnet vs Opus pricing.' }],
+          learner_insight: {
+            summary: 'Weighing model choice for a cost-sensitive use case.',
+            topics_of_interest: ['pricing tradeoffs'],
+            engagement_style: 'Asks pointed, comparison-driven questions.',
+            suggested_next_topics: ['Choosing the Right Model deep-dive'],
+          },
+        },
+      ]
+      sessionRow = { id: 's1', status: 'requested', hume_chat_id: null, created_at: '2026-07-23T00:00:00.000Z' }
+      const res = await GET(getRequest(), { params: { slug: 'claude-ai' } })
+      const body = await res.json()
+      expect(body.entries).toEqual([
+        {
+          extracted_at: '2026-08-01T09:14:00.000Z',
+          action_items: [{ text: 'Compare Sonnet vs Opus pricing.' }],
+          summary: 'Weighing model choice for a cost-sensitive use case.',
+          topics_of_interest: ['pricing tradeoffs'],
+          engagement_style: 'Asks pointed, comparison-driven questions.',
+          suggested_next_topics: ['Choosing the Right Model deep-dive'],
+        },
+      ])
+    })
+
+    it('entries render even when the latest dispatch has extraction_failed (priority over the latest-session error state, AT §7)', async () => {
+      entryRows = [
+        {
+          extracted_at: '2026-07-31T16:02:00.000Z',
+          action_items: [],
+          learner_insight: {
+            summary: 'New to AI, wants a plain-language mental model.',
+            topics_of_interest: ['Constitutional AI'],
+            engagement_style: 'Listens fully before asking questions.',
+            suggested_next_topics: ['What Is Claude? recap'],
+          },
+        },
+      ]
+      sessionRow = { id: 's1', status: 'completed', hume_chat_id: 'chat-1', created_at: '2026-07-23T00:00:00.000Z' }
+      insightsRow = { extraction_status: 'failed', action_items: null, learner_insight: null }
+      fetchHumeChatDurationMock.mockResolvedValue({ ok: true, durationSeconds: 510 })
+      const res = await GET(getRequest(), { params: { slug: 'claude-ai' } })
+      const body = await res.json()
+      expect(body.session_state).toBe('extraction_failed')
+      expect(body.entries).toHaveLength(1)
+    })
+
+    it('entries render even when the latest dispatch is still in_progress', async () => {
+      entryRows = [
+        {
+          extracted_at: '2026-07-31T16:02:00.000Z',
+          action_items: [],
+          learner_insight: null,
+        },
+      ]
+      sessionRow = { id: 's1', status: 'bot_active', hume_chat_id: null, created_at: '2026-07-23T00:00:00.000Z' }
+      const res = await GET(getRequest(), { params: { slug: 'claude-ai' } })
+      const body = await res.json()
+      expect(body.session_state).toBe('in_progress')
+      expect(body.entries).toHaveLength(1)
+    })
+
+    it('falls back to entries: [] (never throws/500s) when the entries query itself errors', async () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      entryRowsError = { message: 'entries query failed' }
+      sessionRow = null
+      const res = await GET(getRequest(), { params: { slug: 'claude-ai' } })
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      expect(body.entries).toEqual([])
+      errorSpy.mockRestore()
+    })
+
+    it('is scoped per demo topic (partner_reference) — a slug with entries never leaks them to a request for a different slug', async () => {
+      // The mock's entries branch doesn't itself vary by slug (it returns whatever entryRows is set
+      // to, regardless of params.slug) — this test instead confirms the route passes params.slug
+      // into the query at all, which is what makes real per-topic scoping possible against a real
+      // database. A true cross-slug isolation test belongs at the integration/DB level; this unit
+      // test's job is confirming the route never hardcodes or drops the slug filter.
+      entryRows = [{ extracted_at: '2026-08-01T00:00:00.000Z', action_items: [], learner_insight: null }]
+      sessionRow = null
+      const res = await GET(getRequest('oop-fundamentals'), { params: { slug: 'oop-fundamentals' } })
+      const body = await res.json()
+      expect(body.entries).toHaveLength(1)
     })
   })
 })

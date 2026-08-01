@@ -50,12 +50,27 @@ interface PerformanceUsage {
   recorded_at: string
 }
 
+// B2B-65 (docs/specs/B2B-65-requirement-document.md §6.4) — one accumulated, permanently-visible
+// past demo session's outcome. Deliberately excludes Duration/Usage (see the spec's §6.4
+// reasoning: both are live/derived lookups today, not stored values — re-deriving them per
+// historical entry on every public page load adds cost for fields never described as needing to
+// accumulate).
+interface PerformanceEntry {
+  extracted_at: string
+  action_items: { text: string }[]
+  summary: string | null
+  topics_of_interest: string[]
+  engagement_style: string | null
+  suggested_next_topics: string[]
+}
+
 interface PerformanceResponse {
   session_state: SessionState
   duration_minutes: number | null
   action_items: { text: string }[] | null
   learner_insight: LearnerInsight | null
   usage: PerformanceUsage | null
+  entries: PerformanceEntry[]
 }
 
 export async function GET(_request: NextRequest, { params }: { params: { slug: string } }) {
@@ -72,6 +87,7 @@ export async function GET(_request: NextRequest, { params }: { params: { slug: s
     action_items: null,
     learner_insight: null,
     usage: null,
+    entries: [],
   }
 
   // DEMO_PARTNER_ACCOUNT_ID is a one-time infra value the Orchestrator sets (§6.1), not code this Part
@@ -80,6 +96,38 @@ export async function GET(_request: NextRequest, { params }: { params: { slug: s
   // contract.
   if (!demoPartnerAccountId || demoPartnerAccountId.startsWith('PLACEHOLDER')) {
     return NextResponse.json(empty)
+  }
+
+  // B2B-65 (docs/specs/B2B-65-requirement-document.md §6.4) — independent of the latest-single-
+  // session lookup below: renders regardless of that session's own state, so a previously-
+  // successful entry never disappears just because the most recent dispatch failed or is still
+  // mid-flight. Scoped by the same partner_reference column the query below already uses (B2B-33
+  // convention) — per-topic, never combined across demo slugs. Falls back to [] on any query
+  // failure (§8) rather than breaking the rest of this route's response.
+  let entries: PerformanceEntry[] = []
+  const { data: entryRows, error: entriesError } = await supabase
+    .from('partner_session_insights')
+    .select('extracted_at, action_items, learner_insight, partner_sessions!inner(partner_reference, partner_account_id)')
+    .eq('demo_performance_visible', true)
+    .eq('partner_sessions.partner_account_id', demoPartnerAccountId)
+    .eq('partner_sessions.partner_reference', params.slug)
+    .order('extracted_at', { ascending: false })
+    .limit(200)
+
+  if (entriesError) {
+    console.error(`[demo/performance] Failed to load accumulating entries for slug ${params.slug}:`, entriesError.message)
+  } else if (entryRows) {
+    entries = entryRows.map((row) => {
+      const insight = row.learner_insight as LearnerInsight | null
+      return {
+        extracted_at: row.extracted_at as string,
+        action_items: (row.action_items as { text: string }[] | null) ?? [],
+        summary: insight?.summary ?? null,
+        topics_of_interest: insight?.topics_of_interest ?? [],
+        engagement_style: insight?.engagement_style ?? null,
+        suggested_next_topics: insight?.suggested_next_topics ?? [],
+      }
+    })
   }
 
   const { data: sessionRow } = await supabase
@@ -104,7 +152,7 @@ export async function GET(_request: NextRequest, { params }: { params: { slug: s
   }
 
   if (!sessionRow || sessionRow.status === 'failed' || sessionRow.status === 'bot_dispatch_failed') {
-    return NextResponse.json({ ...empty, duration_minutes: durationMinutes })
+    return NextResponse.json({ ...empty, duration_minutes: durationMinutes, entries })
   }
 
   if (sessionRow.status === 'requested' || sessionRow.status === 'bot_active') {
@@ -114,6 +162,7 @@ export async function GET(_request: NextRequest, { params }: { params: { slug: s
       action_items: null,
       learner_insight: null,
       usage: null,
+      entries,
     } satisfies PerformanceResponse)
   }
 
@@ -131,6 +180,7 @@ export async function GET(_request: NextRequest, { params }: { params: { slug: s
       action_items: null,
       learner_insight: null,
       usage: null,
+      entries,
     } satisfies PerformanceResponse)
   }
 
@@ -141,6 +191,7 @@ export async function GET(_request: NextRequest, { params }: { params: { slug: s
       action_items: null,
       learner_insight: null,
       usage: null,
+      entries,
     } satisfies PerformanceResponse)
   }
 
@@ -185,6 +236,7 @@ export async function GET(_request: NextRequest, { params }: { params: { slug: s
   return NextResponse.json({
     session_state: 'ready',
     duration_minutes: durationMinutes,
+    entries,
     action_items: (insightsRow.action_items as { text: string }[] | null) ?? [],
     learner_insight: (insightsRow.learner_insight as LearnerInsight | null) ?? null,
     usage,
