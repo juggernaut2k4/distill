@@ -579,6 +579,33 @@ INFRA-* (Mia Digital LLC migration) — parallel, non-blocking, land before prod
   now real behavioral coverage via `feedMessage`/`installFakeSocket`, not just source-text
   assertions) and `tests/unit/b2b61-partc-voice-content-wiring.test.ts`.
 
+- **B2B-61 round 3 — two more live-call findings, same day (2026-08-01), pushed as `4400d16`.**
+  1. **Opening flow request**: Arun wanted the icebreaker followed by an explicit "are you ready to
+     dive in?" question, then a spoken overview naming each topic in order, before starting page 1.
+     Built as a prompt-only change — `RULE_1_INLINE_TEXT` (`lib/voice/hume-native/prompt-template.ts`)
+     now explicitly asks and waits for a ready confirmation, then has Clio enumerate each page's title
+     (already present in SESSION CONTENT via `buildInlineSessionContent`'s `[PAGE N of M — Title]`
+     markers, so no new data plumbing was needed). Template mode's rule 1 text is untouched (frozen,
+     also paused via B2B-64). `PROMPT_TEMPLATE_VERSION` bumped v12 → v13.
+  2. **Goodbye narration leak**: Marin was saying "I will close it with a warm goodbye" instead of an
+     actual goodbye — the prior commit's Session Closing paragraph was itself phrased as a
+     meta-instruction ("say a brief one now before calling the tool") the model partially narrated
+     back. Reworded to plain output guidance with concrete example lines and an explicit
+     never-narrate-what-you're-about-to-say guard, avoiding instruction-shaped phrasing near the word
+     "goodbye."
+  Also re-confirmed by re-reading the existing code (not rebuilt): the "wait for the wrap-up phrase,
+  then wait for the next page's title, only then advance" behavior Arun described for tab transitions
+  is already the live design — a per-page prompt instruction ("Only after you have said the next
+  part's name should you call the advance_tab tool," `buildInlineSessionContent`) plus the client's
+  own transcript-watch (`PartnerRenderClient.tsx`'s two-stage `stage1ArmedRef`/Stage 2 title match),
+  reinforced by round 2's `transcriptGateMode: 'playback_complete'` flip. **One theoretical gap found
+  and flagged, not fixed here** — the `advance_tab` tool-call backup path isn't itself gated on local
+  audio-playback completion the way the transcript-watch path now is, so a tool call could still race
+  ahead of what's actually been heard if the model calls it before playback catches up. This is
+  shared code used by both Hume and OpenAI sessions; deliberately not touched without Arun's
+  confirmation first, since a mis-scoped fix here risks pages getting stuck rather than just
+  occasionally early. `tsc --noEmit`/`npm run build` clean; `vitest run` 1297/1298 (same known flake).
+
 - **Reconstruct lost B2B-06/07/08/09 governance documents.** A concurrent-agent `git stash` collision
   during the parallel B2B-06/07/08/09 build spree (2026-07-15) wiped, and nobody caught: all 4 CEO
   Feature Brief files (`.claude/agents/clio/feature-briefs/B2B-0[6-9]-*.md`), and 3 of 4 Requirement
