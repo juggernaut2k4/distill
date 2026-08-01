@@ -598,13 +598,24 @@ INFRA-* (Mia Digital LLC migration) — parallel, non-blocking, land before prod
   is already the live design — a per-page prompt instruction ("Only after you have said the next
   part's name should you call the advance_tab tool," `buildInlineSessionContent`) plus the client's
   own transcript-watch (`PartnerRenderClient.tsx`'s two-stage `stage1ArmedRef`/Stage 2 title match),
-  reinforced by round 2's `transcriptGateMode: 'playback_complete'` flip. **One theoretical gap found
-  and flagged, not fixed here** — the `advance_tab` tool-call backup path isn't itself gated on local
-  audio-playback completion the way the transcript-watch path now is, so a tool call could still race
-  ahead of what's actually been heard if the model calls it before playback catches up. This is
-  shared code used by both Hume and OpenAI sessions; deliberately not touched without Arun's
-  confirmation first, since a mis-scoped fix here risks pages getting stuck rather than just
-  occasionally early. `tsc --noEmit`/`npm run build` clean; `vitest run` 1297/1298 (same known flake).
+  reinforced by round 2's `transcriptGateMode: 'playback_complete'` flip. **Theoretical gap found
+  and closed same day, per Arun's explicit "harden it now" instruction**: the `advance_tab`
+  tool-call backup path wasn't itself gated on local audio-playback completion the way the
+  transcript-watch path is — a tool call could still race ahead of what's actually been heard if the
+  model called it before playback caught up. Closed via a new **optional**
+  `VoiceSessionAdapter.waitForPlaybackCaughtUp()` method (`lib/voice/adapter.ts`) — deliberately
+  optional (mirrors the existing `sendWrapUpNudge?` precedent) so Hume's tool-call handling stays
+  byte-for-byte unchanged (not implemented on `HumeAdapter`, confirmed by a test asserting the string
+  never appears there); `OpenAIRealtimeAdapter` implements it by delegating to the same playback-
+  tracking mechanism `endSession()`'s goodbye fix already relies on
+  (`waitForPlaybackToFinish()`), bounded by the same 8s timeout so a stuck queue can't hang a
+  transition forever. Both `PartnerRenderClient.tsx` `advance_tab` handlers (inline and template)
+  now `await adapterRef.current?.waitForPlaybackCaughtUp?.()` immediately before executing the
+  actual page move — a genuine no-op for Hume via optional-chaining short-circuit. `tsc --noEmit`/
+  `npm run build` clean; `vitest run` 1307/1308 (same known pre-existing flake). 10 new tests: 4
+  covering the new method's resolve/wait/timeout behavior (mirroring the existing `endSession`
+  playback tests exactly) and 6 confirming the interface declaration, the Hume non-implementation,
+  and both call-sites' await-before-move ordering.
 
 - **Reconstruct lost B2B-06/07/08/09 governance documents.** A concurrent-agent `git stash` collision
   during the parallel B2B-06/07/08/09 build spree (2026-07-15) wiped, and nobody caught: all 4 CEO

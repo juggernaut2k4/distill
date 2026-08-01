@@ -652,6 +652,17 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
     try { await this.audioCtx?.close() } catch { /* noop */ }
   }
 
+  /**
+   * B2B-61 round 3 — VoiceSessionAdapter.waitForPlaybackCaughtUp() implementation. Same underlying
+   * mechanism endSession()'s goodbye fix already relies on (waitForPlaybackToFinish()), exposed
+   * publicly so PartnerRenderClient.tsx's advance_tab tool handler can await actual local playback
+   * before executing a tool-call-triggered page move — closing the gap where the model's tool call
+   * could arrive before the corresponding audio has actually finished playing.
+   */
+  waitForPlaybackCaughtUp(): Promise<void> {
+    return this.waitForPlaybackToFinish()
+  }
+
   /** See endSession()'s doc comment. Resolves immediately if nothing is queued/playing. */
   private waitForPlaybackToFinish(timeoutMs = 8000): Promise<void> {
     if (!this.isPlaying && this.audioQueue.length === 0) return Promise.resolve()

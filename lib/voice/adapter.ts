@@ -68,4 +68,24 @@ export interface VoiceSessionAdapter {
    *   false otherwise. Callers are responsible for their own single-retry-then-give-up policy.
    */
   sendWrapUpNudge?(instructionText: string): boolean
+
+  /**
+   * B2B-61 round 3 — optional extension point closing a page-transition timing gap Arun found:
+   * the advance_tab tool call is a race-free-by-dedup BACKUP signal to the transcript-watch
+   * (PartnerRenderClient.tsx's two-stage stage1Armed/next-title match, itself gated by
+   * OpenAIRealtimeAdapter's transcriptGateMode: 'playback_complete'), but the tool call itself was
+   * never gated on local audio-playback completion — the model can call it the instant it finishes
+   * GENERATING the sentence naming the next topic, while the corresponding audio may still be
+   * mid-flight through the local playback queue. Callers must await this (optional-chained, since
+   * not every adapter needs it) immediately before actually executing a tool-call-triggered page
+   * advance, so the visual move never gets ahead of what the participant has actually heard.
+   *   Hume:   not implemented (undefined) — Hume has never exhibited this specific gap, and this is
+   *           deliberately NOT a required interface member so Hume's existing, working tool-call
+   *           handling stays byte-for-byte unchanged; `adapter?.waitForPlaybackCaughtUp?.()` is a
+   *           real no-op here (resolves immediately via optional chaining short-circuiting).
+   *   OpenAI: resolves once the local audio queue has actually drained (reuses the same playback
+   *           tracking endSession()'s goodbye fix already relies on), bounded by a timeout so a
+   *           stuck/never-draining queue can't hang a transition indefinitely.
+   */
+  waitForPlaybackCaughtUp?(): Promise<void>
 }

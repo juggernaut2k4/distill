@@ -533,6 +533,79 @@ describe('OpenAIRealtimeAdapter.endSession waits for playback to finish (2026-08
 })
 
 /**
+ * B2B-61 round 3 — Arun: don't let a tool-call-triggered page transition get ahead of what's
+ * actually been heard. waitForPlaybackCaughtUp() is the public VoiceSessionAdapter method
+ * PartnerRenderClient.tsx's advance_tab handler now awaits before executing a move; it reuses the
+ * exact same playback-tracking endSession()'s goodbye fix already relies on (waitForPlaybackToFinish),
+ * so these tests mirror the describe block above exactly, calling the new public method directly.
+ */
+describe('OpenAIRealtimeAdapter.waitForPlaybackCaughtUp (2026-08-01, round 3)', () => {
+  it('resolves immediately when nothing is queued or playing', async () => {
+    const adapter = makeAdapter()
+    await expect(adapter.waitForPlaybackCaughtUp()).resolves.toBeUndefined()
+  })
+
+  it('does not resolve while audio is still playing, and resolves once it stops', async () => {
+    vi.useFakeTimers()
+    try {
+      const adapter = makeAdapter()
+      ;(adapter as unknown as { isPlaying: boolean }).isPlaying = true
+
+      let resolved = false
+      const promise = adapter.waitForPlaybackCaughtUp().then(() => { resolved = true })
+
+      await vi.advanceTimersByTimeAsync(500)
+      expect(resolved).toBe(false)
+
+      ;(adapter as unknown as { isPlaying: boolean }).isPlaying = false
+      await vi.advanceTimersByTimeAsync(200)
+      await promise
+      expect(resolved).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not resolve while chunks remain queued, even if not currently mid-chunk', async () => {
+    vi.useFakeTimers()
+    try {
+      const adapter = makeAdapter()
+      ;(adapter as unknown as { audioQueue: Uint8Array[] }).audioQueue = [new Uint8Array([1, 2, 3])]
+
+      let resolved = false
+      const promise = adapter.waitForPlaybackCaughtUp().then(() => { resolved = true })
+
+      await vi.advanceTimersByTimeAsync(500)
+      expect(resolved).toBe(false)
+
+      ;(adapter as unknown as { audioQueue: Uint8Array[] }).audioQueue = []
+      await vi.advanceTimersByTimeAsync(200)
+      await promise
+      expect(resolved).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('gives up after the bounded timeout rather than hanging forever on a stuck queue', async () => {
+    vi.useFakeTimers()
+    try {
+      const adapter = makeAdapter()
+      ;(adapter as unknown as { isPlaying: boolean }).isPlaying = true // never cleared
+
+      let resolved = false
+      const promise = adapter.waitForPlaybackCaughtUp().then(() => { resolved = true })
+
+      await vi.advanceTimersByTimeAsync(8100)
+      await promise
+      expect(resolved).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+/**
  * 2026-08-01 — Marin never spoke first because OpenAI's Realtime API (unlike Hume's EVI) never
  * generates a turn on its own; it only responds to user audio or an explicit response.create.
  *

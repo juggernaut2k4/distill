@@ -258,6 +258,12 @@ export default function PartnerRenderClient({
           },
           advance_tab: async () => {
             const marker = inlinePages![activeIndexRef.current]?.transitionMarker
+            // B2B-61 round 3 — the model can call this tool the instant it finishes GENERATING the
+            // sentence naming the next topic, while that audio may still be mid-flight through the
+            // local playback queue. Wait for actual playback to catch up before executing the move,
+            // so the visual advance never gets ahead of what the participant has actually heard.
+            // No-op for Hume (method not implemented there — see adapter.ts's doc comment).
+            await adapterRef.current?.waitForPlaybackCaughtUp?.()
             if (marker) advanceOnTransition(marker)
             return 'Advanced.'
           },
@@ -276,6 +282,8 @@ export default function PartnerRenderClient({
             return `Visual is now showing: "${title}" (section ${idx + 1} of ${count}).`
           },
           advance_tab: async () => {
+            // B2B-61 round 3 — same playback-catch-up guard as inlineTools.advance_tab above.
+            await adapterRef.current?.waitForPlaybackCaughtUp?.()
             const idx = Math.min(activeIndexRef.current + 1, count - 1)
             goToSection(idx)
             const title = sections?.[idx]?.section.meta.subtopicTitle ?? `section ${idx + 1}`
