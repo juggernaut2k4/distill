@@ -295,6 +295,7 @@ export type LiveRenderResult =
       sections: RenderedSection[]
       humeConfigId: string | null
       assistantDisplayName: string
+      assembledPrompt: string | null
     }
   | {
       status: 'ok'
@@ -303,6 +304,7 @@ export type LiveRenderResult =
       inlinePages: RenderedInlinePage[]
       humeConfigId: string | null
       assistantDisplayName: string
+      assembledPrompt: string | null
     }
 
 /** Builds a short, partner-safe text block from a pulled profile payload — mirrors buildProfileContextForClio's style without depending on that Clerk-keyed function. */
@@ -370,6 +372,13 @@ export async function resolveLiveSessionRender(session: PartnerSessionRow): Prom
   // B2B-11 (Requirement Doc Section 5.3) — also reads this partner's
   // prompt-behavior config and threads it through as `promptBehavior`.
   let humeConfigId: string | null = null
+  // B2B-61 Part C — the same real, per-session assembled prompt Hume's native mode gets, now
+  // also handed straight to the client for the OpenAI Realtime provider's `instructions` field
+  // (that provider has no hosted-config concept — see OpenAIRealtimeAdapterConfig.instructions'
+  // doc comment). Set as soon as assembly succeeds, independent of whether the Hume-specific
+  // provisioning/persistence steps below it succeed — an OpenAI-provider session should not lose
+  // real content just because a Hume-only side effect failed.
+  let assembledPrompt: string | null = null
   try {
     const sessionContent = sections
       .map((s) => JSON.stringify(s))
@@ -398,6 +407,7 @@ export async function resolveLiveSessionRender(session: PartnerSessionRow): Prom
         interSectionRecapStyle: promptConfig.interSectionRecapStyle,
       },
     })
+    assembledPrompt = prompt
 
     // B2B-11 Section 5.3/6.1a — persist the fully-assembled prompt so the
     // join-greeting route (Section 6.3) can prepend it to any live greeting
@@ -442,6 +452,7 @@ export async function resolveLiveSessionRender(session: PartnerSessionRow): Prom
     sections: rendered,
     humeConfigId,
     assistantDisplayName,
+    assembledPrompt,
   }
 }
 
@@ -532,6 +543,9 @@ async function resolveInlineSessionRender(session: PartnerSessionRow): Promise<L
   // (data boundary) — only the partner's narration inputs (content_to_explain
   // + per-page titles/subtitles/triggers/content_text, B2B-35 F1).
   let humeConfigId: string | null = null
+  // B2B-61 Part C — see the matching comment in resolveLiveSessionRender() above; same reasoning
+  // applies here for the inline content path.
+  let assembledPrompt: string | null = null
   try {
     const sessionContent = buildInlineSessionContent(session, pages)
     const promptConfig = await getPromptConfig(session.partnerAccountId)
@@ -559,6 +573,7 @@ async function resolveInlineSessionRender(session: PartnerSessionRow): Promise<L
         interSectionRecapStyle: promptConfig.interSectionRecapStyle,
       },
     })
+    assembledPrompt = prompt
 
     // Persist the full assembled prompt so the join-greeting AND wrap-up-nudge
     // routes prepend it (Hume's session_settings.system_prompt fully replaces
@@ -595,6 +610,7 @@ async function resolveInlineSessionRender(session: PartnerSessionRow): Promise<L
     inlinePages: rendered,
     humeConfigId,
     assistantDisplayName,
+    assembledPrompt,
   }
 }
 

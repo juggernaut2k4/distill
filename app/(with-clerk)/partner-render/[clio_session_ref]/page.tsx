@@ -88,6 +88,7 @@ export default async function PartnerRenderPage({
         inlinePages={result.inlinePages}
         humeConfigId={result.humeConfigId}
         voiceProvider={voiceProvider}
+        voiceInstructions={result.assembledPrompt}
       />
     )
   }
@@ -98,6 +99,7 @@ export default async function PartnerRenderPage({
       sections={result.sections}
       humeConfigId={result.humeConfigId}
       voiceProvider={voiceProvider}
+      voiceInstructions={result.assembledPrompt}
     />
   )
 }

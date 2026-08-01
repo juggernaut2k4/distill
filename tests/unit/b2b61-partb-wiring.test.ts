@@ -58,7 +58,13 @@ describe('B2B-61 Part B — PartnerRenderClient.tsx props-interface type additio
   })
 
   it('the component destructures voiceProvider from props', () => {
-    expect(clientSource).toMatch(/voiceProvider,?\s*\n?\}:\s*PartnerRenderClientProps/)
+    // B2B-61 Part C added `voiceInstructions` as an additional destructured prop after
+    // `voiceProvider` (real per-session content wiring for the OpenAI adapter) — this assertion
+    // checks voiceProvider is destructured somewhere in the parameter list, not that it is
+    // immediately adjacent to the closing brace.
+    const destructureMatch = clientSource.match(/export default function PartnerRenderClient\(\{([\s\S]*?)\}:\s*PartnerRenderClientProps\)/)
+    expect(destructureMatch).not.toBeNull()
+    expect(destructureMatch![1]).toMatch(/voiceProvider,?/)
   })
 
   it('connect() reads the provider directly from the voiceProvider prop, not a client-side env var (Part A seam closed 2026-07-31 after the live connectivity spike confirmed the adapter)', () => {

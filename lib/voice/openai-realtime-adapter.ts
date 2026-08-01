@@ -203,7 +203,10 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
               },
               output: {
                 format: { type: 'audio/pcm', rate: OUTPUT_SAMPLE_RATE },
-                voice: 'alloy',
+                // Chosen 2026-07-31 per Arun: the more natural/energetic of the two
+                // gpt-realtime-native voices — better fit for an energetic, educational
+                // teaching persona than the legacy 'alloy'/'verse' voices.
+                voice: 'marin',
               },
             },
             tools: OPENAI_REALTIME_TOOLS,

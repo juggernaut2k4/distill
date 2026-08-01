@@ -90,6 +90,13 @@ export interface PartnerRenderClientProps {
   // live connectivity spike confirmed the adapter's assumptions) to select which adapter to
   // construct — Hume remains the default for any value other than 'openai_realtime'.
   voiceProvider: 'hume' | 'openai_realtime'
+  // B2B-61 Part C — the same real, per-session assembled prompt Hume's native mode gets
+  // (lib/voice/hume-native/prompt-template.ts's assembleHumeNativePrompt output, computed
+  // server-side in lib/partner/live-render.ts and threaded through here). OpenAI Realtime has no
+  // hosted-config concept like Hume's `configId`, so it needs the actual instructions text handed
+  // to it directly at connect time. Null if prompt assembly failed server-side (session still
+  // proceeds without real voice content, mirroring humeConfigId's own null-safe fallback).
+  voiceInstructions: string | null
   sections?: RenderedSectionProp[]
   inlinePages?: InlinePageProp[]
 }
@@ -100,6 +107,7 @@ export default function PartnerRenderClient({
   inlinePages,
   humeConfigId,
   voiceProvider,
+  voiceInstructions,
 }: PartnerRenderClientProps) {
   const isInline = Array.isArray(inlinePages)
   const count = isInline ? inlinePages!.length : (sections?.length ?? 0)
@@ -321,11 +329,15 @@ export default function PartnerRenderClient({
           adapter = await OpenAIRealtimeAdapter.create({
             ephemeralToken: accessToken,
             model,
-            // B2B-61 Part A — see OpenAIRealtimeAdapterConfig.instructions doc comment: real,
-            // per-session content wiring for this provider is out of scope for this build. This
-            // placeholder is enough for the adapter/tool-calling/audio pipeline to be exercised,
-            // not enough for a real partner session to teach real material yet.
+            // B2B-61 Part C — real content wiring closed 2026-07-31: uses the exact same
+            // per-session assembled prompt Hume's native mode gets (server-computed in
+            // lib/partner/live-render.ts, passed down as `voiceInstructions`). The template
+            // itself contains no Hume-specific mechanics or branding — it's provider-neutral
+            // prose already, so no per-provider rewriting was needed. Falls back to a minimal
+            // placeholder only if server-side prompt assembly failed for this session (mirrors
+            // humeConfigId's own null-safe degrade — session proceeds, just without real content).
             instructions:
+              voiceInstructions ??
               'You are Clio, an AI business coach delivering a live coaching session over voice. ' +
               'Use the show_visual, advance_tab, and end_session tools exactly as instructed by their ' +
               'own descriptions.',
