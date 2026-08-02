@@ -173,6 +173,15 @@ export default function PartnerRenderClient({
   // timer. See the module-level doc comment above these constants for the full design.
   const verificationStateRef = useRef<Record<number, PageVerificationState>>({})
   const silenceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // 2026-08-02 — narrow, code-level backstop for the record_verification_result/advance_tab
+  // silence family of bugs (three live test calls now, each a new wording of the same underlying
+  // model tendency, per docs/2026-08-02-farewell-narration-findings.md and the CEO agent's own
+  // diagnosis). Deliberately separate from silenceTimeoutRef above (the general, now-disabled
+  // silence-after-any-turn timer that caused a real false-positive premature end) — this one only
+  // ever arms in the few seconds immediately after these two specific tool calls resolve, where a
+  // continuation is structurally owed per rule 10, never as a general per-turn timer. See
+  // armPostToolNudge()'s own doc comment below for the full design.
+  const postToolNudgeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // B2B-61 Part A — typed against the provider-agnostic interface, not HumeAdapter directly, so
   // this ref works unchanged regardless of which adapter `connect()` below constructs.
   const adapterRef = useRef<VoiceSessionAdapter | null>(null)
@@ -310,10 +319,14 @@ export default function PartnerRenderClient({
           return verificationStateRef.current[idx]
         }
 
+        // 2026-08-02 — armPostToolNudge() fires here unconditionally, on every outcome: rule 10
+        // requires the model to continue speaking after ANY tool result, not just a successful one,
+        // so the recovery nudge backstop applies the same way regardless of which branch below runs.
         const recordVerificationResult = async (params: Record<string, unknown>): Promise<string> => {
           const idx = activeIndexRef.current
           const state = getVerificationState(idx)
           const result = params?.result
+          armPostToolNudge()
 
           if (result === 'correct') {
             state.status = 'correct'
@@ -364,6 +377,7 @@ export default function PartnerRenderClient({
             // to continue the same topic rather than silently no-op'ing — silence here risks Clio
             // believing the move succeeded and drifting into the next topic's content while the
             // screen hasn't actually moved (a real display/speech desync, worse than not advancing).
+            armPostToolNudge()
             const idx = activeIndexRef.current
             if (getVerificationState(idx).status === 'unresolved') {
               return (
@@ -410,6 +424,7 @@ export default function PartnerRenderClient({
           advance_tab: async () => {
             // B2B items 6/7 — same gate as inlineTools.advance_tab above, checked against the
             // CURRENT page (not the target page being advanced to).
+            armPostToolNudge()
             const currentIdx = activeIndexRef.current
             if (getVerificationState(currentIdx).status === 'unresolved') {
               return (
@@ -509,6 +524,43 @@ export default function PartnerRenderClient({
           // design) to re-enable.
         }
 
+        // 2026-08-02 — narrow, scoped recovery nudge for the record_verification_result/advance_tab
+        // silence family of bugs. Unlike the general silence-after-any-turn timer above (disabled
+        // after it produced a real false positive on an ordinary conversational pause), this only
+        // ever arms in the specific, few-second window right after these two tool calls resolve —
+        // exactly the one place rule 10 says a continuation is structurally owed, never a general
+        // per-turn timer. Per the CEO agent's own recommendation: prompt instructions for turn-taking
+        // are probabilistic, not guaranteed, so this is a mechanical floor under the specific window,
+        // not a replacement for the rule 4/8/10 prompt fixes — those are still expected to do most of
+        // the work; this only catches what they miss. A short threshold (well under the disabled
+        // general timer's old 12s) is deliberately safe here specifically because — unlike an
+        // arbitrary point in the conversation — the model is never expected to need real thinking
+        // time at this exact moment; the next words are already fully determined by the tool result
+        // it just received. Disarmed the instant any assistant audio actually starts (onModeChange
+        // going to 'speaking' below), so it can never double-fire on top of a real continuation.
+        // No-op for Hume via adapterRef.current?.triggerRecoveryNudge?.(...)'s existing optional
+        // chaining (method not implemented there, same as waitForPlaybackCaughtUp).
+        const POST_TOOL_NUDGE_MS = 7000
+        const clearPostToolNudge = () => {
+          if (postToolNudgeTimeoutRef.current) {
+            clearTimeout(postToolNudgeTimeoutRef.current)
+            postToolNudgeTimeoutRef.current = null
+          }
+        }
+        const armPostToolNudge = () => {
+          clearPostToolNudge()
+          postToolNudgeTimeoutRef.current = setTimeout(() => {
+            postToolNudgeTimeoutRef.current = null
+            adapterRef.current?.triggerRecoveryNudge?.(
+              'You have gone silent immediately after a tool call. Per rule 10, a tool call never ' +
+                'ends your turn — continue speaking right now, in this same turn, with whatever the ' +
+                'rule that triggered the call requires next (the re-explanation, the rule 8 recap and ' +
+                'next topic, or the section you were already teaching). Do not acknowledge this ' +
+                'message or explain yourself — simply continue exactly where you left off.'
+            )
+          }, POST_TOOL_NUDGE_MS)
+        }
+
         const sharedCallbacks = {
           onConnect: (sessionId: string) => {
             setStatus('listening')
@@ -520,17 +572,18 @@ export default function PartnerRenderClient({
               }).catch((err) => console.warn('[partner-render] Failed to persist hume_chat_id:', err))
             }
           },
-          onDisconnect: () => { setStatus('ended'); clearSilenceTimer() },
+          onDisconnect: () => { setStatus('ended'); clearSilenceTimer(); clearPostToolNudge() },
           onError: (message: string) => {
             console.error('[partner-render] Voice session error:', message)
             setStatus('error')
             revealContentAfterWarmup()
             clearSilenceTimer()
+            clearPostToolNudge()
           },
           onModeChange: (mode: 'listening' | 'speaking') => {
             setStatus(mode)
             if (mode === 'listening') armSilenceTimer()
-            else clearSilenceTimer()
+            else { clearSilenceTimer(); clearPostToolNudge() }
           },
           // B2B-63 (docs/specs/B2B-63-requirement-document.md §6) — wraps, does not replace, the
           // existing per-mode onMessage closure above (byte-for-byte unchanged behavior, first, for
@@ -564,8 +617,10 @@ export default function PartnerRenderClient({
             model,
             // B2B item 6 — clears the silence timer on real detected speech, independent of
             // onModeChange's coarser 'listening'/'speaking' toggle. OpenAI-only; passed directly
-            // here (not sharedCallbacks) since Hume's config has no equivalent field.
-            onUserSpeechStarted: clearSilenceTimer,
+            // here (not sharedCallbacks) since Hume's config has no equivalent field. Also clears
+            // the post-tool-call recovery nudge (2026-08-02) for the same reason — real user speech
+            // means the participant is already engaged, so no nudge is needed.
+            onUserSpeechStarted: () => { clearSilenceTimer(); clearPostToolNudge() },
             // TEMPORARY — 2026-08-02, diagnosing issues #2/#3 (docs/2026-08-02-farewell-narration-findings.md
             // §8/§9). Fire-and-forget, same pattern as the transcript-capture beacon above. Remove
             // alongside onDiagnostic itself once those issues are resolved.
@@ -663,6 +718,7 @@ export default function PartnerRenderClient({
       cancelled = true
       if (warmupTimeoutRef.current) clearTimeout(warmupTimeoutRef.current)
       if (silenceTimeoutRef.current) clearTimeout(silenceTimeoutRef.current)
+      if (postToolNudgeTimeoutRef.current) clearTimeout(postToolNudgeTimeoutRef.current)
       void endSessionOnce()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -32,8 +32,8 @@ describe('assembleOpenAIRealtimePrompt — B2B-69 adaptive-teaching persona', ()
     else process.env.HUME_NATIVE_ADAPTIVE_TEACHING_ENABLED = originalFlag
   })
 
-  it('OPENAI_PROMPT_TEMPLATE_VERSION is v7 (2026-08-02: v3 rewrite, audience/silence/framing fixes, rule titles/bracketed markers/new rule 10, rule 10\'s "let me..." filler gap fix, then rule 4\'s natural-acknowledgment phrasing fix per Arun\'s direct feedback)', () => {
-    expect(OPENAI_PROMPT_TEMPLATE_VERSION).toBe('v7')
+  it('OPENAI_PROMPT_TEMPLATE_VERSION is v8 (2026-08-02: v3 through v7, then v8\'s shape-based rule 10 rewrite, four fixed rule-4 response patterns, and the advance_tab/rule-8 ordering + explicit teaching fix)', () => {
+    expect(OPENAI_PROMPT_TEMPLATE_VERSION).toBe('v8')
   })
 
   describe('rule 4 (verification/garbled/silence handling) — always present, independent of the flag', () => {
@@ -58,7 +58,7 @@ describe('assembleOpenAIRealtimePrompt — B2B-69 adaptive-teaching persona', ()
     it('covers correct/incorrect/garbled outcomes and defers capping to record_verification_result', () => {
       const normalized = assembleOpenAIRealtimePrompt(BASE_INPUT).replace(/\s+/g, ' ')
       expect(normalized).toContain("immediately call the record_verification_result tool")
-      expect(normalized).toContain('progressively simpler phrasing each time')
+      expect(normalized).toContain('a genuinely different, simpler way than your last')
       expect(normalized).toContain('Never decide any of this yourself independent of what the tool just told you')
       // The old one-shot cap is gone — capping is now the tool's job, not a fixed rule in the prompt.
       expect(normalized).not.toContain('re-explain the concept exactly once')
@@ -92,13 +92,40 @@ describe('assembleOpenAIRealtimePrompt — B2B-69 adaptive-teaching persona', ()
     // either directly agrees or pivots with "but"/"though" into the correction, never announces
     // that they're about to think about the answer. This is a phrasing-style fix in rule 4,
     // distinct from rule 10's turn-continuation mechanism.
-    it('rule 4 requires a natural, direct acknowledgment (agreement or a but/though pivot) instead of "let me think/consider/build on that" meta-commentary', () => {
+    // 2026-08-02 — superseded the single "speak naturally, agree or pivot with but/though" guidance
+    // with four named, fixed response patterns (CORRECT/INCORRECT/GARBLED/SILENCE), per Arun's direct
+    // instruction: instead of banning bad phrasing, give the model a parameterized template to fill
+    // in for each judged outcome, so there's no freeform space left to drift into a stall phrase.
+    it('rule 4 judges the answer into exactly four fixed response patterns — CORRECT, INCORRECT, GARBLED, SILENCE', () => {
       const normalized = assembleOpenAIRealtimePrompt(BASE_INPUT).replace(/\s+/g, ' ')
-      expect(normalized).toContain('speak your reaction to their answer naturally and')
-      expect(normalized).toContain('never as separate meta-commentary about what you\'re about to do')
-      expect(normalized).toContain('pivot directly with "but" or "though" into the correction')
-      expect(normalized).toContain('Never narrate that you\'re about to think about, consider, or build on their answer')
-      expect(normalized).toContain('"let me think about how to build on that," "let me consider that,"')
+      expect(normalized).toContain('PATTERN — CORRECT')
+      expect(normalized).toContain('PATTERN — INCORRECT')
+      expect(normalized).toContain('PATTERN — GARBLED')
+      expect(normalized).toContain('PATTERN — SILENCE')
+      expect(normalized).toContain('Vary the actual wording of every pattern each time')
+    })
+
+    it('the CORRECT pattern hands off directly into rule 8\'s recap-and-transition, not a self-contained reaction', () => {
+      const normalized = assembleOpenAIRealtimePrompt(BASE_INPUT).replace(/\s+/g, ' ')
+      expect(normalized).toContain('then, in that same breath, move directly into rule')
+      expect(normalized).toContain('8\'s recap-and-transition sequence')
+    })
+
+    // 2026-08-02 — Arun's explicit instruction: the re-explanation must land as real teaching before
+    // the new question follows, not be crammed into the same breath as the correction like a rushed quiz.
+    it('the INCORRECT pattern gives the re-explanation room to land before asking a new, simpler question — not bundled into the same breath', () => {
+      const normalized = assembleOpenAIRealtimePrompt(BASE_INPUT).replace(/\s+/g, ' ')
+      expect(normalized).toContain('Once that explanation has actually landed')
+      expect(normalized).toContain('not crammed into the same breath as the correction')
+      expect(normalized).toContain('Give the explanation real weight before the new question')
+    })
+
+    // 2026-08-02 — Arun's direct feedback: "so I don't want to keep talking to an empty room" read as
+    // rude. Dropped entirely; straight from acknowledging the gap into the reassurance.
+    it('the SILENCE pattern no longer includes the "empty room" line', () => {
+      const normalized = assembleOpenAIRealtimePrompt(BASE_INPUT).replace(/\s+/g, ' ')
+      expect(normalized).not.toContain('empty room')
+      expect(normalized).toContain('I haven\'t been able to hear anything for a little while — if something\'s off with your mic or connection')
     })
   })
 

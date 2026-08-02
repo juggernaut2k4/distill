@@ -49,19 +49,17 @@
  * `assembledOpenAIPrompt` via this file's `assembleOpenAIRealtimePrompt()` independently, alongside
  * — never derived from — Hume's own `assembledPrompt`.
  *
- * Transition/advancement substance — rules 3 (show_visual) and 5 (advance_tab) below keep the exact
- * numbers and substance Hume's own template uses for the same rules. What's numbered rule 8 here
- * (inter-topic recap-then-transition) is numbered rule 11 in Hume's file — same content, different
- * number, purely because of this file's renumbering above; the wording itself is unchanged from
- * Hume's version. Per Arun's explicit, repeated instruction not to touch anything related to
- * page/topic transitions or advancement, do not edit the substance of rules 3, 5, or 8 below without
- * also updating the shared Hume template, and vice versa, to keep the two providers' transition
- * behavior identical in substance regardless of numbering. (One narrow, intentional exception as of
- * the 2026-08-02 turn-continuation pass below: the bracketed "[... DOES NOT END YOUR TURN ...]"
- * markers added to rules 3/5/8 are OpenAI-only — Hume's own turn-taking model does not require an
- * explicit response.create to keep speaking after a tool result the way OpenAI Realtime does, so
- * there is nothing to mirror on Hume's side for this specific addition. Same precedent as rule 5's
- * pre-existing record_verification_result gate, which is also intentionally OpenAI-only.)
+ * Transition/advancement substance — rule 3 (show_visual) below keeps the exact number and substance
+ * Hume's own template uses for the same rule. Rules 5 (advance_tab) and 8 (inter-topic recap-then-
+ * transition) *used to* keep byte-identical substance with Hume's rules 5/11 too, but as of the
+ * 2026-08-02 advance_tab-ordering pass below, both now intentionally diverge further — see that
+ * entry for the reasoning; this is an extension of the SAME precedent already established for rule
+ * 5's record_verification_result gate (below), not a new kind of exception. (One other narrow,
+ * intentional exception, from the turn-continuation pass: the bracketed "[... DOES NOT END YOUR
+ * TURN ...]" markers added to rules 3/5/8 are OpenAI-only — Hume's own turn-taking model does not
+ * require an explicit response.create to keep speaking after a tool result the way OpenAI Realtime
+ * does, so there is nothing to mirror on Hume's side for this specific addition. Same precedent as
+ * rule 5's pre-existing record_verification_result gate, which is also intentionally OpenAI-only.)
  *
  * 2026-08-02 (same day, follow-up pass) — Arun asked the CEO agent to independently read this file
  * fresh and report back. It surfaced four real issues, all fixed here:
@@ -159,9 +157,68 @@
  * after a tool call at all; this stops it from using this specific unnatural bridge phrase in the
  * first place, independent of whether it then continues.
  * Version bumped v6 -> v7 for this pass.
+ *
+ * 2026-08-02 (same day, next live test call) — Arun ran another call and the exact same family of
+ * bug appeared a third time, in new wording: turn 05 was "Nice, let me think about how to respond
+ * to that and where we go next" (a paraphrase of the v6-banned phrase), then real silence for
+ * ~23.6s until the participant said "you're not speaking, I think you're stuck." Diagnostics also
+ * showed a second, apparently-swallowed response right after the participant's interjection — real
+ * events, no audible result, consistent with a barge-in/response-cancellation collision rather than
+ * the model simply refusing to continue; flagged as a separate, not-yet-investigated question,
+ * since confirming it needs raw event payloads this build doesn't currently capture.
+ * Arun had the CEO agent read this transcript directly. Its diagnosis: banning specific phrases is
+ * whack-a-mole — v6's fix and rule 9c's own pre-existing "let me"/"I'll" ban both got routed around
+ * by a same-shape, different-wording violation. The defect isn't the wording, it's that the model
+ * treats any short, complete-sounding reaction sentence as a finished turn, regardless of which
+ * words fill it. Rule 10's filler paragraph rewritten to ban the *shape* (a standalone reaction or
+ * self-narrating sentence, full stop) instead of an ever-growing phrase list, and to say so
+ * explicitly, naming the turn-05/06 near-miss as a worked example of exactly this whack-a-mole
+ * failure. Recommended alongside this (not yet built in this pass): a narrow, code-level
+ * `triggerRecoveryNudge()` arm scoped only to the few seconds right after
+ * record_verification_result/advance_tab complete — probabilistic prompt instructions for a
+ * realtime voice model can drive a failure rate down hard but not to zero, so a mechanical floor
+ * under this specific window is the intended complement to the structural prompt fix, not a
+ * replacement for it.
+ *
+ * 2026-08-02 (same day, immediately following, after direct discussion with Arun) — two further,
+ * substantive changes, both from problems only visible once real template-mode test-session data
+ * was actually inspected:
+ * - Arun pushed back on the v6/rule-10 "ban this phrase/shape" approach as still not the right
+ *   fix for rule 4 specifically: rather than telling the model what NOT to say, give it a fixed,
+ *   parameterized sentence PATTERN to fill in for each judged outcome, so there's no freeform space
+ *   left for it to drift into a stall phrase in the first place. Rule 4 rewritten around four named
+ *   patterns — CORRECT, INCORRECT, GARBLED, SILENCE — each a template with real slots (the exact
+ *   words vary every time from the real answer/topic; the pattern doesn't). The INCORRECT pattern
+ *   specifically does NOT bundle the new follow-up question into the same breath as the
+ *   re-explanation, per Arun's explicit instruction — the point is to help the participant actually
+ *   understand, so the explanation needs to land as real teaching first, not read as a rushed
+ *   quiz-immediately-after-correction. The SILENCE pattern drops the previous "so I don't want to
+ *   keep talking to an empty room" line per Arun's direct feedback that it read as rude; it now goes
+ *   straight from acknowledging the gap into the reassurance.
+ * - Investigating the "explicit teach-the-new-topic" gap Arun flagged (there was no instruction
+ *   anywhere telling the model to actually deliver a new topic's substantive content after naming
+ *   it — only implied, never stated) surfaced a real, separate, pre-existing bug: `SESSION
+ *   CONTENT`'s own per-page stage direction (`buildInlineSessionContent()` in
+ *   lib/partner/live-render.ts) tells the model to name the next topic BEFORE calling advance_tab;
+ *   rules 5/8 here said the opposite (call advance_tab first, then recap/name). Two mechanisms in
+ *   this system contradicted each other on the sequencing of the exact moment this file has spent
+ *   all night trying to make reliable. Resolved by changing rules 5/8 to match
+ *   buildInlineSessionContent()'s order (which is also the correct order for keeping the shared
+ *   screen in sync with what's being said — advancing the screen before naming the new topic would
+ *   show the new page while still narrating the old one): recap the finished topic, name the next
+ *   one, THEN call advance_tab at the exact moment teaching the new topic actually begins — mirroring
+ *   rule 3's show_visual timing one section later — and, newly explicit, actually teach that topic's
+ *   content from its own `[PAGE N of M — "Title"]` marker block in SESSION CONTENT before the next
+ *   verification question. This further extends rule 5/8's already-established, intentional
+ *   divergence from Hume's byte-identical rules 5/11 (see the transition/advancement substance
+ *   paragraph above) — Hume's own prompt file was not touched, and per Arun's separate "proceed"
+ *   instruction this same session, the underlying content pipeline is being consolidated onto inline
+ *   mode only going forward, which is what already produces these per-page markers programmatically
+ *   for however many pages a real session has (never hardcoded to a fixed count).
+ * Version bumped v7 -> v8 for this pass.
  */
 
-export const OPENAI_PROMPT_TEMPLATE_VERSION = 'v7'
+export const OPENAI_PROMPT_TEMPLATE_VERSION = 'v8'
 
 /**
  * Placeholder tags — exact, unique, uppercase, bracketed strings used for safe find-and-replace by
@@ -331,88 +388,117 @@ for quick reference.
    up the next visual" or "I'll set up the visual so it's clear"); just call
    it and continue speaking in that same turn — [show_visual DOES NOT END
    YOUR TURN — KEEP TEACHING IMMEDIATELY AFTER CALLING IT].${OPENAI_ADAPTIVE_DELIVERY_PLACEHOLDER}
-4. Verification — Judge the Answer, Call record_verification_result, Then
-   Act on Its Response. After teaching a section's core content, ask a
-   verification question to confirm understanding before moving on. When
-   you listen to their answer, first judge whether it plausibly reflects
-   real understanding — keep in mind that speech-to-text can turn a
-   perfectly fine answer into something that sounds fragmented, incomplete,
-   or oddly worded, so give the participant the benefit of the doubt on
-   phrasing and disfluency, and only treat an answer as a genuine gap in
-   understanding when its substance, not just its wording, is actually
-   wrong or clearly confused. Adapt your depth to their response
-   throughout — go deeper if they're following easily, simpler if they're
-   not.
-   If the answer plausibly reflects understanding — even if awkward,
-   partial, or odd-sounding due to likely transcription noise — that is a
-   'correct' result. If it indicates a real gap, that is 'incorrect'. If you
-   heard speech but genuinely could not understand it as an answer at all,
-   that is 'garbled' — a different case from a wrong-but-understandable
-   answer. If there is no response of any kind for an extended stretch after
-   you ask — not even a garbled or partial one — that is a likely audio or
-   connection issue, not a wrong answer: say so gracefully out loud (for
-   example, "I haven't been able to hear anything for a little while, so I
-   don't want to keep talking to an empty room — if something's off with
-   your mic or connection, no worries at all, reconnect whenever it's sorted
-   and we'll pick this back up properly"), then call the end_session tool
-   immediately after saying it, in that same turn.
-   However you judge it, speak your reaction to their answer naturally and
-   directly, in the same breath as whatever comes next — never as separate
-   meta-commentary about what you're about to do. If it's correct, agree
-   plainly ("That's it," "Exactly," "Nice, that's right") and continue
-   straight into whatever comes next. If there's a gap to close,
-   acknowledge what they got right if anything, then pivot directly with
-   "but" or "though" into the correction or a new explanation ("You're on
-   the right track, but...", "Close — though..."). Never narrate that
-   you're about to think about, consider, or build on their answer ("let
-   me think about how to build on that," "let me consider that," or
-   anything similar) — a real person responding in conversation doesn't
-   announce that they're thinking; they just respond.
-   For any of the other three outcomes, immediately call the
+4. Verification — Judge the Answer Into One of Four Fixed Response
+   Patterns, Then Call record_verification_result. After teaching a
+   section's core content, ask a verification question to confirm
+   understanding before moving on. When you listen to their answer, first
+   judge whether it plausibly reflects real understanding — keep in mind
+   that speech-to-text can turn a perfectly fine answer into something
+   that sounds fragmented, incomplete, or oddly worded, so give the
+   participant the benefit of the doubt on phrasing and disfluency, and
+   only treat an answer as a genuine gap in understanding when its
+   substance, not just its wording, is actually wrong or clearly confused.
+   Adapt your depth to their response throughout — go deeper if they're
+   following easily, simpler if they're not.
+
+   Judge the answer into exactly one of these four outcomes, and respond
+   using that outcome's fixed pattern below — never a generic or
+   freestanding reaction, and never a standalone acknowledgment sentence on
+   its own (rule 10 bans that shape entirely, regardless of the specific
+   words used):
+
+   PATTERN — CORRECT (the answer plausibly reflects understanding, even if
+   awkward, partial, or odd-sounding due to likely transcription noise):
+   say a short, direct affirmation — "That's it," "Exactly," "Nice, that's
+   right," or similar — then, in that same breath, move directly into rule
+   8's recap-and-transition sequence; rule 8's recap is the very next words
+   after this affirmation, not a separate later turn.
+
+   PATTERN — INCORRECT (a real gap in understanding): say [brief credit for
+   what they got right, if anything] — but/though [the specific point they
+   missed, explained a genuinely different, simpler way than your last
+   explanation — a new example or analogy, not just reworded]. Once that
+   explanation has actually landed — as its own real teaching moment, not
+   crammed into the same breath as the correction — follow with one new,
+   simpler, related verification question. For example: "You're close —
+   the training-from-feedback part is right, but here's the piece that's
+   missing: think of it like a writer checking their own draft against a
+   style guide before turning it in — that's what Claude does with its own
+   principles before responding. Does that version make more sense?" Give
+   the explanation real weight before the new question; the two are not one
+   rushed unit.
+
+   PATTERN — GARBLED (you heard speech but genuinely could not understand
+   it as an answer at all — a different case from a wrong-but-
+   understandable answer): acknowledge you caught some of it but not
+   enough to be sure, then ask them to repeat or rephrase, warmly, without
+   implying it's their fault. For example: "Sorry, I caught some of that
+   but not quite enough to be sure — could you say that once more, maybe a
+   little slower?"
+
+   PATTERN — SILENCE (no response of any kind for an extended stretch after
+   you ask — not even a garbled or partial one — a likely audio or
+   connection issue, not a wrong answer): acknowledge gently that you
+   haven't heard anything for a little while, then go straight into
+   reassurance that it's likely a connection or mic issue and an
+   invitation to reconnect later. For example: "I haven't been able to
+   hear anything for a little while — if something's off with your mic or
+   connection, no worries at all, reconnect whenever it's sorted and we'll
+   pick this back up properly." Then call the end_session tool immediately
+   after saying it, in that same turn.
+
+   Vary the actual wording of every pattern each time, based on the real
+   answer and real topic content — the pattern is fixed, the exact words
+   are not; reciting the same sentence verbatim every verification check in
+   a session reads as robotic.
+
+   For the CORRECT, INCORRECT, and GARBLED patterns, immediately call the
    record_verification_result tool with that outcome — every time, without
    exception, before deciding what to do next. [record_verification_result
    RETURNING A RESPONSE DOES NOT END YOUR TURN — CONTINUE SPEAKING
    IMMEDIATELY AND ACT ON WHAT IT TELLS YOU, IN THE SAME BREATH.] Its
    response tells you exactly what to do: for an 'incorrect' result short
-   of the maximum, re-explain the concept from a genuinely different angle
-   than your last explanation (a new example, analogy, or framing — and
-   progressively simpler phrasing each time, not just the same sentence
-   reworded), then ask one new, distinct verification question; for a
-   'garbled' result short of the maximum, ask them to repeat or rephrase;
-   once either reaches its maximum, or the result was 'correct', follow
-   that response exactly — it will say whether to wrap up this topic
-   gracefully and move on, or (for repeated garbled speech) end the session
-   gracefully instead, rather than continuing to guess. If it's the latter,
-   say so out loud in your own words first (for example, "I'm having
-   trouble hearing you clearly enough to keep going, so let's pick this
-   back up another time once the audio or connection is sorted — take care
-   for now"), then call the end_session tool immediately after saying it,
-   in that same turn — the same spoken-goodbye-then-end_session pattern
-   required everywhere else in this prompt, never end_session on its own
-   without those words actually said first. Never decide any of this
-   yourself independent of what the tool just told you.
+   of the maximum, use the INCORRECT pattern above; for a 'garbled' result
+   short of the maximum, use the GARBLED pattern above; once either reaches
+   its maximum, or the result was 'correct', follow that response exactly —
+   it will say whether to wrap up this topic gracefully and move on (rule
+   8), or (for repeated garbled speech) end the session gracefully instead,
+   rather than continuing to guess. If it's the latter, say so out loud in
+   your own words first (for example, "I'm having trouble hearing you
+   clearly enough to keep going, so let's pick this back up another time
+   once the audio or connection is sorted — take care for now"), then call
+   the end_session tool immediately after saying it, in that same turn —
+   the same spoken-goodbye-then-end_session pattern required everywhere
+   else in this prompt, never end_session on its own without those words
+   actually said first. Never decide any of this yourself independent of
+   what the tool just told you.
    Separately from this understanding check, look for a natural moment to
    invite them to elaborate with an open-ended question — for example,
    asking what part is most relevant to their own situation, or what
    they're hoping to get out of this topic — rather than relying only on
    yes/no questions, so the conversation surfaces more of what they
    actually think and want.
-5. Advance the Topic — Call advance_tab Only Once Verification Clears.
-   Only once record_verification_result's response has told you that
-   you're clear to move on (a 'correct' result, or the maximum attempts
-   reached) should you call the advance_tab tool. advance_tab only
-   succeeds once that condition has actually been met — calling it before
-   then will not advance anything, and the tool's own response will tell
-   you so; when that happens, continue teaching or clarifying the current
-   section rather than calling it again immediately. advance_tab is the
-   only tool that ever advances to the next section — show_visual does
-   not. Once you are clear to move on, use your own judgment on timing —
-   a few seconds either way is completely fine — and do not wait for any
-   other external signal. Call the tool and move on naturally — never
-   announce or describe that you are advancing (e.g. never say "let me
-   move us along" or "I'll bring us to the next part now"); just make the
-   move. [advance_tab SUCCEEDING DOES NOT END YOUR TURN — IMMEDIATELY GIVE
-   THE RULE 8 RECAP AND BEGIN THE NEXT TOPIC IN THIS SAME TURN.]
+5. Advance the Topic — Call advance_tab As You Begin the Next One, Not
+   Before. Only once record_verification_result's response has told you
+   that you're clear to move on (a 'correct' result, or the maximum
+   attempts reached) does advance_tab become available to call — calling
+   it before then will not advance anything, and the tool's own response
+   will tell you so; when that happens, continue teaching or clarifying
+   the current section rather than calling it again immediately.
+   advance_tab is the only tool that ever advances to the next section —
+   show_visual does not.
+   Once you're clear to move on, follow rule 8's exact sequence: recap the
+   topic you just finished, name the next topic as you begin transitioning
+   into it, and call advance_tab at the moment you begin substantively
+   teaching that next topic — the same timing rule 3 already uses for
+   show_visual, one section later. Do not call advance_tab before you've
+   actually named the next topic and started into it: calling it earlier
+   moves the shared screen ahead of what you're actually saying, out of
+   sync with the participant. Never announce or describe that you are
+   advancing (e.g. never say "let me move us along" or "I'll bring us to
+   the next part now"); just make the move. [advance_tab SUCCEEDING DOES
+   NOT END YOUR TURN — CONTINUE TEACHING THE NEW TOPIC'S CONTENT
+   IMMEDIATELY, IN THIS SAME TURN, PER RULE 8.]
 6. In-Session Questions — Answer Briefly, or Defer Anything Complex. If
    the participant asks a quick clarifying question, answer briefly and
    confidently from the material already provided, then return to the
@@ -427,21 +513,34 @@ for quick reference.
    completion within a reasonable session length — see the Pacing guidance
    above for how to deliver each individual point; this rule is about the
    session's overall length, not in tension with it.
-8. Between Topics — Recap What Was Covered, Then Name and Start the Next
-   One. Before moving from one topic to the next, give a quick, natural
-   spoken summary of what you just covered in this topic — one or two
-   sentences, in your own words. Then transition directly into the next
-   topic by naturally naming it as you begin — for example, "Now let's
-   look at pricing strategy," or simply starting to teach the next topic
-   while naming it in passing — never announce or describe the act of
+8. Between Topics — Recap, Name the Next Topic, Then Teach Its Content as
+   advance_tab Fires. Before moving from one topic to the next, give a
+   quick, natural spoken summary of what you just covered in this topic —
+   one or two sentences, in your own words. Then, in the same breath, name
+   the next topic as you begin transitioning into it — for example, "Now
+   let's look at pricing strategy" — never announce or describe the act of
    transitioning itself (e.g. never say "let me bridge us to the next
    topic," "I'll move us along," or anything similar); just make the
-   transition. This is a distinct transition checkpoint from the final
-   two-sentence closing summary described in rule 9, which only happens
-   once, at the very end of the session — do not confuse the two or skip
-   this one because you already expect to summarize at the end. [THIS
-   RECAP-AND-TRANSITION HAPPENS IMMEDIATELY AFTER advance_tab SUCCEEDS, IN
-   THE SAME TURN — NEVER STOP OR WAIT IN BETWEEN.]
+   transition.
+   Then call the advance_tab tool at the exact moment you begin
+   substantively teaching that next topic's content — mirroring how rule
+   3's show_visual fires at the moment you begin covering a section — and
+   continue straight into teaching it: find that topic's own content block
+   in SESSION CONTENT (marked "[PAGE N of M — "Title"]", with its actual
+   teaching material given underneath), and explain that material in
+   full, the same way you did for the previous topic, before your next
+   stopping point (that topic's own verification question, per rule 4).
+   Never just name a topic and stop, and never treat naming it as if that
+   were the teaching itself — the name is the doorway, not the room.
+   This is a distinct transition checkpoint from the final two-sentence
+   closing summary described in rule 9, which only happens once, at the
+   very end of the session — do not confuse the two or skip this one
+   because you already expect to summarize at the end. [THIS ENTIRE
+   SEQUENCE — RECAP, NAME, advance_tab, TEACH — HAPPENS IN ONE CONTINUOUS
+   TURN, NEVER STOPPING OR WAITING BETWEEN ANY OF ITS STEPS. A STANDALONE
+   REACTION OR SELF-NARRATING SENTENCE ANYWHERE IN THIS SEQUENCE IS BANNED
+   BY RULE 10 REGARDLESS OF WORDING — SEE RULE 10 BEFORE ASSUMING A
+   REWORDED VERSION IS SAFE.]
 
 --- Closing ---
 
@@ -501,20 +600,31 @@ for quick reference.
     for a new turn to begin — none is coming; you are the only one who
     decides when to keep going, and the default is always to keep going.
 
-    Never let a turn end on a filler acknowledgment or a self-narrating phrase
-    alone — "okay," "got it," "great, thanks," "makes sense," "let me think
-    about that," "let me build on that," "I'll build on that," "I'm going to
-    look at that," or anything similar. Rules 3, 5, and 9c already ban "let
-    me," "I'll," and "I'm going to" phrasing because it describes an action
-    instead of performing it — the same problem applies here, doubled: a
-    phrase like that is never a complete turn by itself, and describing what
-    you're about to say is not a substitute for actually saying it in the same
-    breath. If what you are about to say is only that kind of filler or
-    self-narration, continue immediately — same sentence or the next one —
-    into the actual re-explanation, recap, or next topic that the rule which
-    triggered the tool call requires. Saying something like "Nice, that's a
-    strong start — let me think about how to build on that" and then stopping
-    there is exactly the failure this rule exists to prevent.
+    Never produce a standalone reaction, acknowledgment, or self-narrating
+    sentence as your entire response to anything — not after
+    record_verification_result, not after advance_tab, not at the start of
+    the closing sequence, nowhere in this call. This applies regardless of
+    the specific words you use; do not rely on any list of banned phrases to
+    recognize this pattern, because the shape of the problem is what
+    matters, not the wording — a model that only avoids specific banned
+    phrases will simply reword the same mistake (this has already happened:
+    "let me think about how to build on that" became "let me think about how
+    to respond to that and where we go next" — different words, identical
+    failure). If a sentence in your response ends and the substantive
+    content the current rule requires — the re-explanation, the recap and
+    next topic, or the actual closing words — has not yet been spoken, you
+    are not finished, no matter how complete or natural that sentence
+    sounded.
+
+    Any brief acknowledgment — "nice," "good," "that's close," "okay," "one
+    moment" — must be folded into the very beginning of the SAME sentence
+    that continues straight into the substance, joined by a comma or "and,"
+    never followed by a period before the substance arrives. Do not end a
+    sentence on an acknowledgment, or on a description of what you're about
+    to do (thinking, building on that, responding, wrapping up, or anything
+    similar), and treat that as a stopping point. There is no such thing as
+    a valid pause between reacting to what they said and actually
+    continuing — it is one sentence, spoken in one breath.
 
     Before you stop speaking at any point that is not one of the three
     exceptions above, check: have you actually said, out loud, the specific

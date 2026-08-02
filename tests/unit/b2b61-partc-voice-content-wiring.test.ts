@@ -155,7 +155,7 @@ describe('B2B-68 — the new OpenAI prompt template is genuinely self-contained'
   })
 
   it('OPENAI_PROMPT_TEMPLATE_VERSION is exported and versioned independently of the shared template\'s PROMPT_TEMPLATE_VERSION', () => {
-    expect(OPENAI_PROMPT_TEMPLATE_VERSION).toBe('v7')
+    expect(OPENAI_PROMPT_TEMPLATE_VERSION).toBe('v8')
   })
 
   // 2026-08-02 — Arun reviewed the pre-B2B-68 prompt directly and asked for every tone/personality
@@ -229,7 +229,7 @@ describe('B2B-68 — the new OpenAI prompt template is genuinely self-contained'
 
   it('every rule has a short title immediately after its number (2026-08-02 titling pass)', () => {
     expect(OPENAI_REALTIME_PROMPT_TEMPLATE).toContain('1. Opening — Greeting, Encouragement, Readiness Check & Session Overview.')
-    expect(OPENAI_REALTIME_PROMPT_TEMPLATE).toContain('4. Verification — Judge the Answer, Call record_verification_result, Then')
+    expect(OPENAI_REALTIME_PROMPT_TEMPLATE).toContain('4. Verification — Judge the Answer Into One of Four Fixed Response')
     expect(OPENAI_REALTIME_PROMPT_TEMPLATE).toContain('9. Closing Sequence — Recap, Confirm Nothing\'s Left, Say Goodbye, Then End')
     expect(OPENAI_REALTIME_PROMPT_TEMPLATE).toContain('10. Never Stop Mid-Sequence — A Tool Call Never Ends Your Turn.')
     expect(OPENAI_REALTIME_PROMPT_TEMPLATE).toContain('13. Participant Asks to End — Shortened Goodbye, Same end_session')
@@ -240,20 +240,22 @@ describe('B2B-68 — the new OpenAI prompt template is genuinely self-contained'
     expect(normalized).toContain('Nothing in this session ever ends your turn except one of exactly three')
     expect(normalized).toContain('Calling a tool')
     expect(normalized).toContain('does not end your turn and is never, by itself, a')
-    expect(normalized).toContain('Never let a turn end on a filler acknowledgment or a self-narrating phrase')
+    expect(normalized).toContain('Never produce a standalone reaction, acknowledgment, or self-narrating')
   })
 
-  // 2026-08-02 — the first live test call after v5 shipped walked straight through the gap: turn
-  // 05 was "Nice, that's a strong start. Let me think about how to build on that." then ~12.5s of
-  // total silence. Rule 10's filler list never named the "let me..." self-narrating pattern even
-  // though rules 3/5/9c already ban it by name elsewhere in this file. Fixed in v6.
-  it('rule 10\'s filler list explicitly names "let me/I\'ll/I\'m going to" self-narration and cites the actual turn-05 near-miss as a labeled bad example', () => {
+  // 2026-08-02 — v6's fix (ban "let me think about how to build on that" by name) got routed around
+  // by a THIRD live test call: "Nice, let me think about how to respond to that and where we go
+  // next" — a paraphrase of the exact banned phrase. Phrase-blacklisting is whack-a-mole: rule 10
+  // was rewritten to ban the *shape* of the problem (a standalone reaction/self-narrating sentence,
+  // regardless of wording) instead of an ever-growing phrase list, per the CEO agent's direct
+  // recommendation after reading this exact transcript.
+  it('rule 10 bans the shape of a standalone reaction/self-narrating sentence, not a specific phrase list, and cites the turn-05/06 whack-a-mole failure as evidence', () => {
     const normalized = OPENAI_REALTIME_PROMPT_TEMPLATE.replace(/\s+/g, ' ')
-    expect(normalized).toContain('let me think about that')
-    expect(normalized).toContain('let me build on that')
-    expect(normalized).toContain('I\'ll build on that')
-    expect(normalized).toContain('Rules 3, 5, and 9c already ban "let me," "I\'ll," and "I\'m going to" phrasing')
-    expect(normalized).toContain('Nice, that\'s a strong start — let me think about how to build on that')
+    expect(normalized).toContain('do not rely on any list of banned phrases to')
+    expect(normalized).toContain('recognize this pattern, because the shape of the problem is what')
+    expect(normalized).toContain('"let me think about how to build on that" became "let me think about how')
+    expect(normalized).toContain('to respond to that and where we go next" — different words, identical')
+    expect(normalized).toContain('failure')
   })
 
   it('a global "tool call never ends your turn" banner sits directly under the BEHAVIORAL RULES heading, ahead of the numbered list', () => {
@@ -268,7 +270,7 @@ describe('B2B-68 — the new OpenAI prompt template is genuinely self-contained'
     expect(normalized).toContain('[show_visual DOES NOT END YOUR TURN — KEEP TEACHING IMMEDIATELY AFTER CALLING IT]')
     expect(normalized).toContain('[record_verification_result RETURNING A RESPONSE DOES NOT END YOUR TURN')
     expect(normalized).toContain('[advance_tab SUCCEEDING DOES NOT END YOUR TURN')
-    expect(normalized).toContain('[THIS RECAP-AND-TRANSITION HAPPENS IMMEDIATELY AFTER advance_tab SUCCEEDS')
+    expect(normalized).toContain('[THIS ENTIRE SEQUENCE — RECAP, NAME, advance_tab, TEACH — HAPPENS IN ONE')
   })
 
   it('rule 1 carries a "speak this overview exactly once" marker (cheap insurance against the reported "double overview" symptom)', () => {
@@ -376,7 +378,7 @@ describe('B2B-68 — transition/advancement substance is unchanged (Arun\'s expl
   // §6), replacing trust in the model's own unaided judgment. Hume's tools are configured on
   // Hume's own hosted dashboard (lib/voice/hume-native/config-provisioner.ts), out of reach for
   // this build, so Hume's rule 5 is deliberately left unchanged.
-  it('rule 5 (advance_tab): Hume keeps its original wording; OpenAI gains the record_verification_result gate', () => {
+  it('rule 5 (advance_tab): Hume keeps its original wording; OpenAI gains the record_verification_result gate plus its own ordering/timing rule', () => {
     const humeRule5 = extractRule(humeSource, '5. When you judge', '6. If the participant asks')
     expect(humeRule5).toContain('5. When you judge a section is complete')
     expect(humeRule5).not.toContain('record_verification_result')
@@ -384,35 +386,58 @@ describe('B2B-68 — transition/advancement substance is unchanged (Arun\'s expl
     const openaiRule5 = extractRule(OPENAI_REALTIME_PROMPT_TEMPLATE, '5. Advance the Topic', '6. In-Session Questions')
     const openaiRule5Normalized = openaiRule5.replace(/\s+/g, ' ')
     expect(openaiRule5Normalized).toContain("record_verification_result's response")
-    expect(openaiRule5Normalized).toContain('advance_tab only succeeds once that condition has actually been met')
+    expect(openaiRule5Normalized).toContain('does advance_tab become available to call')
     expect(openaiRule5Normalized).toContain('[advance_tab SUCCEEDING DOES NOT END YOUR TURN')
   })
 
-  // 2026-08-02 — this rule is numbered 11 in Hume's file (unchanged, flat numbering) but 8 in this
-  // file, purely because of this file's own renumbering (see module doc comment) — content is still
-  // required to be byte-for-byte identical in substance regardless of the number.
-  it('the inter-topic recap-then-transition rule (Hume\'s rule 11, this file\'s rule 8) is identical in substance (whitespace-normalized) between the two files', () => {
-    function extractInclusive(source: string, startMarker: string, anchor: string): string {
+  // 2026-08-02 — a second, real, pre-existing bug found while closing the "explicit teach the new
+  // topic" gap Arun flagged: buildInlineSessionContent()'s own per-page stage direction
+  // (lib/partner/live-render.ts) tells the model to name the next topic BEFORE calling advance_tab;
+  // this file's rules 5/8 said the opposite (call advance_tab first, then name/recap). Two
+  // mechanisms contradicting each other on the exact sequencing this file has spent all night
+  // trying to make reliable. Resolved by making rules 5/8 match buildInlineSessionContent's order —
+  // also the correct order for keeping the shared screen in sync with what's being said.
+  it('rule 5/8 ordering matches buildInlineSessionContent\'s stage direction: name the next topic before calling advance_tab, never after', () => {
+    const normalized = OPENAI_REALTIME_PROMPT_TEMPLATE.replace(/\s+/g, ' ')
+    expect(normalized).toContain('Do not call advance_tab before you\'ve actually named the next topic and started into it')
+    expect(normalized).toContain('calling it earlier moves the shared screen ahead of what you\'re actually saying')
+  })
+
+  // 2026-08-02 — rule 8's substance now INTENTIONALLY diverges further from Hume's rule 11, beyond
+  // the pre-existing record_verification_result-adjacent bracket markers: the advance_tab/rule-8
+  // ordering fix (see module doc comment) added a whole new "call advance_tab as teaching begins,
+  // then actually teach the new topic" clause that doesn't exist in Hume's version at all — Hume
+  // doesn't have a record_verification_result-gated advance_tab to time against in the first place.
+  // What remains genuinely shared is the anti-narration clause (never announce the act of
+  // transitioning) and its two banned-phrase examples — the part Arun's original "don't touch
+  // transitions" instruction was actually protecting — verified below instead of a full
+  // byte-identical comparison, which no longer holds given the new, intentional divergence.
+  it('rule 8\'s anti-narration clause (never announce the transition, e.g. "let me bridge us"/"I\'ll move us along") is still shared, byte-for-byte, with Hume\'s rule 11', () => {
+    // Normalize whitespace on the whole source FIRST, then extract — both files wrap this exact
+    // clause at different column positions in their raw template literals, so searching for a
+    // multi-word marker against the raw (un-normalized) text is fragile.
+    const humeNormalizedSource = humeSource.replace(/\s+/g, ' ')
+    const openaiNormalizedSource = OPENAI_REALTIME_PROMPT_TEMPLATE.replace(/\s+/g, ' ')
+    function extractThroughAnchor(source: string, startMarker: string, anchor: string): string {
       const start = source.indexOf(startMarker)
       const anchorIndex = source.indexOf(anchor, start)
       expect(start).toBeGreaterThan(-1)
       expect(anchorIndex).toBeGreaterThan(start)
       return source.slice(start, anchorIndex + anchor.length)
     }
-    const anchor = 'expect to summarize at the end.'
-    const humeRule = extractInclusive(humeSource, '11. Before moving', anchor)
-    const openaiRule = extractInclusive(OPENAI_REALTIME_PROMPT_TEMPLATE, '8. Between Topics', anchor)
-    // Strip each file's own leading number+title down to the same neutral marker before comparing —
-    // Hume has no title (just "11."); this file has an OpenAI-only title (2026-08-02 titling pass,
-    // documented in the module doc comment) that needs stripping down to that same baseline. The
-    // internal cross-reference to the closing-sequence rule also correctly differs (rule 8 in Hume's
-    // numbering, rule 9 in this file's) and is normalized the same way. The trailing turn-continuation
-    // bracket marker doesn't need stripping — it comes after `anchor`, so extraction stops before it.
-    const normalize = (text: string) => text.replace(/\s+/g, ' ').trim()
-    const humeNormalized = normalize(humeRule).replace(/^11\./, 'RULE.').replace('described in rule 8,', 'described in rule 9,')
-    const openaiNormalized = normalize(openaiRule)
-      .replace('8. Between Topics — Recap What Was Covered, Then Name and Start the Next One.', 'RULE.')
-    expect(openaiNormalized).toBe(humeNormalized)
+    const anchor = 'just make the transition.'
+    const humeClause = extractThroughAnchor(humeNormalizedSource, 'never announce or describe the act of transitioning', anchor)
+    const openaiClause = extractThroughAnchor(openaiNormalizedSource, 'never announce or describe the act of transitioning', anchor)
+    expect(openaiClause.trim()).toBe(humeClause.trim())
+  })
+
+  it('rule 8 intentionally diverges from Hume\'s rule 11 beyond that point: the advance_tab-timing + explicit-teach-the-new-topic instruction is OpenAI-only', () => {
+    const normalized = OPENAI_REALTIME_PROMPT_TEMPLATE.replace(/\s+/g, ' ')
+    expect(normalized).toContain('Then call the advance_tab tool at the exact moment you begin')
+    expect(normalized).toContain('find that topic\'s own content block in SESSION CONTENT')
+    expect(normalized).toContain('the name is the doorway, not the room')
+    // Hume's own file is untouched and does not carry this OpenAI-only addition.
+    expect(humeSource).not.toContain('find that topic\'s own content block in SESSION CONTENT')
   })
 })
 
