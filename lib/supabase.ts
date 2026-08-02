@@ -40,12 +40,26 @@ export function createSupabaseServerClient() {
  * Creates a Supabase admin client with service role key.
  * Use for server-side operations that bypass RLS (e.g. internal jobs).
  * NEVER expose this client to the browser.
+ *
+ * 2026-08-02 — `global.fetch` is explicitly overridden to force `cache: 'no-store'`. Next.js's App
+ * Router patches the global `fetch` to participate in its own Data Cache; without this override,
+ * every GET request `@supabase/supabase-js` makes (i.e. every `.select()`) is eligible for that
+ * cache, so a route can keep receiving a stale, previously-cached PostgREST response even though the
+ * underlying row has since changed — this looked identical to (and was investigated as) a
+ * PostgREST/`.maybeSingle()` reliability bug (see app/api/demo/[slug]/performance/route.ts's
+ * changelog), but a plain `.limit(1)` with no `.maybeSingle()` at all reproduced the same stale-row
+ * symptom, which only Next's fetch cache explains. Admin-client reads must always reflect the
+ * current row — this client is used for billing/auth/session-state decisions where staleness is a
+ * correctness bug, not a performance tradeoff worth keeping.
  */
 export function createSupabaseAdminClient() {
   return createClient(supabaseUrl, supabaseServiceKey, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,
+    },
+    global: {
+      fetch: (input, init) => fetch(input, { ...init, cache: 'no-store' }),
     },
   })
 }

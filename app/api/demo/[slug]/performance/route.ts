@@ -163,24 +163,6 @@ export async function GET(_request: NextRequest, { params }: { params: { slug: s
 
   const sessionRow = sessionRows?.[0] ?? null
 
-  // TEMP DIAGNOSTIC (2026-08-02, CEO-agent investigation of the 'extraction_failed' discrepancy
-  // reported by Arun) — widened, unused-for-response fetch to compare against the plain limit(1)
-  // above, same technique as the earlier .maybeSingle() investigation. Remove once resolved.
-  const { data: diagWideSessionRows, error: diagWideSessionError } = await supabase
-    .from('partner_sessions')
-    .select('id, status, created_at')
-    .eq('partner_account_id', demoPartnerAccountId)
-    .eq('partner_reference', params.slug)
-    .order('created_at', { ascending: false })
-    .limit(5)
-  console.log('[demo/performance][DIAG]', JSON.stringify({
-    demoPartnerAccountId,
-    slug: params.slug,
-    sessionRow,
-    diagWideSessionRows,
-    diagWideSessionError: diagWideSessionError?.message ?? null,
-  }))
-
   // duration_minutes resolution is independent of session_state (§6.2) — computed whenever
   // hume_chat_id is non-null, regardless of which branch below is taken.
   let durationMinutes: number | null = null
@@ -210,21 +192,13 @@ export async function GET(_request: NextRequest, { params }: { params: { slug: s
 
   // sessionRow.status === 'completed' from here on. Plain array fetch + [0], not .maybeSingle() —
   // see the 2026-08-02 root-cause note above this function.
-  const { data: insightsRows, error: insightsRowsError } = await supabase
+  const { data: insightsRows } = await supabase
     .from('partner_session_insights')
     .select('extraction_status, action_items, learner_insight')
     .eq('partner_session_id', sessionRow.id as string)
     .limit(1)
 
   const insightsRow = insightsRows?.[0] ?? null
-
-  // TEMP DIAGNOSTIC (2026-08-02) — same investigation as above. Remove once resolved.
-  console.log('[demo/performance][DIAG-insights]', JSON.stringify({
-    sessionRowId: sessionRow.id,
-    insightsRows,
-    insightsRow,
-    insightsRowsError: insightsRowsError?.message ?? null,
-  }))
 
   if (!insightsRow || insightsRow.extraction_status === 'pending') {
     return NextResponse.json({
