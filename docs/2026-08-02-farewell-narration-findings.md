@@ -167,3 +167,36 @@ live, so a second contributing factor isn't ruled out.
 to the B2B-58/59/60 milestone, do a live test-call verification pass immediately after building, before
 calling it closed. Same discipline as the other narrow fixes, not a full BA spec.
 
+## 4. Decisions and refinements (2026-08-02, after reviewing the analysis)
+
+**Issue 2 — answered, not a build.** Host/Workspace-side Meet config, confirmed similar (but not
+identical) levers exist for Teams and Zoom too — Teams explicitly still gates *detected bots* even when
+lobby-bypass is open to invitees; Zoom's Waiting Room has no bot exception at all, only a blanket
+disable. Meet is the most workable of the three via calendar-invite "confirmed user" status. No code
+change associated with this item.
+
+**Issues 3, 4, 5 — approved to build.** Holding all three (and the rest) until every item 1–7 has a
+final go-ahead — do not start dev work yet.
+
+**Issue 6 — redesigned per Arun's follow-up, not yet finalized:**
+- Replace the flat "re-explain once, then move on" cap with: re-explain from a different angle, then if
+  still wrong, restate the concept in simpler/more basic terms, repeating with progressively simpler
+  phrasing — up to 5 total attempts.
+- After 5 failed attempts: gracefully defer ("we can cover this in a separate session next time") and
+  advance to the next page — do not get stuck.
+- New distinct case: if the participant is silent (no answer at all, not a wrong answer), treat it as a
+  likely audio/connection issue rather than a wrong answer — say something like "I can't hear you, let's
+  reconnect once that's sorted," then end the session.
+- Open dependency to verify before spec/build: does the current voice pipeline (OpenAI Realtime / Hume
+  adapters) have any existing "no speech received within N seconds" signal distinct from "speech
+  received but wrong/garbled"? Not confirmed yet — needs a check before this can be built as described.
+- Also: the graceful "end session" branch depends on the same `end_session`/farewell mechanism that
+  items 1 and 2 above show is currently unreliable — this branch inherits that risk until the farewell
+  fix lands.
+- Not yet confirmed: exact attempt count (5), exact copy for the defer/silence messages. Recommend a
+  short BA note before build, given this introduces new numeric thresholds and new spoken copy (same
+  weight as B2B-66's original adaptive-teaching spec).
+
+**Issue 7 — deferred.** Arun wants items 1–6 finalized first before revisiting this one; no further
+explanation attempted yet.
+
