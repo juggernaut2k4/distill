@@ -21,8 +21,8 @@ const BASE_INPUT = {
 }
 
 describe('assembleHumeNativePrompt — B2B-11 prompt behavior configurability', () => {
-  it('PROMPT_TEMPLATE_VERSION bumped to v12 (B2B-62 — adds LANGUAGE_INSTRUCTION_PLACEHOLDER to the template source; resolves to \'\' for every unconfigured caller, byte-identical assembled output)', () => {
-    expect(PROMPT_TEMPLATE_VERSION).toBe('v13')
+  it('PROMPT_TEMPLATE_VERSION bumped to v14 (B2B-66 — adds ADAPTIVE_DELIVERY_PLACEHOLDER/ADAPTIVE_UNDERSTANDING_PLACEHOLDER to the template source; resolves to \'\' for every caller with the flag off, byte-identical assembled output)', () => {
+    expect(PROMPT_TEMPLATE_VERSION).toBe('v14')
   })
 
   it('default (unconfigured, no promptBehavior passed): BEHAVIORAL RULES block (through rule 13, B2B-41) byte-identical to today\'s fixed template text, no PARTNER-CONFIGURED GUIDANCE section', () => {

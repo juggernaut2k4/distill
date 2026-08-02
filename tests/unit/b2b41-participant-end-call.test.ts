@@ -149,8 +149,8 @@ describe('B2B-41 — PROMPT_TEMPLATE_VERSION', () => {
   // show_visual-as-alternate-advance wording removed). B2B-62 has since bumped v11 -> v12
   // (LANGUAGE_INSTRUCTION_PLACEHOLDER added to the template source); this assertion is updated to
   // track the current version rather than re-asserting a now-superseded value.
-  it('PROMPT_TEMPLATE_VERSION is the literal string v12 (not v10 or v11)', () => {
-    expect(PROMPT_TEMPLATE_VERSION).toBe('v13')
+  it('PROMPT_TEMPLATE_VERSION is the literal string v14 (not v10, v11, v12, or v13)', () => {
+    expect(PROMPT_TEMPLATE_VERSION).toBe('v14')
   })
 })
 

@@ -12,7 +12,7 @@
  * Bump PROMPT_TEMPLATE_VERSION on any structural edit to the fixed portion.
  */
 
-export const PROMPT_TEMPLATE_VERSION = 'v13'
+export const PROMPT_TEMPLATE_VERSION = 'v14'
 
 import { createSupabaseAdminClient } from '@/lib/supabase'
 
@@ -77,6 +77,22 @@ export const INDUSTRY_CLAUSE_PLACEHOLDER = '[INDUSTRY CLAUSE]'
  * literal string 'true' (default OFF, byte-identical to pre-B2B-36 output).
  */
 export const PACING_GUIDANCE_PLACEHOLDER = '[PACING GUIDANCE]'
+
+/**
+ * B2B-66 — additive, own-words delivery instruction for a section's initial teaching (distinct from
+ * Rule 11's existing transition-recap "own words" instruction). Resolves to '' unless
+ * HUME_NATIVE_ADAPTIVE_TEACHING_ENABLED is the literal string 'true' (default OFF, byte-identical to
+ * pre-B2B-66 output).
+ */
+export const ADAPTIVE_DELIVERY_PLACEHOLDER = '[ADAPTIVE DELIVERY GUIDANCE]'
+
+/**
+ * B2B-66 — additive, bounded adaptive re-teach loop + benefit-of-the-doubt + elaboration-inviting
+ * follow-up instruction, appended to Rule 4. Resolves to '' unless
+ * HUME_NATIVE_ADAPTIVE_TEACHING_ENABLED is the literal string 'true' (default OFF, byte-identical to
+ * pre-B2B-66 output).
+ */
+export const ADAPTIVE_UNDERSTANDING_PLACEHOLDER = '[ADAPTIVE UNDERSTANDING GUIDANCE]'
 
 /**
  * B2B-62 — optional, session-wide instruction to conduct the ENTIRE conversation in a language
@@ -202,11 +218,11 @@ will be sent to you mid-call.
    examples; never recite it back to them.
 3. For every section in SESSION CONTENT, call the show_visual tool at the
    moment you begin covering that section, before you start speaking about
-   it substantively. Pass the section's index as instructed in the content.
+   it substantively. Pass the section's index as instructed in the content.${ADAPTIVE_DELIVERY_PLACEHOLDER}
 4. After teaching a section's core content, ask a verification question to
    confirm understanding before moving on. Listen to the answer and respond
    naturally — affirm what's correct, gently correct what's off, and adapt
-   your depth to their response.
+   your depth to their response.${ADAPTIVE_UNDERSTANDING_PLACEHOLDER}
 5. When you judge a section is complete (content delivered, verification
    question asked and answered, participant ready to continue), call the
    advance_tab tool and move on. advance_tab is the only tool that advances
@@ -483,6 +499,57 @@ function buildPacingGuidance(): string {
 }
 
 /**
+ * B2B-66 — additive, toggleable "explain in your own words, with an example" instruction for a
+ * section's initial teaching. Read exactly once inside assembleHumeNativePrompt() below, so every
+ * caller picks it up with zero additional wiring — mirrors buildPacingGuidance()'s exact toggle
+ * mechanism. Default OFF: any value other than the literal string 'true' resolves to '', byte-identical
+ * to pre-B2B-66 output.
+ */
+function buildAdaptiveDeliveryGuidance(): string {
+  const enabled = process.env.HUME_NATIVE_ADAPTIVE_TEACHING_ENABLED === 'true'
+  if (!enabled) return ''
+  return ' When you begin covering a section\'s content, do not read it verbatim as written — explain ' +
+    'it in your own words, the way a person teaching the material would: restate the core idea in ' +
+    'natural spoken language, and add at least one of your own supporting examples, analogies, or ' +
+    'illustrations grounded in what SESSION CONTENT and PARTICIPANT CONTEXT actually establish. Never ' +
+    'introduce a fact, statistic, or claim that SESSION CONTENT does not support. This changes how you ' +
+    'explain the material, not how much of it you cover — a well-explained section is not automatically ' +
+    'longer than reading the script, and a section the participant already understands does not need ' +
+    'extra length just because this instruction is active.'
+}
+
+/**
+ * B2B-66 — additive, toggleable bounded adaptive re-teach loop (benefit-of-the-doubt on garbled STT,
+ * exactly one re-explanation-from-a-different-angle attempt, then move on regardless) plus an
+ * elaboration-inviting follow-up instruction, appended to Rule 4. Same toggle mechanism as
+ * buildAdaptiveDeliveryGuidance() and buildPacingGuidance() — both new functions are gated on the same
+ * single flag, read independently in each, so there is no risk of the two resolving inconsistently
+ * within a single assembled prompt (the env var does not change mid-request). Default OFF: byte-identical
+ * to pre-B2B-66 output.
+ */
+function buildAdaptiveUnderstandingGuidance(): string {
+  const enabled = process.env.HUME_NATIVE_ADAPTIVE_TEACHING_ENABLED === 'true'
+  if (!enabled) return ''
+  return ' When you listen to their answer, first judge whether it plausibly reflects real ' +
+    'understanding — keep in mind that speech-to-text can turn a perfectly fine answer into something ' +
+    'that sounds fragmented, incomplete, or oddly worded, so give the participant the benefit of the ' +
+    'doubt on phrasing and disfluency, and only treat an answer as a genuine gap in understanding when ' +
+    'its substance, not just its wording, is actually wrong or clearly confused. If the answer plausibly ' +
+    'reflects understanding — even if awkward, partial, or odd-sounding due to likely transcription ' +
+    'noise — affirm it naturally and move on; do not re-teach. If the answer indicates a real gap in ' +
+    'understanding, or the participant gives no answer, says "I don\'t know," or otherwise indicates ' +
+    'they didn\'t follow — re-explain the concept exactly once, from a genuinely different angle than ' +
+    'your first explanation (a new example, a new analogy, or a different framing — never simply the ' +
+    'same sentence rephrased), then ask one new, distinct verification question to check understanding ' +
+    'again. Whatever their answer to that second question, move on afterward regardless — do not ' +
+    're-explain a third time even if understanding still seems shaky; simply let the session continue. ' +
+    'Separately from this understanding check, look for a natural moment to invite them to elaborate ' +
+    'with an open-ended question — for example, asking what part is most relevant to their own ' +
+    'situation, or what they\'re hoping to get out of this topic — rather than relying only on yes/no ' +
+    'questions, so the conversation surfaces more of what they actually think and want.'
+}
+
+/**
  * Pure string-replacement assembly — no LLM call. Replaces [CONTEXT] with the
  * concatenation of the full profile context + the full intent context (per
  * BA spec 4.2 — intent block omitted entirely, not padded, when empty), and
@@ -553,6 +620,8 @@ export function assembleHumeNativePrompt(input: AssembleHumeNativePromptInput): 
     .split(PARTICIPANT_NAME_PLACEHOLDER).join(resolvedParticipantName)
     .split(INDUSTRY_CLAUSE_PLACEHOLDER).join(industryClause)
     .split(PACING_GUIDANCE_PLACEHOLDER).join(buildPacingGuidance())
+    .split(ADAPTIVE_DELIVERY_PLACEHOLDER).join(buildAdaptiveDeliveryGuidance())
+    .split(ADAPTIVE_UNDERSTANDING_PLACEHOLDER).join(buildAdaptiveUnderstandingGuidance())
     .split(AUDIENCE_PLACEHOLDER).join(audienceDescription)
     .split(CONTEXT_PLACEHOLDER).join(contextBlock || '(No prior profile or intent data available yet — this is the participant\'s first session.)')
     .split(SESSION_CONTENT_PLACEHOLDER).join(sessionContent ?? '')
