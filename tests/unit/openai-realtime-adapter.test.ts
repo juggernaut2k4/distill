@@ -77,6 +77,15 @@ describe('OPENAI_REALTIME_TOOLS shape', () => {
     expect(tool.parameters.properties.result.enum).toEqual(['correct', 'incorrect', 'garbled'])
   })
 
+  // 2026-08-02 — the first live test call showed a real gap after the tool call resolves: the model
+  // said one throwaway filler line ("let me think about how to build on that") then went silent for
+  // ~12.5s instead of continuing per the result. This tool description is live context the model
+  // reasons over too, alongside the prompt's own rule 10/4 — it was silent on "same turn" before.
+  it("record_verification_result's description reinforces acting on the result immediately, in the same turn", () => {
+    const tool = OPENAI_REALTIME_TOOLS.find((t) => t.name === 'record_verification_result')!
+    expect(tool.description).toContain('you must act on it immediately, in the same turn, without pausing')
+  })
+
   it('show_visual exposes section_index and topic_title, matching PartnerRenderClient.resolveSectionIndex', () => {
     const showVisual = OPENAI_REALTIME_TOOLS.find((t) => t.name === 'show_visual')!
     expect(Object.keys(showVisual.parameters.properties).sort()).toEqual(['section_index', 'topic_title'])

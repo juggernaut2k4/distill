@@ -32,8 +32,8 @@ describe('assembleOpenAIRealtimePrompt — B2B-69 adaptive-teaching persona', ()
     else process.env.HUME_NATIVE_ADAPTIVE_TEACHING_ENABLED = originalFlag
   })
 
-  it('OPENAI_PROMPT_TEMPLATE_VERSION is v5 (2026-08-02: v3 rewrite, a CEO-review pass fixing the audience default/silence scripting/framing sentence, then a second CEO-review pass adding rule titles, bracketed turn-continuation markers, and new rule 10)', () => {
-    expect(OPENAI_PROMPT_TEMPLATE_VERSION).toBe('v5')
+  it('OPENAI_PROMPT_TEMPLATE_VERSION is v6 (2026-08-02: v3 rewrite, a CEO-review pass fixing the audience default/silence scripting/framing sentence, a second pass adding rule titles/bracketed markers/new rule 10, then a third pass closing rule 10\'s "let me..." filler gap found on the first live test call)', () => {
+    expect(OPENAI_PROMPT_TEMPLATE_VERSION).toBe('v6')
   })
 
   describe('rule 4 (verification/garbled/silence handling) — always present, independent of the flag', () => {

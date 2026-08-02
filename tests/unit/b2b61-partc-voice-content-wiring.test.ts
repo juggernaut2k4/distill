@@ -155,7 +155,7 @@ describe('B2B-68 — the new OpenAI prompt template is genuinely self-contained'
   })
 
   it('OPENAI_PROMPT_TEMPLATE_VERSION is exported and versioned independently of the shared template\'s PROMPT_TEMPLATE_VERSION', () => {
-    expect(OPENAI_PROMPT_TEMPLATE_VERSION).toBe('v5')
+    expect(OPENAI_PROMPT_TEMPLATE_VERSION).toBe('v6')
   })
 
   // 2026-08-02 — Arun reviewed the pre-B2B-68 prompt directly and asked for every tone/personality
@@ -240,7 +240,20 @@ describe('B2B-68 — the new OpenAI prompt template is genuinely self-contained'
     expect(normalized).toContain('Nothing in this session ever ends your turn except one of exactly three')
     expect(normalized).toContain('Calling a tool')
     expect(normalized).toContain('does not end your turn and is never, by itself, a')
-    expect(normalized).toContain('Never let a turn end on a filler acknowledgment alone')
+    expect(normalized).toContain('Never let a turn end on a filler acknowledgment or a self-narrating phrase')
+  })
+
+  // 2026-08-02 — the first live test call after v5 shipped walked straight through the gap: turn
+  // 05 was "Nice, that's a strong start. Let me think about how to build on that." then ~12.5s of
+  // total silence. Rule 10's filler list never named the "let me..." self-narrating pattern even
+  // though rules 3/5/9c already ban it by name elsewhere in this file. Fixed in v6.
+  it('rule 10\'s filler list explicitly names "let me/I\'ll/I\'m going to" self-narration and cites the actual turn-05 near-miss as a labeled bad example', () => {
+    const normalized = OPENAI_REALTIME_PROMPT_TEMPLATE.replace(/\s+/g, ' ')
+    expect(normalized).toContain('let me think about that')
+    expect(normalized).toContain('let me build on that')
+    expect(normalized).toContain('I\'ll build on that')
+    expect(normalized).toContain('Rules 3, 5, and 9c already ban "let me," "I\'ll," and "I\'m going to" phrasing')
+    expect(normalized).toContain('Nice, that\'s a strong start — let me think about how to build on that')
   })
 
   it('a global "tool call never ends your turn" banner sits directly under the BEHAVIORAL RULES heading, ahead of the numbered list', () => {

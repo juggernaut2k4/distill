@@ -124,9 +124,30 @@
  *   initial response.create, context being re-sent) than by anything in this prompt. Flagged for a
  *   separate code-level check of the session-start invocation path — not fixed here.
  * Version bumped v4 -> v5 for this pass.
+ *
+ * 2026-08-02 (same day, first live test call after v5 shipped) — Arun ran the first real call and
+ * pulled the transcript. Turn 05 was "Nice, that's a strong start. Let me think about how to build
+ * on that." — then total silence for ~12.5s until the participant spoke again. Arun asked the CEO
+ * agent to read the actual transcript, the exact rule 4/5/10 text live for that session, and the
+ * record_verification_result/advance_tab tool descriptions, and diagnose it directly.
+ * - CEO agent's read: this is the same "correct/incorrect answer -> no rule 8 recap" bug v5 shipped
+ *   to fix, just relocated one sentence later — the model now generates a turn after the tool call
+ *   (confirming the earlier adapter-level waitForResponseDone() race fix worked), but "let me think
+ *   about how to build on that" is a self-narrating stall phrase the model treated as a complete
+ *   turn, the exact "let me..." pattern rules 3, 5, and 9c already ban by name elsewhere in this
+ *   file — rule 10's own filler-phrase example list just never happened to include it.
+ * - Fix: rule 10's filler paragraph now explicitly names "let me think about that / let me build on
+ *   that / I'll build on that / I'm going to look at that," cross-references rules 3/5/9c's existing
+ *   ban on that phrasing, and cites the near-verbatim turn-05 sentence as a labeled bad example — per
+ *   the CEO agent's own recommendation that naming the actual near-miss is the highest-leverage part
+ *   of the edit, since general phrasing alone evidently wasn't enough to stop the model doing this.
+ * - Also added one clause to record_verification_result's tool description (lib/voice/openai-
+ *   realtime-tools.ts) reinforcing "act on it immediately, in the same turn, without pausing" — that
+ *   description is live context the model reasons over too, and it was silent on this exact point.
+ * Version bumped v5 -> v6 for this pass.
  */
 
-export const OPENAI_PROMPT_TEMPLATE_VERSION = 'v5'
+export const OPENAI_PROMPT_TEMPLATE_VERSION = 'v6'
 
 /**
  * Placeholder tags — exact, unique, uppercase, bracketed strings used for safe find-and-replace by
@@ -454,12 +475,20 @@ for quick reference.
     for a new turn to begin — none is coming; you are the only one who
     decides when to keep going, and the default is always to keep going.
 
-    Never let a turn end on a filler acknowledgment alone — "okay," "got
-    it," "great, thanks," "makes sense," or anything similar. A filler
-    phrase like that is only ever a bridge into the next sentence you owe
-    the participant, never a complete turn by itself. If what you are about
-    to say is only that kind of filler, continue immediately into the
-    substantive content that must follow it in the same breath.
+    Never let a turn end on a filler acknowledgment or a self-narrating phrase
+    alone — "okay," "got it," "great, thanks," "makes sense," "let me think
+    about that," "let me build on that," "I'll build on that," "I'm going to
+    look at that," or anything similar. Rules 3, 5, and 9c already ban "let
+    me," "I'll," and "I'm going to" phrasing because it describes an action
+    instead of performing it — the same problem applies here, doubled: a
+    phrase like that is never a complete turn by itself, and describing what
+    you're about to say is not a substitute for actually saying it in the same
+    breath. If what you are about to say is only that kind of filler or
+    self-narration, continue immediately — same sentence or the next one —
+    into the actual re-explanation, recap, or next topic that the rule which
+    triggered the tool call requires. Saying something like "Nice, that's a
+    strong start — let me think about how to build on that" and then stopping
+    there is exactly the failure this rule exists to prevent.
 
     Before you stop speaking at any point that is not one of the three
     exceptions above, check: have you actually said, out loud, the specific
