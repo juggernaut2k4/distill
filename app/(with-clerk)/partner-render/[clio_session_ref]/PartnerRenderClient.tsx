@@ -5,7 +5,6 @@ import type { ErrorInfo, ReactNode } from 'react'
 import TemplateRenderer from '@/components/templates/TemplateRenderer'
 import { HumeAdapter } from '@/lib/voice/hume-adapter'
 import { OpenAIRealtimeAdapter } from '@/lib/voice/openai-realtime-adapter'
-import { OPENAI_VOICE_PERSONA_INSTRUCTIONS } from '@/lib/voice/openai-realtime-persona'
 import type { VoiceSessionAdapter } from '@/lib/voice/adapter'
 import type { TemplateSection } from '@/lib/templates/types'
 import { cssCustomPropertiesToStyleBlock, type CSSCustomProperties } from '@/lib/partner/theme-client-safe'
@@ -98,6 +97,14 @@ export interface PartnerRenderClientProps {
   // to it directly at connect time. Null if prompt assembly failed server-side (session still
   // proceeds without real voice content, mirroring humeConfigId's own null-safe fallback).
   voiceInstructions: string | null
+  // B2B-68 — OpenAI Realtime's OWN independently-assembled, self-contained prompt
+  // (lib/voice/openai-realtime-prompt-template.ts's assembleOpenAIRealtimePrompt output, computed
+  // server-side in lib/partner/live-render.ts alongside voiceInstructions above, from the same
+  // inputs). Replaces the prior architecture of concatenating a separate persona document in
+  // front of `voiceInstructions` client-side — that concatenation is exactly why the closing/
+  // goodbye instruction used to exist in two disconnected places. Null if prompt assembly failed
+  // server-side (session still proceeds, falls back to the same minimal placeholder as before).
+  openaiVoiceInstructions: string | null
   // B2B-62 — session-wide language Clio conducts the conversation in. Null means English (every
   // pre-B2B-62 session). Also gates the two-stage transcript-watch cue below off for any
   // non-English session — matchesSpokenPhrase/wordTokens (lib/content/transition-markers.ts) are
@@ -116,6 +123,7 @@ export default function PartnerRenderClient({
   humeConfigId,
   voiceProvider,
   voiceInstructions,
+  openaiVoiceInstructions,
   conversationLanguage,
 }: PartnerRenderClientProps) {
   // B2B-62 — English (null/absent, or explicitly "english") is the only language the two-stage
@@ -371,25 +379,21 @@ export default function PartnerRenderClient({
           adapter = await OpenAIRealtimeAdapter.create({
             ephemeralToken: accessToken,
             model,
-            // B2B-61 Part C — real content wiring closed 2026-07-31: uses the exact same
-            // per-session assembled prompt Hume's native mode gets (server-computed in
-            // lib/partner/live-render.ts, passed down as `voiceInstructions`). The template
-            // itself contains no Hume-specific mechanics or branding — it's provider-neutral
-            // prose already, so no per-provider rewriting was needed. Falls back to a minimal
-            // placeholder only if server-side prompt assembly failed for this session (mirrors
-            // humeConfigId's own null-safe degrade — session proceeds, just without real content).
-            //
-            // 2026-08-01 — OPENAI_VOICE_PERSONA_INSTRUCTIONS (lib/voice/openai-realtime-persona.ts)
-            // prepended per Arun's exact wording, addressing "marin speaks a little faster than I'd
-            // like." OpenAI-only: this text is never sent to Hume, and the shared assembleHumeNativePrompt
-            // content/behavior instructions below it are untouched.
+            // B2B-68 (2026-08-02) — OpenAI Realtime now gets its own single, self-contained prompt
+            // (lib/voice/openai-realtime-prompt-template.ts, server-computed in
+            // lib/partner/live-render.ts, passed down as `openaiVoiceInstructions`), replacing the
+            // prior architecture of concatenating a separate persona document
+            // (OPENAI_VOICE_PERSONA_INSTRUCTIONS) in front of Hume's own `voiceInstructions` — per
+            // Arun's direct instruction, that concatenation was "confusing and risky" and was the
+            // root cause of the closing/goodbye instruction existing in two disconnected places.
+            // Falls back to a minimal placeholder only if server-side prompt assembly failed for
+            // this session (mirrors humeConfigId's own null-safe degrade — session proceeds, just
+            // without real content).
             instructions:
-              `${OPENAI_VOICE_PERSONA_INSTRUCTIONS}\n\n${
-                voiceInstructions ??
-                'You are Clio, an AI business coach delivering a live coaching session over voice. ' +
-                'Use the show_visual, advance_tab, and end_session tools exactly as instructed by their ' +
-                'own descriptions.'
-              }`,
+              openaiVoiceInstructions ??
+              'You are Clio, an AI business coach delivering a live coaching session over voice. ' +
+              'Use the show_visual, advance_tab, and end_session tools exactly as instructed by their ' +
+              'own descriptions.',
             // 2026-08-01 — experiment toggle for the premature-page-advance investigation
             // (docs/b2b-pivot-status.md's B2B-59/60 backlog entry). Read directly from an env var
             // (not a DB-backed admin toggle like voiceProvider) so it's instantly revertible —

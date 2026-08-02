@@ -113,9 +113,12 @@ describe('B2B-62 — live-render.ts / page.tsx / PartnerRenderClient.tsx wiring 
     expect(liveRenderSource).toContain('conversationLanguage: (data.conversation_language as string | null) ?? null')
   })
 
-  it('both assembleHumeNativePrompt call sites pass conversationLanguage through', () => {
+  it('both assembleHumeNativePrompt call sites, and both new B2B-68 assembleOpenAIRealtimePrompt call sites, pass conversationLanguage through', () => {
+    // B2B-68 (2026-08-02) added a second, independent prompt-assembly call (assembleOpenAIRealtimePrompt)
+    // alongside each existing assembleHumeNativePrompt call — both resolver functions now pass
+    // conversationLanguage to two call sites each, so 2 -> 4.
     const occurrences = liveRenderSource.match(/conversationLanguage: session\.conversationLanguage \?\? undefined/g) ?? []
-    expect(occurrences).toHaveLength(2)
+    expect(occurrences).toHaveLength(4)
   })
 
   it('both return statements echo conversationLanguage back out', () => {

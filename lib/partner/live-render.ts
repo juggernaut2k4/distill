@@ -7,6 +7,12 @@ import { selectPartnerTemplate } from './custom-templates'
 import { recordBillableEvent } from './webhooks'
 import { assembleHumeNativePrompt } from '@/lib/voice/hume-native/prompt-template'
 import { provisionNativeConfig } from '@/lib/voice/hume-native/config-provisioner'
+// B2B-68 — OpenAI Realtime now gets its own, independently-assembled, self-contained prompt
+// (assembleOpenAIRealtimePrompt) instead of the old client-side concatenation of a separate
+// persona document in front of assembleHumeNativePrompt()'s output. Computed here, alongside the
+// unchanged Hume assembly below, from the same inputs — Hume's own assembledPrompt/provisioning
+// path is completely untouched by this addition.
+import { assembleOpenAIRealtimePrompt } from '@/lib/voice/openai-realtime-prompt-template'
 import { getContentSource, resolveContentSourceHeaders } from './content-sources'
 import { safeFetchPartnerPage } from './ssrf'
 import { inngest } from '@/inngest/client'
@@ -307,6 +313,10 @@ export type LiveRenderResult =
       humeConfigId: string | null
       assistantDisplayName: string
       assembledPrompt: string | null
+      // B2B-68 — the OpenAI Realtime provider's own independently-assembled, self-contained
+      // prompt (lib/voice/openai-realtime-prompt-template.ts). Null only if assembly itself threw
+      // (never expected — pure string operations) or the try block around it never ran.
+      assembledOpenAIPrompt: string | null
       conversationLanguage: string | null
     }
   | {
@@ -317,6 +327,8 @@ export type LiveRenderResult =
       humeConfigId: string | null
       assistantDisplayName: string
       assembledPrompt: string | null
+      // B2B-68 — see the 'template' variant's matching field above.
+      assembledOpenAIPrompt: string | null
       conversationLanguage: string | null
     }
 
@@ -392,6 +404,11 @@ export async function resolveLiveSessionRender(session: PartnerSessionRow): Prom
   // provisioning/persistence steps below it succeed — an OpenAI-provider session should not lose
   // real content just because a Hume-only side effect failed.
   let assembledPrompt: string | null = null
+  // B2B-68 — computed independently below, right after the Hume prompt, from the same source
+  // values (sessionContent/promptConfig etc. are already in scope). A failure here must never
+  // affect the Hume assembly above it or the provisioning/persistence steps below it — Hume
+  // sessions must keep working even if this new, additive computation somehow throws.
+  let assembledOpenAIPrompt: string | null = null
   try {
     const sessionContent = sections
       .map((s) => JSON.stringify(s))
@@ -423,6 +440,32 @@ export async function resolveLiveSessionRender(session: PartnerSessionRow): Prom
       conversationLanguage: session.conversationLanguage ?? undefined,
     })
     assembledPrompt = prompt
+
+    // B2B-68 — OpenAI Realtime's own single, self-contained prompt, from the exact same inputs
+    // used for Hume just above (mirrored 1:1, not derived from `prompt`). Wrapped in its own
+    // try/catch so a failure here can never affect the Hume assembly above.
+    try {
+      assembledOpenAIPrompt = assembleOpenAIRealtimePrompt({
+        profileContext,
+        intentContext: '',
+        sessionContent,
+        assistantName: assistantDisplayName,
+        sessionContentMode: 'template',
+        audienceDescription: session.endUserRole?.trim() || 'a professional',
+        endUserIndustry: session.endUserIndustry ?? undefined,
+        promptBehavior: {
+          tonePersona: promptConfig.tonePersona,
+          deferralPhrasing: promptConfig.deferralPhrasing,
+          closingConfirmationQuestion: promptConfig.closingConfirmationQuestion,
+          goodbyeLine: promptConfig.goodbyeLine,
+          verificationQuestionStyle: promptConfig.verificationQuestionStyle,
+          interSectionRecapStyle: promptConfig.interSectionRecapStyle,
+        },
+        conversationLanguage: session.conversationLanguage ?? undefined,
+      })
+    } catch (openaiErr) {
+      console.error('[partner/live-render] OpenAI prompt assembly failed (session proceeds, OpenAI-provider sessions fall back client-side):', openaiErr instanceof Error ? openaiErr.message : openaiErr)
+    }
 
     // B2B-11 Section 5.3/6.1a — persist the fully-assembled prompt so the
     // join-greeting route (Section 6.3) can prepend it to any live greeting
@@ -468,6 +511,7 @@ export async function resolveLiveSessionRender(session: PartnerSessionRow): Prom
     humeConfigId,
     assistantDisplayName,
     assembledPrompt,
+    assembledOpenAIPrompt,
     conversationLanguage: session.conversationLanguage,
   }
 }
@@ -562,6 +606,9 @@ async function resolveInlineSessionRender(session: PartnerSessionRow): Promise<L
   // B2B-61 Part C — see the matching comment in resolveLiveSessionRender() above; same reasoning
   // applies here for the inline content path.
   let assembledPrompt: string | null = null
+  // B2B-68 — see the matching comment in resolveLiveSessionRender() above; same reasoning
+  // applies here for the inline content path.
+  let assembledOpenAIPrompt: string | null = null
   try {
     const sessionContent = buildInlineSessionContent(session, pages)
     const promptConfig = await getPromptConfig(session.partnerAccountId)
@@ -592,6 +639,33 @@ async function resolveInlineSessionRender(session: PartnerSessionRow): Promise<L
       conversationLanguage: session.conversationLanguage ?? undefined,
     })
     assembledPrompt = prompt
+
+    // B2B-68 — OpenAI Realtime's own single, self-contained prompt (inline path), mirroring the
+    // exact same inputs used for Hume just above. Own try/catch — cannot affect the Hume
+    // assembly above or the provisioning/persistence steps below.
+    try {
+      assembledOpenAIPrompt = assembleOpenAIRealtimePrompt({
+        profileContext: '',
+        intentContext: '',
+        sessionContent,
+        assistantName: assistantDisplayName,
+        sessionContentMode: 'inline',
+        audienceDescription: session.endUserRole?.trim() || 'a professional',
+        participantName: session.endUserName ?? undefined,
+        endUserIndustry: session.endUserIndustry ?? undefined,
+        promptBehavior: {
+          tonePersona: promptConfig.tonePersona,
+          deferralPhrasing: promptConfig.deferralPhrasing,
+          closingConfirmationQuestion: promptConfig.closingConfirmationQuestion,
+          goodbyeLine: promptConfig.goodbyeLine,
+          verificationQuestionStyle: promptConfig.verificationQuestionStyle,
+          interSectionRecapStyle: promptConfig.interSectionRecapStyle,
+        },
+        conversationLanguage: session.conversationLanguage ?? undefined,
+      })
+    } catch (openaiErr) {
+      console.error('[partner/live-render] OpenAI prompt assembly failed (inline, session proceeds, OpenAI-provider sessions fall back client-side):', openaiErr instanceof Error ? openaiErr.message : openaiErr)
+    }
 
     // Persist the full assembled prompt so the join-greeting AND wrap-up-nudge
     // routes prepend it (Hume's session_settings.system_prompt fully replaces
@@ -629,6 +703,7 @@ async function resolveInlineSessionRender(session: PartnerSessionRow): Promise<L
     humeConfigId,
     assistantDisplayName,
     assembledPrompt,
+    assembledOpenAIPrompt,
     conversationLanguage: session.conversationLanguage,
   }
 }
