@@ -105,6 +105,17 @@ export interface OpenAIRealtimeAdapterConfig {
    * needed this and isn't wired for it).
    */
   onUserSpeechStarted?: () => void
+  /**
+   * TEMPORARY — 2026-08-02, diagnosing issues #2/#3 in
+   * docs/2026-08-02-farewell-narration-findings.md §8/§9. Fires for two cases that are otherwise
+   * silently dropped: (1) an empty/failed `conversation.item.input_audio_transcription.completed`
+   * (the model may still have received and acted on the underlying audio via semantic_vad even
+   * when transcription fails — see this event's own handler below), and (2) any Realtime event
+   * type not otherwise handled by this adapter (falls through to `default: break` today), so a
+   * live test call can show exactly what happened frame-by-frame. Remove once those issues are
+   * resolved and no longer need live diagnosis.
+   */
+  onDiagnostic?: (label: string, detail: Record<string, unknown>) => void
   onMessage: (text: string, source: 'user' | 'ai') => void
   tools: Record<string, (params: Record<string, unknown>) => Promise<string>>
   /** Mirrors HumeAdapterConfig.reportError — optional diagnostic hook for otherwise-silent
@@ -451,7 +462,14 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
 
       case 'conversation.item.input_audio_transcription.completed': {
         const text = (msg.transcript as string | undefined) ?? ''
-        if (text) this.config.onMessage(text, 'user')
+        if (text) {
+          this.config.onMessage(text, 'user')
+        } else {
+          // 2026-08-02 — TEMPORARY diagnostic: this event fired but produced no usable transcript.
+          // The model may still have heard and acted on the underlying audio (semantic_vad doesn't
+          // require transcription to succeed) — this case was previously silently dropped.
+          this.config.onDiagnostic?.('empty_user_transcription', { rawTranscript: msg.transcript ?? null })
+        }
         break
       }
 
@@ -511,6 +529,10 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
       }
 
       default:
+        // 2026-08-02 — TEMPORARY diagnostic: surfaces any event type this adapter doesn't
+        // otherwise act on (e.g. input_audio_buffer.speech_stopped, .committed) so a live test
+        // call shows what actually happened during a mystery gap, instead of it vanishing silently.
+        this.config.onDiagnostic?.('unhandled_event', { type })
         break
     }
   }

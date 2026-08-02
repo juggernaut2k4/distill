@@ -490,3 +490,50 @@ never reached far enough to exercise the verification-gate or transition-detecti
 connection-stability question directly (issue 1) since it may be the common root cause behind all
 three reports. No code changes made yet — investigation only, per the established pattern tonight.
 
+## 9. CEO agent root-cause analysis + fixes (2026-08-02)
+
+Arun asked the CEO agent to find root cause and recommend fixes for §8's 3 issues. Full analysis
+below; corrected my own (Orchestrator's) working theory in the process.
+
+**Issue 1 — warm-up (root cause CONFIRMED, fixed and shipped):** `revealContentAfterWarmup()` was
+wired to `onConnect`, which fires the instant the server just *acknowledges* the session
+(`session.updated`) — before any audio exists. A better, already-implemented, currently-unused
+signal exists: `onSpeakVerified` (required on `VoiceSessionAdapter`, fires only once BOTH the
+session is confirmed AND real playable audio has actually arrived — same signal AUTOGEN-01 billing
+already trusts elsewhere in this codebase, e.g. `WalkthroughClient.tsx`). **Fix shipped:** the
+overlay now clears on `adapter.onSpeakVerified(revealContentAfterWarmup)` instead of `onConnect`.
+`onConnect` still fires for its own purpose (persisting the session id); `onError` still reveals
+content too, so a failed connection never traps the participant behind the loading screen.
+
+**Issues 2/3 — inconclusive from code alone, diagnostic logging added (no behavior change):** the
+CEO agent's key finding: OpenAI Realtime's model reasons directly over raw streamed audio
+(`semantic_vad`), independent of whether transcription ever completes — so a brief/quiet
+participant utterance could be received and acted on by the model while producing an EMPTY
+`conversation.item.input_audio_transcription.completed` event, which was previously silently
+dropped. That would explain both symptoms as one event: "didn't wait" (it likely did react to
+something) and "closed early" (rule 12 — participant wants to end — plausibly fired on it), with
+rule 8c's known narration bug then surfacing on top of that. **Also corrected:** my own working
+theory (a connection-instability cascade causing 1→2→3) does not hold up — the WebSocket was open
+and exchanging events normally the whole time; no error/reconnect path fired. Issue 1 is a
+self-contained wiring mistake with no causal link to 2/3.
+
+**Diagnostic logging added** (temporary, no behavior change, additive only):
+- `lib/voice/openai-realtime-diagnostic-store.ts` (new) — a Redis-backed store, deliberately
+  separate from the real transcript store so it can never pollute the extraction pipeline.
+- `app/api/partner/render/voice-diagnostic-capture/route.ts` (new) — mirrors
+  `transcript-capture/route.ts`'s exact trust boundary and always-200 contract.
+- `openai-realtime-adapter.ts` gained an `onDiagnostic?` callback, fired for (a) the
+  previously-silently-dropped empty-transcript case, and (b) ANY otherwise-unhandled Realtime event
+  type (e.g. `input_audio_buffer.speech_stopped`/`.committed`) via the `default:` switch case — so
+  the next live test call shows exactly what happened frame-by-frame during a mystery gap, instead
+  of it vanishing silently.
+- All of this is explicitly temporary — remove the store, the route, and the `onDiagnostic` wiring
+  once issues #2/#3 are resolved and no longer need live diagnosis.
+
+**Verified:** `npx tsc --noEmit`, `npm run build`, full `vitest` suite all clean (same one
+pre-existing, unrelated `voice-gap-watchdog.test.ts` failure as before).
+
+**Next step:** another live test call. Issue 1 should now visibly hold the loading screen until
+real audio starts. Issues 2/3 won't be fixed yet, but the diagnostic events they produce (if any
+gap happens again) will tell us what actually happened during it.
+

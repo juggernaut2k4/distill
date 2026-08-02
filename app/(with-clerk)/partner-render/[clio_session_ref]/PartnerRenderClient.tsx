@@ -465,8 +465,12 @@ export default function PartnerRenderClient({
         // Shared across both providers — VoiceSessionAdapter's callback shapes are provider-agnostic
         // by design (see adapter.ts), so none of this needs to branch.
         // B2B item 3 — clears the connect-warmup loading screen and its safety-net timeout.
-        // Called on both the success (onConnect) and failure (onError) paths so a connection
-        // error never leaves the participant stuck behind the loading screen.
+        // 2026-08-02 fix: registered on the adapter's onSpeakVerified callback below (fires only
+        // once real, confirmed-playable audio has arrived), NOT on onConnect — onConnect fires the
+        // instant the server just acknowledges the session, well before there's any audio, which
+        // was revealing the real screen too early (reported live: still-blurred start, "racing"
+        // voice) and defeating the whole point of the warm-up. Still called from onError so a
+        // connection failure never leaves the participant stuck behind the loading screen.
         const revealContentAfterWarmup = () => {
           if (warmupTimeoutRef.current) {
             clearTimeout(warmupTimeoutRef.current)
@@ -496,7 +500,6 @@ export default function PartnerRenderClient({
         const sharedCallbacks = {
           onConnect: (sessionId: string) => {
             setStatus('listening')
-            revealContentAfterWarmup()
             if (sessionId) {
               fetch('/api/partner/render/session-chat-id', {
                 method: 'POST',
@@ -551,6 +554,17 @@ export default function PartnerRenderClient({
             // onModeChange's coarser 'listening'/'speaking' toggle. OpenAI-only; passed directly
             // here (not sharedCallbacks) since Hume's config has no equivalent field.
             onUserSpeechStarted: clearSilenceTimer,
+            // TEMPORARY — 2026-08-02, diagnosing issues #2/#3 (docs/2026-08-02-farewell-narration-findings.md
+            // §8/§9). Fire-and-forget, same pattern as the transcript-capture beacon above. Remove
+            // alongside onDiagnostic itself once those issues are resolved.
+            onDiagnostic: (label, detail) => {
+              fetch('/api/partner/render/voice-diagnostic-capture', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ clio_session_ref: clioSessionRef, label, detail }),
+                keepalive: true,
+              }).catch(() => {})
+            },
             // B2B-68 (2026-08-02) — OpenAI Realtime now gets its own single, self-contained prompt
             // (lib/voice/openai-realtime-prompt-template.ts, server-computed in
             // lib/partner/live-render.ts, passed down as `openaiVoiceInstructions`), replacing the
@@ -609,6 +623,10 @@ export default function PartnerRenderClient({
         }
 
         adapterRef.current = adapter
+        // B2B item 3 fix (2026-08-02) — reveal the real content only once real, confirmed-playable
+        // audio has arrived, not on the earlier onConnect (server-ack) signal. See
+        // revealContentAfterWarmup's own doc comment above for the full rationale.
+        adapter.onSpeakVerified(revealContentAfterWarmup)
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         console.error('[partner-render] Voice connect failed:', message)
