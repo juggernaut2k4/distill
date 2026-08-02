@@ -450,7 +450,6 @@ export async function resolveLiveSessionRender(session: PartnerSessionRow): Prom
         intentContext: '',
         sessionContent,
         assistantName: assistantDisplayName,
-        sessionContentMode: 'template',
         audienceDescription: session.endUserRole?.trim() || 'a professional',
         endUserIndustry: session.endUserIndustry ?? undefined,
         promptBehavior: {
@@ -649,7 +648,6 @@ async function resolveInlineSessionRender(session: PartnerSessionRow): Promise<L
         intentContext: '',
         sessionContent,
         assistantName: assistantDisplayName,
-        sessionContentMode: 'inline',
         audienceDescription: session.endUserRole?.trim() || 'a professional',
         participantName: session.endUserName ?? undefined,
         endUserIndustry: session.endUserIndustry ?? undefined,

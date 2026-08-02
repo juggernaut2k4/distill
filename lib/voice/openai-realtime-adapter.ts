@@ -514,7 +514,21 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
         // only opens a second, unnecessary window for endSession()'s teardown to race against
         // still-generating audio. Every other tool (advance_tab, show_visual) still needs this
         // explicit resume exactly as before.
+        //
+        // 2026-08-02 (later same day) — found while investigating live reports of the model going
+        // silent right after advance_tab/record_verification_result: this response.create fires the
+        // instant the tool-call ITEM completes, but per OpenAI's own event ordering,
+        // response.output_item.done for a function-call item always precedes response.done for the
+        // SAME response — meaning responseInFlight is still true here, and the response that just
+        // produced this tool call has not yet been confirmed closed server-side. Requesting a new
+        // response while one may still be active server-side risks the request being rejected
+        // (surfaced only as a console-logged 'error' event, nothing user-visible, no retry) — the
+        // model then never continues, and the call goes silent. This is the exact same class of bug
+        // already found and fixed in endSession() below (see that method's doc comment) — asking the
+        // server for something before confirming the prior operation actually finished — just at a
+        // different call site. Fix: wait for this response to be confirmed done first.
         if (item.name !== 'end_session') {
+          await this.waitForResponseDone()
           this.ws?.send(JSON.stringify({ type: 'response.create' }))
         }
         break

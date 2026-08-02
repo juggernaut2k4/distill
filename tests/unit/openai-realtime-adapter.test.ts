@@ -256,6 +256,73 @@ describe('OpenAIRealtimeAdapter tool-call dispatch (response.output_item.done)',
   })
 })
 
+/**
+ * 2026-08-02 (later same day) — root-cause fix for live reports of the model going silent right
+ * after advance_tab/record_verification_result. Per OpenAI's own event ordering,
+ * response.output_item.done for a function-call item always precedes response.done for the SAME
+ * response — so responseInFlight is still true at the moment the tool-call handler used to fire its
+ * continuation response.create unconditionally, risking the request being rejected server-side
+ * (silently, via a console-logged 'error' event, no retry) if the prior response wasn't yet
+ * confirmed closed. The fix mirrors endSession()'s own already-fixed wait pattern above.
+ */
+describe('OpenAIRealtimeAdapter tool-call continuation waits for the response to be confirmed done (2026-08-02)', () => {
+  it('does not send the continuation response.create while the response that produced the tool call is still in flight', async () => {
+    vi.useFakeTimers()
+    try {
+      const handler = vi.fn().mockResolvedValue('Advanced.')
+      const adapter = makeAdapter({ tools: { advance_tab: handler } })
+      const send = installFakeSocket(adapter)
+
+      await feedMessage(adapter, { type: 'response.created' })
+      const pending = feedMessage(adapter, {
+        type: 'response.output_item.done',
+        item: { type: 'function_call', name: 'advance_tab', call_id: 'call-1', arguments: '{}' },
+      })
+
+      await vi.advanceTimersByTimeAsync(500)
+      // function_call_output has already gone out, but the continuation is still withheld
+      expect(send).toHaveBeenCalledTimes(1)
+      expect(JSON.parse(send.mock.calls[0][0] as string).type).toBe('conversation.item.create')
+
+      await feedMessage(adapter, { type: 'response.done' })
+      await vi.advanceTimersByTimeAsync(0)
+      await pending
+
+      expect(send).toHaveBeenCalledTimes(2)
+      expect(JSON.parse(send.mock.calls[1][0] as string)).toEqual({ type: 'response.create' })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('gives up after the bounded timeout rather than hanging forever if response.done never arrives after a tool call', async () => {
+    vi.useFakeTimers()
+    try {
+      const handler = vi.fn().mockResolvedValue('Advanced.')
+      const adapter = makeAdapter({ tools: { advance_tab: handler } })
+      const send = installFakeSocket(adapter)
+
+      await feedMessage(adapter, { type: 'response.created' })
+      const pending = feedMessage(adapter, {
+        type: 'response.output_item.done',
+        item: { type: 'function_call', name: 'advance_tab', call_id: 'call-1', arguments: '{}' },
+      })
+
+      await vi.advanceTimersByTimeAsync(8100)
+      await pending
+
+      expect(send).toHaveBeenCalledTimes(2)
+      expect(JSON.parse(send.mock.calls[1][0] as string)).toEqual({ type: 'response.create' })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // The no-response-in-flight case (the common, non-racing path) is already covered by the
+  // 'tool-call dispatch' describe block above — its very first test never sends response.created,
+  // so waitForResponseDone() resolves immediately, exactly as before this fix.
+})
+
 describe('OpenAIRealtimeAdapter interruption (input_audio_buffer.speech_started)', () => {
   it('clears the queued (not-yet-played) audio queue and reports listening mode', async () => {
     const onModeChange = vi.fn()
