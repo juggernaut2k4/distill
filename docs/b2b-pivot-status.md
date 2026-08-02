@@ -617,6 +617,35 @@ INFRA-* (Mia Digital LLC migration) — parallel, non-blocking, land before prod
   playback tests exactly) and 6 confirming the interface declaration, the Hume non-implementation,
   and both call-sites' await-before-move ordering.
 
+- **B2B-65 Performance tab — "Performance data couldn't be generated" root-caused and fixed
+  (2026-08-02, pushed as `306b2d9`).** Arun reported the Performance tab showing stale/wrong session
+  data and an empty accumulating list despite real, correct data confirmed sitting in the database.
+  Investigated jointly with the CEO agent (explicitly looped in per Arun's request), which
+  independently ruled out a wrong Supabase project (only one exists), Preview/Production aliasing
+  (all domains point to the same deployment), a stale read replica (none provisioned — confirmed by
+  Arun directly in the Supabase dashboard), RLS filtering (`service_role` bypasses RLS, verified by
+  impersonating the role and re-running the exact query), a stuck/pinned connection or bad isolation
+  level (`pg_stat_activity`/isolation checked directly), index staleness (forced both seq-scan and
+  index-scan plans, both correct), and stale Next.js response caching (fresh server timestamp + a
+  live external API call present in every diagnostic log line).
+  **Root cause, proven live, not inferred:** `.limit(1).maybeSingle()` was intermittently returning a
+  stale/wrong `partner_sessions` row through `@supabase/supabase-js` on this project, even though
+  direct SQL and PostgREST's own un-collapsed result set (`.limit(N)` with no `.maybeSingle()`) were
+  always correct — confirmed by literally widening the query to `.limit(5)` as a diagnostic and
+  watching the correct row come back instantly. Every `.maybeSingle()` call in
+  `app/api/demo/[slug]/performance/route.ts` (the latest-session lookup, the per-session insights
+  lookup, the webhook usage lookup) rewritten to a plain array fetch + `[0]`. Separately, the
+  accumulating-entries query's `partner_sessions!inner(...)` embedded-resource dot-path filter was
+  also silently returning zero rows for sessions confirmed (via direct SQL) to match — replaced with
+  two plain queries (fetch matching session ids, then `.in('partner_session_id', ids)`), which
+  resolved it. Both fixes verified live against `test.hello-clio.com` post-deploy: `claude-ai`'s
+  Performance tab now correctly shows its real, current session state and both accumulated real
+  entries, newest first. All temporary diagnostic `console.log` statements added during the
+  investigation have been removed; only the permanent query-shape fix remains.
+  `tsc --noEmit`/`npm run build` clean; `vitest run` 1307/1308 (same known pre-existing flake).
+  **Open follow-up, not yet done**: other `.maybeSingle()` usages elsewhere in the codebase were not
+  audited for the same risk — this fix was scoped to the one file with a confirmed live symptom.
+
 - **Reconstruct lost B2B-06/07/08/09 governance documents.** A concurrent-agent `git stash` collision
   during the parallel B2B-06/07/08/09 build spree (2026-07-15) wiped, and nobody caught: all 4 CEO
   Feature Brief files (`.claude/agents/clio/feature-briefs/B2B-0[6-9]-*.md`), and 3 of 4 Requirement
