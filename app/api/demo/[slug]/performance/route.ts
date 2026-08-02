@@ -136,6 +136,17 @@ export async function GET(_request: NextRequest, { params }: { params: { slug: s
       .order('extracted_at', { ascending: false })
       .limit(200)
 
+    // TEMPORARY DIAGNOSTIC (2026-08-02) — the sessionRow fix resolved, but entries is still coming
+    // back empty even after switching off the embedded-join filter. Logging the raw counts/ids to
+    // find out whether matchingSessions genuinely includes the expected session ids, and whether
+    // the .in()/.eq(boolean) combination itself is the next thing misbehaving. Remove once resolved.
+    console.log('[demo/performance][DIAG-entries]', {
+      slug: params.slug,
+      matchingSessionIds: matchingSessions.map((s) => s.id),
+      entryRowsCount: entryRows?.length ?? null,
+      entriesError: entriesError?.message ?? null,
+    })
+
     if (entriesError) {
       console.error(`[demo/performance] Failed to load accumulating entries for slug ${params.slug}:`, entriesError.message)
     } else if (entryRows) {
