@@ -643,8 +643,25 @@ INFRA-* (Mia Digital LLC migration) — parallel, non-blocking, land before prod
   entries, newest first. All temporary diagnostic `console.log` statements added during the
   investigation have been removed; only the permanent query-shape fix remains.
   `tsc --noEmit`/`npm run build` clean; `vitest run` 1307/1308 (same known pre-existing flake).
-  **Open follow-up, not yet done**: other `.maybeSingle()` usages elsewhere in the codebase were not
-  audited for the same risk — this fix was scoped to the one file with a confirmed live symptom.
+  **Follow-up audit done, Tier 1 fixed (2026-08-02, commit `1d84350`).** A full repo audit found
+  `.maybeSingle()` at **257 call sites across 123 files**. Of those, **20 files** also reference
+  `partner_sessions` or `partner_session_insights` — the same tables as the confirmed bug — and were
+  treated as Tier 1 (highest risk of hitting the same unreliable pattern). Every one of those 20
+  files' `.maybeSingle()` call sites (34 total) was rewritten to the same array-fetch + `[0]` pattern
+  used in the original fix. Highest-priority fixes: `lib/partner/auth.ts` (the entire partner-API auth
+  chokepoint, 10 sites), `lib/partner/live-render.ts`'s `handleSessionEnd()` double-billing guard,
+  `app/api/partner/v1/sessions/route.ts`'s idempotent-replay guard and wallet/funding gates,
+  `inngest/partner-live-cutoff.ts` (the billing cutoff job), `lib/partner/webhooks.ts` (wallet
+  decrement, low-balance alerts, idempotent webhook dispatch, 14 sites). All 22 affected test files'
+  mocks updated to match (array instead of single-object-or-null; no assertions changed). `tsc
+  --noEmit`/`npm run build` clean; full suite green except the one pre-existing, unrelated
+  `voice-gap-watchdog.test.ts` flake (`lib/session-billing.ts`, not part of this sweep).
+  **Still open**: the remaining ~103 files (223 call sites) touching unrelated tables were
+  deliberately NOT touched in this pass — no confirmed evidence yet that the unreliable-`.maybeSingle()`
+  mechanism extends beyond `partner_sessions`/`partner_session_insights`, and a blind mass-rewrite
+  risks masking a real bug if the actual root cause turns out to be narrower than "the method itself
+  is broken everywhere." Revisit if another stale-data symptom surfaces outside Tier 1, or if Arun
+  wants the remaining files swept proactively.
 
 - **Reconstruct lost B2B-06/07/08/09 governance documents.** A concurrent-agent `git stash` collision
   during the parallel B2B-06/07/08/09 build spree (2026-07-15) wiped, and nobody caught: all 4 CEO
