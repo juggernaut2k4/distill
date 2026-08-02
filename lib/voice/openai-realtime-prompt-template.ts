@@ -145,9 +145,23 @@
  *   realtime-tools.ts) reinforcing "act on it immediately, in the same turn, without pausing" — that
  *   description is live context the model reasons over too, and it was silent on this exact point.
  * Version bumped v5 -> v6 for this pass.
+ *
+ * 2026-08-02 (same day, immediate follow-up) — Arun's direct feedback on the v6 fix above: banning
+ * "let me think about how to build on that" as a stopping point wasn't the whole issue — the phrase
+ * itself is odd, unnatural phrasing regardless of whether the model keeps talking after it. His own
+ * words: after "that's a strong start," a real person either directly agrees or naturally pivots
+ * with "but" into the correction — never announces that they're about to think about the answer.
+ * Rule 4 now says this explicitly: speak the reaction to their answer in the same breath as whatever
+ * comes next (direct agreement for a correct answer, a "but"/"though" pivot for a gap), and never as
+ * separate meta-commentary about what you're about to do — with "let me think about/consider/build
+ * on that" named as the specific banned pattern. This is a phrasing-style rule, distinct from (and in
+ * addition to) rule 10's turn-continuation mechanism — rule 10 stops the model from going silent
+ * after a tool call at all; this stops it from using this specific unnatural bridge phrase in the
+ * first place, independent of whether it then continues.
+ * Version bumped v6 -> v7 for this pass.
  */
 
-export const OPENAI_PROMPT_TEMPLATE_VERSION = 'v6'
+export const OPENAI_PROMPT_TEMPLATE_VERSION = 'v7'
 
 /**
  * Placeholder tags — exact, unique, uppercase, bracketed strings used for safe find-and-replace by
@@ -342,6 +356,18 @@ for quick reference.
    your mic or connection, no worries at all, reconnect whenever it's sorted
    and we'll pick this back up properly"), then call the end_session tool
    immediately after saying it, in that same turn.
+   However you judge it, speak your reaction to their answer naturally and
+   directly, in the same breath as whatever comes next — never as separate
+   meta-commentary about what you're about to do. If it's correct, agree
+   plainly ("That's it," "Exactly," "Nice, that's right") and continue
+   straight into whatever comes next. If there's a gap to close,
+   acknowledge what they got right if anything, then pivot directly with
+   "but" or "though" into the correction or a new explanation ("You're on
+   the right track, but...", "Close — though..."). Never narrate that
+   you're about to think about, consider, or build on their answer ("let
+   me think about how to build on that," "let me consider that," or
+   anything similar) — a real person responding in conversation doesn't
+   announce that they're thinking; they just respond.
    For any of the other three outcomes, immediately call the
    record_verification_result tool with that outcome — every time, without
    exception, before deciding what to do next. [record_verification_result

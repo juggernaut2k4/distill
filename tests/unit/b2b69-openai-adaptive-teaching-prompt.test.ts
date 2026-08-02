@@ -32,8 +32,8 @@ describe('assembleOpenAIRealtimePrompt — B2B-69 adaptive-teaching persona', ()
     else process.env.HUME_NATIVE_ADAPTIVE_TEACHING_ENABLED = originalFlag
   })
 
-  it('OPENAI_PROMPT_TEMPLATE_VERSION is v6 (2026-08-02: v3 rewrite, a CEO-review pass fixing the audience default/silence scripting/framing sentence, a second pass adding rule titles/bracketed markers/new rule 10, then a third pass closing rule 10\'s "let me..." filler gap found on the first live test call)', () => {
-    expect(OPENAI_PROMPT_TEMPLATE_VERSION).toBe('v6')
+  it('OPENAI_PROMPT_TEMPLATE_VERSION is v7 (2026-08-02: v3 rewrite, audience/silence/framing fixes, rule titles/bracketed markers/new rule 10, rule 10\'s "let me..." filler gap fix, then rule 4\'s natural-acknowledgment phrasing fix per Arun\'s direct feedback)', () => {
+    expect(OPENAI_PROMPT_TEMPLATE_VERSION).toBe('v7')
   })
 
   describe('rule 4 (verification/garbled/silence handling) — always present, independent of the flag', () => {
@@ -84,6 +84,21 @@ describe('assembleOpenAIRealtimePrompt — B2B-69 adaptive-teaching persona', ()
       const normalized = assembleOpenAIRealtimePrompt(BASE_INPUT).replace(/\s+/g, ' ')
       expect(normalized).toContain("I'm having trouble hearing you clearly enough to keep going")
       expect(normalized).toContain('same spoken-goodbye-then-end_session pattern required everywhere else')
+    })
+
+    // 2026-08-02 — Arun's direct feedback after seeing rule 10's fix in a real call: banning "let
+    // me think about how to build on that" as a stopping point wasn't enough — the phrase itself
+    // reads unnaturally regardless of whether the model keeps talking after it. A real person
+    // either directly agrees or pivots with "but"/"though" into the correction, never announces
+    // that they're about to think about the answer. This is a phrasing-style fix in rule 4,
+    // distinct from rule 10's turn-continuation mechanism.
+    it('rule 4 requires a natural, direct acknowledgment (agreement or a but/though pivot) instead of "let me think/consider/build on that" meta-commentary', () => {
+      const normalized = assembleOpenAIRealtimePrompt(BASE_INPUT).replace(/\s+/g, ' ')
+      expect(normalized).toContain('speak your reaction to their answer naturally and')
+      expect(normalized).toContain('never as separate meta-commentary about what you\'re about to do')
+      expect(normalized).toContain('pivot directly with "but" or "though" into the correction')
+      expect(normalized).toContain('Never narrate that you\'re about to think about, consider, or build on their answer')
+      expect(normalized).toContain('"let me think about how to build on that," "let me consider that,"')
     })
   })
 

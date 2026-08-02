@@ -155,7 +155,7 @@ describe('B2B-68 — the new OpenAI prompt template is genuinely self-contained'
   })
 
   it('OPENAI_PROMPT_TEMPLATE_VERSION is exported and versioned independently of the shared template\'s PROMPT_TEMPLATE_VERSION', () => {
-    expect(OPENAI_PROMPT_TEMPLATE_VERSION).toBe('v6')
+    expect(OPENAI_PROMPT_TEMPLATE_VERSION).toBe('v7')
   })
 
   // 2026-08-02 — Arun reviewed the pre-B2B-68 prompt directly and asked for every tone/personality
