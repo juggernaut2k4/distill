@@ -11,13 +11,13 @@ Update this table's Status the instant any item changes state.
 
 | # | Item | Status | Detail |
 |---|------|--------|--------|
-| 1 | Farewell/`end_session` fires without a real spoken goodbye | **Open** — the #7 fix below (unblocking advance_tab's tool result) shares its root mechanism; needs a live test call to confirm whether it also resolved this one | §1, §2 below |
+| 1 | Farewell/`end_session` fires without a real spoken goodbye | **Open, reproduced again** in the first post-deploy test call (§8) — a narrated, never-spoken goodbye, now seen firing right after the icebreaker, not just at session end | §1, §2, §8 |
 | 2 | Meta-narration guard not holding ("let's"/"let me" still leak through) | **Open** — survived two prompt-fix rounds (B2B-67, B2B-68); not touched by tonight's build | §1, §2 below |
-| 3 | Connect-time warm-up (voice racing / screen blur) | **Built** 2026-08-02 — tsc/build/tests clean | §3, Issue 3 |
-| 4 | Icebreaker too small | **Built** 2026-08-02 — tsc/build/tests clean | §3, Issue 4 |
-| 5 | Reseller-configurable bot join-name | **Built** 2026-08-02 — tsc/build/tests clean | §3, Issue 5 |
-| 6 | Bounded re-teach loop + code-enforced correctness gate | **Built** 2026-08-02 — needs a live test call to confirm real-world behavior before calling it fully closed | §3, Issue 6; §4; §5; §6; §7 |
-| 7 | Transition-detection reliability + dead-air on tool calls | **Built** 2026-08-02 — needs a live test call to confirm real-world behavior before calling it fully closed | §3, Issue 7; §5; §6; §7 |
+| 3 | Connect-time warm-up (voice racing / screen blur) | **Built, but reported still broken live** (§8) — Arun saw blurred/racing start again; likely an underlying connection-stability issue the UI-only fix doesn't reach | §3, Issue 3; §8 |
+| 4 | Icebreaker too small | **Built** — copy itself works (real answer captured in §8's test), but the very next exchange broke down; needs a clean test to fully confirm | §3, Issue 4; §8 |
+| 5 | Reseller-configurable bot join-name | **Built** 2026-08-02 — tsc/build/tests clean, not yet exercised live (call ended before reaching a meeting-bot-name-relevant point) | §3, Issue 5 |
+| 6 | Bounded re-teach loop + code-enforced correctness gate | **Built, not yet exercised** — the test call in §8 never reached a topic/verification question | §3, Issue 6; §4; §5; §6; §7 |
+| 7 | Transition-detection reliability + dead-air on tool calls | **Built, not yet exercised** — same as #6, call ended before any topic transition | §3, Issue 7; §5; §6; §7 |
 | 8 | Meeting-bot admission prompt (Google Meet/Teams/Zoom) | **Backlog, not priority** — deferred until #7 closes, moved to `BACKLOG.md` | §3, Issue 2; `BACKLOG.md` |
 
 ## 1. claude-ai test call (session `3eae41bf-68a7-400b-b953-36100dd94d42`, 2026-08-02 ~13:15–13:26 UTC)
@@ -431,4 +431,62 @@ coverage removed).
 **Not yet done:** a live test call to confirm items 6/7 actually eliminate the dead air and correctness
 gate correctly in practice — code-level verification only so far. Recommend one before calling those
 two items fully closed.
+
+## 8. First live test call post-deploy (2026-08-02, session `2aede0c7-c7dc-43d8-8600-50f0ae8651cc`,
+`claude-ai`, ~16:11–16:13 UTC) — 3 issues reported, one is serious
+
+**The whole call lasted ~88 seconds** (created 16:11:25, `session.completed` webhook at 16:12:53) —
+only 3 transcript turns captured, and it never reached the topic content. Full transcript:
+1. User (16:12:31): "Ah, somewhere in between." (answering the icebreaker's "how are you feeling" question)
+2. AI (16:12:46): "That's a very normal place to be. We'll keep it simple and practical, and we'll
+   build confidence as we go.\n\nSo, are you ready to dive in now?"
+3. AI (16:12:51, **~4.9s later, no captured user turn in between**): "Got it, let me say something
+   brief before we close out."
+
+`session.completed` fired at 16:12:53.4 — **~2.3 seconds after that last line**, with no actual
+spoken goodbye ever captured. The extraction pipeline independently flagged the same thing as a
+glitch: *"The assistant appears to have sent two separate closing/transitional messages back-to-back
+[...] without any User input in between, creating a disjointed and contradictory exchange."*
+
+**Arun's 3 reports, and what the evidence says about each:**
+
+1. **"bot warmup did not work — still blurred screen start and racing voice speed when initiated,
+   later it became normal."** Item 3's fix (loading overlay + audio fade-in) is UI polish layered on
+   top of whatever the actual connection/mic-capture timing is — it hides the visual chaos until
+   `status` reaches `listening` (or a 6s timeout), but does not address the underlying connection
+   ever being slow/unstable in the first place. If the real WebRTC/mic-permission/session-negotiation
+   timing is what's actually unstable at call start, my fix only masks it for as long as its own
+   timeout allows — consistent with Arun's "later it became normal" observation. This needs
+   investigation as a **connection-stability issue**, separate from the UI-layer fix already shipped.
+
+2. **"speaks icebreaker but does not wait for user to respond."** The transcript shows the opposite
+   of "never waits" — turn 1 shows a real, captured user answer. But turn 3's ~4.9s jump straight to a
+   closing line, with zero captured response to "are you ready to dive in now?", is consistent with
+   Arun's report for *that specific moment*. Given issue 1's connection instability, the most likely
+   explanation: the participant's actual spoken response either wasn't picked up cleanly by the still-
+   settling audio pipeline, or something in that unstable window confused the model's own turn-taking.
+
+3. **"before getting into overview, bot disconnected."** Confirmed directly by the transcript and the
+   webhook timing above. This reproduces items #1/#2's still-open bug — a narrated, never-actually-
+   spoken goodbye ("let me say something brief before we close out" is itself the exact kind of
+   self-narrating language rule 8c is supposed to block) — but at a new, much earlier point in the
+   call (right after the icebreaker) instead of at the natural end.
+
+**Ruled out:** tonight's new 12-second silence timer. The gap between the question and the close-out
+line was only ~4.9 seconds — well under the 12s threshold — so this specific timer could not have
+fired yet. This was not caused by that new mechanism, at least not directly.
+
+**Not yet determined:** why the model jumped to a closing sequence at all, this early. No client-side
+error was found for this session via a runtime-log search (inconclusive — the log search tool's
+`search` parameter doesn't appear to text-filter reliably; not a confirmed clean bill of health).
+Two live possibilities, not yet distinguished: (a) a genuine early audio/connection problem (tying
+back to issue 1) caused the model to react to something garbled or absent, or (b) items #1/#2's
+farewell/narration bug is not specific to end-of-session at all — it can apparently trigger
+anywhere the model perceives (rightly or wrongly) that closing is appropriate.
+
+**Recommendation:** do not consider items 3, 6, or 7 fully validated from this call — the session
+never reached far enough to exercise the verification-gate or transition-detection logic at all
+(it never got past the icebreaker). Before further live testing, worth investigating the underlying
+connection-stability question directly (issue 1) since it may be the common root cause behind all
+three reports. No code changes made yet — investigation only, per the established pattern tonight.
 
