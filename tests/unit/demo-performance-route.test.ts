@@ -61,10 +61,11 @@ vi.mock('@/lib/supabase', () => ({
           select: () => ({
             eq: () => ({
               eq: () => ({
+                // TEMPORARY (2026-08-02) — mirrors the route's own temporary widening from
+                // .limit(1).maybeSingle() to a bare .limit(5) (CEO-recommended diagnostic, see the
+                // route's own doc comment). Revert together once resolved.
                 order: () => ({
-                  limit: () => ({
-                    maybeSingle: async () => ({ data: sessionRow, error: null }),
-                  }),
+                  limit: async () => ({ data: sessionRow ? [sessionRow] : [], error: null }),
                 }),
               }),
             }),

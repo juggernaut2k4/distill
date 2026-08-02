@@ -130,22 +130,28 @@ export async function GET(_request: NextRequest, { params }: { params: { slug: s
     })
   }
 
-  const { data: sessionRow, error: sessionRowError } = await supabase
+  // TEMPORARY DIAGNOSTIC (2026-08-02, CEO-recommended next test) — widened from .limit(1).maybeSingle()
+  // to .limit(5) with no .maybeSingle(), so we can see PostgREST's own full ordered result set, not
+  // just the single row it collapses to. Tells us whether PostgREST's own ordering is already wrong
+  // (a real PostgREST/Data-API bug) or whether something after this point picks the wrong entry from
+  // an otherwise-correct result (a code bug). sessionRow below is still just the first item, so
+  // behavior is unchanged. Revert to .limit(1).maybeSingle() once resolved.
+  const { data: sessionRows, error: sessionRowError } = await supabase
     .from('partner_sessions')
     .select('id, status, hume_chat_id, created_at')
     .eq('partner_account_id', demoPartnerAccountId)
     .eq('partner_reference', params.slug)
     .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
+    .limit(5)
 
-  // TEMPORARY DIAGNOSTIC — 2026-08-01, tracking down a live report that this route resolves an
-  // old/wrong session as "latest" despite the DB genuinely having newer rows. Remove once resolved.
+  const sessionRow = sessionRows?.[0] ?? null
+
   console.log('[demo/performance][DIAG]', {
     slug: params.slug,
     demoPartnerAccountId,
     supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
     nowFromServer: new Date().toISOString(),
+    top5Rows: (sessionRows ?? []).map((r) => ({ id: r.id, created_at: r.created_at, status: r.status })),
     resolvedSessionId: sessionRow?.id ?? null,
     resolvedSessionCreatedAt: sessionRow?.created_at ?? null,
     resolvedSessionStatus: sessionRow?.status ?? null,
