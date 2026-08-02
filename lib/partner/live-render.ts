@@ -425,8 +425,14 @@ export async function resolveLiveSessionRender(session: PartnerSessionRow): Prom
       // B2B-35 F3 — audience persona, sourced from the session-wide end_user_role field.
       audienceDescription: session.endUserRole?.trim() || 'a professional',
       // B2B-36 F4 (docs/specs/B2B-36-requirement-document.md §6.5) — Fork 1: industry clause
-      // applies to both content modes. participantName intentionally NOT passed here — Fork 2,
-      // template mode has no greeting seam.
+      // applies to both content modes.
+      // 2026-08-02 — Fork 2 removed per Arun's direct instruction: template mode previously had
+      // no greeting seam (participantName was never passed here), which meant end_user_name was
+      // silently ignored for any session created without content_pages (e.g. a hand-edited
+      // Postman request using content_ref/partner_topic_ref instead) — confirmed as the cause of
+      // a real test call never greeting Arun by name despite end_user_name='Arun' already being
+      // stored correctly. Now passed the same way resolveInlineSessionRender() already does.
+      participantName: session.endUserName ?? undefined,
       endUserIndustry: session.endUserIndustry ?? undefined,
       promptBehavior: {
         tonePersona: promptConfig.tonePersona,
@@ -451,6 +457,7 @@ export async function resolveLiveSessionRender(session: PartnerSessionRow): Prom
         sessionContent,
         assistantName: assistantDisplayName,
         audienceDescription: session.endUserRole?.trim() || 'a professional',
+        participantName: session.endUserName ?? undefined,
         endUserIndustry: session.endUserIndustry ?? undefined,
         promptBehavior: {
           tonePersona: promptConfig.tonePersona,
@@ -622,8 +629,10 @@ async function resolveInlineSessionRender(session: PartnerSessionRow): Promise<L
       // B2B-35 F3 — audience persona, sourced from the session-wide end_user_role field.
       audienceDescription: session.endUserRole?.trim() || 'a professional',
       // B2B-36 F4 (docs/specs/B2B-36-requirement-document.md §6.5) — inline mode gets both the
-      // real participant name (Fork 2, greeting seam only exists here) and the industry clause
-      // (Fork 1, both modes).
+      // real participant name and the industry clause (Fork 1, both modes). 2026-08-02 — template
+      // mode's OpenAI call above now also passes participantName (Fork 2 removed there); Hume's own
+      // template-mode text still has no name placeholder to fill, so it stays a harmless no-op for
+      // Hume specifically, unchanged from before.
       participantName: session.endUserName ?? undefined,
       endUserIndustry: session.endUserIndustry ?? undefined,
       promptBehavior: {

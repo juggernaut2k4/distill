@@ -4,9 +4,18 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
  * B2B-36 F4 (docs/specs/B2B-36-requirement-document.md §6.5/§7 AT-1 through AT-9) — verifies that
  * resolveLiveSessionRender() (Option 2/template path) and resolveInlineSessionRender() (Option 1,
  * reached via resolveLiveSessionRender() when session.contentPages is set) each pass
- * `endUserIndustry` (both modes — Fork 1) and `participantName` (inline mode only — Fork 2) to
- * assembleHumeNativePrompt(). All external calls are mocked — no real network calls. Mirrors
- * tests/unit/b2b35-live-render-call-sites.test.ts's own mocking pattern.
+ * `endUserIndustry` (both modes — Fork 1) and `participantName` (both modes as of 2026-08-02 — Fork
+ * 2 removed, see below) to assembleHumeNativePrompt(). All external calls are mocked — no real
+ * network calls. Mirrors tests/unit/b2b35-live-render-call-sites.test.ts's own mocking pattern.
+ *
+ * 2026-08-02 — Fork 2 (template mode never passing participantName) removed per Arun's direct
+ * instruction: it was confirmed as the cause of a real test call never greeting him by name despite
+ * `end_user_name='Arun'` already being stored correctly for that session (it had no content_pages,
+ * so it took the template path). Both call sites in live-render.ts now pass participantName the
+ * same way. On the Hume side specifically this remains a no-op in practice — Hume's own
+ * RULE_1_TEMPLATE_TEXT has no name placeholder to fill (confirmed in
+ * lib/voice/hume-native/prompt-template.ts, untouched by this change) — but the call site itself no
+ * longer withholds the argument, which is what this test file verifies.
  */
 
 const assembleHumeNativePromptMock = vi.fn((..._args: unknown[]) => 'ASSEMBLED_PROMPT')
@@ -135,7 +144,7 @@ describe('B2B-36 F4 — endUserIndustry passed at both call sites (Fork 1)', () 
   })
 })
 
-describe('B2B-36 F4 — participantName passed inline-only (Fork 2)', () => {
+describe('B2B-36 F4 — participantName passed at both call sites (2026-08-02: Fork 2 removed)', () => {
   beforeEach(() => {
     assembleHumeNativePromptMock.mockClear()
   })
@@ -146,14 +155,26 @@ describe('B2B-36 F4 — participantName passed inline-only (Fork 2)', () => {
     expect(callArgs.participantName).toBe('Arun')
   })
 
-  it('resolveLiveSessionRender() (Option 2/template path) does NOT pass participantName (Fork 2 — no greeting seam in template mode)', async () => {
+  // 2026-08-02 — was "does NOT pass participantName (Fork 2)" before Arun's direct instruction to
+  // remove that gap. Confirmed root cause of a real test call never greeting him by name even
+  // though end_user_name='Arun' was already stored correctly (that session had no content_pages,
+  // so it took this template path). Passing it through here is a no-op for Hume specifically
+  // (RULE_1_TEMPLATE_TEXT has no name placeholder) but is exactly what fixes it for OpenAI Realtime
+  // (see the separate assembleOpenAIRealtimePrompt call site, not mocked in this file).
+  it('resolveLiveSessionRender() (Option 2/template path) now also passes participantName', async () => {
     await resolveLiveSessionRender({ ...BASE_SESSION, endUserName: 'Arun' })
     const callArgs = assembleHumeNativePromptMock.mock.calls[0][0] as { participantName?: string }
-    expect(callArgs.participantName).toBeUndefined()
+    expect(callArgs.participantName).toBe('Arun')
   })
 
   it('endUserName null resolves to undefined being passed through (inline path)', async () => {
     await resolveLiveSessionRender({ ...INLINE_SESSION, endUserName: null })
+    const callArgs = assembleHumeNativePromptMock.mock.calls[0][0] as { participantName?: string }
+    expect(callArgs.participantName).toBeUndefined()
+  })
+
+  it('endUserName null resolves to undefined being passed through (template path too)', async () => {
+    await resolveLiveSessionRender({ ...BASE_SESSION, endUserName: null })
     const callArgs = assembleHumeNativePromptMock.mock.calls[0][0] as { participantName?: string }
     expect(callArgs.participantName).toBeUndefined()
   })
