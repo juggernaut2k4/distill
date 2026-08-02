@@ -98,67 +98,70 @@ export async function GET(_request: NextRequest, { params }: { params: { slug: s
     return NextResponse.json(empty)
   }
 
+  // 2026-08-02 — ROOT CAUSE FOUND (confirmed live via a CEO-agent-recommended diagnostic that
+  // logged PostgREST's own full ordered result set): `.limit(1).maybeSingle()` was intermittently
+  // returning a stale/wrong row on this Supabase project, even though direct SQL and PostgREST's
+  // own un-collapsed result set (`.limit(N)` with no `.maybeSingle()`) were always correct. Every
+  // query on this route that used `.maybeSingle()` (optionally combined with `.limit(1)`) has been
+  // rewritten below to fetch a plain array instead and take `[0]` — confirmed live to resolve
+  // correctly where `.maybeSingle()` did not. This is a `@supabase/supabase-js`/PostgREST-client
+  // reliability issue, not a data or RLS problem (both independently verified correct beforehand).
+
   // B2B-65 (docs/specs/B2B-65-requirement-document.md §6.4) — independent of the latest-single-
   // session lookup below: renders regardless of that session's own state, so a previously-
   // successful entry never disappears just because the most recent dispatch failed or is still
   // mid-flight. Scoped by the same partner_reference column the query below already uses (B2B-33
   // convention) — per-topic, never combined across demo slugs. Falls back to [] on any query
   // failure (§8) rather than breaking the rest of this route's response.
+  //
+  // Rewritten as two plain queries instead of one query with a `partner_sessions!inner(...)`
+  // embedded-resource dot-path filter — the embedded-filter form was also returning zero rows for
+  // sessions confirmed (via direct SQL) to match, alongside the `.maybeSingle()` issue above. A
+  // plain `.in('partner_session_id', ids)` avoids the embedded-join filter path entirely.
   let entries: PerformanceEntry[] = []
-  const { data: entryRows, error: entriesError } = await supabase
-    .from('partner_session_insights')
-    .select('extracted_at, action_items, learner_insight, partner_sessions!inner(partner_reference, partner_account_id)')
-    .eq('demo_performance_visible', true)
-    .eq('partner_sessions.partner_account_id', demoPartnerAccountId)
-    .eq('partner_sessions.partner_reference', params.slug)
-    .order('extracted_at', { ascending: false })
-    .limit(200)
+  const { data: matchingSessions, error: matchingSessionsError } = await supabase
+    .from('partner_sessions')
+    .select('id')
+    .eq('partner_account_id', demoPartnerAccountId)
+    .eq('partner_reference', params.slug)
 
-  if (entriesError) {
-    console.error(`[demo/performance] Failed to load accumulating entries for slug ${params.slug}:`, entriesError.message)
-  } else if (entryRows) {
-    entries = entryRows.map((row) => {
-      const insight = row.learner_insight as LearnerInsight | null
-      return {
-        extracted_at: row.extracted_at as string,
-        action_items: (row.action_items as { text: string }[] | null) ?? [],
-        summary: insight?.summary ?? null,
-        topics_of_interest: insight?.topics_of_interest ?? [],
-        engagement_style: insight?.engagement_style ?? null,
-        suggested_next_topics: insight?.suggested_next_topics ?? [],
-      }
-    })
+  if (matchingSessionsError) {
+    console.error(`[demo/performance] Failed to resolve sessions for slug ${params.slug}:`, matchingSessionsError.message)
+  } else if (matchingSessions && matchingSessions.length > 0) {
+    const { data: entryRows, error: entriesError } = await supabase
+      .from('partner_session_insights')
+      .select('extracted_at, action_items, learner_insight')
+      .eq('demo_performance_visible', true)
+      .in('partner_session_id', matchingSessions.map((s) => s.id as string))
+      .order('extracted_at', { ascending: false })
+      .limit(200)
+
+    if (entriesError) {
+      console.error(`[demo/performance] Failed to load accumulating entries for slug ${params.slug}:`, entriesError.message)
+    } else if (entryRows) {
+      entries = entryRows.map((row) => {
+        const insight = row.learner_insight as LearnerInsight | null
+        return {
+          extracted_at: row.extracted_at as string,
+          action_items: (row.action_items as { text: string }[] | null) ?? [],
+          summary: insight?.summary ?? null,
+          topics_of_interest: insight?.topics_of_interest ?? [],
+          engagement_style: insight?.engagement_style ?? null,
+          suggested_next_topics: insight?.suggested_next_topics ?? [],
+        }
+      })
+    }
   }
 
-  // TEMPORARY DIAGNOSTIC (2026-08-02, CEO-recommended next test) — widened from .limit(1).maybeSingle()
-  // to .limit(5) with no .maybeSingle(), so we can see PostgREST's own full ordered result set, not
-  // just the single row it collapses to. Tells us whether PostgREST's own ordering is already wrong
-  // (a real PostgREST/Data-API bug) or whether something after this point picks the wrong entry from
-  // an otherwise-correct result (a code bug). sessionRow below is still just the first item, so
-  // behavior is unchanged. Revert to .limit(1).maybeSingle() once resolved.
-  const { data: sessionRows, error: sessionRowError } = await supabase
+  const { data: sessionRows } = await supabase
     .from('partner_sessions')
     .select('id, status, hume_chat_id, created_at')
     .eq('partner_account_id', demoPartnerAccountId)
     .eq('partner_reference', params.slug)
     .order('created_at', { ascending: false })
-    .limit(5)
+    .limit(1)
 
   const sessionRow = sessionRows?.[0] ?? null
-
-  console.log('[demo/performance][DIAG]', {
-    slug: params.slug,
-    demoPartnerAccountId,
-    supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
-    nowFromServer: new Date().toISOString(),
-    top5Rows: (sessionRows ?? []).map((r) => ({ id: r.id, created_at: r.created_at, status: r.status })),
-    resolvedSessionId: sessionRow?.id ?? null,
-    resolvedSessionCreatedAt: sessionRow?.created_at ?? null,
-    resolvedSessionStatus: sessionRow?.status ?? null,
-    sessionRowError: sessionRowError?.message ?? null,
-    entriesCount: entries.length,
-    entriesErrorMessage: entriesError?.message ?? null,
-  })
 
   // duration_minutes resolution is independent of session_state (§6.2) — computed whenever
   // hume_chat_id is non-null, regardless of which branch below is taken.
@@ -187,12 +190,15 @@ export async function GET(_request: NextRequest, { params }: { params: { slug: s
     } satisfies PerformanceResponse)
   }
 
-  // sessionRow.status === 'completed' from here on.
-  const { data: insightsRow } = await supabase
+  // sessionRow.status === 'completed' from here on. Plain array fetch + [0], not .maybeSingle() —
+  // see the 2026-08-02 root-cause note above this function.
+  const { data: insightsRows } = await supabase
     .from('partner_session_insights')
     .select('extraction_status, action_items, learner_insight')
     .eq('partner_session_id', sessionRow.id as string)
-    .maybeSingle()
+    .limit(1)
+
+  const insightsRow = insightsRows?.[0] ?? null
 
   if (!insightsRow || insightsRow.extraction_status === 'pending') {
     return NextResponse.json({
@@ -222,14 +228,16 @@ export async function GET(_request: NextRequest, { params }: { params: { slug: s
   // fetched in the 'ready' branch since that's the only place the Field/Value table (and these rows)
   // render — matches the brief's "no new fetch/endpoint pattern for one field group" constraint by
   // extending this existing route rather than adding a second query path.
-  const { data: usageRow } = await supabase
+  // Plain array fetch + [0], not .maybeSingle() — see the 2026-08-02 root-cause note above.
+  const { data: usageRows } = await supabase
     .from('webhook_dispatch_log')
     .select('payload, created_at')
     .eq('clio_session_ref', sessionRow.id as string)
     .eq('event_type', 'usage.voice_minute')
     .order('created_at', { ascending: false })
     .limit(1)
-    .maybeSingle()
+
+  const usageRow = usageRows?.[0] ?? null
 
   let usage: PerformanceUsage | null = null
   if (usageRow?.payload) {

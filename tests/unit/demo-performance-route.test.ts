@@ -53,41 +53,54 @@ let usageDispatchRow: FakeUsageDispatchRow | null = null
 let entryRows: Array<{ extracted_at: string; action_items: { text: string }[] | null; learner_insight: FakeInsightsRow['learner_insight'] }> = []
 let entryRowsError: { message: string } | null = null
 
+// 2026-08-02 — root cause found: `.maybeSingle()` (optionally combined with `.limit(1)`) was
+// intermittently returning stale/wrong rows against the real Supabase project; the route now
+// fetches a plain array everywhere and takes `[0]` instead (see the route's own doc comment). This
+// mock mirrors that: every query below resolves an array, never a single collapsed object.
 vi.mock('@/lib/supabase', () => ({
   createSupabaseAdminClient: () => ({
     from: (table: string) => {
       if (table === 'partner_sessions') {
         return {
-          select: () => ({
-            eq: () => ({
+          select: (fields: string) => {
+            // The entries pipeline's first step: `select('id')`, no order/limit — just resolves
+            // which session ids belong to this account+slug. A non-empty placeholder id is enough
+            // for the mock; the second step (partner_session_insights.in(...)) is what actually
+            // controls what `entries` comes back as in these tests.
+            if (fields.trim() === 'id') {
+              return {
+                eq: () => ({
+                  eq: async () => ({ data: [{ id: 'any-matching-session-id' }], error: null }),
+                }),
+              }
+            }
+            // The latest-single-session lookup: full columns, ordered, limited to 1 — array result.
+            return {
               eq: () => ({
-                // TEMPORARY (2026-08-02) — mirrors the route's own temporary widening from
-                // .limit(1).maybeSingle() to a bare .limit(5) (CEO-recommended diagnostic, see the
-                // route's own doc comment). Revert together once resolved.
-                order: () => ({
-                  limit: async () => ({ data: sessionRow ? [sessionRow] : [], error: null }),
+                eq: () => ({
+                  order: () => ({
+                    limit: async () => ({ data: sessionRow ? [sessionRow] : [], error: null }),
+                  }),
                 }),
               }),
-            }),
-          }),
+            }
+          },
         }
       }
 
       if (table === 'partner_session_insights') {
         return {
           select: (fields: string) => {
-            // B2B-65's entries query selects the partner_sessions!inner(...) embed and is filtered
-            // by demo_performance_visible/two chained .eq()s then .order().limit() (an array
-            // result) — the pre-existing single-latest-session lookup selects plain columns and is
-            // filtered by exactly one .eq(partner_session_id) then .maybeSingle() (one row).
-            if (fields.includes('partner_sessions!inner')) {
+            // The entries query selects `extracted_at, action_items, learner_insight` (no
+            // extraction_status) and filters by demo_performance_visible + .in(partner_session_id).
+            // The single-latest-insights lookup selects extraction_status too — that's how these
+            // two shapes are told apart here.
+            if (!fields.includes('extraction_status')) {
               return {
                 eq: () => ({
-                  eq: () => ({
-                    eq: () => ({
-                      order: () => ({
-                        limit: async () => ({ data: entryRowsError ? null : entryRows, error: entryRowsError }),
-                      }),
+                  in: () => ({
+                    order: () => ({
+                      limit: async () => ({ data: entryRowsError ? null : entryRows, error: entryRowsError }),
                     }),
                   }),
                 }),
@@ -95,23 +108,21 @@ vi.mock('@/lib/supabase', () => ({
             }
             return {
               eq: () => ({
-                maybeSingle: async () => ({ data: insightsRow, error: null }),
+                limit: async () => ({ data: insightsRow ? [insightsRow] : [], error: null }),
               }),
             }
           },
         }
       }
 
-      // B2B-57a — mirrors the route's own .select().eq(clio_session_ref).eq(event_type).order().limit(1).maybeSingle() chain.
+      // B2B-57a — mirrors the route's own .select().eq(clio_session_ref).eq(event_type).order().limit(1) chain.
       if (table === 'webhook_dispatch_log') {
         return {
           select: () => ({
             eq: () => ({
               eq: () => ({
                 order: () => ({
-                  limit: () => ({
-                    maybeSingle: async () => ({ data: usageDispatchRow, error: null }),
-                  }),
+                  limit: async () => ({ data: usageDispatchRow ? [usageDispatchRow] : [], error: null }),
                 }),
               }),
             }),
