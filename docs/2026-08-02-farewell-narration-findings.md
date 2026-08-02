@@ -16,8 +16,8 @@ Update this table's Status the instant any item changes state.
 | 3 | Connect-time warm-up (voice racing / screen blur) | **Approved to build** — holding for full go-ahead across all items | §3, Issue 3 |
 | 4 | Icebreaker too small | **Approved to build** — holding for full go-ahead | §3, Issue 4 |
 | 5 | Reseller-configurable bot join-name | **Approved to build** — holding for full go-ahead | §3, Issue 5 |
-| 6 | Bounded re-teach loop redesign (progressive simplification, silence handling) | **Pending** — needs silence-detection capability check + short BA note before build | §3, Issue 6; §4 |
-| 7 | Transition-silence root cause (`advance_tab` blocks model's turn on playback catch-up) | **Active discussion now** | §3, Issue 7; see below |
+| 6 | Bounded re-teach loop redesign (progressive simplification, silence + garbled-speech handling, code-enforced correctness gate) | **Pending** — needs silence-detection check + a real code-level gate (no such flag exists today) + short BA note before build | §3, Issue 6; §4; §5 |
+| 7 | Transition-silence root cause | **Root cause refined** — not just the 8s playback wait; the per-page script phrase was skipped for the Inheritance transition, which is a deeper, related issue | §3, Issue 7; §5 |
 | 8 | Meeting-bot admission prompt (Google Meet/Teams/Zoom) | **Backlog, not priority** — deferred until #7 closes, moved to `BACKLOG.md` | §3, Issue 2; `BACKLOG.md` |
 
 ## 1. claude-ai test call (session `3eae41bf-68a7-400b-b953-36100dd94d42`, 2026-08-02 ~13:15–13:26 UTC)
@@ -212,7 +212,71 @@ final go-ahead — do not start dev work yet.
 - Not yet confirmed: exact attempt count (5), exact copy for the defer/silence messages. Recommend a
   short BA note before build, given this introduces new numeric thresholds and new spoken copy (same
   weight as B2B-66's original adaptive-teaching spec).
+- **Third branch added (2026-08-02):** garbled/unintelligible speech (present but not understandable),
+  distinct from total silence. If this repeats, gracefully say something like "I'm having trouble
+  understanding you clearly" and end the session — same graceful-exit treatment as the silence case,
+  different trigger (speech detected but not parseable, vs. no speech at all).
+- **Code-level correctness gate, not just a prompt instruction (2026-08-02):** confirmed by reading the
+  actual code — there is currently NO code-side flag or state anywhere tracking "topic complete" or
+  "verification passed." `advance_tab` takes zero parameters and its only instruction is "call this
+  when — and only when — you judge the current section is fully covered." The reason follow-up
+  questions are handled correctly today is not a real gate — it's just that the model naturally keeps
+  answering them instead of reaching for the tool. Given tonight's repeated evidence that prompt-only
+  behavioral rules get violated (the narration guard, twice, and the skipped transition phrase in item
+  7), trusting free-form model judgment alone for "did they answer correctly" carries the same risk.
+  **Recommended fix:** make `advance_tab` require an explicit signal of the verification outcome (e.g.
+  a `verification_passed: boolean` parameter, or a small separate reporting tool), and have the code
+  refuse the transition unless that's true — or the attempt-cap graceful-defer condition has been
+  reached. This is a small, narrow code change (widening a currently-empty tool schema + one
+  precondition check) and does not touch the protected B2B-59/60 debounce/dedup logic.
 
 **Issue 7 — deferred.** Arun wants items 1–6 finalized first before revisiting this one; no further
 explanation attempted yet.
+
+## 5. Issue 7 deep-dive (2026-08-02) — root cause refined, fix plan agreed
+
+**How the page-advance signal actually works (B2B-60):** each page's prompt carries its own stage
+direction: say the fixed phrase *"That covers what I wanted to walk through here"* → naturally say the
+next page's title → only then call the `advance_tab` tool. The client arms on the fixed phrase (Stage
+1), then watches for the next title (Stage 2) before trusting the transcript signal — this is a
+"natural cue" system, not literal marker words (correcting an earlier draft of this doc that assumed
+made-up marker words were meant to be spoken — they are not, since B2B-60 replaced that design; they
+now exist only as an internal dedup key).
+
+**What happened at the Inheritance transition, confirmed against the actual code and transcript:**
+Marin never said the required fixed phrase for this transition — she said "Let's take that forward
+into the next concept" instead (the same family of narration-substitution seen in items 1/2) and went
+straight into Inheritance content without it. Since Stage 1 never armed, the transcript-watch signal
+could never fire for this transition, confirmed by reading the exact client logic (`stage1ArmedRef`
+gates Stage 2 entirely). The page still visually advanced (per Arun's own observation), meaning
+`advance_tab` was called directly.
+
+**Why the silence lasted ~60s, not just ~8s:** the `waitForPlaybackCaughtUp` wait has a hard-coded
+8-second cap (confirmed by reading `waitForPlaybackToFinish` in `openai-realtime-adapter.ts` — polls
+every 100ms, cuts off at exactly `timeoutMs`), so a single call to it cannot explain a 60+ second gap
+on its own. The 8s-wait bug (already scoped for a fix above) is real and worth fixing regardless, but
+it is not the full explanation for this specific incident — skipping the scripted phrase most likely
+left Marin without a clear next line to say, and she only recovered once Arun spoke to her directly.
+No server-side logs exist for this (the whole mechanism runs client-side in the browser/bot, not a
+Vercel function), so this is the best-evidenced explanation available, not a certainty.
+
+**Fix plan (3 parts) — pending Arun's go-ahead to build:**
+1. **Unblock the tool result** (already scoped above): return `advance_tab`'s result immediately
+   instead of waiting on playback catch-up; run that wait separately, fire-and-forget. Removes the
+   artificial 8s-cap dead air regardless of cause. High confidence, narrow, doesn't touch B2B-59/60's
+   protected debounce/dedup logic.
+2. **Reinforce the per-page script instruction** so skipping the fixed phrase is less likely — same
+   category of fix as the narration guard, and that guard has now failed twice, so treat this as
+   raising the odds, not a guarantee.
+3. **New: an automatic self-recovery nudge** — since prompt-compliance alone has proven unreliable
+   three times tonight (narration guard x2, this transition-phrase skip), add a client-side watchdog:
+   if Marin goes silent for longer than a short grace window (proposing ~10–12s) with no page-advance
+   or expected event in progress, automatically send her a silent "continue" nudge — the same recovery
+   Arun did manually by asking "are you there?" — instead of relying on the participant to notice and
+   intervene. This is the part that makes the fix hold even if 1 and 2 aren't 100% effective.
+   Also add lightweight client-side logging of `advance_tab` calls and Stage 1/2 arming (fire-and-
+   forget, same pattern as the existing transcript-capture beacon) so a future incident has real
+   timing evidence instead of transcript-timestamp inference.
+
+Awaiting Arun's confirmation to build.
 
