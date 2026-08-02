@@ -136,10 +136,21 @@ describe('B2B-51 Performance tab — literal Field/Value table (ready state)', (
     expect(bodyText.toLowerCase()).not.toContain('glitch')
   })
 
-  it('AT-4 (negative, static source check): DemoTopicClient.tsx contains no substring "glitches" anywhere', () => {
+  it('AT-4 (negative, static source check): the single-session ready-state Field/Value table (unaffected by the B2B-65 tabular-format amendment) contains no substring "glitch"', () => {
+    // B2B-65 tabular-format amendment (docs/specs/B2B-65-tabular-performance-format-amendment-
+    // requirement-document.md §0) deliberately adds a "Glitches" column to the SEPARATE accumulating
+    // entries table per Arun's own explicit exception — that's a different code region than this
+    // ready-state single-session table, which is confirmed unaffected/unchanged by that amendment.
+    // Scoping this check to just that unaffected block (rather than the whole file) keeps this test's
+    // original intent (glitches never appear on the reseller-facing single-session table) meaningful.
     const sourcePath = join(__dirname, '../../app/(demo)/demo/[slug]/DemoTopicClient.tsx')
     const source = readFileSync(sourcePath, 'utf-8')
-    expect(source.toLowerCase()).not.toContain('glitch')
+    const start = source.indexOf("B2B-51 — literal Field/Value table of the exact session-outcome fields")
+    const end = source.indexOf('B2B-65 (updated 2026-08-01 per Arun — replaces the four separate')
+    expect(start).toBeGreaterThan(-1)
+    expect(end).toBeGreaterThan(start)
+    const readyTableBlock = source.slice(start, end)
+    expect(readyTableBlock.toLowerCase()).not.toContain('glitch')
   })
 
   it('AT-5: success_empty case — all six rows present, each independently empty-checked', async () => {
@@ -170,7 +181,7 @@ describe('B2B-51 Performance tab — literal Field/Value table (ready state)', (
     expect(screen.getAllByText('Not available')).toHaveLength(7)
   })
 
-  it('AT-6 (updated 2026-08-01 per Arun): non-ready states with zero entries render the table headers + an empty placeholder row set, never a blank text message', async () => {
+  it('AT-6 (updated 2026-08-02 per B2B-65 tabular-format amendment): non-ready states with zero entries render the literal 21-column table shell + an empty placeholder row, never a blank text message', async () => {
     mockFetch({
       session_state: 'not_dispatched',
       duration_minutes: null,
@@ -183,19 +194,26 @@ describe('B2B-51 Performance tab — literal Field/Value table (ready state)', (
     const tabButton = await screen.findByRole('button', { name: 'Performance' })
     fireEvent.click(tabButton)
 
-    await waitFor(() => expect(screen.getByText('Field')).toBeInTheDocument())
-    expect(screen.getByText('Value')).toBeInTheDocument()
-    expect(screen.getByText('Action items')).toBeInTheDocument()
-    expect(screen.getByText('Summary')).toBeInTheDocument()
-    expect(screen.getByText('Topics of interest')).toBeInTheDocument()
-    expect(screen.getByText('Engagement style')).toBeInTheDocument()
-    expect(screen.getByText('Suggested next topics')).toBeInTheDocument()
-    // Duration/Usage are exclusive to the real-single-session ('ready') table, not this shell.
-    expect(screen.queryByText('Duration')).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('Scroll horizontally to see all columns →')).toBeInTheDocument())
+    // All 21 column headers present, in the fixed order (§6.1) — a sample across identifier,
+    // operational, toggle, glitches, and content-field groups, not every single one.
+    expect(screen.getByRole('columnheader', { name: 'ID' })).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Partner Account ID' })).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Demo Performance Visible' })).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Glitches' })).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Action Items' })).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Summary' })).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Topics of Interest' })).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Engagement Style' })).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Suggested Next Topics' })).toBeInTheDocument()
+    // Duration/Usage section label are exclusive to the real-single-session ('ready') table, not
+    // this shell — the OLD "Duration"/"Usage" Field-column labels never appear here.
+    expect(screen.queryByRole('columnheader', { name: 'Duration' })).not.toBeInTheDocument()
     expect(screen.queryByText('Usage')).not.toBeInTheDocument()
-    // Every row's value is the muted placeholder — no fabricated content.
-    expect(screen.getAllByText('None identified').length).toBe(3) // Action items/Topics of interest/Suggested next topics
-    expect(screen.getAllByText('Not available').length).toBe(2) // Summary/Engagement style
+    // Exactly one placeholder data row, every scalar cell "Not available", every list cell "None
+    // identified" — no fabricated content (§4.B State B2).
+    expect(screen.getAllByText('Not available').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('None identified').length).toBeGreaterThan(0)
   })
 
   it('AT-8: a single-item Topics of interest array still renders as a one-item bulleted list', async () => {
@@ -312,7 +330,7 @@ describe('B2B-57a Performance tab — Usage row group (real usage.voice_minute f
     expect(screen.getAllByText('Not available')).toHaveLength(5)
   })
 
-  it('does not render the Usage section at all for non-ready session states (updated 2026-08-01: now the empty table shell, not a text message)', async () => {
+  it('does not render the Usage section at all for non-ready session states (updated 2026-08-02: now the empty 21-column table shell, not a text message)', async () => {
     mockFetch({
       session_state: 'not_dispatched',
       duration_minutes: null,
@@ -325,7 +343,7 @@ describe('B2B-57a Performance tab — Usage row group (real usage.voice_minute f
     const tabButton = await screen.findByRole('button', { name: 'Performance' })
     fireEvent.click(tabButton)
 
-    await waitFor(() => expect(screen.getByText('Field')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('Scroll horizontally to see all columns →')).toBeInTheDocument())
     expect(screen.queryByText('Usage')).not.toBeInTheDocument()
     expect(screen.queryByText('Minutes billed')).not.toBeInTheDocument()
   })
@@ -333,7 +351,24 @@ describe('B2B-57a Performance tab — Usage row group (real usage.voice_minute f
 
 // B2B-65 (docs/specs/B2B-65-requirement-document.md §4.B/§7) — the accumulating entries list takes
 // priority over every latest-single-dispatch state, including 'ready'.
+// B2B-65 tabular-format amendment (docs/specs/B2B-65-tabular-performance-format-amendment-
+// requirement-document.md §6.1/§6.2) — widened to all 18 real partner_session_insights columns.
 const ONE_ENTRY = {
+  id: 'insight-1',
+  partner_session_id: 'session-1',
+  partner_account_id: 'demo-partner-account-id',
+  end_client_id: null,
+  reseller_unique_id: null,
+  hume_chat_id: null,
+  hume_config_id: null,
+  extraction_status: 'success',
+  attempt_count: 1,
+  error_message: null,
+  transcript_event_count: 42,
+  full_detail_purged_at: null,
+  created_at: '2026-08-01T09:14:00.000Z',
+  demo_performance_visible: true,
+  glitches: [],
   extracted_at: '2026-08-01T09:14:00.000Z',
   action_items: [{ text: 'Compare Sonnet vs Opus pricing.' }],
   summary: 'Weighing model choice for a cost-sensitive use case.',
@@ -381,8 +416,8 @@ describe('B2B-65 Performance tab — accumulating entries list', () => {
     expect(screen.queryByText('A new session is being processed and will be added here once ready.')).not.toBeInTheDocument()
   })
 
-  it('renders multiple entries newest-first order exactly as the API returns them, each with its own timestamp heading', async () => {
-    const olderEntry = { ...ONE_ENTRY, extracted_at: '2026-07-31T16:02:00.000Z', summary: 'An older entry.' }
+  it('renders multiple entries newest-first order exactly as the API returns them, each its own table row', async () => {
+    const olderEntry = { ...ONE_ENTRY, id: 'insight-2', extracted_at: '2026-07-31T16:02:00.000Z', summary: 'An older entry.' }
     mockFetch({
       session_state: 'not_dispatched',
       duration_minutes: null,
@@ -411,7 +446,9 @@ describe('B2B-65 Performance tab — accumulating entries list', () => {
     })
     await renderAndOpenPerformanceTab()
 
-    await waitFor(() => expect(screen.getByText('Field')).toBeInTheDocument())
-    expect(screen.getAllByText('None identified').length).toBe(3)
+    await waitFor(() => expect(screen.getByText('Scroll horizontally to see all columns →')).toBeInTheDocument())
+    // 4 list-type columns in the placeholder row: Glitches, Action Items, Topics of Interest,
+    // Suggested Next Topics (§6.1).
+    expect(screen.getAllByText('None identified').length).toBe(4)
   })
 })

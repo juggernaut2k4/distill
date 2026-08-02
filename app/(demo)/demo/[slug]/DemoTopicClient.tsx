@@ -62,8 +62,27 @@ interface PerformanceUsage {
 
 // B2B-65 (docs/specs/B2B-65-requirement-document.md §6.4) — one accumulated, permanently-visible
 // past demo session's outcome. No Duration/Usage per entry (spec §6.4's explicit scope cut).
+// B2B-65 tabular-format amendment (docs/specs/B2B-65-tabular-performance-format-amendment-
+// requirement-document.md §6.2) — widened to mirror the API route's own widened PerformanceEntry
+// (all 18 real partner_session_insights columns) per Arun's explicit "display everything in this
+// table" instruction — a knowing, time-boxed exception, see §9 for the tracked removal commitment.
 interface PerformanceEntry {
-  extracted_at: string
+  id: string
+  partner_session_id: string
+  partner_account_id: string
+  end_client_id: string | null
+  reseller_unique_id: string | null
+  hume_chat_id: string | null
+  hume_config_id: string | null
+  extraction_status: 'pending' | 'success' | 'success_empty' | 'failed'
+  attempt_count: number
+  error_message: string | null
+  transcript_event_count: number | null
+  full_detail_purged_at: string | null
+  created_at: string
+  demo_performance_visible: boolean
+  glitches: { type: string; description: string | null }[]
+  extracted_at: string | null
   action_items: { text: string }[]
   summary: string | null
   topics_of_interest: string[]
@@ -163,6 +182,37 @@ const perfTableSectionLabelStyle = {
   marginBottom: 0,
 } as const
 
+// B2B-65 tabular-format amendment (docs/specs/B2B-65-tabular-performance-format-amendment-
+// requirement-document.md §6.3/§6.4) — literal <table> replacing the card/Field-Value stack for the
+// accumulating entries list. New, page-local style constants — none of the perfTable* constants
+// above are removed or modified, since the unrelated "ready + 0 entries" single-latest-session
+// table (above) keeps using them unchanged.
+const DEMO_PERFORMANCE_TABLE_DISPLAY_LIMIT = 3
+
+const perfEntriesScrollWrapperStyle = { overflowX: 'auto', marginTop: 'clamp(20px, 3vw, 28px)' } as const
+
+const perfEntriesCaptionStyle = { fontSize: 13, color: COLORS.textMuted, marginBottom: 8 } as const
+
+const perfEntriesTableStyle = { width: '100%', borderCollapse: 'collapse', fontSize: 13 } as const
+
+const perfEntriesThStyle = {
+  textAlign: 'left',
+  color: COLORS.textSecondary,
+  fontWeight: 600,
+  padding: '8px 12px',
+  borderBottom: `1px solid ${COLORS.border}`,
+  whiteSpace: 'nowrap',
+} as const
+
+const perfEntriesTdStyle = {
+  padding: '8px 12px',
+  borderBottom: `1px solid ${COLORS.border}`,
+  color: COLORS.textPrimary,
+  verticalAlign: 'top',
+} as const
+
+const perfEntriesMonoTdStyle = { ...perfEntriesTdStyle, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' } as const
+
 /** §6.3 — scalar fields (Duration/Summary/Engagement style): null/empty/missing-parent renders "Not
  * available" in muted color. Each row evaluates its own condition independently (§8/§9) — no row's
  * rendering depends on any other row's data being present. */
@@ -197,6 +247,50 @@ function PerfTableRow({ field, children }: { field: string; children: ReactNode 
     </div>
   )
 }
+
+// B2B-65 tabular-format amendment §6.1/§6.3 — one column definition per real
+// partner_session_insights field (18 DB columns, learner_insight's 4 sub-fields flattened, 21 total),
+// in the fixed order the spec specifies: identifiers first, then operational/diagnostic fields, then
+// the toggle flag, then glitches, then the existing 6 content fields last. Single source of truth for
+// both the <thead> and every <tr>'s cells — render(null) produces the exact same "Not
+// available"/"None identified" placeholder every other column already uses (PerfScalarCell/
+// PerfListCell's own null-handling), so State B2's placeholder row needs no separate implementation.
+interface EntryColumn {
+  header: string
+  mono?: boolean
+  minWidth?: number
+  render: (entry: PerformanceEntry | null) => ReactNode
+}
+
+const ENTRY_COLUMNS: EntryColumn[] = [
+  { header: 'ID', mono: true, minWidth: 140, render: (e) => <PerfScalarCell value={e?.id ?? null} /> },
+  { header: 'Session ID', mono: true, minWidth: 140, render: (e) => <PerfScalarCell value={e?.partner_session_id ?? null} /> },
+  { header: 'Partner Account ID', mono: true, minWidth: 140, render: (e) => <PerfScalarCell value={e?.partner_account_id ?? null} /> },
+  { header: 'End Client ID', mono: true, minWidth: 140, render: (e) => <PerfScalarCell value={e?.end_client_id ?? null} /> },
+  { header: 'Reseller Unique ID', render: (e) => <PerfScalarCell value={e?.reseller_unique_id ?? null} /> },
+  { header: 'Hume Chat ID', render: (e) => <PerfScalarCell value={e?.hume_chat_id ?? null} /> },
+  { header: 'Hume Config ID', render: (e) => <PerfScalarCell value={e?.hume_config_id ?? null} /> },
+  { header: 'Extraction Status', render: (e) => <PerfScalarCell value={e?.extraction_status ?? null} /> },
+  { header: 'Attempt Count', render: (e) => <PerfScalarCell value={e?.attempt_count ?? null} /> },
+  { header: 'Error Message', render: (e) => <PerfScalarCell value={e?.error_message ?? null} /> },
+  { header: 'Transcript Event Count', render: (e) => <PerfScalarCell value={e?.transcript_event_count ?? null} /> },
+  { header: 'Full Detail Purged At', render: (e) => <PerfScalarCell value={e?.full_detail_purged_at ? formatSavedAt(e.full_detail_purged_at) : null} /> },
+  { header: 'Created At', render: (e) => <PerfScalarCell value={e?.created_at ? formatSavedAt(e.created_at) : null} /> },
+  { header: 'Demo Performance Visible', render: (e) => <PerfScalarCell value={e ? (e.demo_performance_visible ? 'Yes' : 'No') : null} /> },
+  {
+    header: 'Glitches',
+    minWidth: 220,
+    render: (e) => (
+      <PerfListCell items={e?.glitches?.map((g) => (g.description ? `${g.type}: ${g.description}` : g.type)) ?? null} />
+    ),
+  },
+  { header: 'Extracted At', render: (e) => <PerfScalarCell value={e?.extracted_at ? formatSavedAt(e.extracted_at) : null} /> },
+  { header: 'Action Items', minWidth: 220, render: (e) => <PerfListCell items={e?.action_items?.map((item) => item.text) ?? null} /> },
+  { header: 'Summary', render: (e) => <PerfScalarCell value={e?.summary ?? null} /> },
+  { header: 'Topics of Interest', minWidth: 220, render: (e) => <PerfListCell items={e?.topics_of_interest ?? null} /> },
+  { header: 'Engagement Style', render: (e) => <PerfScalarCell value={e?.engagement_style ?? null} /> },
+  { header: 'Suggested Next Topics', minWidth: 220, render: (e) => <PerfListCell items={e?.suggested_next_topics ?? null} /> },
+]
 
 /** Both demo topics now have a full set of static visual pages under /demo/{slug}/visuals/{chapterId}. */
 const VISUAL_TOPICS = new Set(['claude-ai', 'oop-fundamentals'])
@@ -886,61 +980,45 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
                   {(performanceData.session_state === 'in_progress' || performanceData.session_state === 'pending_extraction') && (
                     <p style={perfEntriesProcessingNoteStyle}>A new session is being processed and will be added here once ready.</p>
                   )}
-                  <div style={perfTableWrapperStyle}>
-                    <div style={perfTableRowStyle}>
-                      <div style={perfTableHeaderCellStyle}>Field</div>
-                      <div style={perfTableHeaderCellStyle}>Value</div>
-                    </div>
-
-                    {(performanceData.entries ?? []).length > 0 ? (
-                      (performanceData.entries ?? []).map((entry, i) => (
-                        <div key={i} style={perfEntryCardStyle}>
-                          <p style={perfEntryTimestampStyle}>{formatSavedAt(entry.extracted_at)}</p>
-
-                          <PerfTableRow field="Action items">
-                            <PerfListCell items={entry.action_items.map((item) => item.text)} />
-                          </PerfTableRow>
-
-                          <PerfTableRow field="Summary">
-                            <PerfScalarCell value={entry.summary} />
-                          </PerfTableRow>
-
-                          <PerfTableRow field="Topics of interest">
-                            <PerfListCell items={entry.topics_of_interest} />
-                          </PerfTableRow>
-
-                          <PerfTableRow field="Engagement style">
-                            <PerfScalarCell value={entry.engagement_style} />
-                          </PerfTableRow>
-
-                          <PerfTableRow field="Suggested next topics">
-                            <PerfListCell items={entry.suggested_next_topics} />
-                          </PerfTableRow>
-                        </div>
-                      ))
-                    ) : (
-                      <>
-                        <PerfTableRow field="Action items">
-                          <PerfListCell items={null} />
-                        </PerfTableRow>
-
-                        <PerfTableRow field="Summary">
-                          <PerfScalarCell value={null} />
-                        </PerfTableRow>
-
-                        <PerfTableRow field="Topics of interest">
-                          <PerfListCell items={null} />
-                        </PerfTableRow>
-
-                        <PerfTableRow field="Engagement style">
-                          <PerfScalarCell value={null} />
-                        </PerfTableRow>
-
-                        <PerfTableRow field="Suggested next topics">
-                          <PerfListCell items={null} />
-                        </PerfTableRow>
-                      </>
-                    )}
+                  {/* REMOVE BEFORE PRODUCTION — all 21 partner_session_insights columns, including
+                      internal IDs and glitches, are shown here per Arun's own explicit 2026-08-02
+                      exception (docs/specs/B2B-65-tabular-performance-format-amendment-requirement-
+                      document.md). Arun has personally committed to removing this table before
+                      production. */}
+                  <div style={perfEntriesScrollWrapperStyle}>
+                    <p style={perfEntriesCaptionStyle}>Scroll horizontally to see all columns →</p>
+                    <table style={perfEntriesTableStyle}>
+                      <thead>
+                        <tr>
+                          {ENTRY_COLUMNS.map((col) => (
+                            <th key={col.header} style={col.minWidth ? { ...perfEntriesThStyle, minWidth: col.minWidth } : perfEntriesThStyle}>
+                              {col.header}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(performanceData.entries ?? []).length > 0 ? (
+                          performanceData.entries.slice(0, DEMO_PERFORMANCE_TABLE_DISPLAY_LIMIT).map((entry) => (
+                            <tr key={entry.id}>
+                              {ENTRY_COLUMNS.map((col) => (
+                                <td key={col.header} style={col.mono ? perfEntriesMonoTdStyle : perfEntriesTdStyle}>
+                                  {col.render(entry)}
+                                </td>
+                              ))}
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            {ENTRY_COLUMNS.map((col) => (
+                              <td key={col.header} style={col.mono ? perfEntriesMonoTdStyle : perfEntriesTdStyle}>
+                                {col.render(null)}
+                              </td>
+                            ))}
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
                   </div>
                 </>
               )}

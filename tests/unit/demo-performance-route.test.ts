@@ -50,7 +50,51 @@ let insightsRow: FakeInsightsRow | null = null
 let usageDispatchRow: FakeUsageDispatchRow | null = null
 // B2B-65 (docs/specs/B2B-65-requirement-document.md §6.4) — the accumulating entries list, returned
 // by a SECOND, differently-shaped query against the same partner_session_insights table.
-let entryRows: Array<{ extracted_at: string; action_items: { text: string }[] | null; learner_insight: FakeInsightsRow['learner_insight'] }> = []
+// B2B-65 tabular-format amendment (docs/specs/B2B-65-tabular-performance-format-amendment-
+// requirement-document.md §6.2) — widened to all 18 real partner_session_insights columns.
+interface FakeEntryRow {
+  id: string
+  partner_session_id: string
+  partner_account_id: string
+  end_client_id: string | null
+  reseller_unique_id: string | null
+  hume_chat_id: string | null
+  hume_config_id: string | null
+  extraction_status: string
+  attempt_count: number
+  error_message: string | null
+  transcript_event_count: number | null
+  full_detail_purged_at: string | null
+  created_at: string
+  demo_performance_visible: boolean
+  glitches: { type: string; description: string | null }[]
+  extracted_at: string
+  action_items: { text: string }[] | null
+  learner_insight: FakeInsightsRow['learner_insight']
+}
+
+function makeEntryRow(overrides: Partial<FakeEntryRow> & Pick<FakeEntryRow, 'extracted_at' | 'action_items' | 'learner_insight'>): FakeEntryRow {
+  return {
+    id: 'entry-id',
+    partner_session_id: 'session-id',
+    partner_account_id: 'demo-partner-account-id',
+    end_client_id: null,
+    reseller_unique_id: null,
+    hume_chat_id: null,
+    hume_config_id: null,
+    extraction_status: 'success',
+    attempt_count: 1,
+    error_message: null,
+    transcript_event_count: null,
+    full_detail_purged_at: null,
+    created_at: overrides.extracted_at,
+    demo_performance_visible: true,
+    glitches: [],
+    ...overrides,
+  }
+}
+
+let entryRows: FakeEntryRow[] = []
 let entryRowsError: { message: string } | null = null
 
 // 2026-08-02 — root cause found: `.maybeSingle()` (optionally combined with `.limit(1)`) was
@@ -91,11 +135,12 @@ vi.mock('@/lib/supabase', () => ({
       if (table === 'partner_session_insights') {
         return {
           select: (fields: string) => {
-            // The entries query selects `extracted_at, action_items, learner_insight` (no
-            // extraction_status) and filters by demo_performance_visible + .in(partner_session_id).
-            // The single-latest-insights lookup selects extraction_status too — that's how these
-            // two shapes are told apart here.
-            if (!fields.includes('extraction_status')) {
+            // The entries query (B2B-65 tabular-format amendment) selects all 18 real columns,
+            // including demo_performance_visible/glitches, and filters by demo_performance_visible +
+            // .in(partner_session_id). The single-latest-insights lookup selects only
+            // `extraction_status, action_items, learner_insight` — `demo_performance_visible` is the
+            // disambiguator between the two shapes now that both include `extraction_status`.
+            if (fields.includes('demo_performance_visible')) {
               return {
                 eq: () => ({
                   in: () => ({
@@ -400,10 +445,24 @@ describe('GET /api/demo/[slug]/performance', () => {
 
   // B2B-65 (docs/specs/B2B-65-requirement-document.md §6.4/§7) — the accumulating entries list,
   // independent of the latest-single-session lookup above.
-  describe('entries (accumulating list, B2B-65)', () => {
-    it('maps each entry row to the entries field shape, newest-first as returned by the query', async () => {
+  describe('entries (accumulating list, B2B-65 + tabular-format amendment)', () => {
+    it('maps each entry row to the widened (all 18 real columns) entries field shape, newest-first as returned by the query', async () => {
       entryRows = [
-        {
+        makeEntryRow({
+          id: 'insight-1',
+          partner_session_id: 'session-1',
+          partner_account_id: 'demo-partner-account-id',
+          end_client_id: 'client-1',
+          reseller_unique_id: 'ru-1',
+          hume_chat_id: 'hc_abc123',
+          hume_config_id: 'cfg-1',
+          extraction_status: 'success',
+          attempt_count: 1,
+          error_message: null,
+          transcript_event_count: 42,
+          full_detail_purged_at: null,
+          demo_performance_visible: true,
+          glitches: [{ type: 'misunderstanding', description: 'asked twice about pricing tiers' }],
           extracted_at: '2026-08-01T09:14:00.000Z',
           action_items: [{ text: 'Compare Sonnet vs Opus pricing.' }],
           learner_insight: {
@@ -412,13 +471,28 @@ describe('GET /api/demo/[slug]/performance', () => {
             engagement_style: 'Asks pointed, comparison-driven questions.',
             suggested_next_topics: ['Choosing the Right Model deep-dive'],
           },
-        },
+        }),
       ]
       sessionRow = { id: 's1', status: 'requested', hume_chat_id: null, created_at: '2026-07-23T00:00:00.000Z' }
       const res = await GET(getRequest(), { params: { slug: 'claude-ai' } })
       const body = await res.json()
       expect(body.entries).toEqual([
         {
+          id: 'insight-1',
+          partner_session_id: 'session-1',
+          partner_account_id: 'demo-partner-account-id',
+          end_client_id: 'client-1',
+          reseller_unique_id: 'ru-1',
+          hume_chat_id: 'hc_abc123',
+          hume_config_id: 'cfg-1',
+          extraction_status: 'success',
+          attempt_count: 1,
+          error_message: null,
+          transcript_event_count: 42,
+          full_detail_purged_at: null,
+          created_at: '2026-08-01T09:14:00.000Z',
+          demo_performance_visible: true,
+          glitches: [{ type: 'misunderstanding', description: 'asked twice about pricing tiers' }],
           extracted_at: '2026-08-01T09:14:00.000Z',
           action_items: [{ text: 'Compare Sonnet vs Opus pricing.' }],
           summary: 'Weighing model choice for a cost-sensitive use case.',
@@ -429,9 +503,37 @@ describe('GET /api/demo/[slug]/performance', () => {
       ])
     })
 
+    it('null/absent fields on a row fall back correctly (end_client_id, reseller_unique_id, error_message, glitches, learner_insight all null/empty)', async () => {
+      entryRows = [
+        makeEntryRow({
+          extracted_at: '2026-08-01T09:14:00.000Z',
+          action_items: null,
+          learner_insight: null,
+        }),
+      ]
+      sessionRow = null
+      const res = await GET(getRequest(), { params: { slug: 'claude-ai' } })
+      const body = await res.json()
+      expect(body.entries[0]).toMatchObject({
+        end_client_id: null,
+        reseller_unique_id: null,
+        hume_chat_id: null,
+        hume_config_id: null,
+        error_message: null,
+        transcript_event_count: null,
+        full_detail_purged_at: null,
+        glitches: [],
+        action_items: [],
+        summary: null,
+        topics_of_interest: [],
+        engagement_style: null,
+        suggested_next_topics: [],
+      })
+    })
+
     it('entries render even when the latest dispatch has extraction_failed (priority over the latest-session error state, AT §7)', async () => {
       entryRows = [
-        {
+        makeEntryRow({
           extracted_at: '2026-07-31T16:02:00.000Z',
           action_items: [],
           learner_insight: {
@@ -440,7 +542,7 @@ describe('GET /api/demo/[slug]/performance', () => {
             engagement_style: 'Listens fully before asking questions.',
             suggested_next_topics: ['What Is Claude? recap'],
           },
-        },
+        }),
       ]
       sessionRow = { id: 's1', status: 'completed', hume_chat_id: 'chat-1', created_at: '2026-07-23T00:00:00.000Z' }
       insightsRow = { extraction_status: 'failed', action_items: null, learner_insight: null }
@@ -453,11 +555,11 @@ describe('GET /api/demo/[slug]/performance', () => {
 
     it('entries render even when the latest dispatch is still in_progress', async () => {
       entryRows = [
-        {
+        makeEntryRow({
           extracted_at: '2026-07-31T16:02:00.000Z',
           action_items: [],
           learner_insight: null,
-        },
+        }),
       ]
       sessionRow = { id: 's1', status: 'bot_active', hume_chat_id: null, created_at: '2026-07-23T00:00:00.000Z' }
       const res = await GET(getRequest(), { params: { slug: 'claude-ai' } })
@@ -483,7 +585,7 @@ describe('GET /api/demo/[slug]/performance', () => {
       // into the query at all, which is what makes real per-topic scoping possible against a real
       // database. A true cross-slug isolation test belongs at the integration/DB level; this unit
       // test's job is confirming the route never hardcodes or drops the slug filter.
-      entryRows = [{ extracted_at: '2026-08-01T00:00:00.000Z', action_items: [], learner_insight: null }]
+      entryRows = [makeEntryRow({ extracted_at: '2026-08-01T00:00:00.000Z', action_items: [], learner_insight: null })]
       sessionRow = null
       const res = await GET(getRequest('oop-fundamentals'), { params: { slug: 'oop-fundamentals' } })
       const body = await res.json()

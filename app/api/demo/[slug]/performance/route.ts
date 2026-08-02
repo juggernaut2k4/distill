@@ -55,8 +55,28 @@ interface PerformanceUsage {
 // reasoning: both are live/derived lookups today, not stored values — re-deriving them per
 // historical entry on every public page load adds cost for fields never described as needing to
 // accumulate).
+// B2B-65 tabular-format amendment (docs/specs/B2B-65-tabular-performance-format-amendment-
+// requirement-document.md §6.2) — widened from 6 to all 18 real partner_session_insights columns
+// (learner_insight's 4 sub-fields kept flattened, as before) per Arun's explicit "display
+// everything in this table" instruction — a knowing, time-boxed exception, see the requirement
+// document's §9 for the tracked removal commitment.
 interface PerformanceEntry {
-  extracted_at: string
+  id: string
+  partner_session_id: string
+  partner_account_id: string
+  end_client_id: string | null
+  reseller_unique_id: string | null
+  hume_chat_id: string | null
+  hume_config_id: string | null
+  extraction_status: 'pending' | 'success' | 'success_empty' | 'failed'
+  attempt_count: number
+  error_message: string | null
+  transcript_event_count: number | null
+  full_detail_purged_at: string | null
+  created_at: string
+  demo_performance_visible: boolean
+  glitches: { type: string; description: string | null }[]
+  extracted_at: string | null
   action_items: { text: string }[]
   summary: string | null
   topics_of_interest: string[]
@@ -130,7 +150,9 @@ export async function GET(_request: NextRequest, { params }: { params: { slug: s
   } else if (matchingSessions && matchingSessions.length > 0) {
     const { data: entryRows, error: entriesError } = await supabase
       .from('partner_session_insights')
-      .select('extracted_at, action_items, learner_insight')
+      .select(
+        'id, partner_session_id, partner_account_id, end_client_id, reseller_unique_id, hume_chat_id, hume_config_id, extraction_status, attempt_count, error_message, transcript_event_count, full_detail_purged_at, created_at, demo_performance_visible, glitches, extracted_at, action_items, learner_insight'
+      )
       .eq('demo_performance_visible', true)
       .in('partner_session_id', matchingSessions.map((s) => s.id as string))
       .order('extracted_at', { ascending: false })
@@ -142,7 +164,22 @@ export async function GET(_request: NextRequest, { params }: { params: { slug: s
       entries = entryRows.map((row) => {
         const insight = row.learner_insight as LearnerInsight | null
         return {
-          extracted_at: row.extracted_at as string,
+          id: row.id as string,
+          partner_session_id: row.partner_session_id as string,
+          partner_account_id: row.partner_account_id as string,
+          end_client_id: (row.end_client_id as string | null) ?? null,
+          reseller_unique_id: (row.reseller_unique_id as string | null) ?? null,
+          hume_chat_id: (row.hume_chat_id as string | null) ?? null,
+          hume_config_id: (row.hume_config_id as string | null) ?? null,
+          extraction_status: row.extraction_status as PerformanceEntry['extraction_status'],
+          attempt_count: row.attempt_count as number,
+          error_message: (row.error_message as string | null) ?? null,
+          transcript_event_count: (row.transcript_event_count as number | null) ?? null,
+          full_detail_purged_at: (row.full_detail_purged_at as string | null) ?? null,
+          created_at: row.created_at as string,
+          demo_performance_visible: row.demo_performance_visible as boolean,
+          glitches: (row.glitches as { type: string; description: string | null }[] | null) ?? [],
+          extracted_at: (row.extracted_at as string | null) ?? null,
           action_items: (row.action_items as { text: string }[] | null) ?? [],
           summary: insight?.summary ?? null,
           topics_of_interest: insight?.topics_of_interest ?? [],
