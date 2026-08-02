@@ -144,6 +144,8 @@ export async function GET(_request: NextRequest, { params }: { params: { slug: s
   console.log('[demo/performance][DIAG]', {
     slug: params.slug,
     demoPartnerAccountId,
+    supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    nowFromServer: new Date().toISOString(),
     resolvedSessionId: sessionRow?.id ?? null,
     resolvedSessionCreatedAt: sessionRow?.created_at ?? null,
     resolvedSessionStatus: sessionRow?.status ?? null,
