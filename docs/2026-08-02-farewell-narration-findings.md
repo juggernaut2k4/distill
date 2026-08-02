@@ -79,5 +79,91 @@ back to life three separate times mid-call:
 Each followed a topic-transition line, suggesting a multi-second dead-air gap between the transition
 narration and the next section's content (possibly a tool-call/latency gap with no filler speech to
 bridge it). Not something tonight's changes touched — flagged as a distinct, separate issue for
-awareness, not diagnosed.
+awareness, not diagnosed. **See item 7 below — the CEO agent traced this to the same root cause as
+Arun's issue #7.**
+
+## 3. Six additional issues Arun identified directly (2026-08-02), CEO agent analysis — no code changes yet
+
+Arun's own numbering preserved (his "1" was a separate item handled elsewhere). Each entry:
+what's going on, proposed fix, confidence, build path.
+
+### Issue 2 — bot admission in Google Meet ("unverified" knock prompt)
+**What:** Both meeting-bot providers (Attendee.dev, the current default in `lib/meeting-bot/attendee.ts`,
+and Recall.ai, kept as rollback in `lib/recall.ts`) join a meeting as an anonymous guest via the raw
+meeting URL. Neither authenticates as a trusted Google identity, so Meet's "Quick access"/knock gate
+treats the bot like any unknown participant.
+**Fix:** not a code fix — the lever is the Google Meet host/Workspace setting ("Quick access" /
+disabling host management removes the knock prompt for everyone, bot included). No vendor API flag on
+either platform pre-authorizes a bot identity into Meet.
+**Confidence:** medium — grounded in how both integrations actually join, but no live vendor-doc deep
+dive done yet to confirm neither has an allowlist feature.
+**Build path:** not a code problem — host-side Google Workspace config; worth a line in partner
+onboarding docs.
+
+### Issue 3 — initial voice racing / screen blur, needs a warm-up
+**What:** `PartnerRenderClient.tsx` renders real content the instant it mounts — connection `status`
+is tracked but never gates visibility. Voice starts playing the moment the first audio chunk arrives,
+no pre-buffer.
+**Fix:** add a full-screen loading state gated on `status === 'connecting'` (hide content until
+"listening"/connected), plus a short gain fade-in (~300ms) on first audio chunk in both voice adapters.
+**Confidence:** high on root cause (no gating exists today); medium on whether this fully resolves the
+"blur" feeling, since meeting-bot screen capture may have its own contributing factors.
+**Build path:** ready to build directly — pure technical/UX polish, no BA gate needed.
+
+### Issue 4 — icebreaker too small
+**What:** The production-default ("template" mode) prompt variant has no icebreaker instruction beyond
+"open warmly" — it jumps straight to the scripted overview. The fuller icebreaker Arun describes only
+exists in the unused-by-default "inline" variant, and even there it's optional, not mandated.
+**Fix:** rewrite the template-mode opening rule in both `lib/voice/openai-realtime-prompt-template.ts`
+and `lib/voice/hume-native/prompt-template.ts` to require: greet → ask how they're doing, tied to the
+topic → brief encouragement/confidence note → wait for response → then the existing scripted overview.
+**Confidence:** high — clean, verifiable gap.
+**Build path:** ready to build directly — narrow prompt-copy fix, does not touch transitions/advancement.
+
+### Issue 5 — reseller-configurable bot name
+**What:** `assistantDisplayName` (partner theme field) is already fully wired for the *spoken* persona
+in both prompt templates. The only gap is the bot's *join name* in the meeting — hardcoded to `'Clio'`
+(`lib/meeting-bot/attendee.ts:65`) and `'Clio AI Coach'` (`lib/recall.ts:56`), neither reads the
+partner's theme.
+**Fix:** thread `assistantDisplayName` through the dispatch call chain (`lib/partner/session-init.ts`
+has the session ref but not the theme lookup today) into `createBot`'s `bot_name` param for both
+providers, falling back to "Clio." Also confirmed: "responds when called by name" already works
+implicitly — the model is told "You are {assistantName}," which is sufficient for it to respond when
+addressed.
+**Confidence:** high — clean, fully-traced wiring gap.
+**Build path:** ready to build directly — pure wiring; the reseller-facing field already exists and is
+approved.
+
+### Issue 6 — bounded re-teach loop on wrong answers
+**What:** Already built. `buildAdaptiveUnderstandingGuidance()` (both templates, gated on
+`HUME_NATIVE_ADAPTIVE_TEACHING_ENABLED`, confirmed on in production) does most of this: benefit of the
+doubt on garbled STT → if genuinely wrong, re-explain once from a different angle → ask a new
+verification question → then moves on regardless of the second answer.
+**Gap vs. Arun's ask:** he wants it to keep going until the participant gets it right, not cap at one
+re-explanation and move on anyway. Real, specific difference — not a bug.
+**Confidence:** high that the feature exists and is live; medium on the exact fix, since a truly
+unbounded loop risks getting stuck if a participant never gets it.
+**Build path:** narrow prompt-copy tweak, ready to build directly — but the exact cap (CEO agent's
+proposal: two re-explanations max, three attempts total, then move on) is a small product call worth
+Arun confirming rather than guessing silently.
+
+### Issue 7 — silence after a transition whose phrasing misses the marker format
+**What:** Traced to a real mechanism, not a phrasing/prompt gap alone. `advance_tab`'s handler in
+`PartnerRenderClient.tsx` awaits `adapterRef.current?.waitForPlaybackCaughtUp?.()` *before* returning
+its result — and in `openai-realtime-adapter.ts`, that result gates sending `function_call_output` +
+the follow-up `response.create` back to OpenAI. Every transition forces the model to wait (bounded by
+an 8-second timeout) before it's allowed to keep talking. If the local audio queue doesn't drain
+cleanly, that's up to 8s of dead air by design — matching exactly where the OOP transcript went silent
+(right after transition lines, at the inheritance transition and the topic's last page — see item 2
+above).
+**Fix:** split the two responsibilities — return the tool result (unblocking `response.create`)
+immediately, let the visual page-advance + its playback-catch-up wait run separately, fire-and-forget.
+Touches only `inlineTools.advance_tab` in `PartnerRenderClient.tsx` and the OpenAI adapter's tool-dispatch
+path. Does **not** touch `firedMarkers` dedup or `ADVANCE_DEBOUNCE_MS` in `lib/partner/advance-transition.ts`
+— the protected B2B-59/60 logic from the confirmed-good milestone (commit `dcda410`) stays untouched.
+**Confidence:** medium-high — the code path is real and explains the symptom, but not yet reproduced
+live, so a second contributing factor isn't ruled out.
+**Build path:** ready to build directly as a narrow, isolated adapter fix — but given it sits right next
+to the B2B-58/59/60 milestone, do a live test-call verification pass immediately after building, before
+calling it closed. Same discipline as the other narrow fixes, not a full BA spec.
 
