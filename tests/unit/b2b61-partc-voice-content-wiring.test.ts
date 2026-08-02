@@ -142,7 +142,7 @@ describe('B2B-68 — the new OpenAI prompt template is genuinely self-contained'
   })
 
   it('OPENAI_PROMPT_TEMPLATE_VERSION is exported and versioned independently of the shared template\'s PROMPT_TEMPLATE_VERSION', () => {
-    expect(OPENAI_PROMPT_TEMPLATE_VERSION).toBe('v1')
+    expect(OPENAI_PROMPT_TEMPLATE_VERSION).toBe('v2')
   })
 
   it('consolidates the old persona\'s 6 overlapping "warm/calm/unhurried" sections down to === HOW YOU SOUND ===\'s 3 tight, non-overlapping ones (Pacing/Pronunciation/Teaching manner) — no leftover "Accent/Affect"/"Personality Affect"/"Emotion"/"Interaction Style"/"Overall Experience" section headers', () => {
@@ -250,10 +250,15 @@ describe('B2B-68 — transition/advancement substance is unchanged (Arun\'s expl
   it('rule 3 (show_visual) core mechanics/anti-narration guard are byte-for-byte identical between the two files', () => {
     const humeRule3 = extractRule(humeSource, '3. For every section', '4. After teaching')
     const openaiRule3 = extractRule(OPENAI_REALTIME_PROMPT_TEMPLATE, '3. For every section', '4. After teaching')
-    // Hume's rule 3 has an extra trailing ${ADAPTIVE_DELIVERY_PLACEHOLDER} token (B2B-66, an
-    // optional toggle-gated addition deliberately not ported to this new file, per its own doc
-    // comment) — stripping that one token is the only allowed difference.
-    expect(humeRule3.replace('${ADAPTIVE_DELIVERY_PLACEHOLDER}', '')).toBe(openaiRule3)
+    // B2B-69 ported B2B-66's adaptive-teaching placeholder to this file too, in the same position
+    // — both files now carry their own equivalent, toggle-gated placeholder token here (Hume's raw
+    // source still has the unevaluated `${ADAPTIVE_DELIVERY_PLACEHOLDER}` syntax since humeSource is
+    // read via fs.readFileSync; OPENAI_REALTIME_PROMPT_TEMPLATE is imported as an evaluated JS
+    // value, so its own placeholder already resolved to its literal bracketed value at module load).
+    // Stripping each file's own placeholder token is the only allowed difference.
+    expect(humeRule3.replace('${ADAPTIVE_DELIVERY_PLACEHOLDER}', '')).toBe(
+      openaiRule3.replace('[ADAPTIVE DELIVERY GUIDANCE]', '')
+    )
   })
 
   it('rule 5 (advance_tab) is byte-for-byte identical between the two files', () => {

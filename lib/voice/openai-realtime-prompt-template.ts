@@ -75,7 +75,7 @@
  * left out rather than silently guessed at.
  */
 
-export const OPENAI_PROMPT_TEMPLATE_VERSION = 'v1'
+export const OPENAI_PROMPT_TEMPLATE_VERSION = 'v2'
 
 /**
  * Placeholder tags — exact, unique, uppercase, bracketed strings used for safe find-and-replace by
@@ -95,6 +95,18 @@ export const OPENAI_AUDIENCE_PLACEHOLDER = '[AUDIENCE]'
 export const OPENAI_PARTICIPANT_NAME_PLACEHOLDER = '[PARTICIPANT NAME]'
 export const OPENAI_INDUSTRY_CLAUSE_PLACEHOLDER = '[INDUSTRY CLAUSE]'
 export const OPENAI_LANGUAGE_INSTRUCTION_PLACEHOLDER = '[LANGUAGE INSTRUCTION]'
+
+/**
+ * B2B-69 — ports B2B-66's adaptive-teaching guidance (own-words delivery + bounded re-teach loop)
+ * to this OpenAI-only template, per Arun's direct follow-up ("i wanted adaptive learning in openAI
+ * prompt"). Identical wording and identical gate (`HUME_NATIVE_ADAPTIVE_TEACHING_ENABLED`, kept
+ * as-is rather than introduced under a new name — Arun's own prior instruction was "keep it,
+ * cleanup [the misleading name] later," not to fork a second flag) to the Hume template's own
+ * ADAPTIVE_DELIVERY_PLACEHOLDER/ADAPTIVE_UNDERSTANDING_PLACEHOLDER. Resolves to '' unless the flag
+ * is the literal string 'true' (default OFF, byte-identical to pre-B2B-69 output either way).
+ */
+export const OPENAI_ADAPTIVE_DELIVERY_PLACEHOLDER = '[ADAPTIVE DELIVERY GUIDANCE]'
+export const OPENAI_ADAPTIVE_UNDERSTANDING_PLACEHOLDER = '[ADAPTIVE UNDERSTANDING GUIDANCE]'
 
 /** Mirrors SessionContentMode from the shared Hume template — same two values, same meaning. */
 export type OpenAISessionContentMode = 'inline' | 'template'
@@ -190,11 +202,11 @@ below by which phase of the call they govern.
    Simply call the tool and move directly into teaching — never announce or
    describe that you are pulling up the visual (e.g. never say "let me bring
    up the next visual" or "I'll set up the visual so it's clear"); just call
-   it and continue speaking.
+   it and continue speaking.${OPENAI_ADAPTIVE_DELIVERY_PLACEHOLDER}
 4. After teaching a section's core content, ask a verification question to
    confirm understanding before moving on. Listen to the answer and respond
    naturally — affirm what's correct, gently correct what's off, and adapt
-   your depth to their response.
+   your depth to their response.${OPENAI_ADAPTIVE_UNDERSTANDING_PLACEHOLDER}
 5. When you judge a section is complete (content delivered, verification
    question asked and answered, participant ready to continue), call the
    advance_tab tool and move on. advance_tab is the only tool that advances
@@ -388,6 +400,49 @@ function resolveSessionContentMode(mode: OpenAISessionContentMode | undefined): 
 }
 
 /**
+ * B2B-69 — ported verbatim from the Hume template's buildAdaptiveDeliveryGuidance(). Same wording,
+ * same gate. See OPENAI_ADAPTIVE_DELIVERY_PLACEHOLDER's doc comment above.
+ */
+function buildAdaptiveDeliveryGuidance(): string {
+  const enabled = process.env.HUME_NATIVE_ADAPTIVE_TEACHING_ENABLED === 'true'
+  if (!enabled) return ''
+  return ' When you begin covering a section\'s content, do not read it verbatim as written — explain ' +
+    'it in your own words, the way a person teaching the material would: restate the core idea in ' +
+    'natural spoken language, and add at least one of your own supporting examples, analogies, or ' +
+    'illustrations grounded in what SESSION CONTENT and PARTICIPANT CONTEXT actually establish. Never ' +
+    'introduce a fact, statistic, or claim that SESSION CONTENT does not support. This changes how you ' +
+    'explain the material, not how much of it you cover — a well-explained section is not automatically ' +
+    'longer than reading the script, and a section the participant already understands does not need ' +
+    'extra length just because this instruction is active.'
+}
+
+/**
+ * B2B-69 — ported verbatim from the Hume template's buildAdaptiveUnderstandingGuidance(). Same
+ * wording, same gate. See OPENAI_ADAPTIVE_UNDERSTANDING_PLACEHOLDER's doc comment above.
+ */
+function buildAdaptiveUnderstandingGuidance(): string {
+  const enabled = process.env.HUME_NATIVE_ADAPTIVE_TEACHING_ENABLED === 'true'
+  if (!enabled) return ''
+  return ' When you listen to their answer, first judge whether it plausibly reflects real ' +
+    'understanding — keep in mind that speech-to-text can turn a perfectly fine answer into something ' +
+    'that sounds fragmented, incomplete, or oddly worded, so give the participant the benefit of the ' +
+    'doubt on phrasing and disfluency, and only treat an answer as a genuine gap in understanding when ' +
+    'its substance, not just its wording, is actually wrong or clearly confused. If the answer plausibly ' +
+    'reflects understanding — even if awkward, partial, or odd-sounding due to likely transcription ' +
+    'noise — affirm it naturally and move on; do not re-teach. If the answer indicates a real gap in ' +
+    'understanding, or the participant gives no answer, says "I don\'t know," or otherwise indicates ' +
+    'they didn\'t follow — re-explain the concept exactly once, from a genuinely different angle than ' +
+    'your first explanation (a new example, a new analogy, or a different framing — never simply the ' +
+    'same sentence rephrased), then ask one new, distinct verification question to check understanding ' +
+    'again. Whatever their answer to that second question, move on afterward regardless — do not ' +
+    're-explain a third time even if understanding still seems shaky; simply let the session continue. ' +
+    'Separately from this understanding check, look for a natural moment to invite them to elaborate ' +
+    'with an open-ended question — for example, asking what part is most relevant to their own ' +
+    'situation, or what they\'re hoping to get out of this topic — rather than relying only on yes/no ' +
+    'questions, so the conversation surfaces more of what they actually think and want.'
+}
+
+/**
  * Pure string-replacement assembly — no LLM call. Mirrors assembleHumeNativePrompt()'s structure
  * (same placeholder-substitution approach) but is a fully independent implementation over this
  * file's own template/placeholders — no shared code path with the Hume assembler, so an edit to one
@@ -436,6 +491,8 @@ export function assembleOpenAIRealtimePrompt(input: AssembleOpenAIRealtimePrompt
   return namedTemplate
     .split(OPENAI_TONE_GUIDANCE_PLACEHOLDER).join(toneGuidance)
     .split(OPENAI_LANGUAGE_INSTRUCTION_PLACEHOLDER).join(languageInstruction)
+    .split(OPENAI_ADAPTIVE_DELIVERY_PLACEHOLDER).join(buildAdaptiveDeliveryGuidance())
+    .split(OPENAI_ADAPTIVE_UNDERSTANDING_PLACEHOLDER).join(buildAdaptiveUnderstandingGuidance())
     .split(OPENAI_PARTNER_GUIDANCE_PLACEHOLDER).join(partnerGuidance)
     .split(OPENAI_RULE_1_PLACEHOLDER).join(rule1Text)
     .split(OPENAI_RULE_8_PLACEHOLDER).join(rule8Text)
