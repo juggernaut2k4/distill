@@ -484,6 +484,19 @@ export default function PartnerRenderClient({
         // or the next time she starts speaking again. Firing triggers the graceful audio-issue
         // closing via triggerRecoveryNudge — a no-op for Hume (method not implemented there),
         // matching the same optional-chaining pattern as waitForPlaybackCaughtUp.
+        //
+        // 2026-08-02 — DISABLED per Arun's explicit instruction, isolating a live regression: a
+        // real 2nd test call showed a ~12.069s gap (69ms past SILENCE_THRESHOLD_MS's 12,000ms)
+        // between two AI turns, right before an early end_session — strong evidence this timer
+        // fired on a completely normal conversational pause (thinking/reading time after "are you
+        // ready to dive in?"), not a real audio failure, ending the call prematurely. The
+        // mechanism itself isn't buggy (it fired right on schedule) — the threshold/design is too
+        // aggressive for real use. Arun's call: undo this specific safety net, confirm everything
+        // else (items 3/4/5/7) holds up without it, then come back and fix this one in isolation
+        // rather than tuning a threshold blind. armSilenceTimer is now a no-op; all the
+        // surrounding wiring (onModeChange arming it, onUserSpeechStarted/onDisconnect/onError
+        // clearing it) is left untouched so re-enabling later is a one-line change. See
+        // docs/2026-08-02-farewell-narration-findings.md §10.
         const clearSilenceTimer = () => {
           if (silenceTimeoutRef.current) {
             clearTimeout(silenceTimeoutRef.current)
@@ -492,9 +505,8 @@ export default function PartnerRenderClient({
         }
         const armSilenceTimer = () => {
           clearSilenceTimer()
-          silenceTimeoutRef.current = setTimeout(() => {
-            adapterRef.current?.triggerRecoveryNudge?.(SILENCE_RECOVERY_INSTRUCTION)
-          }, SILENCE_THRESHOLD_MS)
+          // Disabled — see comment above. Restore the setTimeout body (with a fixed threshold/
+          // design) to re-enable.
         }
 
         const sharedCallbacks = {

@@ -537,3 +537,42 @@ pre-existing, unrelated `voice-gap-watchdog.test.ts` failure as before).
 real audio starts. Issues 2/3 won't be fixed yet, but the diagnostic events they produce (if any
 gap happens again) will tell us what actually happened during it.
 
+## 10. Second live test call (2026-08-02, session `4f03f519-3d80-45eb-a76b-e657054fb535`) — same
+symptom, but this time traced to a NEW cause: the silence timer itself
+
+Arun tested again post-fix and reported: "same issue call ended." Pulled the transcript and the new
+diagnostic events (§9). The real transcript came back **completely empty** (`turns: []`) despite the
+diagnostic log showing two full AI spoken responses actually happened — a separate gap in transcript
+capture, not yet investigated (flagged, not diagnosed).
+
+**The diagnostic timeline is the real finding.** Response 1's audio finished at `17:47:02.095`, and
+response 2 began at `17:47:14.164` — a gap of **12.069 seconds**, then a tool call (almost certainly
+`end_session`, given the pattern) fired within ~2 seconds of response 2 finishing. Arun's own
+instinct — *"i think we broke something significant... maybe the time for silence we updated somehow
+it feels as null or 0"* — led directly to checking this. The gap is **69ms past the exact
+12,000ms `SILENCE_THRESHOLD_MS`** coded for item 6's silence timer. This is not the timer firing at
+zero — it fired right on schedule. The real problem: **the design is too aggressive for real
+conversation.** A 12-second pause after "are you ready to dive in now?" is completely normal human
+thinking/reading time, not evidence of a broken mic — the timer can't distinguish the two, and was
+treating every ordinary pause after every turn as a potential audio failure.
+
+**Arun's call, agreed:** undo this one safety net cleanly, confirm items 3/4/5/7 hold up without it
+on the next test, then come back and fix the threshold/design in isolation rather than tuning a
+number blind. **Done:** `armSilenceTimer()` in `PartnerRenderClient.tsx` is now a no-op (just calls
+`clearSilenceTimer()`, doesn't actually set a new timeout) — every other piece of the mechanism
+(arming/clearing call sites, `onUserSpeechStarted`, `triggerRecoveryNudge` on the adapter, the
+Redis-backed diagnostic store) is left completely untouched, so re-enabling later with a fixed
+design is a one-line change, not a rebuild. Confirmed unrelated and kept: the item-3
+(`onSpeakVerified`) warm-up fix — different mechanism, no evidence it's implicated, undoing it would
+just reintroduce a confirmed bug for no reason. Also removed the temporary transcript-read debug
+route now that this session's been reviewed.
+
+**Verified:** `npx tsc --noEmit`, `npm run build`, full `vitest` suite all clean (same one
+pre-existing, unrelated failure).
+
+**Still open for a future fix (not done tonight):** once items 3/4/5/7 are confirmed solid without
+the silence timer, come back and redesign it — likely a substantially higher threshold and/or only
+arming after verification questions specifically (where a prompt answer is expected) rather than
+after every single turn including rapport-building/icebreaker exchanges, which should tolerate much
+longer, unhurried pauses.
+
