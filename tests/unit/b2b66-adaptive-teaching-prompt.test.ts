@@ -14,10 +14,18 @@ const BASE_INPUT = {
   sessionContent: 'Section 1 content here.',
 }
 
+// Updated 2026-08-02 for the meta-narration fix — rule 3 gained an explicit "just call the tool,
+// never narrate/announce it" guard, anchored on the real observed bug phrase "let me bring up the
+// next visual." This constant tracks that current fixed text (still entirely independent of the
+// ADAPTIVE_DELIVERY_PLACEHOLDER toggle this suite exercises, which appends after it).
 const RULE_3_BASE =
   '3. For every section in SESSION CONTENT, call the show_visual tool at the\n' +
   '   moment you begin covering that section, before you start speaking about\n' +
-  '   it substantively. Pass the section\'s index as instructed in the content.'
+  '   it substantively. Pass the section\'s index as instructed in the content.\n' +
+  '   Simply call the tool and move directly into teaching — never announce or\n' +
+  '   describe that you are pulling up the visual (e.g. never say "let me bring\n' +
+  '   up the next visual" or "I\'ll set up the visual so it\'s clear"); just call\n' +
+  '   it and continue speaking.'
 
 const RULE_4_BASE =
   '4. After teaching a section\'s core content, ask a verification question to\n' +
@@ -86,6 +94,9 @@ describe('assembleHumeNativePrompt — B2B-66 adaptive-teaching persona', () => 
         '1. Open the session warmly. Deliver the Session Overview'
       )
       expect(assembled).toContain('9. Never break character.')
+      // Updated 2026-08-02 for the meta-narration fix — rule 11's opening line is unchanged by
+      // that fix (only its later "before beginning your bridge" clause was reworded), so this
+      // anchor string still holds.
       expect(assembled).toContain(
         '11. Before moving from one topic to the next, give a quick, natural spoken'
       )

@@ -40,8 +40,12 @@ const RULE_13_TEXT =
   '    participant raises mid-session — this rule governs an explicit request\n' +
   '    to end the call itself.)'
 
-// Rule 8's exact a/b/c text and closing parenthetical, copied byte-for-byte from the live v9
-// file (unaffected by this change — used for the AT-3 regression check below).
+// Rule 8's exact a/b/c text and closing parenthetical. Updated 2026-08-02 for the meta-narration
+// fix (rule 8c gained an explicit "never narrate/announce the goodbye, just say it" guard,
+// anchored on the real observed bug phrase "I'll close us out warmly") — this constant is not
+// "unaffected by this change" as its name once implied; it's updated here to track the current
+// rule 8 text so the AT-3 regression check below (rule 13 flows correctly after rule 8) stays
+// meaningful rather than silently comparing against stale text.
 const RULE_8_UNCHANGED_TEXT =
   '   a. Briefly summarize what was covered today in exactly two sentences.\n' +
   '   b. Ask one direct closing question confirming there is nothing further to\n' +
@@ -52,7 +56,11 @@ const RULE_8_UNCHANGED_TEXT =
   '      again. Repeat this until their response indicates nothing further (a\n' +
   '      "no," "that\'s all," "good," "I\'m all set," or similar).\n' +
   '   c. Once the participant confirms there is nothing further, thank them and\n' +
-  '      say a clear, natural goodbye (e.g. "Take care, talk soon.") — do not\n' +
+  '      say a clear, natural goodbye out loud (e.g. "Take care, talk soon.") —\n' +
+  '      never describe or narrate that you are about to say goodbye, and never\n' +
+  '      announce your closing instead of delivering it (e.g. never say "I\'ll\n' +
+  '      close us out warmly" or "let me wrap this up now"); just say the\n' +
+  '      goodbye itself, the way a person signing off a call would. Do not\n' +
   '      wait for the participant to speak first once you\'ve delivered the\n' +
   '      farewell. Immediately after the goodbye, in that same turn, call the\n' +
   '      end_session tool. end_session is the only way the call ends when you\n' +
@@ -147,10 +155,12 @@ describe('B2B-41 — regression, rules 1-12 unchanged', () => {
 describe('B2B-41 — PROMPT_TEMPLATE_VERSION', () => {
   // AT-4 — B2B-41 bumped v9 -> v10. B2B-58 bumped v10 -> v11 (rule 5's
   // show_visual-as-alternate-advance wording removed). B2B-62 has since bumped v11 -> v12
-  // (LANGUAGE_INSTRUCTION_PLACEHOLDER added to the template source); this assertion is updated to
-  // track the current version rather than re-asserting a now-superseded value.
-  it('PROMPT_TEMPLATE_VERSION is the literal string v14 (not v10, v11, v12, or v13)', () => {
-    expect(PROMPT_TEMPLATE_VERSION).toBe('v14')
+  // (LANGUAGE_INSTRUCTION_PLACEHOLDER added to the template source); B2B-66 bumped v13 -> v14;
+  // the 2026-08-02 meta-narration fix (rules 3/5/8c/11 guards) has since bumped v14 -> v15. This
+  // assertion is updated to track the current version rather than re-asserting a now-superseded
+  // value.
+  it('PROMPT_TEMPLATE_VERSION is the literal string v15 (not v10, v11, v12, v13, or v14)', () => {
+    expect(PROMPT_TEMPLATE_VERSION).toBe('v15')
   })
 })
 
