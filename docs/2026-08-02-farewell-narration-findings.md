@@ -280,59 +280,73 @@ Arun's own proposal, refined through discussion, replaces both the fixed-phrase 
 detection (item 7) and the standalone correctness-gate idea (item 6) with one mechanism. Confirmed
 ready to build, pending only the final go-ahead across all approved items (3, 4, 5, 6, 7).
 
-### The core idea
+### The core idea — FINALIZED as a two-step design (option 2, 2026-08-02)
 Stop trying to detect "is she ready to move on" by listening for exact wording. Treat it the same way
 `end_session` already works in this codebase — a dedicated, explicit tool call is the only thing that
-counts, never inferred from her spoken words. Concretely:
+counts, never inferred from her spoken words. Refined from the original single-combined-call idea to a
+**two-step** version after Arun asked how correctness actually gets validated (there's no built-in
+"OpenAI grades this" feature — it's always the same conversational model's judgment; the real design
+question is when/how it commits to that judgment):
 
-- `advance_tab` gains a required field capturing the verification outcome for the page just taught:
-  `correct` (user answered right), `capped` (max attempts reached, moving on anyway), — nothing else
-  is a valid reason to call it.
-- She is instructed to never call `advance_tab` at all until one of those two is true. The act of
-  calling it, with a valid reason, *is* the "ready to advance" signal — replacing the fragile fixed
-  phrase ("That covers what I wanted to walk through here") as the load-bearing detection mechanism.
-  That phrase can stay as natural-sounding flavor text but is no longer what the system depends on.
-- The code only actually turns the page when the call carries a valid reason. This eliminates the
-  "trigger text mismatch" failure mode entirely — her exact wording on the way there no longer matters.
+- **New tool, `record_verification_result`** — called immediately after the participant answers a
+  page's verification question, in its own dedicated reasoning moment, *before* any thought of
+  advancing. Parameter: `result: 'correct' | 'incorrect' | 'garbled'`. This call never moves the page —
+  it only records the outcome.
+- **`advance_tab` stays gated on that record**, not on her wording. It only succeeds if the current
+  page's most recent recorded result is `correct`, or the attempt cap has been reached (see below —
+  functionally a `capped` state). The fixed phrase ("That covers what I wanted to walk through here")
+  can stay as natural-sounding flavor text but is no longer what the system depends on for detection —
+  eliminating the "trigger text mismatch" failure mode entirely.
+- **Why two steps instead of one:** deciding correctness and deciding to advance in the same breath (the
+  original plan) risks her rationalizing "correct" just because she's already leaning toward moving on.
+  Forcing the correctness judgment into its own call, right when she hears the answer, decouples it from
+  that impulse. Same underlying model, no added network round-trip or live-call latency — just a
+  cleaner separation of the two decisions. A fully independent second-model grading call was also
+  considered and rejected — it would add a real pause in the live conversation to fix a dead-air
+  problem, working against the goal.
 
-### Handling a premature or invalid call (the answered-wrong-so-far case)
-If she calls `advance_tab` before either condition is met (shouldn't happen per instructions, but this
-is exactly the category of instruction-slip seen twice already tonight): the code does **not** advance
-the page, and — per Arun's explicit decision — does **not** stay silent about it either. The tool
-result explicitly tells her the transition didn't happen and to continue on the *same* topic (option
-2, confirmed over silently ignoring it). Reasoning: whatever the code returns from a tool call is her
-only window into what actually happened — if it says nothing, she has no way to know the page didn't
-move, and could start talking about the *next* topic's content while the screen is still on the
-current one (a real display/speech desync risk, worse than the original bug). Telling her explicitly
-avoids that.
+### Handling a premature or invalid `advance_tab` call
+If she calls `advance_tab` without a `correct`/capped record for the current page (shouldn't happen per
+instructions, but this is exactly the category of instruction-slip seen twice already tonight): the code
+does **not** advance the page, and — per Arun's explicit decision — does **not** stay silent about it
+either. The tool result explicitly tells her the transition didn't happen and to continue on the *same*
+topic (option 2 from the earlier silent-vs-explicit discussion, confirmed over silently ignoring it).
+Reasoning: whatever the code returns from a tool call is her only window into what actually happened —
+if it says nothing, she has no way to know the page didn't move, and could start talking about the
+*next* topic's content while the screen is still on the current one (a real display/speech desync risk,
+worse than the original bug). Telling her explicitly avoids that.
 
 ### Tradeoff, disclosed to Arun directly
-Adding this flag to `advance_tab` does not make her judgment itself more reliable — she could still
-mark `correct` when the user actually got it wrong, the same way she's bent other instructions tonight.
-What it does do: moves the signal from freeform prose (proven fragile — skipped entirely at the
+Splitting this into two calls does not make her judgment itself more reliable — she could still record
+`correct` when the user actually got it wrong, the same way she's bent other instructions tonight. What
+it does do: (1) moves the signal from freeform prose (proven fragile — skipped entirely at the
 Inheritance transition) into a small structured field, which models are simply more consistent at
-filling in correctly than matching exact wording. And the downside is bounded regardless: worst case,
-she over-reports `correct`, the participant re-answers wrong on a later question, and it plays out
-downstream from there — never a silent, invisible failure like tonight's transcript showed. Considered
-and rejected: a second, separate "report the verification result" tool called before `advance_tab` —
-more moving parts (two calls to keep in sync) for a marginal benefit over one call carrying the reason
-directly. Sticking with the one-tool design.
+filling in correctly than matching exact wording, and (2) separates the correctness judgment from the
+"should I move on" impulse by giving it its own dedicated moment, reducing (not eliminating) the
+rationalization risk. The downside is still bounded regardless: worst case, she over-reports `correct`,
+the participant struggles on a later question, and it plays out downstream from there — never a silent,
+invisible failure like tonight's transcript showed.
 
 ### Silence and garbled-speech handling (item 6, finalized)
-- **Wrong-but-understandable answer**: re-explain from a different angle, then progressively simpler
-  phrasing, up to **5 total attempts**. After 5, `advance_tab` is called with `capped` and she moves on
-  gracefully (draft copy below).
+Both attempt counters below are tracked by the code, keyed off `record_verification_result` calls for
+the current page (reset per page):
+- **Wrong-but-understandable answer** (`result: 'incorrect'`): re-explain from a different angle, then
+  progressively simpler phrasing, up to **5 total attempts**. On the 5th `incorrect`, the code treats
+  the page as capped — `advance_tab` is allowed to succeed even without a `correct` record — and she
+  wraps up gracefully (draft copy below).
 - **Total silence** (no response at all after a direct question): the platform already fires an
   `input_audio_buffer.speech_started` event whenever real speech is detected (confirmed in
   `openai-realtime-adapter.ts`), so "she asked, nobody said anything at all" is measurable off an
-  existing signal — no new capability needed. Threshold: **~12 seconds** of nothing after a direct
-  question (within Arun's "10–15s, even ok to go longer to really confirm" guidance) before treating
-  it as a likely audio/connection issue and ending the session gracefully (draft copy below). This is
-  a narrowly-scoped timer for one specific, meaningful moment — not the general blind watchdog Arun
+  existing signal — no new capability needed, and no `record_verification_result` call happens at all
+  in this case (there's nothing to grade). Threshold: **~12 seconds** of nothing after a direct question
+  (within Arun's "10–15s, even ok to go longer to really confirm" guidance) before treating it as a
+  likely audio/connection issue and ending the session gracefully (draft copy below). This is a
+  narrowly-scoped timer for one specific, meaningful moment — not the general blind watchdog Arun
   rejected in §5.
-- **Garbled/unintelligible speech** (present but not parseable): no new signal needed — same
-  attempt-tracking mechanism as wrong answers, just a lower cap since repeated garbled speech is a
-  stronger signal something is actually broken. Threshold: **2 attempts**, then end gracefully.
+- **Garbled/unintelligible speech** (`result: 'garbled'`, present but not parseable): tracked as its own
+  counter, separate from the wrong-answer counter, since it's a different underlying signal (possible
+  audio/connection problem, not just a hard question). Threshold: **2 attempts**, then end the session
+  gracefully (draft copy below) rather than continuing to guess.
 
 ### Draft copy (Arun: "no need to get my approval specifically for each sentence" — drafted directly, in Marin's established natural/warm voice, no self-narrating "let me/I'll" language per the existing farewell rule)
 
