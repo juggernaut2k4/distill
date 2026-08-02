@@ -172,6 +172,31 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
   // rather than silently overwritten.
   private pendingAiTranscript: string | null = null
 
+  // 2026-08-02 — root-cause fix for the missing/cut-off farewell found in live session
+  // 98be7c6d-c316-4bc2-a2ff-fe45adcdd434 (OpenAI Realtime, partner_reference 'claude-ai'):
+  // waitForPlaybackToFinish() (endSession()'s existing gate) only reflects audio bytes that have
+  // ALREADY ARRIVED and been locally queued — it has no way to know the server is still
+  // mid-generating further content (e.g. the spoken-goodbye message item) for the SAME response
+  // that contains the end_session tool call, if that tool call's item happens to complete before
+  // the message item's audio has even started streaming. Investigation evidence: the session
+  // ended cleanly (no WS error, no crash, billed 6.26 min), but the transcript-capture store
+  // (Redis, via lib/voice/openai-realtime-transcript-store.ts) never received the closing AI turn
+  // even though extraction ran 11 seconds after the session ended — too long a window for an
+  // in-flight fetch() to still be pending, meaning the onMessage('ai', ...) call that would have
+  // triggered that fetch() never happened at all: the underlying
+  // response.output_audio_transcript.done event for that item never arrived before the socket was
+  // closed. `responseInFlight` closes that gap: true from 'response.created' (a new response has
+  // started server-side) until 'response.done' (the ENTIRE response — every output item, not just
+  // the one whose own done event we react to for tool dispatch — has finished). endSession() now
+  // waits for this to clear, in addition to the existing local-queue drain, before closing
+  // anything, so it can no longer close the socket while the server is still sending content
+  // (audio and/or its transcript) for the response the goodbye belongs to. Degrades safely to
+  // today's exact existing behavior if 'response.created' unexpectedly never fires for some
+  // session (responseInFlight simply stays false, so this new wait is a no-op) — this cannot make
+  // teardown timing worse than it already was, only better.
+  private responseInFlight = false
+  private responseDoneWaiters: Array<() => void> = []
+
   constructor(config: OpenAIRealtimeAdapterConfig) {
     this.config = config
   }
@@ -342,6 +367,13 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
         break
       }
 
+      // 2026-08-02 — see responseInFlight's doc comment above. Standard OpenAI Realtime response
+      // lifecycle event marking a new response has started server-side (paired with 'response.done'
+      // below, which this adapter already relied on before this fix).
+      case 'response.created':
+        this.responseInFlight = true
+        break
+
       case 'input_audio_buffer.speech_started':
         // Barge-in: mirrors HumeAdapter's user_interruption — drop anything still queued for
         // playback (does not stop already-started audio mid-flight, matching Hume's exact same
@@ -412,6 +444,8 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
       case 'response.done':
         this.currentResponseSpeaking = false
         this.config.onModeChange('listening')
+        this.responseInFlight = false
+        this.resolveResponseDoneWaiters()
         break
 
       // Per OpenAI's own docs (confirmed live during this build): "Arguments streamed in the
@@ -442,7 +476,15 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
         // Explicit resume — unlike Hume, sending a tool result does not implicitly prompt OpenAI
         // to continue speaking; a fresh response.create is required (confirmed live in OpenAI's
         // own docs during this build).
-        this.ws?.send(JSON.stringify({ type: 'response.create' }))
+        //
+        // 2026-08-02 — end_session is the one exception: the model has already decided the call is
+        // over, so prompting it to generate yet more content here serves no product purpose and
+        // only opens a second, unnecessary window for endSession()'s teardown to race against
+        // still-generating audio. Every other tool (advance_tab, show_visual) still needs this
+        // explicit resume exactly as before.
+        if (item.name !== 'end_session') {
+          this.ws?.send(JSON.stringify({ type: 'response.create' }))
+        }
         break
       }
 
@@ -647,9 +689,35 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
   async endSession(): Promise<void> {
     this.intentionalClose = true
     this.stopMicCapture()
+    // 2026-08-02 — wait for the server to confirm the ENTIRE response containing the goodbye (and
+    // the end_session call) has actually finished generating — see responseInFlight's doc comment
+    // above for the exact gap this closes — THEN wait for whatever arrived to finish playing
+    // locally, exactly as before.
+    await this.waitForResponseDone()
     await this.waitForPlaybackToFinish()
     this.ws?.close()
     try { await this.audioCtx?.close() } catch { /* noop */ }
+  }
+
+  /** See responseInFlight's doc comment above. Resolves immediately if no response is in flight. */
+  private waitForResponseDone(timeoutMs = 8000): Promise<void> {
+    if (!this.responseInFlight) return Promise.resolve()
+    return new Promise((resolve) => {
+      let settled = false
+      const finish = () => {
+        if (settled) return
+        settled = true
+        resolve()
+      }
+      this.responseDoneWaiters.push(finish)
+      setTimeout(finish, timeoutMs)
+    })
+  }
+
+  private resolveResponseDoneWaiters(): void {
+    const waiters = this.responseDoneWaiters
+    this.responseDoneWaiters = []
+    for (const resolve of waiters) resolve()
   }
 
   /**

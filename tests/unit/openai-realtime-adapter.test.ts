@@ -165,6 +165,31 @@ describe('OpenAIRealtimeAdapter tool-call dispatch (response.output_item.done)',
     expect(secondPayload).toEqual({ type: 'response.create' })
   })
 
+  /**
+   * 2026-08-02 — root-cause fix for live session 98be7c6d-c316-4bc2-a2ff-fe45adcdd434: prompting
+   * the model to continue after it has already decided to end the call serves no purpose and only
+   * opens another race window against endSession()'s teardown. end_session is the one tool that
+   * must NOT trigger the continuation response.create every other tool still needs.
+   */
+  it('sends function_call_output but does NOT send a continuation response.create for end_session', async () => {
+    const handler = vi.fn().mockResolvedValue('Session ended.')
+    const adapter = makeAdapter({ tools: { end_session: handler } })
+    const send = installFakeSocket(adapter)
+
+    await feedMessage(adapter, {
+      type: 'response.output_item.done',
+      item: { type: 'function_call', name: 'end_session', call_id: 'call-end', arguments: '{}' },
+    })
+
+    expect(handler).toHaveBeenCalledWith({})
+    expect(send).toHaveBeenCalledTimes(1)
+    const onlyPayload = JSON.parse(send.mock.calls[0][0] as string)
+    expect(onlyPayload).toEqual({
+      type: 'conversation.item.create',
+      item: { type: 'function_call_output', call_id: 'call-end', output: 'Session ended.' },
+    })
+  })
+
   it('parses stringified arguments and passes them through to the handler', async () => {
     const handler = vi.fn().mockResolvedValue('Visual is now showing.')
     const adapter = makeAdapter({ tools: { show_visual: handler } })
@@ -529,6 +554,94 @@ describe('OpenAIRealtimeAdapter.endSession waits for playback to finish (2026-08
     const endSessionBody = adapterSource.slice(adapterSource.indexOf('async endSession('), adapterSource.indexOf('setVolume('))
     expect(endSessionBody).not.toContain('clearAudioQueue')
     expect(endSessionBody).toContain('waitForPlaybackToFinish')
+  })
+})
+
+/**
+ * 2026-08-02 — root-cause fix for the missing/cut-off farewell found in live session
+ * 98be7c6d-c316-4bc2-a2ff-fe45adcdd434. waitForPlaybackToFinish() alone only reflects audio bytes
+ * that have already arrived and been locally queued -- it has no way to know the server is still
+ * mid-generating further content (e.g. the spoken-goodbye message item) for the SAME response that
+ * contains the end_session tool call, if that tool call's item happens to complete before the
+ * message item's audio has even started streaming. endSession() now also waits for the server to
+ * confirm the whole response is done (response.created ... response.done) before closing anything.
+ */
+describe('OpenAIRealtimeAdapter.endSession waits for the whole server response to finish (2026-08-02)', () => {
+  it('does not resolve while a response is in flight (response.created seen, no response.done yet)', async () => {
+    vi.useFakeTimers()
+    try {
+      const adapter = makeAdapter()
+      installFakeSocket(adapter)
+      await feedMessage(adapter, { type: 'response.created' })
+
+      let resolved = false
+      const promise = adapter.endSession().then(() => { resolved = true })
+
+      await vi.advanceTimersByTimeAsync(500)
+      expect(resolved).toBe(false)
+
+      await feedMessage(adapter, { type: 'response.done' })
+      await vi.advanceTimersByTimeAsync(0)
+      await promise
+      expect(resolved).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('still waits for local playback to drain after the response itself is done', async () => {
+    vi.useFakeTimers()
+    try {
+      const adapter = makeAdapter()
+      installFakeSocket(adapter)
+      await feedMessage(adapter, { type: 'response.created' })
+      ;(adapter as unknown as { isPlaying: boolean }).isPlaying = true
+
+      let resolved = false
+      const promise = adapter.endSession().then(() => { resolved = true })
+
+      await feedMessage(adapter, { type: 'response.done' })
+      await vi.advanceTimersByTimeAsync(500)
+      expect(resolved).toBe(false) // response is done, but audio is still playing locally
+
+      ;(adapter as unknown as { isPlaying: boolean }).isPlaying = false
+      await vi.advanceTimersByTimeAsync(200)
+      await promise
+      expect(resolved).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('resolves immediately when no response has ever started (safe default, no regression)', async () => {
+    const adapter = makeAdapter()
+    installFakeSocket(adapter)
+    await expect(adapter.endSession()).resolves.toBeUndefined()
+  })
+
+  it('gives up after the bounded timeout rather than hanging forever if response.done never arrives', async () => {
+    vi.useFakeTimers()
+    try {
+      const adapter = makeAdapter()
+      installFakeSocket(adapter)
+      await feedMessage(adapter, { type: 'response.created' }) // never followed by response.done
+
+      let resolved = false
+      const promise = adapter.endSession().then(() => { resolved = true })
+
+      await vi.advanceTimersByTimeAsync(8100)
+      await promise
+      expect(resolved).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a second response.created after end_session (the now-skipped continuation would have caused this) does not permanently stick responseInFlight if response.done follows', async () => {
+    const adapter = makeAdapter()
+    await feedMessage(adapter, { type: 'response.created' })
+    await feedMessage(adapter, { type: 'response.done' })
+    expect(getPrivate(adapter, 'responseInFlight')).toBe(false)
   })
 })
 
