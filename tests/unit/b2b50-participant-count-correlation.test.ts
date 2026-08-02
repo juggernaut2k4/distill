@@ -47,7 +47,7 @@ function baseSupabaseMock(opts: {
         }
         if (table === 'partner_sessions') {
           return {
-            select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: opts.partnerSessionRow }) }) }),
+            select: () => ({ eq: () => ({ limit: async () => ({ data: opts.partnerSessionRow ? [opts.partnerSessionRow] : [] }) }) }),
             update: (payload: Record<string, unknown>) => {
               opts.updateSpy?.(payload)
               return { eq: async () => ({ error: null }) }

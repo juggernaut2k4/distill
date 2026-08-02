@@ -27,7 +27,7 @@ vi.mock('@/lib/supabase', () => ({
         return {
           select: vi.fn(() => ({
             eq: vi.fn(() => ({
-              maybeSingle: vi.fn(() => Promise.resolve({ data: state.keyRow })),
+              limit: vi.fn(() => Promise.resolve({ data: state.keyRow ? [state.keyRow] : [] })),
             })),
           })),
           update: vi.fn(() => ({ eq: updateEqSpy })),
@@ -37,7 +37,10 @@ vi.mock('@/lib/supabase', () => ({
         return {
           select: vi.fn(() => ({
             eq: vi.fn(() => ({
-              maybeSingle: vi.fn(() => Promise.resolve({ data: state.accountRow ?? state.oauthAccountRow })),
+              limit: vi.fn(() => {
+                const row = state.accountRow ?? state.oauthAccountRow
+                return Promise.resolve({ data: row ? [row] : [] })
+              }),
             })),
           })),
         }
@@ -47,7 +50,7 @@ vi.mock('@/lib/supabase', () => ({
           select: vi.fn(() => ({
             eq: vi.fn(() => ({
               eq: vi.fn(() => ({
-                maybeSingle: vi.fn(() => Promise.resolve({ data: state.membershipRow })),
+                limit: vi.fn(() => Promise.resolve({ data: state.membershipRow ? [state.membershipRow] : [] })),
               })),
             })),
           })),
@@ -57,7 +60,7 @@ vi.mock('@/lib/supabase', () => ({
         return {
           select: vi.fn(() => ({
             eq: vi.fn(() => ({
-              maybeSingle: vi.fn(() => Promise.resolve({ data: state.oauthClientRow })),
+              limit: vi.fn(() => Promise.resolve({ data: state.oauthClientRow ? [state.oauthClientRow] : [] })),
             })),
           })),
           update: vi.fn(() => ({ eq: oauthUpdateEqSpy })),

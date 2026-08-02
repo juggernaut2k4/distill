@@ -133,12 +133,16 @@ export const partnerLiveCutoffJob = inngest.createFunction(
     // ungated path rather than risking an unverified new code path on a
     // query failure) get the EXACT existing behavior below, byte-for-byte.
     const humeVerificationGated = await step.run('check-verification-gate', async () => {
+      // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project (root cause doc
+      // comment in app/api/demo/[slug]/performance/route.ts); replaced with array fetch + [0].
+      // This is a billing-cutoff job, so this was a priority fix, not just routine cleanup.
       const supabase = createSupabaseAdminClient()
-      const { data, error } = await supabase
+      const { data: rows, error } = await supabase
         .from('partner_wallets')
         .select('low_balance_alert_fired_at')
         .eq('partner_account_id', partnerAccountId)
-        .maybeSingle()
+        .limit(1)
+      const data = rows?.[0] ?? null
       if (error) {
         console.error('[partner-live-cutoff] gate-check query failed — treating as gate-not-met:', error.message)
       }
@@ -155,8 +159,10 @@ export const partnerLiveCutoffJob = inngest.createFunction(
       await step.sleep('wait-until-wrap-up-window', `${preNudgeSeconds}s`)
 
       const endedBeforeNudge = await step.run('check-status-before-nudge', async () => {
+        // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project; array fetch + [0].
         const supabase = createSupabaseAdminClient()
-        const { data } = await supabase.from('partner_sessions').select('status').eq('id', clioSessionRef).maybeSingle()
+        const { data: rows } = await supabase.from('partner_sessions').select('status').eq('id', clioSessionRef).limit(1)
+        const data = rows?.[0] ?? null
         return data?.status === 'completed' || data?.status === 'failed'
       })
       if (endedBeforeNudge) return
@@ -181,8 +187,10 @@ export const partnerLiveCutoffJob = inngest.createFunction(
         await step.sleep(`hume-check-wait-${cycle}`, `${sleepSeconds}s`)
 
         const endedDuringLoop = await step.run(`check-status-cycle-${cycle}`, async () => {
+          // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project; array fetch + [0].
           const supabase = createSupabaseAdminClient()
-          const { data } = await supabase.from('partner_sessions').select('status').eq('id', clioSessionRef).maybeSingle()
+          const { data: rows } = await supabase.from('partner_sessions').select('status').eq('id', clioSessionRef).limit(1)
+          const data = rows?.[0] ?? null
           return data?.status === 'completed' || data?.status === 'failed'
         })
         if (endedDuringLoop) return
@@ -190,12 +198,14 @@ export const partnerLiveCutoffJob = inngest.createFunction(
         const cycleResult = await step.run(`hume-verify-cycle-${cycle}`, async () => {
           const inngestClockRemainingMinutes = remainingMinutes - sleepSeconds / 60
 
+          // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project; array fetch + [0].
           const supabase = createSupabaseAdminClient()
-          const { data: sessionRow } = await supabase
+          const { data: sessionRows } = await supabase
             .from('partner_sessions')
             .select('hume_chat_id')
             .eq('id', clioSessionRef)
-            .maybeSingle()
+            .limit(1)
+          const sessionRow = sessionRows?.[0] ?? null
           const humeChatId = sessionRow?.hume_chat_id as string | null | undefined
 
           // No hume_chat_id yet (e.g. not persisted this early) — same safe
@@ -237,8 +247,10 @@ export const partnerLiveCutoffJob = inngest.createFunction(
     await step.sleep('wrap-up-runway', '60s')
 
     const alreadyEnded = await step.run('check-session-status', async () => {
+      // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project; array fetch + [0].
       const supabase = createSupabaseAdminClient()
-      const { data } = await supabase.from('partner_sessions').select('status').eq('id', clioSessionRef).maybeSingle()
+      const { data: rows } = await supabase.from('partner_sessions').select('status').eq('id', clioSessionRef).limit(1)
+      const data = rows?.[0] ?? null
       return data?.status === 'completed' || data?.status === 'failed'
     })
     // Bot closed out gracefully within the runway — nothing to force.

@@ -48,7 +48,7 @@ describe('handleSessionEnd() emits clio/partner-session.ended (B2B-37 §6.2 call
     vi.doMock('@/lib/supabase', () => ({
       createSupabaseAdminClient: () => ({
         from: () => ({
-          select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { status: null } }) }) }),
+          select: () => ({ eq: () => ({ limit: async () => ({ data: [{ status: null }] }) }) }),
           update: () => ({ eq: async () => ({ error: null }) }),
         }),
       }),
@@ -79,7 +79,7 @@ describe('handleSessionEnd() emits clio/partner-session.ended (B2B-37 §6.2 call
     vi.doMock('@/lib/supabase', () => ({
       createSupabaseAdminClient: () => ({
         from: () => ({
-          select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { status: null } }) }) }),
+          select: () => ({ eq: () => ({ limit: async () => ({ data: [{ status: null }] }) }) }),
           update: () => ({ eq: async () => ({ error: null }) }),
         }),
       }),
@@ -104,7 +104,7 @@ describe('handleSessionEnd() emits clio/partner-session.ended (B2B-37 §6.2 call
     vi.doMock('@/lib/supabase', () => ({
       createSupabaseAdminClient: () => ({
         from: () => ({
-          select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { status: null } }) }) }),
+          select: () => ({ eq: () => ({ limit: async () => ({ data: [{ status: null }] }) }) }),
           update: () => ({ eq: async () => ({ error: null }) }),
         }),
       }),
@@ -167,7 +167,7 @@ describe('partner-trial-cutoff mark-session-completed emits clio/partner-session
         from: (table: string) => {
           if (table === 'partner_sessions') {
             return {
-              select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { status: 'in_progress' } }) }) }),
+              select: () => ({ eq: () => ({ limit: async () => ({ data: [{ status: 'in_progress' }] }) }) }),
               update: () => ({ eq: async () => ({ error: null }) }),
             }
           }
@@ -225,11 +225,11 @@ describe('partner-live-cutoff mark-session-completed emits clio/partner-session.
         from: (table: string) => {
           if (table === 'partner_wallets') {
             // low_balance_alert_fired_at: null -> ungated path, byte-for-byte existing behavior
-            return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { low_balance_alert_fired_at: null }, error: null }) }) }) }
+            return { select: () => ({ eq: () => ({ limit: async () => ({ data: [{ low_balance_alert_fired_at: null }], error: null }) }) }) }
           }
           if (table === 'partner_sessions') {
             return {
-              select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { status: 'in_progress' } }) }) }),
+              select: () => ({ eq: () => ({ limit: async () => ({ data: [{ status: 'in_progress' }] }) }) }),
               update: () => ({ eq: async () => ({ error: null }) }),
             }
           }

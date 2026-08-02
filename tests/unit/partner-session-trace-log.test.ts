@@ -42,7 +42,7 @@ describe('partnerSessionTraceLogFinalizer', () => {
             return {
               select: () => ({
                 eq: () => ({
-                  maybeSingle: async () => ({ data: partnerSessionsRow, error: null }),
+                  limit: async () => ({ data: partnerSessionsRow ? [partnerSessionsRow] : [], error: null }),
                 }),
               }),
             }

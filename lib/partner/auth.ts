@@ -76,17 +76,23 @@ export async function requirePartnerApiKey(
       if (verified.valid) {
         const supabase = createSupabaseAdminClient()
 
-        const { data: clientRow } = await supabase
+        // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project (root cause
+        // doc comment in app/api/demo/[slug]/performance/route.ts); every occurrence in this file
+        // replaced with array fetch + [0] — this is the partner-auth chokepoint, so this was a
+        // priority fix, not just routine cleanup.
+        const { data: clientRows } = await supabase
           .from('partner_oauth_clients')
           .select('id, status')
           .eq('client_id', verified.claims.sub)
-          .maybeSingle()
+          .limit(1)
+        const clientRow = clientRows?.[0] ?? null
 
-        const { data: accountRow } = await supabase
+        const { data: accountRows } = await supabase
           .from('partner_accounts')
           .select('id, status, account_kind')
           .eq('id', verified.claims.partner_account_id)
-          .maybeSingle()
+          .limit(1)
+        const accountRow = accountRows?.[0] ?? null
 
         if (clientRow?.status === 'active' && accountRow) {
           if (accountRow.status !== 'active') {
@@ -142,11 +148,14 @@ export async function requirePartnerApiKey(
   const keyHash = hashApiKey(rawKey)
   const supabase = createSupabaseAdminClient()
 
-  const { data: keyRow } = await supabase
+  // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project; array fetch + [0].
+  // This is the main API-key validation path — the highest-priority fix in this file.
+  const { data: keyRows } = await supabase
     .from('partner_api_keys')
     .select('id, partner_account_id, mode, status')
     .eq('key_hash', keyHash)
-    .maybeSingle()
+    .limit(1)
+  const keyRow = keyRows?.[0] ?? null
 
   if (!keyRow) {
     return {
@@ -170,11 +179,13 @@ export async function requirePartnerApiKey(
     }
   }
 
-  const { data: accountRow } = await supabase
+  // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project; array fetch + [0].
+  const { data: accountRows } = await supabase
     .from('partner_accounts')
     .select('id, status, account_kind')
     .eq('id', keyRow.partner_account_id)
-    .maybeSingle()
+    .limit(1)
+  const accountRow = accountRows?.[0] ?? null
 
   if (!accountRow || accountRow.status !== 'active') {
     return {
@@ -223,11 +234,13 @@ type PartnerAdminResult =
  */
 async function findOwningChannelPartnerAccountId(targetAccountId: string): Promise<string | null> {
   const supabase = createSupabaseAdminClient()
-  const { data } = await supabase
+  // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project; array fetch + [0].
+  const { data: rows } = await supabase
     .from('partner_accounts')
     .select('owning_channel_partner_id')
     .eq('id', targetAccountId)
-    .maybeSingle()
+    .limit(1)
+  const data = rows?.[0] ?? null
   return (data?.owning_channel_partner_id as string | null) ?? null
 }
 
@@ -245,12 +258,14 @@ export async function requirePartnerAdmin(partnerAccountId: string): Promise<Par
   }
 
   const supabase = createSupabaseAdminClient()
-  const { data: membership } = await supabase
+  // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project; array fetch + [0].
+  const { data: membershipRows } = await supabase
     .from('partner_admin_users')
     .select('id')
     .eq('clerk_user_id', userId)
     .eq('partner_account_id', partnerAccountId)
-    .maybeSingle()
+    .limit(1)
+  const membership = membershipRows?.[0] ?? null
 
   if (!membership) {
     // B2B-29 (docs/specs/B2B-29-requirement-document.md §6.2) — chokepoint
@@ -264,12 +279,14 @@ export async function requirePartnerAdmin(partnerAccountId: string): Promise<Par
     // this file.
     const owningId = await findOwningChannelPartnerAccountId(partnerAccountId)
     if (owningId) {
-      const { data: ownerMembership } = await supabase
+      // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project; array fetch + [0].
+      const { data: ownerMembershipRows } = await supabase
         .from('partner_admin_users')
         .select('id')
         .eq('clerk_user_id', userId)
         .eq('partner_account_id', owningId)
-        .maybeSingle()
+        .limit(1)
+      const ownerMembership = ownerMembershipRows?.[0] ?? null
       if (ownerMembership) {
         return { clerkUserId: userId, error: null }
       }
@@ -294,11 +311,13 @@ export async function requirePartnerAdmin(partnerAccountId: string): Promise<Par
   // this function) to a channel-partner-kind account id, present and future
   // — see docs/specs/B2B-26-requirement-document.md §6.14/§9 Edge Case 3 for
   // the full reasoning behind fixing this at the chokepoint.
-  const { data: account } = await supabase
+  // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project; array fetch + [0].
+  const { data: accountRows } = await supabase
     .from('partner_accounts')
     .select('account_kind')
     .eq('id', partnerAccountId)
-    .maybeSingle()
+    .limit(1)
+  const account = accountRows?.[0] ?? null
 
   if (account?.account_kind === 'channel_partner') {
     return {
@@ -367,11 +386,13 @@ export async function requireChannelPartnerClientAccess(clientAccountId: string)
   if (cp.error) return { clerkUserId: null, channelPartnerAccountId: null, client: null, error: cp.error }
 
   const supabase = createSupabaseAdminClient()
-  const { data } = await supabase
+  // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project; array fetch + [0].
+  const { data: rows } = await supabase
     .from('partner_accounts')
     .select('id, name, company_url, status, owning_channel_partner_id')
     .eq('id', clientAccountId)
-    .maybeSingle()
+    .limit(1)
+  const data = rows?.[0] ?? null
 
   if (!data || data.owning_channel_partner_id !== cp.partnerAccountId) {
     return {
@@ -408,11 +429,13 @@ export async function requireChannelPartnerClientAccess(clientAccountId: string)
  */
 export async function getShowcaseAccessEnabled(partnerAccountId: string): Promise<boolean> {
   const supabase = createSupabaseAdminClient()
-  const { data } = await supabase
+  // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project; array fetch + [0].
+  const { data: rows } = await supabase
     .from('partner_accounts')
     .select('showcase_access_enabled')
     .eq('id', partnerAccountId)
-    .maybeSingle()
+    .limit(1)
+  const data = rows?.[0] ?? null
   return Boolean(data?.showcase_access_enabled)
 }
 

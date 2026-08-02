@@ -115,11 +115,13 @@ export async function recordBillableEvent(
 ): Promise<{ dispatchLogId: string } | { error: string }> {
   const supabase = createSupabaseAdminClient()
 
-  const { data: account } = await supabase
+  // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project; array fetch + [0].
+  const { data: accountRows } = await supabase
     .from('partner_accounts')
     .select('id, outbound_signing_secret')
     .eq('id', params.partnerAccountId)
-    .maybeSingle()
+    .limit(1)
+  const account = accountRows?.[0] ?? null
 
   if (!account) {
     return { error: 'partner_account_not_found' }
@@ -139,11 +141,13 @@ export async function recordBillableEvent(
   let endClientId: string | null = null
   let resellerUniqueId: string | null = null
   if (params.clioSessionRef) {
-    const { data: sessionRow, error: sessionLookupError } = await supabase
+    // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project; array fetch + [0].
+    const { data: sessionRows, error: sessionLookupError } = await supabase
       .from('partner_sessions')
       .select('end_client_id, reseller_unique_id')
       .eq('id', params.clioSessionRef)
-      .maybeSingle()
+      .limit(1)
+    const sessionRow = sessionRows?.[0] ?? null
     if (sessionLookupError) {
       console.error('[partner/webhooks] trace-id lookup failed (non-fatal):', sessionLookupError.message)
     }
@@ -177,7 +181,8 @@ export async function recordBillableEvent(
     ? buildSignatureHeader(signingSecret, JSON.stringify(payload))
     : buildSignatureHeader('unconfigured-partner-signing-secret', JSON.stringify(payload))
 
-  const { data: inserted, error } = await supabase
+  // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project; array fetch + [0].
+  const { data: insertedRows, error } = await supabase
     .from('webhook_dispatch_log')
     .upsert(
       {
@@ -193,7 +198,8 @@ export async function recordBillableEvent(
       { onConflict: 'partner_account_id,event_type,clio_session_ref,payload_hash', ignoreDuplicates: true }
     )
     .select('id')
-    .maybeSingle()
+    .limit(1)
+  const inserted = insertedRows?.[0] ?? null
 
   if (error) {
     console.error('[partner/webhooks] Failed to record billable event:', error.message)
@@ -303,7 +309,9 @@ async function lookupExistingDispatchLog(
     ? query.eq('clio_session_ref', params.clioSessionRef)
     : query.is('clio_session_ref', null)
 
-  return query.maybeSingle()
+  // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project; array fetch + [0].
+  const { data: rows, error } = await query.limit(1)
+  return { data: rows?.[0] ?? null, error }
 }
 
 // ─── B2B-04 — Wallet decrement mechanism (Requirement Doc Section 5.B.1) ─────
@@ -326,7 +334,8 @@ export async function resolveEffectiveRate(
 ): Promise<{ id: string; rate_usd: number } | null> {
   const supabase = createSupabaseAdminClient()
 
-  const { data: partnerRate } = await supabase
+  // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project; array fetch + [0].
+  const { data: partnerRateRows } = await supabase
     .from('billing_rate_versions')
     .select('id, rate_usd')
     .eq('partner_account_id', partnerAccountId)
@@ -335,13 +344,13 @@ export async function resolveEffectiveRate(
     .or(`effective_to.is.null,effective_to.gt.${occurredAt}`)
     .order('effective_from', { ascending: false })
     .limit(1)
-    .maybeSingle()
+  const partnerRate = partnerRateRows?.[0] ?? null
 
   if (partnerRate) {
     return { id: partnerRate.id as string, rate_usd: Number(partnerRate.rate_usd) }
   }
 
-  const { data: defaultRate } = await supabase
+  const { data: defaultRateRows } = await supabase
     .from('billing_rate_versions')
     .select('id, rate_usd')
     .is('partner_account_id', null)
@@ -350,7 +359,7 @@ export async function resolveEffectiveRate(
     .or(`effective_to.is.null,effective_to.gt.${occurredAt}`)
     .order('effective_from', { ascending: false })
     .limit(1)
-    .maybeSingle()
+  const defaultRate = defaultRateRows?.[0] ?? null
 
   return defaultRate ? { id: defaultRate.id as string, rate_usd: Number(defaultRate.rate_usd) } : null
 }
@@ -442,11 +451,13 @@ export async function applyWalletDecrement(params: {
 async function checkLowBalanceAndAlert(partnerAccountId: string, newBalanceUsd: number): Promise<void> {
   const supabase = createSupabaseAdminClient()
 
-  const { data: wallet } = await supabase
+  // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project; array fetch + [0].
+  const { data: walletRows } = await supabase
     .from('partner_wallets')
     .select('reference_topup_amount_usd')
     .eq('partner_account_id', partnerAccountId)
-    .maybeSingle()
+    .limit(1)
+  const wallet = walletRows?.[0] ?? null
 
   const referenceTopupAmountUsd = wallet?.reference_topup_amount_usd ? Number(wallet.reference_topup_amount_usd) : 0
   if (!referenceTopupAmountUsd) return // no funded reference point yet — no alert is possible or expected
@@ -454,20 +465,22 @@ async function checkLowBalanceAndAlert(partnerAccountId: string, newBalanceUsd: 
   const threshold = referenceTopupAmountUsd * 0.2
   if (newBalanceUsd > threshold) return // not yet at 80% consumed
 
-  const { data: won } = await supabase
+  const { data: wonRows } = await supabase
     .from('partner_wallets')
     .update({ low_balance_alert_fired_at: new Date().toISOString() })
     .eq('partner_account_id', partnerAccountId)
     .is('low_balance_alert_fired_at', null)
     .select('id')
-    .maybeSingle()
+    .limit(1)
+  const won = wonRows?.[0] ?? null
 
   if (!won) return // already fired for this depletion cycle — no duplicate send
 
-  const [{ data: account }, emails] = await Promise.all([
-    supabase.from('partner_accounts').select('name, outbound_signing_secret').eq('id', partnerAccountId).maybeSingle(),
+  const [{ data: accountRows }, emails] = await Promise.all([
+    supabase.from('partner_accounts').select('name, outbound_signing_secret').eq('id', partnerAccountId).limit(1),
     getPartnerAdminEmails(partnerAccountId),
   ])
+  const account = accountRows?.[0] ?? null
 
   await Promise.all(
     emails.map((email) =>
@@ -570,31 +583,35 @@ export async function checkDemoLowBalanceAndAlert(
 ): Promise<void> {
   const supabase = createSupabaseAdminClient()
 
-  const { data: wallet } = await supabase
+  // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project; array fetch + [0].
+  const { data: walletRows } = await supabase
     .from('partner_wallets')
     .select('demo_reference_topup_minutes')
     .eq('partner_account_id', partnerAccountId)
-    .maybeSingle()
+    .limit(1)
+  const wallet = walletRows?.[0] ?? null
 
   const referenceMinutes = wallet?.demo_reference_topup_minutes ? Number(wallet.demo_reference_topup_minutes) : 0
   if (!referenceMinutes) return // no funded reference point yet — no alert is possible or expected
 
   if (newBalanceMinutes > referenceMinutes * 0.2) return // not yet at 80% consumed
 
-  const { data: won } = await supabase
+  const { data: wonRows } = await supabase
     .from('partner_wallets')
     .update({ demo_low_balance_alert_fired_at: new Date().toISOString() })
     .eq('partner_account_id', partnerAccountId)
     .is('demo_low_balance_alert_fired_at', null)
     .select('id')
-    .maybeSingle()
+    .limit(1)
+  const won = wonRows?.[0] ?? null
 
   if (!won) return // already fired for this depletion cycle — no duplicate send
 
-  const [{ data: account }, emails] = await Promise.all([
-    supabase.from('partner_accounts').select('name').eq('id', partnerAccountId).maybeSingle(),
+  const [{ data: accountRows }, emails] = await Promise.all([
+    supabase.from('partner_accounts').select('name').eq('id', partnerAccountId).limit(1),
     getPartnerAdminEmails(partnerAccountId),
   ])
+  const account = accountRows?.[0] ?? null
 
   await Promise.all(
     emails.map((email) =>
@@ -650,11 +667,13 @@ export async function recordInsightsReadyEvent(params: {
   resellerUniqueId: string | null
 }): Promise<void> {
   const supabase = createSupabaseAdminClient()
-  const { data: account } = await supabase
+  // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project; array fetch + [0].
+  const { data: accountRows } = await supabase
     .from('partner_accounts')
     .select('id, outbound_signing_secret')
     .eq('id', params.partnerAccountId)
-    .maybeSingle()
+    .limit(1)
+  const account = accountRows?.[0] ?? null
   if (!account) return
 
   const now = new Date().toISOString()
@@ -799,11 +818,13 @@ export async function attemptDispatch(row: DueDispatchRow): Promise<'delivered' 
     // selected here — B2B-53 removed it from the reseller-facing payload
     // entirely; it stays internal-only (partner_session_insights.glitches,
     // /dashboard/admin/glitches).
-    const { data: live } = await supabase
+    // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project; array fetch + [0].
+    const { data: liveRows } = await supabase
       .from('partner_session_insights')
       .select('action_items, learner_insight')
       .eq('partner_session_id', row.payload.clio_session_ref as string)
-      .maybeSingle()
+      .limit(1)
+    const live = liveRows?.[0] ?? null
 
     const fullPayload = {
       ...row.payload,

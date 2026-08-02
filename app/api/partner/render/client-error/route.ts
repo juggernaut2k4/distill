@@ -82,11 +82,14 @@ async function tryRecordGlitchInstance(
 
     // clio_session_ref IS partner_sessions.id (same resolution pattern as every other
     // meeting-bot-facing render route — see lib/partner/live-render.ts's getPartnerSession()).
-    const { data: session } = await supabase
+    // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project; array fetch + [0].
+    const { data: sessionRows } = await supabase
       .from('partner_sessions')
       .select('id, partner_account_id')
       .eq('id', clioSessionRef)
-      .maybeSingle()
+      .limit(1)
+
+    const session = sessionRows?.[0] ?? null
 
     if (!session) {
       console.error('[partner-render] client-error: no partner_sessions row found for clio_session_ref, skipping glitch_instances insert', {
@@ -95,13 +98,14 @@ async function tryRecordGlitchInstance(
       return
     }
 
-    const { data: maxOrdinalRow } = await supabase
+    const { data: maxOrdinalRows } = await supabase
       .from('glitch_instances')
       .select('ordinal')
       .eq('partner_session_id', session.id)
       .order('ordinal', { ascending: false })
       .limit(1)
-      .maybeSingle()
+
+    const maxOrdinalRow = maxOrdinalRows?.[0] ?? null
 
     const nextOrdinal = Math.max(
       CLIENT_ERROR_ORDINAL_FLOOR,

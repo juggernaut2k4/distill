@@ -45,7 +45,7 @@ vi.mock('@/lib/supabase', () => ({
         return {
           select: () => ({
             eq: (_col: string, val: string) => ({
-              maybeSingle: async () => ({ data: partnerSessionsById[val] ?? null, error: null }),
+              limit: async () => ({ data: partnerSessionsById[val] ? [partnerSessionsById[val]] : [], error: null }),
             }),
           }),
         }
@@ -55,7 +55,7 @@ vi.mock('@/lib/supabase', () => ({
         return {
           select: () => ({
             eq: (_col: string, val: string) => ({
-              maybeSingle: async () => ({ data: insightsBySession[val] ?? null, error: null }),
+              limit: async () => ({ data: insightsBySession[val] ? [insightsBySession[val]] : [], error: null }),
             }),
           }),
           upsert: (row: Record<string, unknown>) => ({

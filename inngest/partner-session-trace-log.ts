@@ -22,12 +22,16 @@ export const partnerSessionTraceLogFinalizer = inngest.createFunction(
     if (!partnerSessionId) return { status: 'skipped', reason: 'missing_partner_session_id' }
 
     await step.run('finalize-trace-log', async () => {
+      // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project (root cause doc
+      // comment in app/api/demo/[slug]/performance/route.ts); replaced with array fetch + [0].
       const supabase = createSupabaseAdminClient()
-      const { data: session, error } = await supabase
+      const { data: sessionRows, error } = await supabase
         .from('partner_sessions')
         .select('created_at, ended_at, hume_config_id')
         .eq('id', partnerSessionId)
-        .maybeSingle()
+        .limit(1)
+
+      const session = sessionRows?.[0] ?? null
 
       if (error || !session) {
         console.error(`[partner-session-trace-log] Could not read partner_sessions ${partnerSessionId}:`, error?.message)

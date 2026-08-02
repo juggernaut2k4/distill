@@ -193,14 +193,20 @@ export interface PartnerSessionRow {
 }
 
 export async function getPartnerSession(clioSessionRef: string): Promise<PartnerSessionRow | null> {
+  // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project (root cause doc
+  // comment in app/api/demo/[slug]/performance/route.ts); replaced with array fetch + [0]. This
+  // function is a high-traffic call site (join-greeting, wrap-up-nudge, and others below all read
+  // through it), so this was prioritized.
   const supabase = createSupabaseAdminClient()
-  const { data } = await supabase
+  const { data: rows } = await supabase
     .from('partner_sessions')
     .select(
       'id, partner_account_id, content_ref, partner_topic_ref, partner_end_user_ref, status, test_mode, content_source_id, content_pages, content_to_explain, content_title, content_subtitle, end_user_role, end_user_name, end_user_industry, provider_bot_id, conversation_language'
     )
     .eq('id', clioSessionRef)
-    .maybeSingle()
+    .limit(1)
+
+  const data = rows?.[0] ?? null
 
   if (!data) return null
   const rawPages = data.content_pages as InlineContentPage[] | null
@@ -812,11 +818,15 @@ export async function handleSessionEnd(
   // check the Attendee-webhook fallback (app/api/attendee/webhook/route.ts) already does at its own
   // call site — moved here so EVERY caller (including the client end-session route, which never had
   // this guard) is covered.
-  const { data: existing } = await supabase
+  // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project; array fetch + [0].
+  // This is a billing idempotency guard — stale data here risks double-billing, so this was a
+  // priority fix, not just a routine cleanup.
+  const { data: existingRows } = await supabase
     .from('partner_sessions')
     .select('status')
     .eq('id', clioSessionRef)
-    .maybeSingle()
+    .limit(1)
+  const existing = existingRows?.[0] ?? null
   if (existing?.status === 'completed' || existing?.status === 'failed') {
     console.log('[live-render] handleSessionEnd called for an already-terminal session — no-op:', { clioSessionRef, status: existing.status })
     return

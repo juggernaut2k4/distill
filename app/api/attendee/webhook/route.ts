@@ -132,11 +132,15 @@ async function handleEvent(event: AttendeeWebhookEvent) {
     // event.bot_metadata.user_id carries partner_sessions.id instead. Try that
     // lookup before giving up. See docs/specs/B2B-10-requirement-document.md
     // Section 4.1 — this is the only change to the pre-existing B2C miss path.
-    const { data: partnerSessionRow } = await supabase
+    // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project (root cause doc
+    // comment in app/api/demo/[slug]/performance/route.ts); replaced with array fetch + [0].
+    const { data: partnerSessionRows } = await supabase
       .from('partner_sessions')
       .select('id, partner_account_id, status, test_mode, updated_at, attendee_joined_at, provider_bot_id')
       .eq('id', userId)
-      .maybeSingle()
+      .limit(1)
+
+    const partnerSessionRow = partnerSessionRows?.[0] ?? null
 
     if (partnerSessionRow) {
       await handlePartnerSessionEvent(event, {
@@ -202,17 +206,21 @@ async function handleEvent(event: AttendeeWebhookEvent) {
             ended_at: new Date().toISOString(),
           }).eq('id', sessionId)
 
-          const { data: userRow } = await supabase
-            .from('users').select('primary_domain').eq('id', userId).maybeSingle()
+          // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project; both
+          // replaced with array fetch + [0].
+          const { data: userRows } = await supabase
+            .from('users').select('primary_domain').eq('id', userId).limit(1)
+          const userRow = userRows?.[0] ?? null
           const domain = (userRow?.primary_domain as string | null) ?? 'ai-ml'
 
           // Fetch session sentiment (parity with recall/webhook) — populated by the
           // updateSentiment() calls run from the transcript.update case below.
-          const { data: ctxRow } = await supabase
+          const { data: ctxRows } = await supabase
             .from('user_session_context')
             .select('sentiment_history')
             .eq('user_id', userId)
-            .maybeSingle()
+            .limit(1)
+          const ctxRow = ctxRows?.[0] ?? null
           const sentimentHistory = (ctxRow?.sentiment_history ?? []) as Array<{ sentiment: string; session: string }>
           const sessionSentiment = sentimentHistory.find((h) => h.session === sessionId)?.sentiment ?? 'neutral'
 

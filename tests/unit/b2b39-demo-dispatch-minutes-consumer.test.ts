@@ -48,7 +48,7 @@ describe('demoDispatchMinutesConsumer', () => {
             return {
               select: () => ({
                 eq: () => ({
-                  maybeSingle: async () => ({ data: demoDispatchRow, error: null }),
+                  limit: async () => ({ data: demoDispatchRow ? [demoDispatchRow] : [], error: null }),
                 }),
               }),
               update: (patch: Record<string, unknown>) => ({
@@ -63,7 +63,7 @@ describe('demoDispatchMinutesConsumer', () => {
             return {
               select: () => ({
                 eq: () => ({
-                  maybeSingle: async () => ({ data: partnerSessionsRow, error: null }),
+                  limit: async () => ({ data: partnerSessionsRow ? [partnerSessionsRow] : [], error: null }),
                 }),
               }),
             }

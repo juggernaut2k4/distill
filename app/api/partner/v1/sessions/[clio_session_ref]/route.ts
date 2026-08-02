@@ -27,15 +27,19 @@ export async function GET(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: { code: 'not_found', message: 'Session not found.' } }, { status: 404 })
   }
 
+  // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project (root cause doc
+  // comment in app/api/demo/[slug]/performance/route.ts); replaced with a plain array fetch + [0].
   const supabase = createSupabaseAdminClient()
-  const { data: session } = await supabase
+  const { data: sessionRows } = await supabase
     .from('partner_sessions')
     // B2B-38 (docs/specs/B2B-38-requirement-document.md §6.10) — extended to include
     // reseller_unique_id, echoed back below when the session was created with one.
     .select('id, status, created_at, ended_at, reseller_unique_id')
     .eq('id', params.clio_session_ref)
     .eq('partner_account_id', auth.partnerAccountId)
-    .maybeSingle()
+    .limit(1)
+
+  const session = sessionRows?.[0] ?? null
 
   if (!session) {
     return NextResponse.json({ error: { code: 'not_found', message: 'Session not found.' } }, { status: 404 })

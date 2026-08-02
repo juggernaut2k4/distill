@@ -33,7 +33,7 @@ vi.mock('@/lib/supabase', () => ({
           select: vi.fn(() => ({
             eq: vi.fn(() => ({
               eq: vi.fn(() => ({
-                maybeSingle: vi.fn(() => Promise.resolve({ data: authState.membershipRow })),
+                limit: vi.fn(() => Promise.resolve({ data: authState.membershipRow ? [authState.membershipRow] : [] })),
               })),
               // getPartnerAccountsForClerkUser's own single-eq('clerk_user_id') query shape
               then: (resolve: (v: unknown) => unknown) =>
@@ -46,7 +46,7 @@ vi.mock('@/lib/supabase', () => ({
         return {
           select: vi.fn(() => ({
             eq: vi.fn(() => ({
-              maybeSingle: vi.fn(() => Promise.resolve({ data: authState.accountRow })),
+              limit: vi.fn(() => Promise.resolve({ data: authState.accountRow ? [authState.accountRow] : [] })),
               then: (resolve: (v: unknown) => unknown) => Promise.resolve({ data: authState.accountRow ? [authState.accountRow] : [] }).then(resolve),
             })),
             in: vi.fn(() => Promise.resolve({ data: authState.accountRow ? [authState.accountRow] : [] })),

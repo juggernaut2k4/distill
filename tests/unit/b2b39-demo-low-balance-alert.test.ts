@@ -22,7 +22,7 @@ vi.mock('@/lib/supabase', () => ({
         return {
           select: vi.fn(() => ({
             eq: vi.fn(() => ({
-              maybeSingle: vi.fn(() => Promise.resolve({ data: state.walletRow })),
+              limit: vi.fn(() => Promise.resolve({ data: state.walletRow ? [state.walletRow] : [] })),
             })),
           })),
           update: vi.fn((patch: Record<string, unknown>) => ({
@@ -31,7 +31,7 @@ vi.mock('@/lib/supabase', () => ({
                 updateCalls.push({ patch, account })
                 return {
                   select: vi.fn(() => ({
-                    maybeSingle: vi.fn(() => Promise.resolve({ data: state.compareAndSetWon ? { id: 'wallet-1' } : null })),
+                    limit: vi.fn(() => Promise.resolve({ data: state.compareAndSetWon ? [{ id: 'wallet-1' }] : [] })),
                   })),
                 }
               }),
@@ -43,7 +43,7 @@ vi.mock('@/lib/supabase', () => ({
         return {
           select: vi.fn(() => ({
             eq: vi.fn(() => ({
-              maybeSingle: vi.fn(() => Promise.resolve({ data: state.accountRow })),
+              limit: vi.fn(() => Promise.resolve({ data: state.accountRow ? [state.accountRow] : [] })),
             })),
           })),
         }

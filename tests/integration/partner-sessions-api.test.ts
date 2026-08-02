@@ -70,14 +70,31 @@ vi.mock('@/lib/supabase', () => ({
       }
       if (table === 'partner_wallets') {
         return {
-          select: vi.fn(() => ({ eq: vi.fn(() => ({ maybeSingle: walletMaybeSingleMock })) })),
+          // 2026-08-02 — source now calls .limit(1) instead of .maybeSingle(). walletMaybeSingleMock
+          // itself is left untouched (many tests call walletMaybeSingleMock.mockResolvedValueOnce
+          // with a single object/null) — only the wrapping into an array changes here.
+          select: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              limit: vi.fn(async () => {
+                const { data } = await walletMaybeSingleMock()
+                return { data: data ? [data] : [] }
+              }),
+            })),
+          })),
         }
       }
       if (table === 'partner_accounts') {
         return {
+          // 2026-08-02 — source now calls .limit(1) instead of .maybeSingle(). Same wrapping
+          // approach as partner_wallets above — clientOwnershipMaybeSingleMock itself is unchanged.
           select: vi.fn(() => ({
             eq: vi.fn(() => ({
-              eq: vi.fn(() => ({ maybeSingle: clientOwnershipMaybeSingleMock })),
+              eq: vi.fn(() => ({
+                limit: vi.fn(async () => {
+                  const { data } = await clientOwnershipMaybeSingleMock()
+                  return { data: data ? [data] : [] }
+                }),
+              })),
             })),
           })),
         }
@@ -600,7 +617,7 @@ describe('POST /api/partner/v1/sessions', () => {
       insertSingleMock.mockResolvedValueOnce({ data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint' } })
       sessionsSelectMock.mockReturnValueOnce({
         eq: vi.fn(() => ({
-          eq: vi.fn(() => ({ maybeSingle: vi.fn(() => Promise.resolve({ data: { id: 'session-ref-A', status: 'bot_active' } })) })),
+          eq: vi.fn(() => ({ limit: vi.fn(() => Promise.resolve({ data: [{ id: 'session-ref-A', status: 'bot_active' }] })) })),
         })),
       })
 
@@ -677,7 +694,7 @@ describe('POST /api/partner/v1/sessions', () => {
       insertSingleMock.mockResolvedValueOnce({ data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint' } })
       sessionsSelectMock.mockReturnValueOnce({
         eq: vi.fn(() => ({
-          eq: vi.fn(() => ({ maybeSingle: vi.fn(() => Promise.resolve({ data: { id: 'session-ref-A', status: 'bot_active' } })) })),
+          eq: vi.fn(() => ({ limit: vi.fn(() => Promise.resolve({ data: [{ id: 'session-ref-A', status: 'bot_active' }] })) })),
         })),
       })
 
@@ -746,9 +763,9 @@ describe('GET /api/partner/v1/sessions/:clio_session_ref', () => {
     sessionsSelectMock.mockReturnValue({
       eq: vi.fn(() => ({
         eq: vi.fn(() => ({
-          maybeSingle: vi.fn(() =>
+          limit: vi.fn(() =>
             Promise.resolve({
-              data: { id: 'session-ref-123', status: 'bot_active', created_at: '2026-07-13T00:00:00Z', ended_at: null },
+              data: [{ id: 'session-ref-123', status: 'bot_active', created_at: '2026-07-13T00:00:00Z', ended_at: null }],
             })
           ),
         })),
@@ -777,15 +794,15 @@ describe('GET /api/partner/v1/sessions/:clio_session_ref', () => {
       sessionsSelectMock.mockReturnValue({
         eq: vi.fn(() => ({
           eq: vi.fn(() => ({
-            maybeSingle: vi.fn(() =>
+            limit: vi.fn(() =>
               Promise.resolve({
-                data: {
+                data: [{
                   id: 'session-ref-123',
                   status: 'bot_active',
                   created_at: '2026-07-13T00:00:00Z',
                   ended_at: null,
                   reseller_unique_id: 'order-48213',
-                },
+                }],
               })
             ),
           })),
@@ -808,15 +825,15 @@ describe('GET /api/partner/v1/sessions/:clio_session_ref', () => {
       sessionsSelectMock.mockReturnValue({
         eq: vi.fn(() => ({
           eq: vi.fn(() => ({
-            maybeSingle: vi.fn(() =>
+            limit: vi.fn(() =>
               Promise.resolve({
-                data: {
+                data: [{
                   id: 'session-ref-123',
                   status: 'bot_active',
                   created_at: '2026-07-13T00:00:00Z',
                   ended_at: null,
                   reseller_unique_id: null,
-                },
+                }],
               })
             ),
           })),

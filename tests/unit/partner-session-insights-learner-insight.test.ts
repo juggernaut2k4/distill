@@ -46,7 +46,10 @@ vi.mock('@/lib/supabase', () => ({
         return {
           select: () => ({
             eq: (_col: string, val: string) => ({
-              maybeSingle: async () => ({ data: partnerSessionsById[val] ?? null, error: null }),
+              limit: async () => {
+                const row = partnerSessionsById[val] ?? null
+                return { data: row ? [row] : [], error: null }
+              },
             }),
           }),
         }
@@ -56,7 +59,10 @@ vi.mock('@/lib/supabase', () => ({
         return {
           select: () => ({
             eq: (_col: string, val: string) => ({
-              maybeSingle: async () => ({ data: insightsBySession[val] ?? null, error: null }),
+              limit: async () => {
+                const row = insightsBySession[val] ?? null
+                return { data: row ? [row] : [], error: null }
+              },
             }),
           }),
           // B2B-37 §6.3 — upsert(...).select(...) now mirrors the atomic-claim shape the real code

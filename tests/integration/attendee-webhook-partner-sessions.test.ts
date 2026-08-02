@@ -76,7 +76,7 @@ vi.mock('@/lib/supabase', () => ({
         return {
           select: vi.fn(() => ({
             eq: vi.fn(() => ({
-              maybeSingle: vi.fn(() => Promise.resolve({ data: state.partnerSessionRow })),
+              limit: vi.fn(() => Promise.resolve({ data: state.partnerSessionRow ? [state.partnerSessionRow] : [] })),
             })),
           })),
           update: vi.fn((patch: Record<string, unknown>) => ({
@@ -100,11 +100,26 @@ vi.mock('@/lib/supabase', () => ({
         }
       }
 
-      if (table === 'sessions' || table === 'users' || table === 'user_session_context') {
+      if (table === 'sessions') {
         return {
           select: vi.fn(() => ({
             eq: vi.fn(() => ({
               maybeSingle: vi.fn(() => Promise.resolve({ data: null })),
+            })),
+          })),
+          update: vi.fn(() => ({
+            eq: vi.fn(() => Promise.resolve({ error: null })),
+          })),
+        }
+      }
+
+      // 2026-08-02 — users.primary_domain and user_session_context.sentiment_history reads now
+      // use .limit(1) instead of .maybeSingle() (see app/api/attendee/webhook/route.ts).
+      if (table === 'users' || table === 'user_session_context') {
+        return {
+          select: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              limit: vi.fn(() => Promise.resolve({ data: [] })),
             })),
           })),
           update: vi.fn(() => ({

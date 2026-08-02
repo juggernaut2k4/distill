@@ -240,11 +240,15 @@ export async function getHumeSessionDetails(
   const supabase = createSupabaseAdminClient()
 
   // Step 1: look up the session's Hume identifiers + archive status.
-  const sessionResult = await supabase
+  // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project (root cause doc
+  // comment in app/api/demo/[slug]/performance/route.ts); replaced with array fetch + [0], reshaped
+  // back into the same {data, error} shape so the rest of this function is unchanged.
+  const sessionQueryResult = await supabase
     .from('sessions')
     .select('id, hume_native_config_id, hume_chat_id, hume_config_archived_at')
     .eq('id', sessionId)
-    .maybeSingle()
+    .limit(1)
+  const sessionResult = { data: sessionQueryResult.data?.[0] ?? null, error: sessionQueryResult.error }
 
   if (sessionResult.error) {
     throw new HumeSessionDetailsLookupError({
@@ -284,13 +288,14 @@ export async function getHumeSessionDetails(
   // Step 3: archive-first — if the nightly job has already processed this
   // session, read the durable copy and never touch the live Hume API.
   if (session.hume_config_archived_at) {
-    const archiveResult = await supabase
+    // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project; array fetch + [0].
+    const archiveQueryResult = await supabase
       .from('hume_native_config_archives')
       .select('config_snapshot, transcript_events, hume_config_id, hume_chat_id, archived_at')
       .eq('session_id', sessionId)
       .order('archived_at', { ascending: false })
       .limit(1)
-      .maybeSingle()
+    const archiveResult = { data: archiveQueryResult.data?.[0] ?? null, error: archiveQueryResult.error }
 
     if (archiveResult.error) {
       throw new HumeSessionDetailsLookupError({

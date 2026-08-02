@@ -14,7 +14,7 @@ function supabaseMock(opts: { existingStatus: string | null; updateSpy?: (payloa
   return {
     createSupabaseAdminClient: () => ({
       from: () => ({
-        select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { status: opts.existingStatus } }) }) }),
+        select: () => ({ eq: () => ({ limit: async () => ({ data: [{ status: opts.existingStatus }] }) }) }),
         update: (payload: Record<string, unknown>) => {
           opts.updateSpy?.(payload)
           return { eq: async () => ({ error: null }) }

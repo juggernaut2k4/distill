@@ -114,12 +114,16 @@ export async function POST(request: Request) {
   }
 
   try {
+    // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project (root cause doc
+    // comment in app/api/demo/[slug]/performance/route.ts); both replaced with array fetch + [0].
     const supabase = createSupabaseAdminClient()
-    const { data: session, error } = await supabase
+    const { data: sessionRows, error } = await supabase
       .from('sessions')
       .select('id, user_id')
       .eq('hume_chat_id', chatId)
-      .maybeSingle()
+      .limit(1)
+
+    const session = sessionRows?.[0] ?? null
 
     if (error) {
       console.error('[hume-webhook] Failed to resolve session for chat_id:', error.message)
@@ -129,11 +133,13 @@ export async function POST(request: Request) {
     if (!session) {
       // B2B-09 — fallback: this chat_id may belong to a partner session, not
       // a legacy sessions row. architecture.md §16.5.
-      const { data: partnerSession } = await supabase
+      const { data: partnerSessionRows } = await supabase
         .from('partner_sessions')
         .select('id, partner_account_id')
         .eq('hume_chat_id', chatId)
-        .maybeSingle()
+        .limit(1)
+
+      const partnerSession = partnerSessionRows?.[0] ?? null
 
       if (partnerSession) {
         // No writeAuditEvent() for the partner branch — that function

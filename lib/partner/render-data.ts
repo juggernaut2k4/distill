@@ -38,12 +38,16 @@ interface OutboundConfig {
 }
 
 async function loadOutboundConfig(partnerAccountId: string): Promise<OutboundConfig | null> {
+  // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project (root cause doc
+  // comment in app/api/demo/[slug]/performance/route.ts); replaced with array fetch + [0].
   const supabase = createSupabaseAdminClient()
-  const { data } = await supabase
+  const { data: rows } = await supabase
     .from('partner_accounts')
     .select('outbound_base_url, outbound_auth_token_ciphertext, profile_sync_enabled')
     .eq('id', partnerAccountId)
-    .maybeSingle()
+    .limit(1)
+
+  const data = rows?.[0] ?? null
 
   if (!data) return null
 

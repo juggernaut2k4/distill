@@ -159,11 +159,16 @@ async function runInsightsIdempotencyGuard(
   resellerUniqueId: string | null,
   humeConfigId: string | null
 ): Promise<GuardOutcome> {
-  const { data: existing } = await supabase
+  // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project (root cause doc
+  // comment in app/api/demo/[slug]/performance/route.ts); replaced with array fetch + [0]. This is
+  // the extraction idempotency guard, so this was prioritized alongside the other billing/guard
+  // call sites.
+  const { data: existingRows } = await supabase
     .from('partner_session_insights')
     .select('extraction_status, attempt_count')
     .eq('partner_session_id', partnerSessionId)
-    .maybeSingle()
+    .limit(1)
+  const existing = existingRows?.[0] ?? null
 
   if (existing) {
     const status = existing.extraction_status as string
@@ -213,7 +218,8 @@ async function runInsightsIdempotencyGuard(
 export async function extractInsightsForPartnerSession(partnerSessionId: string): Promise<{ status: string }> {
   const supabase = createSupabaseAdminClient()
 
-  const { data: session } = await supabase
+  // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project; array fetch + [0].
+  const { data: sessionRows } = await supabase
     .from('partner_sessions')
     // B2B-34 Piece 2 (docs/specs/B2B-34-requirement-document.md Part B §6.3) — extended to include
     // partner_reference/end_client_id, threaded through to recordInsightsReadyEvent() below.
@@ -224,7 +230,9 @@ export async function extractInsightsForPartnerSession(partnerSessionId: string)
     // for every session regardless of provider.
     .select('id, partner_account_id, hume_chat_id, test_mode, partner_reference, end_client_id, reseller_unique_id, hume_config_id, voice_provider')
     .eq('id', partnerSessionId)
-    .maybeSingle()
+    .limit(1)
+
+  const session = sessionRows?.[0] ?? null
 
   if (!session) throw new Error(`No partner_sessions row for id ${partnerSessionId}`)
   if (!session.hume_chat_id) throw new Error(`partner_sessions ${partnerSessionId} has no hume_chat_id`)
@@ -398,7 +406,11 @@ export async function markInsightsExtractionFailed(partnerSessionId: string, err
   const supabase = createSupabaseAdminClient()
   const truncatedMessage = errorMessage.slice(0, 2000)
 
-  const { data: current } = await supabase
+  // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project (root cause doc
+  // comment in app/api/demo/[slug]/performance/route.ts); replaced with array fetch + [0]. The
+  // partner_sessions!inner(...) embed itself is a plain SELECT (no filter on its columns), unlike
+  // the entries-query bug in performance/route.ts — not touched here.
+  const { data: currentRows } = await supabase
     .from('partner_session_insights')
     // B2B-38 (docs/specs/B2B-38-requirement-document.md §6.9) — FK embed extended to also carry
     // reseller_unique_id/hume_config_id through to the recordInsightsReadyEvent() call below.
@@ -406,7 +418,9 @@ export async function markInsightsExtractionFailed(partnerSessionId: string, err
       'attempt_count, partner_account_id, partner_sessions!inner(test_mode, partner_reference, end_client_id, reseller_unique_id, hume_config_id)'
     )
     .eq('partner_session_id', partnerSessionId)
-    .maybeSingle()
+    .limit(1)
+
+  const current = currentRows?.[0] ?? null
 
   if (!current) return
 

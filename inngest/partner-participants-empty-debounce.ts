@@ -32,12 +32,15 @@ export const partnerParticipantsEmptyDebounce = inngest.createFunction(
     await step.sleep('debounce-wait', '60s')
 
     const stillEmpty = await step.run('recheck-still-empty', async () => {
+      // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project (root cause doc
+      // comment in app/api/demo/[slug]/performance/route.ts); replaced with array fetch + [0].
       const supabase = createSupabaseAdminClient()
-      const { data } = await supabase
+      const { data: rows } = await supabase
         .from('partner_sessions')
         .select('status, active_participant_count, provider_bot_id, test_mode, attendee_joined_at, updated_at')
         .eq('id', clioSessionRef)
-        .maybeSingle()
+        .limit(1)
+      const data = rows?.[0] ?? null
       if (!data) return null
       if (data.status === 'completed' || data.status === 'failed') return null // already ended some other way
       if ((data.active_participant_count as number) > 0) return null // someone rejoined — abort

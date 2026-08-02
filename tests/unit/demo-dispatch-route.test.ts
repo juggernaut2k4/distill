@@ -44,7 +44,7 @@ vi.mock('@/lib/supabase', () => ({
         return {
           select: vi.fn(() => ({
             eq: vi.fn(() => ({
-              maybeSingle: vi.fn(() => Promise.resolve({ data: state.demoMeetingUrlsRow })),
+              limit: vi.fn(() => Promise.resolve({ data: state.demoMeetingUrlsRow ? [state.demoMeetingUrlsRow] : [] })),
             })),
           })),
           update: vi.fn((row: unknown) => {
@@ -57,7 +57,7 @@ vi.mock('@/lib/supabase', () => ({
         return {
           select: vi.fn(() => ({
             eq: vi.fn(() => ({
-              maybeSingle: vi.fn(() => Promise.resolve({ data: state.internalWalletRow })),
+              limit: vi.fn(() => Promise.resolve({ data: state.internalWalletRow ? [state.internalWalletRow] : [] })),
             })),
           })),
         }
@@ -76,9 +76,7 @@ vi.mock('@/lib/supabase', () => ({
             eq: vi.fn(() => ({
               eq: vi.fn(() => ({
                 order: vi.fn(() => ({
-                  limit: vi.fn(() => ({
-                    maybeSingle: vi.fn(() => Promise.resolve({ data: state.latestPartnerSessionRow })),
-                  })),
+                  limit: vi.fn(() => Promise.resolve({ data: state.latestPartnerSessionRow ? [state.latestPartnerSessionRow] : [] })),
                 })),
               })),
             })),

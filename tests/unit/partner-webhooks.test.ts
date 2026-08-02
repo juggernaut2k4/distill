@@ -11,15 +11,15 @@ const state: {
   accountRow: { id: string; outbound_signing_secret: string | null } | null
 } = { accountRow: null }
 
-const upsertSelectMock = vi.fn(() => Promise.resolve({ data: { id: 'dispatch-log-1' }, error: null }))
+const upsertSelectMock = vi.fn(() => Promise.resolve({ data: [{ id: 'dispatch-log-1' }], error: null }))
 const updateEqMock = vi.fn((_patch?: Record<string, unknown>) => Promise.resolve({ error: null }))
 
 /**
  * B2B-04 — self-returning chain stub for `billing_rate_versions`, used by
  * applyWalletDecrement()'s resolveEffectiveRate() query. No rate is
  * configured in these B2B-02-era tests, so this always resolves `null` at
- * the terminal `.maybeSingle()` regardless of which/how-many chained
- * methods (`.eq`/`.is`/`.lte`/`.or`/`.order`/`.limit`) are called first —
+ * the terminal `.limit()` regardless of which/how-many chained
+ * methods (`.eq`/`.is`/`.lte`/`.or`/`.order`) are called first —
  * applyWalletDecrement then marks the usage_events row unbilled and returns
  * without touching the wallet, exactly like a real "no rate configured yet"
  * event type. Defined via vi.hoisted() so it's available inside the hoisted
@@ -34,8 +34,7 @@ const { noRateChain } = vi.hoisted(() => ({
       lte: () => chain,
       or: () => chain,
       order: () => chain,
-      limit: () => chain,
-      maybeSingle: () => Promise.resolve({ data: null }),
+      limit: () => Promise.resolve({ data: null }),
     }
     return chain
   },
@@ -44,7 +43,7 @@ const { noRateChain } = vi.hoisted(() => ({
 // B2B-34 Piece 2 (docs/specs/B2B-34-requirement-document.md Part B §6.5) — the end_client_id
 // resolution lookup on partner_sessions, run whenever clioSessionRef is set. Defaults to null;
 // individual tests override via mockResolvedValueOnce.
-const partnerSessionsMaybeSingleMock = vi.fn(() => Promise.resolve<{ data: { end_client_id: string | null } | null }>({ data: null }))
+const partnerSessionsMaybeSingleMock = vi.fn(() => Promise.resolve<{ data: { end_client_id: string | null }[] }>({ data: [] }))
 
 vi.mock('@/lib/supabase', () => ({
   createSupabaseAdminClient: vi.fn(() => ({
@@ -53,7 +52,7 @@ vi.mock('@/lib/supabase', () => ({
         return {
           select: vi.fn(() => ({
             eq: vi.fn(() => ({
-              maybeSingle: vi.fn(() => Promise.resolve({ data: state.accountRow })),
+              limit: vi.fn(() => Promise.resolve({ data: state.accountRow ? [state.accountRow] : [] })),
             })),
           })),
         }
@@ -61,7 +60,7 @@ vi.mock('@/lib/supabase', () => ({
       if (table === 'webhook_dispatch_log') {
         return {
           upsert: vi.fn(() => ({
-            select: vi.fn(() => ({ maybeSingle: upsertSelectMock })),
+            select: vi.fn(() => ({ limit: upsertSelectMock })),
           })),
           update: vi.fn((patch: Record<string, unknown>) => ({
             eq: vi.fn(() => updateEqMock(patch)),
@@ -81,7 +80,7 @@ vi.mock('@/lib/supabase', () => ({
       if (table === 'partner_sessions') {
         return {
           select: vi.fn(() => ({
-            eq: vi.fn(() => ({ maybeSingle: partnerSessionsMaybeSingleMock })),
+            eq: vi.fn(() => ({ limit: partnerSessionsMaybeSingleMock })),
           })),
         }
       }
@@ -96,7 +95,7 @@ describe('recordBillableEvent', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     state.accountRow = { id: 'acct-1', outbound_signing_secret: 'secret-123' }
-    partnerSessionsMaybeSingleMock.mockResolvedValue({ data: null })
+    partnerSessionsMaybeSingleMock.mockResolvedValue({ data: [] })
   })
 
   it('returns an error when the partner account cannot be found', async () => {
@@ -125,15 +124,15 @@ describe('recordBillableEvent', () => {
     ;(createSupabaseAdminClient as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce({
       from: (table: string) => {
         if (table === 'partner_accounts') {
-          return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: state.accountRow }) }) }) }
+          return { select: () => ({ eq: () => ({ limit: () => Promise.resolve({ data: state.accountRow ? [state.accountRow] : [] }) }) }) }
         }
         if (table === 'partner_sessions') {
-          return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: null }) }) }) }
+          return { select: () => ({ eq: () => ({ limit: () => Promise.resolve({ data: [] }) }) }) }
         }
         return {
           upsert: (row: Record<string, unknown>) => {
             capturedPayload = row.payload as Record<string, unknown>
-            return { select: () => ({ maybeSingle: () => Promise.resolve({ data: { id: 'dl-1' } }) }) }
+            return { select: () => ({ limit: () => Promise.resolve({ data: [{ id: 'dl-1' }] }) }) }
           },
         }
       },
@@ -154,7 +153,7 @@ describe('recordBillableEvent', () => {
     ;(createSupabaseAdminClient as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce({
       from: (table: string) => {
         if (table === 'partner_accounts') {
-          return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: state.accountRow }) }) }) }
+          return { select: () => ({ eq: () => ({ limit: () => Promise.resolve({ data: state.accountRow ? [state.accountRow] : [] }) }) }) }
         }
         if (table === 'usage_events') {
           return {
@@ -167,7 +166,7 @@ describe('recordBillableEvent', () => {
         return {
           upsert: (row: Record<string, unknown>) => {
             capturedPayload = row.payload as Record<string, unknown>
-            return { select: () => ({ maybeSingle: () => Promise.resolve({ data: { id: 'dl-1' } }) }) }
+            return { select: () => ({ limit: () => Promise.resolve({ data: [{ id: 'dl-1' }] }) }) }
           },
         }
       },
@@ -184,7 +183,7 @@ describe('recordBillableEvent', () => {
     ;(createSupabaseAdminClient as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce({
       from: (table: string) => {
         if (table === 'partner_accounts') {
-          return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: state.accountRow }) }) }) }
+          return { select: () => ({ eq: () => ({ limit: () => Promise.resolve({ data: state.accountRow ? [state.accountRow] : [] }) }) }) }
         }
         if (table === 'usage_events') {
           return {
@@ -197,7 +196,7 @@ describe('recordBillableEvent', () => {
         return {
           upsert: (row: Record<string, unknown>) => {
             capturedPayload = row.payload as Record<string, unknown>
-            return { select: () => ({ maybeSingle: () => Promise.resolve({ data: { id: 'dl-1' } }) }) }
+            return { select: () => ({ limit: () => Promise.resolve({ data: [{ id: 'dl-1' }] }) }) }
           },
         }
       },
@@ -217,10 +216,10 @@ describe('recordBillableEvent', () => {
     ;(createSupabaseAdminClient as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce({
       from: (table: string) => {
         if (table === 'partner_accounts') {
-          return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: state.accountRow }) }) }) }
+          return { select: () => ({ eq: () => ({ limit: () => Promise.resolve({ data: state.accountRow ? [state.accountRow] : [] }) }) }) }
         }
         if (table === 'webhook_dispatch_log') {
-          return { upsert: () => ({ select: () => ({ maybeSingle: () => Promise.resolve({ data: { id: 'dl-1' } }) }) }) }
+          return { upsert: () => ({ select: () => ({ limit: () => Promise.resolve({ data: [{ id: 'dl-1' }] }) }) }) }
         }
         if (table === 'usage_events') {
           return { insert: usageEventsInsertMock }
@@ -229,7 +228,7 @@ describe('recordBillableEvent', () => {
           return noRateChain()
         }
         if (table === 'partner_sessions') {
-          return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: { end_client_id: 'client-1' } }) }) }) }
+          return { select: () => ({ eq: () => ({ limit: () => Promise.resolve({ data: [{ end_client_id: 'client-1' }] }) }) }) }
         }
         throw new Error(`Unexpected table: ${table}`)
       },
@@ -269,10 +268,10 @@ describe('recordBillableEvent', () => {
     ;(createSupabaseAdminClient as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce({
       from: (table: string) => {
         if (table === 'partner_accounts') {
-          return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: state.accountRow }) }) }) }
+          return { select: () => ({ eq: () => ({ limit: () => Promise.resolve({ data: state.accountRow ? [state.accountRow] : [] }) }) }) }
         }
         if (table === 'webhook_dispatch_log') {
-          return { upsert: () => ({ select: () => ({ maybeSingle: () => Promise.resolve({ data: { id: 'dl-2' } }) }) }) }
+          return { upsert: () => ({ select: () => ({ limit: () => Promise.resolve({ data: [{ id: 'dl-2' }] }) }) }) }
         }
         if (table === 'usage_events') {
           return { insert: usageEventsInsertMock }
@@ -303,16 +302,16 @@ describe('recordBillableEvent', () => {
     ;(createSupabaseAdminClient as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce({
       from: (table: string) => {
         if (table === 'partner_accounts') {
-          return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: state.accountRow }) }) }) }
+          return { select: () => ({ eq: () => ({ limit: () => Promise.resolve({ data: state.accountRow ? [state.accountRow] : [] }) }) }) }
         }
         if (table === 'webhook_dispatch_log') {
-          return { upsert: () => ({ select: () => ({ maybeSingle: () => Promise.resolve({ data: { id: 'dl-3' } }) }) }) }
+          return { upsert: () => ({ select: () => ({ limit: () => Promise.resolve({ data: [{ id: 'dl-3' }] }) }) }) }
         }
         if (table === 'usage_events') {
           return { insert: usageEventsInsertMock }
         }
         if (table === 'partner_sessions') {
-          return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: null }) }) }) }
+          return { select: () => ({ eq: () => ({ limit: () => Promise.resolve({ data: [] }) }) }) }
         }
         throw new Error(`Unexpected table: ${table}`)
       },
@@ -329,10 +328,10 @@ describe('recordBillableEvent', () => {
     ;(createSupabaseAdminClient as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce({
       from: (table: string) => {
         if (table === 'partner_accounts') {
-          return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: state.accountRow }) }) }) }
+          return { select: () => ({ eq: () => ({ limit: () => Promise.resolve({ data: state.accountRow ? [state.accountRow] : [] }) }) }) }
         }
         if (table === 'webhook_dispatch_log') {
-          return { upsert: () => ({ select: () => ({ maybeSingle: () => Promise.resolve({ data: { id: 'dl-4' } }) }) }) }
+          return { upsert: () => ({ select: () => ({ limit: () => Promise.resolve({ data: [{ id: 'dl-4' }] }) }) }) }
         }
         if (table === 'usage_events') {
           return {
@@ -360,14 +359,14 @@ describe('recordBillableEvent', () => {
 
   // B2B-34 Piece 2 (docs/specs/B2B-34-requirement-document.md Part B §6.5, §7 Acceptance Tests).
   it('resolves end_client_id from the originating partner_sessions row and includes it on the payload', async () => {
-    partnerSessionsMaybeSingleMock.mockResolvedValueOnce({ data: { end_client_id: 'end-client-42' } })
+    partnerSessionsMaybeSingleMock.mockResolvedValueOnce({ data: [{ end_client_id: 'end-client-42' }] })
 
     let capturedPayload: Record<string, unknown> | null = null
     const { createSupabaseAdminClient } = await import('@/lib/supabase')
     ;(createSupabaseAdminClient as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce({
       from: (table: string) => {
         if (table === 'partner_accounts') {
-          return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: state.accountRow }) }) }) }
+          return { select: () => ({ eq: () => ({ limit: () => Promise.resolve({ data: state.accountRow ? [state.accountRow] : [] }) }) }) }
         }
         if (table === 'usage_events') {
           return { insert: () => ({ select: () => ({ single: () => Promise.resolve({ data: { id: 'usage-event-1' }, error: null }) }) }) }
@@ -376,12 +375,12 @@ describe('recordBillableEvent', () => {
           return noRateChain()
         }
         if (table === 'partner_sessions') {
-          return { select: () => ({ eq: () => ({ maybeSingle: partnerSessionsMaybeSingleMock }) }) }
+          return { select: () => ({ eq: () => ({ limit: partnerSessionsMaybeSingleMock }) }) }
         }
         return {
           upsert: (row: Record<string, unknown>) => {
             capturedPayload = row.payload as Record<string, unknown>
-            return { select: () => ({ maybeSingle: () => Promise.resolve({ data: { id: 'dl-1' } }) }) }
+            return { select: () => ({ limit: () => Promise.resolve({ data: [{ id: 'dl-1' }] }) }) }
           },
         }
       },
@@ -404,7 +403,7 @@ describe('recordBillableEvent', () => {
     ;(createSupabaseAdminClient as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce({
       from: (table: string) => {
         if (table === 'partner_accounts') {
-          return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: state.accountRow }) }) }) }
+          return { select: () => ({ eq: () => ({ limit: () => Promise.resolve({ data: state.accountRow ? [state.accountRow] : [] }) }) }) }
         }
         if (table === 'usage_events') {
           return { insert: () => ({ select: () => ({ single: () => Promise.resolve({ data: { id: 'usage-event-1' }, error: null }) }) }) }
@@ -418,7 +417,7 @@ describe('recordBillableEvent', () => {
         return {
           upsert: (row: Record<string, unknown>) => {
             capturedPayload = row.payload as Record<string, unknown>
-            return { select: () => ({ maybeSingle: () => Promise.resolve({ data: { id: 'dl-1' } }) }) }
+            return { select: () => ({ limit: () => Promise.resolve({ data: [{ id: 'dl-1' }] }) }) }
           },
         }
       },
@@ -461,13 +460,13 @@ describe('recordInsightsReadyEvent', () => {
     ;(createSupabaseAdminClient as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce({
       from: (table: string) => {
         if (table === 'partner_accounts') {
-          return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: state.accountRow }) }) }) }
+          return { select: () => ({ eq: () => ({ limit: () => Promise.resolve({ data: state.accountRow ? [state.accountRow] : [] }) }) }) }
         }
         if (table === 'webhook_dispatch_log') {
           return {
             upsert: (row: Record<string, unknown>) => {
               capturedRow = row
-              return { select: () => ({ maybeSingle: () => Promise.resolve({ data: { id: 'dl-1' } }) }) }
+              return { select: () => ({ limit: () => Promise.resolve({ data: [{ id: 'dl-1' }] }) }) }
             },
           }
         }
@@ -568,14 +567,14 @@ describe('recordBillableEvent — B2B-38 trace fields', () => {
     ;(createSupabaseAdminClient as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce({
       from: (table: string) => {
         if (table === 'partner_accounts') {
-          return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: state.accountRow }) }) }) }
+          return { select: () => ({ eq: () => ({ limit: () => Promise.resolve({ data: state.accountRow ? [state.accountRow] : [] }) }) }) }
         }
         if (table === 'partner_sessions') {
           return {
             select: () => ({
               eq: () => ({
-                maybeSingle: () =>
-                  Promise.resolve({ data: { end_client_id: 'end-client-99', reseller_unique_id: 'order-48213' } }),
+                limit: () =>
+                  Promise.resolve({ data: [{ end_client_id: 'end-client-99', reseller_unique_id: 'order-48213' }] }),
               }),
             }),
           }
@@ -583,7 +582,7 @@ describe('recordBillableEvent — B2B-38 trace fields', () => {
         return {
           upsert: (row: Record<string, unknown>) => {
             capturedPayload = row.payload as Record<string, unknown>
-            return { select: () => ({ maybeSingle: () => Promise.resolve({ data: { id: 'dl-1' } }) }) }
+            return { select: () => ({ limit: () => Promise.resolve({ data: [{ id: 'dl-1' }] }) }) }
           },
         }
       },
@@ -603,14 +602,14 @@ describe('recordBillableEvent — B2B-38 trace fields', () => {
     ;(createSupabaseAdminClient as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce({
       from: (table: string) => {
         if (table === 'partner_accounts') {
-          return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: state.accountRow }) }) }) }
+          return { select: () => ({ eq: () => ({ limit: () => Promise.resolve({ data: state.accountRow ? [state.accountRow] : [] }) }) }) }
         }
         if (table === 'partner_sessions') {
           return {
             select: () => ({
               eq: () => ({
-                maybeSingle: () =>
-                  Promise.resolve({ data: { end_client_id: 'end-client-99', reseller_unique_id: 'order-48213' } }),
+                limit: () =>
+                  Promise.resolve({ data: [{ end_client_id: 'end-client-99', reseller_unique_id: 'order-48213' }] }),
               }),
             }),
           }
@@ -618,7 +617,7 @@ describe('recordBillableEvent — B2B-38 trace fields', () => {
         return {
           upsert: (row: Record<string, unknown>) => {
             capturedPayload = row.payload as Record<string, unknown>
-            return { select: () => ({ maybeSingle: () => Promise.resolve({ data: { id: 'dl-1' } }) }) }
+            return { select: () => ({ limit: () => Promise.resolve({ data: [{ id: 'dl-1' }] }) }) }
           },
         }
       },
@@ -635,12 +634,12 @@ describe('recordBillableEvent — B2B-38 trace fields', () => {
     ;(createSupabaseAdminClient as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce({
       from: (table: string) => {
         if (table === 'partner_accounts') {
-          return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: state.accountRow }) }) }) }
+          return { select: () => ({ eq: () => ({ limit: () => Promise.resolve({ data: state.accountRow ? [state.accountRow] : [] }) }) }) }
         }
         return {
           upsert: (row: Record<string, unknown>) => {
             capturedPayload = row.payload as Record<string, unknown>
-            return { select: () => ({ maybeSingle: () => Promise.resolve({ data: { id: 'dl-1' } }) }) }
+            return { select: () => ({ limit: () => Promise.resolve({ data: [{ id: 'dl-1' }] }) }) }
           },
         }
       },

@@ -16,7 +16,10 @@ vi.mock('@/lib/supabase', () => ({
     from: vi.fn(() => ({
       select: vi.fn(() => ({
         eq: vi.fn(() => ({
-          maybeSingle: mockMaybeSingle,
+          limit: vi.fn(async () => {
+            const { data } = await mockMaybeSingle()
+            return { data: data ? [data] : [] }
+          }),
         })),
       })),
     })),

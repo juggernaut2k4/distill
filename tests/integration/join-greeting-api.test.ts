@@ -53,7 +53,7 @@ vi.mock('@/lib/supabase', () => ({
       return {
         select: vi.fn(() => ({
           eq: vi.fn(() => ({
-            maybeSingle: vi.fn(() => Promise.resolve({ data: state.sessionRow })),
+            limit: vi.fn(() => Promise.resolve({ data: state.sessionRow ? [state.sessionRow] : [] })),
           })),
         })),
         update: vi.fn((patch: Record<string, unknown>) => ({

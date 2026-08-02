@@ -96,14 +96,18 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
     // the MOST RECENT session, matching the exact pattern GET /api/demo/[slug]/performance already
     // uses (order by created_at desc, limit 1) — only a genuinely current session should block a
     // fresh dispatch.
-    const { data: latestSession } = await supabase
+    // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project for this EXACT
+    // query shape (root cause found and fixed in GET /api/demo/[slug]/performance, which this
+    // comment already noted mirrors) — replaced with array fetch + [0].
+    const { data: latestSessionRows } = await supabase
       .from('partner_sessions')
       .select('id, status')
       .eq('partner_reference', params.slug)
       .eq('partner_account_id', demoPartnerAccountId)
       .order('created_at', { ascending: false })
       .limit(1)
-      .maybeSingle()
+
+    const latestSession = latestSessionRows?.[0] ?? null
 
     if (latestSession && (latestSession.status === 'requested' || latestSession.status === 'bot_active')) {
       return NextResponse.json(
@@ -118,11 +122,14 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
     }
   }
 
-  const { data: savedRow } = await supabase
+  // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project; array fetch + [0].
+  const { data: savedRows } = await supabase
     .from('demo_meeting_urls')
     .select('meeting_url, end_user_name, last_dispatch_attempted_at')
     .eq('slug', params.slug)
-    .maybeSingle()
+    .limit(1)
+
+  const savedRow = savedRows?.[0] ?? null
 
   if (!savedRow?.meeting_url) {
     return NextResponse.json(
@@ -205,11 +212,14 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
   // (demoPartnerAccountId declared above, reused here for the B2B-44 duplicate-dispatch guard.)
   if (demoPartnerAccountId) {
     try {
-      const { data: internalWallet } = await supabase
+      // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project; array fetch + [0].
+      const { data: internalWalletRows } = await supabase
         .from('partner_wallets')
         .select('trial_minutes_used, test_minutes_balance')
         .eq('partner_account_id', demoPartnerAccountId)
-        .maybeSingle()
+        .limit(1)
+
+      const internalWallet = internalWalletRows?.[0] ?? null
       const trialRemaining = Math.max(0, 20 - Number(internalWallet?.trial_minutes_used ?? 0))
       const testMinutesBalance = Number(internalWallet?.test_minutes_balance ?? 0)
       if (trialRemaining + testMinutesBalance < 30) {

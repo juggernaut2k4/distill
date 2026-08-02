@@ -27,7 +27,7 @@ vi.mock('@/lib/supabase', () => ({
           select: vi.fn(() => ({
             in: vi.fn(() => Promise.resolve({ data: state.accountRows })),
             eq: vi.fn(() => ({
-              maybeSingle: vi.fn(() => Promise.resolve({ data: state.accountRows[0] ?? null })),
+              limit: vi.fn(() => Promise.resolve({ data: state.accountRows[0] ? [state.accountRows[0]] : [] })),
             })),
           })),
         }

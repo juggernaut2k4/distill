@@ -26,12 +26,16 @@ export async function GET(
   const session = await getPartnerSession(params.clio_session_ref)
   if (!session) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
+  // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project (root cause doc
+  // comment in app/api/demo/[slug]/performance/route.ts); replaced with a plain array fetch + [0].
   const supabase = createSupabaseAdminClient()
-  const { data } = await supabase
+  const { data: rows } = await supabase
     .from('partner_sessions')
     .select('wrap_up_pending, wrap_up_nudge_text, assembled_prompt_snapshot')
     .eq('id', session.id)
-    .maybeSingle()
+    .limit(1)
+
+  const data = rows?.[0] ?? null
 
   if (!data?.wrap_up_pending) {
     return NextResponse.json({ pending: false, nudge_text: null })

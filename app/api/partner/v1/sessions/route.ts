@@ -118,12 +118,15 @@ export async function POST(request: NextRequest) {
         { status: 422 }
       )
     }
-    const { data: clientRow } = await supabase
+    // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project (root cause doc
+    // comment in app/api/demo/[slug]/performance/route.ts); replaced with array fetch + [0].
+    const { data: clientRows } = await supabase
       .from('partner_accounts')
       .select('id')
       .eq('id', client_id)
       .eq('owning_channel_partner_id', auth.partnerAccountId)
-      .maybeSingle()
+      .limit(1)
+    const clientRow = clientRows?.[0] ?? null
     if (!clientRow) {
       return NextResponse.json(
         { error: { code: 'invalid_client_id', message: 'client_id was not found or is not registered to your account.' } },
@@ -245,12 +248,17 @@ export async function POST(request: NextRequest) {
   // branch runs BEFORE dispatchMeetingBot() is ever reached, so no concurrent replay can ever cause a
   // second real bot join — the DB unique index is the sole source of truth, not a check-then-act.
   if (insertError?.code === '23505' && reseller_unique_id) {
-    const { data: original } = await supabase
+    // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project; array fetch +
+    // [0]. This is the idempotent-replay guard preventing a second real bot dispatch, so this was
+    // a priority fix, not just a routine cleanup.
+    const { data: originalRows } = await supabase
       .from('partner_sessions')
       .select('id, status')
       .eq('partner_account_id', auth.partnerAccountId)
       .eq('reseller_unique_id', reseller_unique_id)
-      .maybeSingle()
+      .limit(1)
+
+    const original = originalRows?.[0] ?? null
 
     if (original) {
       const originalAppUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
@@ -290,11 +298,15 @@ export async function POST(request: NextRequest) {
 
   // B2B-08 — trial/test-block gate check, test-mode keys only.
   if (auth.mode === 'test') {
-    const { data: wallet } = await supabase
+    // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project; array fetch +
+    // [0]. This is a billing gate, so this was a priority fix, not just a routine cleanup.
+    const { data: walletRows } = await supabase
       .from('partner_wallets')
       .select('trial_minutes_used, test_minutes_balance, stripe_default_payment_method_id')
       .eq('partner_account_id', auth.partnerAccountId)
-      .maybeSingle()
+      .limit(1)
+
+    const wallet = walletRows?.[0] ?? null
 
     // B2B-27 — card-on-file prerequisite, checked BEFORE trial-minutes math.
     // A card is a hard prerequisite independent of remaining allowance — even a
@@ -367,11 +379,14 @@ export async function POST(request: NextRequest) {
   // auth.mode === 'live' falls through here.
   //
   // B2B-06 — funding guardrail (unchanged): fires for every live-mode request.
-  const { data: wallet } = await supabase
+  // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project; array fetch + [0].
+  const { data: liveWalletRows } = await supabase
     .from('partner_wallets')
     .select('stripe_default_payment_method_id, balance_usd')
     .eq('partner_account_id', auth.partnerAccountId)
-    .maybeSingle()
+    .limit(1)
+
+  const wallet = liveWalletRows?.[0] ?? null
 
   if (!wallet || !wallet.stripe_default_payment_method_id) {
     await supabase

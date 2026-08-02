@@ -32,15 +32,15 @@ describe('partnerParticipantsEmptyDebounce (B2B-50 AT-9/AT-10/AT-11)', () => {
         from: () => ({
           select: () => ({
             eq: () => ({
-              maybeSingle: async () => ({
-                data: {
+              limit: async () => ({
+                data: [{
                   status: 'bot_active',
                   active_participant_count: 0,
                   provider_bot_id: 'bot-1',
                   test_mode: false,
                   attendee_joined_at: joinedAt,
                   updated_at: joinedAt,
-                },
+                }],
               }),
             }),
           }),
@@ -76,15 +76,15 @@ describe('partnerParticipantsEmptyDebounce (B2B-50 AT-9/AT-10/AT-11)', () => {
         from: () => ({
           select: () => ({
             eq: () => ({
-              maybeSingle: async () => ({
-                data: {
+              limit: async () => ({
+                data: [{
                   status: 'bot_active',
                   active_participant_count: 1, // rejoined
                   provider_bot_id: 'bot-1',
                   test_mode: false,
                   attendee_joined_at: new Date().toISOString(),
                   updated_at: new Date().toISOString(),
-                },
+                }],
               }),
             }),
           }),
@@ -111,15 +111,15 @@ describe('partnerParticipantsEmptyDebounce (B2B-50 AT-9/AT-10/AT-11)', () => {
         from: () => ({
           select: () => ({
             eq: () => ({
-              maybeSingle: async () => ({
-                data: {
+              limit: async () => ({
+                data: [{
                   status: 'completed',
                   active_participant_count: 0,
                   provider_bot_id: 'bot-1',
                   test_mode: false,
                   attendee_joined_at: new Date().toISOString(),
                   updated_at: new Date().toISOString(),
-                },
+                }],
               }),
             }),
           }),
@@ -144,7 +144,7 @@ describe('partnerParticipantsEmptyDebounce (B2B-50 AT-9/AT-10/AT-11)', () => {
     vi.doMock('@/lib/supabase', () => ({
       createSupabaseAdminClient: () => ({
         from: () => ({
-          select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }),
+          select: () => ({ eq: () => ({ limit: async () => ({ data: [] }) }) }),
         }),
       }),
     }))

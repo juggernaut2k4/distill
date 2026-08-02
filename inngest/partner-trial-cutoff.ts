@@ -100,9 +100,12 @@ export const partnerTrialCutoffJob = inngest.createFunction(
 
     await step.sleep('wait-for-available-minutes', `${availableMinutes}m`)
 
+    // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project (root cause doc
+    // comment in app/api/demo/[slug]/performance/route.ts); replaced with array fetch + [0].
     const alreadyEnded = await step.run('check-session-status', async () => {
       const supabase = createSupabaseAdminClient()
-      const { data } = await supabase.from('partner_sessions').select('status').eq('id', clioSessionRef).maybeSingle()
+      const { data: rows } = await supabase.from('partner_sessions').select('status').eq('id', clioSessionRef).limit(1)
+      const data = rows?.[0] ?? null
       return data?.status === 'completed' || data?.status === 'failed'
     })
     // Race-safe no-op — cancelOn should already have caught a normal end; this is a second guard,
@@ -181,11 +184,13 @@ export const partnerTrialStuckSessionBackstopSweep = inngest.createFunction(
     for (const session of stuckSessions) {
       try {
         const availableMinutes = await step.run(`compute-available-minutes-${session.id}`, async () => {
-          const { data: wallet } = await supabase
+          // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project; array fetch + [0].
+          const { data: walletRows } = await supabase
             .from('partner_wallets')
             .select('trial_minutes_used, test_minutes_balance')
             .eq('partner_account_id', session.partner_account_id)
-            .maybeSingle()
+            .limit(1)
+          const wallet = walletRows?.[0] ?? null
           const trialMinutesUsed = wallet ? Number(wallet.trial_minutes_used) : 0
           const testMinutesBalance = wallet ? Number(wallet.test_minutes_balance) : 0
           return Math.max(0, 20 - trialMinutesUsed) + testMinutesBalance

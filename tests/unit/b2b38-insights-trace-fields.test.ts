@@ -44,7 +44,7 @@ vi.mock('@/lib/supabase', () => ({
         return {
           select: () => ({
             eq: (_col: string, val: string) => ({
-              maybeSingle: async () => ({ data: partnerSessionsById[val] ?? null, error: null }),
+              limit: async () => ({ data: partnerSessionsById[val] ? [partnerSessionsById[val]] : [], error: null }),
             }),
           }),
         }
@@ -54,7 +54,7 @@ vi.mock('@/lib/supabase', () => ({
         return {
           select: () => ({
             eq: (_col: string, val: string) => ({
-              maybeSingle: async () => ({ data: insightsBySession[val] ?? null, error: null }),
+              limit: async () => ({ data: insightsBySession[val] ? [insightsBySession[val]] : [], error: null }),
             }),
           }),
           upsert: (row: Record<string, unknown>) => ({
@@ -184,18 +184,20 @@ describe('AT-19 write path — markInsightsExtractionFailed threads reseller_uni
             return {
               select: () => ({
                 eq: () => ({
-                  maybeSingle: async () => ({
-                    data: {
-                      attempt_count: 2,
-                      partner_account_id: 'acct1',
-                      partner_sessions: {
-                        test_mode: false,
-                        partner_reference: null,
-                        end_client_id: 'end-client-9',
-                        reseller_unique_id: 'order-failed-case',
-                        hume_config_id: 'hume-cfg-failed-case',
+                  limit: async () => ({
+                    data: [
+                      {
+                        attempt_count: 2,
+                        partner_account_id: 'acct1',
+                        partner_sessions: {
+                          test_mode: false,
+                          partner_reference: null,
+                          end_client_id: 'end-client-9',
+                          reseller_unique_id: 'order-failed-case',
+                          hume_config_id: 'hume-cfg-failed-case',
+                        },
                       },
-                    },
+                    ],
                   }),
                 }),
               }),

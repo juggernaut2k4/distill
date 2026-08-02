@@ -67,7 +67,7 @@ vi.mock('@/lib/supabase', () => ({
         return {
           select: (_cols: string) => ({
             eq: (_col: string, accountId: string) => ({
-              maybeSingle: async () => ({ data: walletsByAccount[accountId] ?? null, error: null }),
+              limit: async () => ({ data: walletsByAccount[accountId] ? [walletsByAccount[accountId]] : [], error: null }),
             }),
           }),
         }

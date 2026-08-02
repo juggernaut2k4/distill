@@ -35,24 +35,27 @@ export const demoDispatchMinutesConsumer = inngest.createFunction(
     const { partnerSessionId } = event.data
     if (!partnerSessionId) return { status: 'skipped', reason: 'missing_partner_session_id' }
 
+    // 2026-08-02 — .maybeSingle() confirmed unreliable on this Supabase project (root cause doc
+    // comment in app/api/demo/[slug]/performance/route.ts); both replaced with array fetch + [0].
     const dispatch = await step.run('check-is-demo-dispatch', async () => {
       const supabase = createSupabaseAdminClient()
-      const { data } = await supabase
+      const { data: rows } = await supabase
         .from('demo_dispatches')
         .select('id, billed_partner_account_id')
         .eq('clio_session_ref', partnerSessionId)
-        .maybeSingle()
-      return data as { id: string; billed_partner_account_id: string } | null
+        .limit(1)
+      return (rows?.[0] as { id: string; billed_partner_account_id: string } | undefined) ?? null
     })
     if (!dispatch) return { status: 'skipped', reason: 'not_a_demo_dispatch' } // the common case
 
     const durationMinutes = await step.run('compute-duration', async () => {
       const supabase = createSupabaseAdminClient()
-      const { data } = await supabase
+      const { data: rows } = await supabase
         .from('partner_sessions')
         .select('created_at, ended_at')
         .eq('id', partnerSessionId)
-        .maybeSingle()
+        .limit(1)
+      const data = rows?.[0] ?? null
       if (!data?.ended_at) return 0
       return Math.max(0, (new Date(data.ended_at as string).getTime() - new Date(data.created_at as string).getTime()) / 60000)
     })
