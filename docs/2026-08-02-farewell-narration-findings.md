@@ -16,8 +16,8 @@ Update this table's Status the instant any item changes state.
 | 3 | Connect-time warm-up (voice racing / screen blur) | **Approved to build** — holding for full go-ahead across all items | §3, Issue 3 |
 | 4 | Icebreaker too small | **Approved to build** — holding for full go-ahead | §3, Issue 4 |
 | 5 | Reseller-configurable bot join-name | **Approved to build** — holding for full go-ahead | §3, Issue 5 |
-| 6 | Bounded re-teach loop redesign (progressive simplification, silence + garbled-speech handling, code-enforced correctness gate) | **Pending** — needs silence-detection check + a real code-level gate (no such flag exists today) + short BA note before build | §3, Issue 6; §4; §5 |
-| 7 | Transition-silence root cause | **Root cause refined** — not just the 8s playback wait; the per-page script phrase was skipped for the Inheritance transition, which is a deeper, related issue | §3, Issue 7; §5 |
+| 6 | Bounded re-teach loop + code-enforced correctness gate | **Finalized — ready to build**, pending final go-ahead across all items | §3, Issue 6; §4; §5; §6 |
+| 7 | Transition-detection reliability + dead-air on tool calls | **Finalized — ready to build**, pending final go-ahead across all items | §3, Issue 7; §5; §6 |
 | 8 | Meeting-bot admission prompt (Google Meet/Teams/Zoom) | **Backlog, not priority** — deferred until #7 closes, moved to `BACKLOG.md` | §3, Issue 2; `BACKLOG.md` |
 
 ## 1. claude-ai test call (session `3eae41bf-68a7-400b-b953-36100dd94d42`, 2026-08-02 ~13:15–13:26 UTC)
@@ -268,15 +268,97 @@ Vercel function), so this is the best-evidenced explanation available, not a cer
 2. **Reinforce the per-page script instruction** so skipping the fixed phrase is less likely — same
    category of fix as the narration guard, and that guard has now failed twice, so treat this as
    raising the odds, not a guarantee.
-3. **New: an automatic self-recovery nudge** — since prompt-compliance alone has proven unreliable
-   three times tonight (narration guard x2, this transition-phrase skip), add a client-side watchdog:
-   if Marin goes silent for longer than a short grace window (proposing ~10–12s) with no page-advance
-   or expected event in progress, automatically send her a silent "continue" nudge — the same recovery
-   Arun did manually by asking "are you there?" — instead of relying on the participant to notice and
-   intervene. This is the part that makes the fix hold even if 1 and 2 aren't 100% effective.
-   Also add lightweight client-side logging of `advance_tab` calls and Stage 1/2 arming (fire-and-
-   forget, same pattern as the existing transcript-capture beacon) so a future incident has real
-   timing evidence instead of transcript-timestamp inference.
+3. ~~An automatic self-recovery nudge (blind silence-timer watchdog)~~ — **rejected by Arun**: "i
+   dont incline on this timer approach." Superseded by §6's tool-call + correctness-flag design below,
+   which detects readiness-to-advance directly instead of guessing from elapsed silence.
 
-Awaiting Arun's confirmation to build.
+See §6 for the finalized design that replaces point 3 above and also folds in item 6.
+
+## 6. FINALIZED plan — items 6 and 7, unified (2026-08-02)
+
+Arun's own proposal, refined through discussion, replaces both the fixed-phrase transcript-watch
+detection (item 7) and the standalone correctness-gate idea (item 6) with one mechanism. Confirmed
+ready to build, pending only the final go-ahead across all approved items (3, 4, 5, 6, 7).
+
+### The core idea
+Stop trying to detect "is she ready to move on" by listening for exact wording. Treat it the same way
+`end_session` already works in this codebase — a dedicated, explicit tool call is the only thing that
+counts, never inferred from her spoken words. Concretely:
+
+- `advance_tab` gains a required field capturing the verification outcome for the page just taught:
+  `correct` (user answered right), `capped` (max attempts reached, moving on anyway), — nothing else
+  is a valid reason to call it.
+- She is instructed to never call `advance_tab` at all until one of those two is true. The act of
+  calling it, with a valid reason, *is* the "ready to advance" signal — replacing the fragile fixed
+  phrase ("That covers what I wanted to walk through here") as the load-bearing detection mechanism.
+  That phrase can stay as natural-sounding flavor text but is no longer what the system depends on.
+- The code only actually turns the page when the call carries a valid reason. This eliminates the
+  "trigger text mismatch" failure mode entirely — her exact wording on the way there no longer matters.
+
+### Handling a premature or invalid call (the answered-wrong-so-far case)
+If she calls `advance_tab` before either condition is met (shouldn't happen per instructions, but this
+is exactly the category of instruction-slip seen twice already tonight): the code does **not** advance
+the page, and — per Arun's explicit decision — does **not** stay silent about it either. The tool
+result explicitly tells her the transition didn't happen and to continue on the *same* topic (option
+2, confirmed over silently ignoring it). Reasoning: whatever the code returns from a tool call is her
+only window into what actually happened — if it says nothing, she has no way to know the page didn't
+move, and could start talking about the *next* topic's content while the screen is still on the
+current one (a real display/speech desync risk, worse than the original bug). Telling her explicitly
+avoids that.
+
+### Tradeoff, disclosed to Arun directly
+Adding this flag to `advance_tab` does not make her judgment itself more reliable — she could still
+mark `correct` when the user actually got it wrong, the same way she's bent other instructions tonight.
+What it does do: moves the signal from freeform prose (proven fragile — skipped entirely at the
+Inheritance transition) into a small structured field, which models are simply more consistent at
+filling in correctly than matching exact wording. And the downside is bounded regardless: worst case,
+she over-reports `correct`, the participant re-answers wrong on a later question, and it plays out
+downstream from there — never a silent, invisible failure like tonight's transcript showed. Considered
+and rejected: a second, separate "report the verification result" tool called before `advance_tab` —
+more moving parts (two calls to keep in sync) for a marginal benefit over one call carrying the reason
+directly. Sticking with the one-tool design.
+
+### Silence and garbled-speech handling (item 6, finalized)
+- **Wrong-but-understandable answer**: re-explain from a different angle, then progressively simpler
+  phrasing, up to **5 total attempts**. After 5, `advance_tab` is called with `capped` and she moves on
+  gracefully (draft copy below).
+- **Total silence** (no response at all after a direct question): the platform already fires an
+  `input_audio_buffer.speech_started` event whenever real speech is detected (confirmed in
+  `openai-realtime-adapter.ts`), so "she asked, nobody said anything at all" is measurable off an
+  existing signal — no new capability needed. Threshold: **~12 seconds** of nothing after a direct
+  question (within Arun's "10–15s, even ok to go longer to really confirm" guidance) before treating
+  it as a likely audio/connection issue and ending the session gracefully (draft copy below). This is
+  a narrowly-scoped timer for one specific, meaningful moment — not the general blind watchdog Arun
+  rejected in §5.
+- **Garbled/unintelligible speech** (present but not parseable): no new signal needed — same
+  attempt-tracking mechanism as wrong answers, just a lower cap since repeated garbled speech is a
+  stronger signal something is actually broken. Threshold: **2 attempts**, then end gracefully.
+
+### Draft copy (Arun: "no need to get my approval specifically for each sentence" — drafted directly, in Marin's established natural/warm voice, no self-narrating "let me/I'll" language per the existing farewell rule)
+
+**Graceful topic defer (after 5 wrong attempts, session continues):**
+> "No worries — this one's dense. Let's park it here and make sure we come back to it properly in a
+> future session. For now, let's keep moving."
+
+**Silence / likely audio issue (ends the session):**
+> "I haven't been able to hear anything for a little while, so I don't want to keep talking to an
+> empty room. If something's off with your mic or connection, no worries at all — reconnect whenever
+> it's sorted and we'll pick this back up properly. Talk soon."
+
+**Garbled speech (ends the session):**
+> "I'm having a hard time understanding you clearly right now — might be a connection or audio quality
+> thing. Rather than keep guessing, let's reconnect once that's sorted so we can actually have this
+> conversation properly. Talk soon."
+
+### Still separate and still needed (unrelated to the above, already agreed)
+Unblocking `advance_tab`'s tool result from the playback-catch-up wait (returning immediately instead
+of waiting up to 8s) — this is independent plumbing that reduces dead air regardless of cause, and
+stays in the build plan alongside the above.
+
+### What this does not touch
+The B2B-59/60 debounce/dedup logic (`firedMarkers`, `ADVANCE_DEBOUNCE_MS` in
+`lib/partner/advance-transition.ts`) stays completely untouched — this design changes what triggers a
+transition, not the protection against a transition firing twice.
+
+Awaiting Arun's final go-ahead to build (items 3, 4, 5, 6, 7 together).
 
