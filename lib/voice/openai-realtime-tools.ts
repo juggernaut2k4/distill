@@ -30,7 +30,7 @@ export interface OpenAIRealtimeToolDef {
   description: string
   parameters: {
     type: 'object'
-    properties: Record<string, { type: string; description: string }>
+    properties: Record<string, { type: string; description: string; enum?: string[] }>
     required: string[]
   }
 }
@@ -58,9 +58,26 @@ export const OPENAI_REALTIME_TOOLS: OpenAIRealtimeToolDef[] = [
   },
   {
     type: 'function',
+    name: 'record_verification_result',
+    description:
+      "Call this immediately after the participant answers this section's verification question — in its own turn, before you decide whether to move on. Never guess or skip this: it is how the system knows whether understanding was actually confirmed. Use 'correct' only when they genuinely demonstrated understanding. Use 'incorrect' for a wrong-but-understandable answer — the result tells you exactly what to do next (re-explain and ask again, or wrap up if the maximum attempts has been reached). Use 'garbled' when you heard speech but could not understand it as an answer at all (not the same as a wrong answer) — repeated garbled results mean a likely audio/connection problem, and the result will tell you to end the session gracefully rather than keep guessing.",
+    parameters: {
+      type: 'object',
+      properties: {
+        result: {
+          type: 'string',
+          enum: ['correct', 'incorrect', 'garbled'],
+          description: 'The outcome of the verification question just asked, for the section currently being taught.',
+        },
+      },
+      required: ['result'],
+    },
+  },
+  {
+    type: 'function',
     name: 'advance_tab',
     description:
-      'Call this when — and only when — you judge the current section is fully covered (content delivered, verification question asked and answered) and you are ready to move to the next one. This is the ONLY tool that ever advances to the next section; show_visual never does. Use your own judgment on timing.',
+      "Call this only when — and only when — the current section's verification question has already been confirmed via record_verification_result (either 'correct', or 'incorrect' with the maximum attempts reached). Calling this before that will not advance the page — the system will tell you so, and you must continue teaching or clarifying the current section instead. This is the ONLY tool that ever advances to the next section; show_visual never does.",
     parameters: {
       type: 'object',
       properties: {},

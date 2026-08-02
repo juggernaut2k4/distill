@@ -261,10 +261,22 @@ describe('B2B-68 — transition/advancement substance is unchanged (Arun\'s expl
     )
   })
 
-  it('rule 5 (advance_tab) is byte-for-byte identical between the two files', () => {
+  // 2026-08-02 — B2B items 6/7 intentionally diverged rule 5 (and rule 4) between the two files:
+  // OpenAI's advance_tab is now gated on a new record_verification_result tool call (the
+  // code-enforced "ready to advance" signal — see docs/2026-08-02-farewell-narration-findings.md
+  // §6), replacing trust in the model's own unaided judgment. Hume's tools are configured on
+  // Hume's own hosted dashboard (lib/voice/hume-native/config-provisioner.ts), out of reach for
+  // this build, so Hume's rule 5 is deliberately left unchanged. This replaces the old
+  // byte-for-byte-identical assertion, which no longer holds by design.
+  it('rule 5 (advance_tab): Hume keeps its original wording; OpenAI gains the record_verification_result gate', () => {
     const humeRule5 = extractRule(humeSource, '5. When you judge', '6. If the participant asks')
-    const openaiRule5 = extractRule(OPENAI_REALTIME_PROMPT_TEMPLATE, '5. When you judge', '6. If the participant asks')
-    expect(humeRule5).toBe(openaiRule5)
+    expect(humeRule5).toContain('5. When you judge a section is complete')
+    expect(humeRule5).not.toContain('record_verification_result')
+
+    const openaiRule5 = extractRule(OPENAI_REALTIME_PROMPT_TEMPLATE, '5. Only once', '6. If the participant asks')
+    const openaiRule5Normalized = openaiRule5.replace(/\s+/g, ' ')
+    expect(openaiRule5Normalized).toContain("record_verification_result's response")
+    expect(openaiRule5Normalized).toContain('advance_tab only succeeds once that condition has actually been met')
   })
 
   it('rule 11 (inter-topic recap-then-transition) is byte-for-byte identical between the two files', () => {
@@ -311,8 +323,10 @@ describe('B2B-68 — assembleOpenAIRealtimePrompt() produces correct output', ()
     const normalized = assembled.replace(/\s+/g, ' ')
     // Template-mode rule 1 now also folds in the old rule 12's "say the word overview out loud"
     // instruction (module doc comment) — this substring covers both without depending on exact
-    // line-wrap placement.
-    expect(normalized).toContain("Open the session warmly. Immediately before you begin delivering the Session Overview section's content")
+    // line-wrap placement. 2026-08-02 — B2B item 4 added an icebreaker requirement ahead of the
+    // "overview" instruction (docs/2026-08-02-farewell-narration-findings.md §3 Issue 4).
+    expect(normalized).toContain("Open the session warmly. Greet them, then ask how they're doing today")
+    expect(normalized).toContain("immediately before you begin delivering the Session Overview section's content")
   })
 
   it('inline mode resolves rule 1 to the warm-icebreaker/agenda text, participant name substituted', () => {

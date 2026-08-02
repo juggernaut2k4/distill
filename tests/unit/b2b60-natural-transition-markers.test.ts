@@ -332,7 +332,9 @@ describe('B2B-60 — PartnerRenderClient.tsx wiring (source-text assertions, fol
     const endSessionStartRaw = clientSrcRaw.indexOf('end_session: async () => {', advanceTabStartRaw)
     const inlineAdvanceTabBlock = stripComments(clientSrcRaw.slice(advanceTabStartRaw, endSessionStartRaw))
 
-    expect(inlineAdvanceTabBlock).toMatch(/const marker = inlinePages!\[activeIndexRef\.current\]\?\.transitionMarker/)
+    // 2026-08-02 — B2B items 6/7 introduced `const idx = activeIndexRef.current` above this line
+    // (for the new verification gate check) and the marker lookup now reads from `idx`.
+    expect(inlineAdvanceTabBlock).toMatch(/const marker = inlinePages!\[idx\]\?\.transitionMarker/)
     expect(inlineAdvanceTabBlock).toMatch(/if \(marker\) advanceOnTransition\(marker\)/)
   })
 

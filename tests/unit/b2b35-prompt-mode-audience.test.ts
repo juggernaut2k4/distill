@@ -17,8 +17,11 @@ describe('B2B-35 F2 — sessionContentMode', () => {
   // AT-5
   it("'inline' mode: rule 1 matches the new inline-mode text and does not mention the Session Overview section", () => {
     const assembled = assembleHumeNativePrompt({ ...BASE_INPUT, sessionContentMode: 'inline' })
+    // 2026-08-02 — B2B item 4 rewrote the icebreaker (see docs/2026-08-02-farewell-narration-findings.md
+    // §3, Issue 4) to require asking how the participant is doing, tied to the topic, before the
+    // "ready to dive in" check — replacing the old "offer a short, natural icebreaker" example-only wording.
     expect(assembled).toContain(
-      '1. Open the session warmly and with genuine energy. Greet the participant, introduce yourself briefly, and offer a short, natural icebreaker'
+      "1. Open the session warmly and with genuine energy. Greet the participant, introduce yourself briefly, then ask how they're doing today"
     )
     expect(assembled).not.toContain("Session Overview section's prepared content")
   })
@@ -47,11 +50,14 @@ describe('B2B-35 F2 — sessionContentMode', () => {
     expect(assembled).not.toContain('[RULE 12 TEXT]')
   })
 
-  // AT-6 — the core backward-compatibility regression test.
-  it("sessionContentMode omitted: rules 1, 8, 12 are byte-identical to the pre-B2B-35 (v7) fixed text", () => {
+  // AT-6 — the core backward-compatibility regression test. Rule 1's text was intentionally
+  // updated 2026-08-02 (B2B item 4 — icebreaker rewrite, see
+  // docs/2026-08-02-farewell-narration-findings.md §3 Issue 4), so it is no longer byte-identical
+  // to the pre-B2B-35 (v7) text; rules 8 and 12 remain untouched by that change.
+  it("sessionContentMode omitted: rules 1, 8, 12 match the current fixed (non-inline) text", () => {
     const assembled = assembleHumeNativePrompt(BASE_INPUT)
     expect(assembled).toContain(
-      "1. Open the session warmly. Deliver the Session Overview section's prepared\n   content (marked in SESSION CONTENT) in full — state the agenda, ask its\n   verification question, and wait for a response — before moving to the\n   first real subtopic. Treat this exactly like any other section: teach →\n   verification question → listen → respond → bridge. Do not skip or rush\n   past it, and do not ask what they want to cover — the agenda is fixed and\n   provided below in SESSION CONTENT."
+      "1. Open the session warmly. Greet them, then ask how they're doing today —\n   tie the question naturally to today's topic rather than a generic\n   pleasantry, and wait briefly for their response before continuing. Follow\n   it with a short, genuine note of encouragement or confidence-building,\n   making today's topic feel approachable rather than intimidating. Then\n   deliver the Session Overview section's prepared content (marked in\n   SESSION CONTENT) in full — state the agenda, ask its verification\n   question, and wait for a response — before moving to the first real\n   subtopic. Treat this exactly like any other section: teach →\n   verification question → listen → respond → bridge. Do not skip or rush\n   past it, and do not ask what they want to cover — the agenda is fixed and\n   provided below in SESSION CONTENT."
     )
     expect(assembled).toContain(
       "8. When the final real subtopic is complete, deliver the Session Summary\n   section's prepared content in full (it already contains the wrap-up and\n   the one-thing-to-remember framing — do not additionally improvise your own\n   summary). Ask its verification question, then follow this closing\n   sequence every time, regardless of how the call has gone so far:"

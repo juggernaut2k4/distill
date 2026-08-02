@@ -116,6 +116,33 @@ export interface PartnerRenderClientProps {
   inlinePages?: InlinePageProp[]
 }
 
+// B2B items 6/7 (2026-08-02) — code-enforced correctness gate on advance_tab, per Arun's design:
+// the tool call itself (via record_verification_result), not phrase-matching, is the authoritative
+// "ready to advance" signal. See docs/2026-08-02-farewell-narration-findings.md §6 for the full
+// design discussion and rationale. OpenAI Realtime only — Hume's tools are configured on Hume's own
+// hosted dashboard (lib/voice/hume-native/config-provisioner.ts), out of reach for this build.
+const MAX_WRONG_ANSWER_ATTEMPTS = 5
+const MAX_GARBLED_ATTEMPTS = 2
+// Silence-after-a-turn threshold (item 6) — deliberately generous per Arun's "10-15s, even ok to go
+// longer to really confirm" guidance. A one-shot, narrowly-scoped timer (not the general watchdog
+// Arun rejected): it only ever fires the graceful audio-issue closing, never a blind "keep talking"
+// nudge for its own sake.
+const SILENCE_THRESHOLD_MS = 12_000
+
+interface PageVerificationState {
+  status: 'unresolved' | 'correct' | 'capped'
+  wrongCount: number
+  garbledCount: number
+}
+
+const SILENCE_RECOVERY_INSTRUCTION =
+  'The participant has not responded at all for a while — this is likely an audio or connection ' +
+  'issue, not something they are choosing to ignore. Do not keep waiting or repeating yourself. Say, ' +
+  'out loud, in your own words: something like "I haven\'t been able to hear anything for a little ' +
+  'while, so I don\'t want to keep talking to an empty room. If something\'s off with your mic or ' +
+  'connection, no worries at all — reconnect whenever it\'s sorted and we\'ll pick this back up ' +
+  'properly. Talk soon." Immediately after saying that, in the same turn, call the end_session tool.'
+
 export default function PartnerRenderClient({
   clioSessionRef,
   sections,
@@ -133,6 +160,19 @@ export default function PartnerRenderClient({
   const count = isInline ? inlinePages!.length : (sections?.length ?? 0)
 
   const [status, setStatus] = useState<'connecting' | 'listening' | 'speaking' | 'error' | 'ended'>('connecting')
+  // B2B item 3 (2026-08-02) — connect-time warm-up: hold the real content behind a loading
+  // screen until voice is actually connected, instead of showing content that "races" against
+  // voice startup. Only gates when voice is expected at all (humeConfigId null → no voice, no
+  // gate, matches existing no-voice degrade). A hard timeout is the safety net so a slow/stuck
+  // connection never leaves the participant staring at a blank loading screen indefinitely —
+  // worse than the racing it replaces.
+  const [showConnectWarmup, setShowConnectWarmup] = useState(Boolean(humeConfigId))
+  const warmupTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // B2B items 6/7 — per-page verification state, keyed by page index, and the silence-after-a-turn
+  // timer. See the module-level doc comment above these constants for the full design.
+  const verificationStateRef = useRef<Record<number, PageVerificationState>>({})
+  const silenceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // B2B-61 Part A — typed against the provider-agnostic interface, not HumeAdapter directly, so
   // this ref works unchanged regardless of which adapter `connect()` below constructs.
   const adapterRef = useRef<VoiceSessionAdapter | null>(null)
@@ -244,6 +284,11 @@ export default function PartnerRenderClient({
     async function connect() {
       if (!humeConfigId) return // session proceeds without voice; content still renders
 
+      // B2B item 3 — safety-net timeout: reveal content even if voice never reaches 'listening'
+      // or 'error' (e.g. a hang before either fires). Cleared on unmount and once real content is
+      // revealed via onConnect/onError below.
+      warmupTimeoutRef.current = setTimeout(() => setShowConnectWarmup(false), 6000)
+
       try {
         const micStream = await navigator.mediaDevices.getUserMedia({ audio: true })
         if (cancelled) return
@@ -255,6 +300,54 @@ export default function PartnerRenderClient({
         // with no other value possible.
         connectStartRef.current = Date.now()
 
+        // B2B items 6/7 — record_verification_result is the authoritative signal for whether the
+        // current page's understanding check has been satisfied; advance_tab is gated on it below.
+        // Shared by both inline and template tool sets (identical logic, just called from either).
+        const getVerificationState = (idx: number): PageVerificationState => {
+          if (!verificationStateRef.current[idx]) {
+            verificationStateRef.current[idx] = { status: 'unresolved', wrongCount: 0, garbledCount: 0 }
+          }
+          return verificationStateRef.current[idx]
+        }
+
+        const recordVerificationResult = async (params: Record<string, unknown>): Promise<string> => {
+          const idx = activeIndexRef.current
+          const state = getVerificationState(idx)
+          const result = params?.result
+
+          if (result === 'correct') {
+            state.status = 'correct'
+            return 'Recorded: correct. You can wrap up this topic and call advance_tab when ready.'
+          }
+
+          if (result === 'garbled') {
+            state.garbledCount += 1
+            if (state.garbledCount >= MAX_GARBLED_ATTEMPTS) {
+              state.status = 'capped'
+              return (
+                'Recorded: garbled (max attempts reached). Do not keep guessing — this may be an ' +
+                'audio or connection issue. Gracefully let the participant know you are having ' +
+                'trouble understanding them clearly, then end the session now via end_session, ' +
+                'rather than calling advance_tab.'
+              )
+            }
+            return `Recorded: garbled (attempt ${state.garbledCount} of ${MAX_GARBLED_ATTEMPTS}). Ask them to repeat or rephrase their answer.`
+          }
+
+          // 'incorrect' (or any unrecognized value — treat as not-yet-correct rather than silently
+          // advancing, since a malformed/missing result should never be trusted as success).
+          state.wrongCount += 1
+          if (state.wrongCount >= MAX_WRONG_ANSWER_ATTEMPTS) {
+            state.status = 'capped'
+            return (
+              `Recorded: incorrect (attempt ${state.wrongCount} of ${MAX_WRONG_ANSWER_ATTEMPTS}, max reached). ` +
+              'Do not ask again — gracefully let the participant know you will cover this properly ' +
+              'in a future session, then wrap up and call advance_tab.'
+            )
+          }
+          return `Recorded: incorrect (attempt ${state.wrongCount} of ${MAX_WRONG_ANSWER_ATTEMPTS}). Re-explain from a different angle or in simpler terms, then ask again.`
+        }
+
         // Tool handlers differ per mode. Option 2 keeps its exact prior behavior;
         // inline mode: only advance_tab (plus the transcript phrase-match backup below)
         // advances the page. B2B-58 — show_visual used to be wired identically to
@@ -264,15 +357,39 @@ export default function PartnerRenderClient({
           show_visual: async () => {
             return 'Visual is showing.'
           },
+          record_verification_result: recordVerificationResult,
           advance_tab: async () => {
-            const marker = inlinePages![activeIndexRef.current]?.transitionMarker
+            // B2B items 6/7 (2026-08-02) — gate on the recorded verification outcome for the
+            // CURRENT page before doing anything else. A premature/invalid call is told explicitly
+            // to continue the same topic rather than silently no-op'ing — silence here risks Clio
+            // believing the move succeeded and drifting into the next topic's content while the
+            // screen hasn't actually moved (a real display/speech desync, worse than not advancing).
+            const idx = activeIndexRef.current
+            if (getVerificationState(idx).status === 'unresolved') {
+              return (
+                'Not yet — this page\'s verification result has not been recorded as correct (or ' +
+                'capped) via record_verification_result. Continue teaching or clarifying this same ' +
+                'topic; do not move to the next one and do not talk about the next topic\'s content.'
+              )
+            }
+
+            const marker = inlinePages![idx]?.transitionMarker
             // B2B-61 round 3 — the model can call this tool the instant it finishes GENERATING the
             // sentence naming the next topic, while that audio may still be mid-flight through the
             // local playback queue. Wait for actual playback to catch up before executing the move,
             // so the visual advance never gets ahead of what the participant has actually heard.
             // No-op for Hume (method not implemented there — see adapter.ts's doc comment).
-            await adapterRef.current?.waitForPlaybackCaughtUp?.()
-            if (marker) advanceOnTransition(marker)
+            //
+            // B2B item 7a (2026-08-02) — that wait used to block THIS function's return, which in
+            // turn blocked the model from being allowed to speak again (the tool result gates
+            // sending function_call_output + the follow-up response.create). Bounded at 8s
+            // (waitForPlaybackToFinish's hard cap), that produced real dead air whenever local
+            // audio hadn't drained cleanly. Now fire-and-forget: return immediately so she's never
+            // blocked on it, while the wait + actual page move still happen right after.
+            void (async () => {
+              await adapterRef.current?.waitForPlaybackCaughtUp?.()
+              if (marker) advanceOnTransition(marker)
+            })()
             return 'Advanced.'
           },
           end_session: async () => {
@@ -289,11 +406,26 @@ export default function PartnerRenderClient({
             const title = sections?.[idx]?.section.meta.subtopicTitle ?? `section ${idx + 1}`
             return `Visual is now showing: "${title}" (section ${idx + 1} of ${count}).`
           },
+          record_verification_result: recordVerificationResult,
           advance_tab: async () => {
-            // B2B-61 round 3 — same playback-catch-up guard as inlineTools.advance_tab above.
-            await adapterRef.current?.waitForPlaybackCaughtUp?.()
-            const idx = Math.min(activeIndexRef.current + 1, count - 1)
-            goToSection(idx)
+            // B2B items 6/7 — same gate as inlineTools.advance_tab above, checked against the
+            // CURRENT page (not the target page being advanced to).
+            const currentIdx = activeIndexRef.current
+            if (getVerificationState(currentIdx).status === 'unresolved') {
+              return (
+                'Not yet — this section\'s verification result has not been recorded as correct ' +
+                '(or capped) via record_verification_result. Continue teaching or clarifying this ' +
+                'same section; do not move to the next one and do not talk about its content.'
+              )
+            }
+
+            // B2B-61 round 3 / B2B item 7a — same playback-catch-up guard, now fire-and-forget
+            // (see inlineTools.advance_tab above for the full rationale).
+            const idx = Math.min(currentIdx + 1, count - 1)
+            void (async () => {
+              await adapterRef.current?.waitForPlaybackCaughtUp?.()
+              goToSection(idx)
+            })()
             const title = sections?.[idx]?.section.meta.subtopicTitle ?? `section ${idx + 1}`
             return `Advanced to: "${title}" (section ${idx + 1} of ${count}).`
           },
@@ -332,9 +464,39 @@ export default function PartnerRenderClient({
 
         // Shared across both providers — VoiceSessionAdapter's callback shapes are provider-agnostic
         // by design (see adapter.ts), so none of this needs to branch.
+        // B2B item 3 — clears the connect-warmup loading screen and its safety-net timeout.
+        // Called on both the success (onConnect) and failure (onError) paths so a connection
+        // error never leaves the participant stuck behind the loading screen.
+        const revealContentAfterWarmup = () => {
+          if (warmupTimeoutRef.current) {
+            clearTimeout(warmupTimeoutRef.current)
+            warmupTimeoutRef.current = null
+          }
+          setShowConnectWarmup(false)
+        }
+
+        // B2B item 6 — silence-after-a-turn timer. Arms whenever Marin finishes speaking (mode
+        // goes back to 'listening'), clears on real user speech (onUserSpeechStarted, OpenAI-only)
+        // or the next time she starts speaking again. Firing triggers the graceful audio-issue
+        // closing via triggerRecoveryNudge — a no-op for Hume (method not implemented there),
+        // matching the same optional-chaining pattern as waitForPlaybackCaughtUp.
+        const clearSilenceTimer = () => {
+          if (silenceTimeoutRef.current) {
+            clearTimeout(silenceTimeoutRef.current)
+            silenceTimeoutRef.current = null
+          }
+        }
+        const armSilenceTimer = () => {
+          clearSilenceTimer()
+          silenceTimeoutRef.current = setTimeout(() => {
+            adapterRef.current?.triggerRecoveryNudge?.(SILENCE_RECOVERY_INSTRUCTION)
+          }, SILENCE_THRESHOLD_MS)
+        }
+
         const sharedCallbacks = {
           onConnect: (sessionId: string) => {
             setStatus('listening')
+            revealContentAfterWarmup()
             if (sessionId) {
               fetch('/api/partner/render/session-chat-id', {
                 method: 'POST',
@@ -343,12 +505,18 @@ export default function PartnerRenderClient({
               }).catch((err) => console.warn('[partner-render] Failed to persist hume_chat_id:', err))
             }
           },
-          onDisconnect: () => setStatus('ended'),
+          onDisconnect: () => { setStatus('ended'); clearSilenceTimer() },
           onError: (message: string) => {
             console.error('[partner-render] Voice session error:', message)
             setStatus('error')
+            revealContentAfterWarmup()
+            clearSilenceTimer()
           },
-          onModeChange: (mode: 'listening' | 'speaking') => setStatus(mode),
+          onModeChange: (mode: 'listening' | 'speaking') => {
+            setStatus(mode)
+            if (mode === 'listening') armSilenceTimer()
+            else clearSilenceTimer()
+          },
           // B2B-63 (docs/specs/B2B-63-requirement-document.md §6) — wraps, does not replace, the
           // existing per-mode onMessage closure above (byte-for-byte unchanged behavior, first, for
           // both modes). Inline-mode-only for this build (§0/§11 Q4) — template mode is being paused
@@ -379,6 +547,10 @@ export default function PartnerRenderClient({
           adapter = await OpenAIRealtimeAdapter.create({
             ephemeralToken: accessToken,
             model,
+            // B2B item 6 — clears the silence timer on real detected speech, independent of
+            // onModeChange's coarser 'listening'/'speaking' toggle. OpenAI-only; passed directly
+            // here (not sharedCallbacks) since Hume's config has no equivalent field.
+            onUserSpeechStarted: clearSilenceTimer,
             // B2B-68 (2026-08-02) — OpenAI Realtime now gets its own single, self-contained prompt
             // (lib/voice/openai-realtime-prompt-template.ts, server-computed in
             // lib/partner/live-render.ts, passed down as `openaiVoiceInstructions`), replacing the
@@ -447,6 +619,11 @@ export default function PartnerRenderClient({
         // detail).
         reportClientError(clioSessionRef, 'hume-connect-error', message, err instanceof Error ? err.stack : undefined)
         setStatus('error')
+        setShowConnectWarmup(false)
+        if (warmupTimeoutRef.current) {
+          clearTimeout(warmupTimeoutRef.current)
+          warmupTimeoutRef.current = null
+        }
       }
     }
 
@@ -454,6 +631,8 @@ export default function PartnerRenderClient({
 
     return () => {
       cancelled = true
+      if (warmupTimeoutRef.current) clearTimeout(warmupTimeoutRef.current)
+      if (silenceTimeoutRef.current) clearTimeout(silenceTimeoutRef.current)
       void endSessionOnce()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -573,10 +752,27 @@ export default function PartnerRenderClient({
     }
   }
 
+  // B2B item 3 (2026-08-02) — connect-time warm-up overlay. Sits on top of the real content (which
+  // still mounts underneath, unchanged) so nothing about page structure/transitions is touched —
+  // just what's visually on top for the first moment. Fades out via opacity transition rather than
+  // popping, and goes pointer-events-none once hidden so it never blocks interaction after voice
+  // connects.
+  const connectWarmupOverlay = (
+    <div
+      aria-hidden={!showConnectWarmup}
+      className={`pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-black transition-opacity duration-500 ${
+        showConnectWarmup ? 'opacity-100' : 'opacity-0'
+      }`}
+    >
+      <div className="h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-white/80" />
+    </div>
+  )
+
   // ─── Inline render (B2B-19) ─────────────────────────────────────────────────
   if (isInline) {
     return (
       <div className="relative h-screen w-screen overflow-y-auto bg-black">
+        {connectWarmupOverlay}
         {inlinePages!.map((page, index) => (
           <div
             key={index}
@@ -631,6 +827,7 @@ export default function PartnerRenderClient({
   // ─── Template render (Option 2, unchanged) ──────────────────────────────────
   return (
     <div className="relative h-screen w-screen overflow-y-auto">
+      {connectWarmupOverlay}
       {(sections ?? []).map(({ section, cssCustomProperties }, index) => (
         <div
           key={section.id}

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { requirePartnerApiKey } from '@/lib/partner/auth'
 import { dispatchMeetingBot } from '@/lib/partner/session-init'
+import { getThemeConfig } from '@/lib/partner/theme'
 import { resolveEffectiveRate } from '@/lib/partner/webhooks'
 import { getContentSource } from '@/lib/partner/content-sources'
 import { assertUrlSafe } from '@/lib/partner/ssrf'
@@ -351,7 +352,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const dispatchResult = await dispatchMeetingBot({ clioSessionRef, meetingUrl: meeting_url, renderUrl })
+    // B2B item 5 (2026-08-02) — reseller-configurable bot join name, already wired into the
+    // spoken voice persona; this is the one remaining gap (the meeting-bot's own display name).
+    const testModeTheme = await getThemeConfig(auth.partnerAccountId)
+    const dispatchResult = await dispatchMeetingBot({ clioSessionRef, meetingUrl: meeting_url, renderUrl, botDisplayName: testModeTheme.assistantDisplayName })
 
     if (dispatchResult.status === 'bot_active' && dispatchResult.botId) {
       inngest
@@ -438,7 +442,9 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const dispatchResult = await dispatchMeetingBot({ clioSessionRef, meetingUrl: meeting_url, renderUrl })
+  // B2B item 5 (2026-08-02) — see the test-mode branch's identical comment above.
+  const liveModeTheme = await getThemeConfig(auth.partnerAccountId)
+  const dispatchResult = await dispatchMeetingBot({ clioSessionRef, meetingUrl: meeting_url, renderUrl, botDisplayName: liveModeTheme.assistantDisplayName })
 
   // B2B-19 — arm the mid-session live-wallet cutoff (inline live sessions with a
   // finite affordable-minutes budget only).

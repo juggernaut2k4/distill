@@ -11,13 +11,13 @@ Update this table's Status the instant any item changes state.
 
 | # | Item | Status | Detail |
 |---|------|--------|--------|
-| 1 | Farewell/`end_session` fires without a real spoken goodbye | **Open** — confirmed in both test calls (webhook timing), root cause now tied to #7's mechanism | §1, §2 below |
-| 2 | Meta-narration guard not holding ("let's"/"let me" still leak through) | **Open** — survived two prompt-fix rounds (B2B-67, B2B-68) | §1, §2 below |
-| 3 | Connect-time warm-up (voice racing / screen blur) | **Approved to build** — holding for full go-ahead across all items | §3, Issue 3 |
-| 4 | Icebreaker too small | **Approved to build** — holding for full go-ahead | §3, Issue 4 |
-| 5 | Reseller-configurable bot join-name | **Approved to build** — holding for full go-ahead | §3, Issue 5 |
-| 6 | Bounded re-teach loop + code-enforced correctness gate | **Finalized — ready to build**, pending final go-ahead across all items | §3, Issue 6; §4; §5; §6 |
-| 7 | Transition-detection reliability + dead-air on tool calls | **Finalized — ready to build**, pending final go-ahead across all items | §3, Issue 7; §5; §6 |
+| 1 | Farewell/`end_session` fires without a real spoken goodbye | **Open** — the #7 fix below (unblocking advance_tab's tool result) shares its root mechanism; needs a live test call to confirm whether it also resolved this one | §1, §2 below |
+| 2 | Meta-narration guard not holding ("let's"/"let me" still leak through) | **Open** — survived two prompt-fix rounds (B2B-67, B2B-68); not touched by tonight's build | §1, §2 below |
+| 3 | Connect-time warm-up (voice racing / screen blur) | **Built** 2026-08-02 — tsc/build/tests clean | §3, Issue 3 |
+| 4 | Icebreaker too small | **Built** 2026-08-02 — tsc/build/tests clean | §3, Issue 4 |
+| 5 | Reseller-configurable bot join-name | **Built** 2026-08-02 — tsc/build/tests clean | §3, Issue 5 |
+| 6 | Bounded re-teach loop + code-enforced correctness gate | **Built** 2026-08-02 — needs a live test call to confirm real-world behavior before calling it fully closed | §3, Issue 6; §4; §5; §6; §7 |
+| 7 | Transition-detection reliability + dead-air on tool calls | **Built** 2026-08-02 — needs a live test call to confirm real-world behavior before calling it fully closed | §3, Issue 7; §5; §6; §7 |
 | 8 | Meeting-bot admission prompt (Google Meet/Teams/Zoom) | **Backlog, not priority** — deferred until #7 closes, moved to `BACKLOG.md` | §3, Issue 2; `BACKLOG.md` |
 
 ## 1. claude-ai test call (session `3eae41bf-68a7-400b-b953-36100dd94d42`, 2026-08-02 ~13:15–13:26 UTC)
@@ -375,4 +375,60 @@ The B2B-59/60 debounce/dedup logic (`firedMarkers`, `ADVANCE_DEBOUNCE_MS` in
 transition, not the protection against a transition firing twice.
 
 Awaiting Arun's final go-ahead to build (items 3, 4, 5, 6, 7 together).
+
+## 7. Build complete (2026-08-02) — items 3, 4, 5, 6, 7
+
+Built directly per the finalized designs above, after Arun's go-ahead ("yes go ahead and build all
+of it"). `npx tsc --noEmit`, `npm run build`, and the full `vitest` suite are all clean (one
+pre-existing, unrelated failure confirmed via `git stash` — `tests/unit/voice-gap-watchdog.test.ts`,
+a `minutes_ledger` mock gap in `lib/session-billing.ts`, untouched by any of tonight's work).
+
+**Item 3 — connect-time warm-up:** `PartnerRenderClient.tsx` now shows a loading overlay
+(`showConnectWarmup`) until voice actually connects (or a 6s safety-net timeout, so a stuck
+connection never traps the participant behind a blank screen), plus a ~300ms gain fade-in on the
+first audio chunk in both `openai-realtime-adapter.ts` and `hume-adapter.ts`.
+
+**Item 4 — icebreaker:** rewrote the opening rule in both `openai-realtime-prompt-template.ts` and
+`hume-native/prompt-template.ts` (both template and inline variants) to require asking how the
+participant is doing, tied to the topic, plus a short encouragement note, before the existing
+overview/agenda flow.
+
+**Item 5 — reseller bot name:** `assistantDisplayName` (already wired into the spoken persona) now
+also threads through to the meeting-bot's own join name — `MeetingBotProvider.createBot()` gained an
+optional `botDisplayName` param, used by both Attendee.dev and Recall.ai, looked up via
+`getThemeConfig()` at both dispatch call sites in `app/api/partner/v1/sessions/route.ts`.
+
+**Items 6/7 — verification gate + dead-air fix (OpenAI Realtime only):**
+- New `record_verification_result` tool (`correct` / `incorrect` / `garbled`), called the moment
+  Marin hears an answer, tracked per-page by the client (`PartnerRenderClient.tsx`) with the agreed
+  caps (5 wrong-answer attempts, 2 garbled attempts).
+- `advance_tab` now only succeeds against a `correct` or capped record for the current page;
+  a premature call is told explicitly to continue the same topic, per the display/speech-desync
+  reasoning from the design discussion.
+- `advance_tab`'s tool result is no longer blocked on the playback-catch-up wait — it returns
+  immediately; the wait and the actual page move now run fire-and-forget.
+- New silence-after-a-turn safety net: a ~12s timer (armed on `onModeChange('listening')`, cleared on
+  real speech via the new `onUserSpeechStarted` adapter callback) triggers
+  `triggerRecoveryNudge()` — a new adapter method that injects a system instruction and forces an
+  immediate response — so Marin proactively delivers the graceful audio-issue closing instead of
+  waiting indefinitely.
+- `lib/voice/openai-realtime-prompt-template.ts`'s rule 4/5 and adaptive-teaching guidance rewritten
+  to describe this new flow; Hume's template is deliberately left untouched (its tools are
+  Hume-hosted-dashboard-configured, out of reach for this build) — rules 4/5 now intentionally
+  diverge between the two files, documented inline and in the updated tests.
+- Does **not** touch the protected B2B-59/60 debounce/dedup logic
+  (`lib/partner/advance-transition.ts`) — confirmed unchanged.
+
+**Files touched:** `app/(with-clerk)/partner-render/[clio_session_ref]/PartnerRenderClient.tsx`,
+`app/api/partner/v1/sessions/route.ts`, `lib/voice/adapter.ts`, `lib/voice/openai-realtime-adapter.ts`,
+`lib/voice/hume-adapter.ts`, `lib/voice/openai-realtime-tools.ts`,
+`lib/voice/openai-realtime-prompt-template.ts`, `lib/voice/hume-native/prompt-template.ts`,
+`lib/meeting-bot/types.ts`, `lib/meeting-bot/attendee.ts`, `lib/meeting-bot/recall.ts`, `lib/recall.ts`,
+`lib/partner/session-init.ts`, plus test updates across `tests/integration/partner-sessions-api.test.ts`
+and 8 unit test files (mock/assertion updates to match the intentional changes above, no test
+coverage removed).
+
+**Not yet done:** a live test call to confirm items 6/7 actually eliminate the dead air and correctness
+gate correctly in practice — code-level verification only so far. Recommend one before calling those
+two items fully closed.
 

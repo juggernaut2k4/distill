@@ -39,6 +39,9 @@ export class HumeAdapter implements VoiceSessionAdapter {
   private isPlaying = false
   private connected = false
   private outputVol = 1.0
+  // B2B item 3 (2026-08-02) — same one-shot connect-time fade-in as OpenAIRealtimeAdapter; see
+  // that file's identical field for the full rationale.
+  private hasFadedInFirstChunk = false
   private config: HumeAdapterConfig
   private intentionalClose = false
   private reconnectAttempts = 0
@@ -303,6 +306,13 @@ export class HumeAdapter implements VoiceSessionAdapter {
       const src = this.audioCtx.createBufferSource()
       src.buffer = decoded
       src.connect(this.gainNode ?? this.audioCtx.destination)
+      if (this.gainNode && !this.hasFadedInFirstChunk) {
+        this.hasFadedInFirstChunk = true
+        const now = this.audioCtx.currentTime
+        this.gainNode.gain.cancelScheduledValues(now)
+        this.gainNode.gain.setValueAtTime(0, now)
+        this.gainNode.gain.linearRampToValueAtTime(this.outputVol, now + 0.3)
+      }
       src.onended = () => void this.drainQueue()
       src.start()
     } catch {

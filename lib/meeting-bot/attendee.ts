@@ -13,18 +13,18 @@ function headers(): Record<string, string> {
 export const attendeeProvider: MeetingBotProvider = {
   name: 'attendee',
 
-  async createBot(meetingUrl: string, userId: string, walkthroughUrl: string, _sessionId?: string): Promise<CreateBotResult> {
+  async createBot(meetingUrl: string, userId: string, walkthroughUrl: string, _sessionId?: string, botDisplayName?: string | null): Promise<CreateBotResult> {
     const key = process.env.ATTENDEE_API_KEY
     if (!key || key.startsWith('PLACEHOLDER')) {
       const mockBotId = `mock-attendee-${Date.now()}`
       // SECURITY: walkthroughUrl carries the audit token as a query param — never log it raw.
-      console.log('[MOCK ATTENDEE] createBot', { meetingUrl, userId, walkthroughUrl: redactAuditTokenFromUrl(walkthroughUrl), mockBotId })
+      console.log('[MOCK ATTENDEE] createBot', { meetingUrl, userId, walkthroughUrl: redactAuditTokenFromUrl(walkthroughUrl), mockBotId, botName: botDisplayName ?? 'Clio' })
       return { botId: mockBotId }
     }
 
     const webhookUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/attendee/webhook`
 
-    return createBotBrowserMode(meetingUrl, userId, walkthroughUrl, webhookUrl)
+    return createBotBrowserMode(meetingUrl, userId, walkthroughUrl, webhookUrl, botDisplayName)
   },
 
   async deleteBot(botId: string): Promise<void> {
@@ -56,13 +56,14 @@ async function createBotBrowserMode(
   userId: string,
   walkthroughUrl: string,
   webhookUrl: string,
+  botDisplayName?: string | null,
 ): Promise<CreateBotResult> {
   const res = await fetch(`${BASE_URL}/bots`, {
     method: 'POST',
     headers: headers(),
     body: JSON.stringify({
       meeting_url: meetingUrl,
-      bot_name: 'Clio',
+      bot_name: botDisplayName ?? 'Clio',
       voice_agent_settings: { url: walkthroughUrl },
       webhooks: [{
         url: webhookUrl,

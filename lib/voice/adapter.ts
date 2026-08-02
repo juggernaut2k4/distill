@@ -88,4 +88,18 @@ export interface VoiceSessionAdapter {
    *           stuck/never-draining queue can't hang a transition indefinitely.
    */
   waitForPlaybackCaughtUp?(): Promise<void>
+
+  /**
+   * B2B item 6 (2026-08-02) — optional extension point for the silence-after-a-turn safety net:
+   * injects a system-role instruction and immediately prompts a fresh response, so the model can
+   * proactively say something (e.g. the graceful audio-issue closing) instead of waiting for the
+   * participant, who may not be there. Unlike sendWrapUpNudge (which amends session instructions
+   * for the model's own next natural turn) this forces an immediate response.
+   *   Hume:   not implemented (undefined) — this silence-detection feature is OpenAI-only (built
+   *           on `onUserSpeechStarted`, itself OpenAI-only); `adapter?.triggerRecoveryNudge?.()` is
+   *           a real no-op here via optional chaining.
+   *   OpenAI: sends a system-role conversation.item.create followed by an explicit response.create.
+   * @returns true if the send was attempted without throwing and the connection was open.
+   */
+  triggerRecoveryNudge?(instructionText: string): boolean
 }

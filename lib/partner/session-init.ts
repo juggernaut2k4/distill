@@ -50,13 +50,17 @@ export async function dispatchMeetingBot(params: {
   clioSessionRef: string
   meetingUrl: string
   renderUrl: string
+  // botDisplayName — B2B item 5 (2026-08-02): partner_themes.assistant_display_name, looked up by
+  // the caller (already has partnerAccountId in scope) and passed through untouched. Absent/null
+  // falls back to each provider's own default name.
+  botDisplayName?: string | null
 }): Promise<DispatchBotResult> {
   const supabase = createSupabaseAdminClient()
   const provider = getMeetingBotProvider()
 
   try {
     const { botId } = await withTimeout(
-      provider.createBot(params.meetingUrl, params.clioSessionRef, params.renderUrl, params.clioSessionRef),
+      provider.createBot(params.meetingUrl, params.clioSessionRef, params.renderUrl, params.clioSessionRef, params.botDisplayName),
       20_000 // 15-30s range per Section 8's "Loading/slow-network state" guidance
     )
 

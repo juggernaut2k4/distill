@@ -97,6 +97,14 @@ export interface OpenAIRealtimeAdapterConfig {
   onDisconnect: () => void
   onError: (message: string) => void
   onModeChange: (mode: 'listening' | 'speaking') => void
+  /**
+   * B2B item 6 (2026-08-02) — fires on every `input_audio_buffer.speech_started` (OpenAI's own
+   * server-side VAD confirming the participant actually started speaking), independent of
+   * `onModeChange`. Lets the client measure "she asked a direct question and got total silence"
+   * off a real signal instead of guessing — optional so this stays OpenAI-only (Hume has never
+   * needed this and isn't wired for it).
+   */
+  onUserSpeechStarted?: () => void
   onMessage: (text: string, source: 'user' | 'ai') => void
   tools: Record<string, (params: Record<string, unknown>) => Promise<string>>
   /** Mirrors HumeAdapterConfig.reportError — optional diagnostic hook for otherwise-silent
@@ -119,6 +127,11 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
   private audioCtx: AudioContext | null = null
   private gainNode: GainNode | null = null
   private outputVol = 1.0
+  // B2B item 3 (2026-08-02) — connect-time warm-up: fade the very first audio chunk in from
+  // silence instead of starting at full volume the instant the connection catches up, so voice
+  // doesn't feel like it's "racing" in. One-shot — every chunk after the first plays at the
+  // normal, unramped volume.
+  private hasFadedInFirstChunk = false
   private config: OpenAIRealtimeAdapterConfig
   private connected = false
   private intentionalClose = false
@@ -384,6 +397,7 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
         this.clearAudioQueue()
         this.currentResponseSpeaking = false
         this.config.onModeChange('listening')
+        this.config.onUserSpeechStarted?.()
         break
 
       case 'response.output_audio.delta': {
@@ -589,6 +603,13 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
       const src = this.audioCtx.createBufferSource()
       src.buffer = buffer
       src.connect(this.gainNode ?? this.audioCtx.destination)
+      if (this.gainNode && !this.hasFadedInFirstChunk) {
+        this.hasFadedInFirstChunk = true
+        const now = this.audioCtx.currentTime
+        this.gainNode.gain.cancelScheduledValues(now)
+        this.gainNode.gain.setValueAtTime(0, now)
+        this.gainNode.gain.linearRampToValueAtTime(this.outputVol, now + 0.3)
+      }
       src.onended = () => void this.drainQueue()
       src.start()
     } catch {
@@ -666,6 +687,28 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
       return true
     } catch (err) {
       console.warn('[OpenAIRealtimeAdapter] sendWrapUpNudge failed:', err)
+      return false
+    }
+  }
+
+  /**
+   * B2B item 6 (2026-08-02) — silence-after-a-turn safety net. Unlike sendWrapUpNudge (amends
+   * session instructions for the model's own next natural turn, no immediate effect),
+   * this forces an immediate response: a system-role conversation item followed by an explicit
+   * response.create, so the model proactively speaks up (e.g. the graceful audio-issue closing)
+   * instead of continuing to wait on a participant who may not be there.
+   */
+  triggerRecoveryNudge(instructionText: string): boolean {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false
+    try {
+      this.ws.send(JSON.stringify({
+        type: 'conversation.item.create',
+        item: { type: 'message', role: 'system', content: [{ type: 'input_text', text: instructionText }] },
+      }))
+      this.ws.send(JSON.stringify({ type: 'response.create' }))
+      return true
+    } catch (err) {
+      console.warn('[OpenAIRealtimeAdapter] triggerRecoveryNudge failed:', err)
       return false
     }
   }

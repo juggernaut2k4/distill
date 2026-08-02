@@ -50,7 +50,9 @@ describe('PartnerRenderClient.tsx — advance_tab handlers await waitForPlayback
   it('inlineTools.advance_tab awaits it before calling advanceOnTransition', () => {
     const start = clientSrcRaw.indexOf('advance_tab: async () => {') // first occurrence — inlineTools
     expect(start).toBeGreaterThan(-1)
-    const body = clientSrcRaw.slice(start, start + 1000)
+    // 2026-08-02 — B2B items 6/7 added a verification-gate check (record_verification_result)
+    // ahead of the playback-catch-up wait inside this same handler; widened from 1000 to fit it.
+    const body = clientSrcRaw.slice(start, start + 2500)
     const awaitIdx = body.indexOf('await adapterRef.current?.waitForPlaybackCaughtUp?.()')
     const advanceIdx = body.indexOf('advanceOnTransition(marker)')
     expect(awaitIdx).toBeGreaterThan(-1)
@@ -62,7 +64,8 @@ describe('PartnerRenderClient.tsx — advance_tab handlers await waitForPlayback
     const firstOccurrence = clientSrcRaw.indexOf('advance_tab: async () => {')
     const start = clientSrcRaw.indexOf('advance_tab: async () => {', firstOccurrence + 1) // second occurrence — templateTools
     expect(start).toBeGreaterThan(-1)
-    const body = clientSrcRaw.slice(start, start + 500)
+    // 2026-08-02 — B2B items 6/7 widened from 500 to fit the same verification-gate check.
+    const body = clientSrcRaw.slice(start, start + 1200)
     const awaitIdx = body.indexOf('await adapterRef.current?.waitForPlaybackCaughtUp?.()')
     const goToIdx = body.indexOf('goToSection(idx)')
     expect(awaitIdx).toBeGreaterThan(-1)

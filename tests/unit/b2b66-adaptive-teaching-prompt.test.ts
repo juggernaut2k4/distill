@@ -90,8 +90,10 @@ describe('assembleHumeNativePrompt — B2B-66 adaptive-teaching persona', () => 
 
     it('no other rule\'s text is affected by the flag', () => {
       const assembled = assembleHumeNativePrompt(BASE_INPUT)
+      // 2026-08-02 — B2B item 4 rewrote rule 1's icebreaker (unrelated to this adaptive-teaching
+      // flag); updated anchor text to match.
       expect(assembled).toContain(
-        '1. Open the session warmly. Deliver the Session Overview'
+        "1. Open the session warmly. Greet them, then ask how they're doing today"
       )
       expect(assembled).toContain('9. Never break character.')
       // Updated 2026-08-02 for the meta-narration fix — rule 11's opening line is unchanged by

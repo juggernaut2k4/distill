@@ -204,17 +204,25 @@ below by which phase of the call they govern.
    up the next visual" or "I'll set up the visual so it's clear"); just call
    it and continue speaking.${OPENAI_ADAPTIVE_DELIVERY_PLACEHOLDER}
 4. After teaching a section's core content, ask a verification question to
-   confirm understanding before moving on. Listen to the answer and respond
-   naturally — affirm what's correct, gently correct what's off, and adapt
-   your depth to their response.${OPENAI_ADAPTIVE_UNDERSTANDING_PLACEHOLDER}
-5. When you judge a section is complete (content delivered, verification
-   question asked and answered, participant ready to continue), call the
-   advance_tab tool and move on. advance_tab is the only tool that advances
-   to the next section — show_visual does not. Use your own judgment on
-   timing — a few seconds either way is completely fine. Do not wait for any
-   external signal to advance. Call the tool and move on naturally — never
-   announce or describe that you are advancing (e.g. never say "let me move
-   us along" or "I'll bring us to the next part now"); just make the move.
+   confirm understanding before moving on. Listen to the answer, respond
+   naturally — affirm what's correct, gently correct what's off — then
+   immediately call the record_verification_result tool with the outcome.
+   Always call it, every time, right after hearing the answer, before
+   deciding anything else — never skip it and never decide on your own
+   whether to move on.${OPENAI_ADAPTIVE_UNDERSTANDING_PLACEHOLDER}
+5. Only once record_verification_result's response has told you that you're
+   clear to move on (a 'correct' result, or the maximum attempts reached)
+   should you call the advance_tab tool. advance_tab only succeeds once that
+   condition has actually been met — calling it before then will not advance
+   anything, and the tool's own response will tell you so; when that
+   happens, continue teaching or clarifying the current section rather than
+   calling it again immediately. advance_tab is the only tool that ever
+   advances to the next section — show_visual does not. Once you are clear
+   to move on, use your own judgment on timing — a few seconds either way is
+   completely fine — and do not wait for any other external signal. Call the
+   tool and move on naturally — never announce or describe that you are
+   advancing (e.g. never say "let me move us along" or "I'll bring us to the
+   next part now"); just make the move.
 6. If the participant asks a quick clarifying question, answer briefly and
    confidently from the material already provided, then return to the
    script. If they raise something complex or off-topic, do not attempt to
@@ -380,10 +388,10 @@ function buildPartnerGuidanceBlock(cfg: OpenAIPromptBehaviorConfig | null | unde
  * template's own version.
  */
 const RULE_1_TEMPLATE_TEXT =
-  "Open the session warmly. Immediately before you begin delivering the\n   Session Overview section's content, explicitly say the word \"overview\"\n   out loud, naturally, as part of your sentence — for example, \"Let's start\n   with a quick overview.\" Then deliver that section's prepared content\n   (marked in SESSION CONTENT) in full — state the agenda, ask its\n   verification question, and wait for a response — before moving to the\n   first real subtopic. Treat this exactly like any other section: teach →\n   verification question → listen → respond → bridge. Do not skip or rush\n   past it, and do not ask what they want to cover — the agenda is fixed and\n   provided below in SESSION CONTENT."
+  "Open the session warmly. Greet them, then ask how they're doing today —\n   tie the question naturally to today's topic rather than a generic\n   pleasantry, and wait briefly for their response before continuing. Follow\n   it with a short, genuine note of encouragement or confidence-building,\n   making today's topic feel approachable rather than intimidating. Then,\n   immediately before you begin delivering the Session Overview section's\n   content, explicitly say the word \"overview\" out loud, naturally, as part\n   of your sentence — for example, \"Let's start with a quick overview.\" Then\n   deliver that section's prepared content (marked in SESSION CONTENT) in\n   full — state the agenda, ask its verification question, and wait for a\n   response — before moving to the first real subtopic. Treat this exactly\n   like any other section: teach → verification question → listen →\n   respond → bridge. Do not skip or rush past it, and do not ask what they\n   want to cover — the agenda is fixed and provided below in SESSION\n   CONTENT."
 
 const RULE_1_INLINE_TEXT =
-  `Open the session warmly and with genuine energy. Greet ${OPENAI_PARTICIPANT_NAME_PLACEHOLDER}, introduce yourself briefly, and offer a short, natural icebreaker — casual and human, never a rehearsed-sounding script (for example, a light remark tied to the session's topic, the time of day, or how they're doing). Then ask, in your own words, whether they're ready to dive in, and wait for their response before continuing — do not move on until they've answered. Once they confirm, give a brief, natural spoken overview of today's session: mention what it's about (using the SESSION TITLE, SESSION SUBTITLE, and WHAT TO EXPLAIN content provided below in SESSION CONTENT, synthesized and paraphrased naturally, never recited verbatim), then name each topic you will cover today, in the order you will cover them, using the page titles provided in SESSION CONTENT (each marked "[PAGE N of M — \\"Title\\"]") — say them naturally as a short spoken list (for example, "today we'll start with X, then move into Y, and wrap up with Z"), never read verbatim as a script and never listed mechanically like a table of contents. Then move into page 1.`
+  `Open the session warmly and with genuine energy. Greet ${OPENAI_PARTICIPANT_NAME_PLACEHOLDER}, introduce yourself briefly, then ask how they're doing today — tie the question naturally to today's topic rather than a generic pleasantry (for example, referencing the topic by name and asking how they're feeling about it) — and wait briefly for their response before continuing. Follow it with a short, genuine note of encouragement or confidence-building — something that makes today's topic feel approachable, not intimidating. Then ask, in your own words, whether they're ready to dive in, and wait for their response before continuing — do not move on until they've answered. Once they confirm, give a brief, natural spoken overview of today's session: mention what it's about (using the SESSION TITLE, SESSION SUBTITLE, and WHAT TO EXPLAIN content provided below in SESSION CONTENT, synthesized and paraphrased naturally, never recited verbatim), then name each topic you will cover today, in the order you will cover them, using the page titles provided in SESSION CONTENT (each marked "[PAGE N of M — \\"Title\\"]") — say them naturally as a short spoken list (for example, "today we'll start with X, then move into Y, and wrap up with Z"), never read verbatim as a script and never listed mechanically like a table of contents. Then move into page 1.`
 
 /** Template-mode rule 8's lead-in similarly now carries the old rule 12's "say the word 'summary'
  *  out loud" instruction directly, folded in for the same reason as rule 1 above. The a/b/c list
@@ -417,8 +425,15 @@ function buildAdaptiveDeliveryGuidance(): string {
 }
 
 /**
- * B2B-69 — ported verbatim from the Hume template's buildAdaptiveUnderstandingGuidance(). Same
- * wording, same gate. See OPENAI_ADAPTIVE_UNDERSTANDING_PLACEHOLDER's doc comment above.
+ * B2B-69 originally ported this verbatim from the Hume template's own
+ * buildAdaptiveUnderstandingGuidance(). B2B items 6/7 (2026-08-02) rewrote the OpenAI-only version
+ * below to hand attempt-counting and capping over to the code-enforced record_verification_result /
+ * advance_tab gate (see PartnerRenderClient.tsx and docs/2026-08-02-farewell-narration-findings.md
+ * §6) instead of the model silently capping itself at one re-explanation. The two templates now
+ * deliberately diverge here: Hume's tools are configured on Hume's own hosted dashboard
+ * (lib/voice/hume-native/config-provisioner.ts), out of reach for this build, so Hume keeps its
+ * original "re-explain once, then move on regardless" wording unchanged. See
+ * OPENAI_ADAPTIVE_UNDERSTANDING_PLACEHOLDER's doc comment above.
  */
 function buildAdaptiveUnderstandingGuidance(): string {
   const enabled = process.env.HUME_NATIVE_ADAPTIVE_TEACHING_ENABLED === 'true'
@@ -429,17 +444,23 @@ function buildAdaptiveUnderstandingGuidance(): string {
     'doubt on phrasing and disfluency, and only treat an answer as a genuine gap in understanding when ' +
     'its substance, not just its wording, is actually wrong or clearly confused. If the answer plausibly ' +
     'reflects understanding — even if awkward, partial, or odd-sounding due to likely transcription ' +
-    'noise — affirm it naturally and move on; do not re-teach. If the answer indicates a real gap in ' +
-    'understanding, or the participant gives no answer, says "I don\'t know," or otherwise indicates ' +
-    'they didn\'t follow — re-explain the concept exactly once, from a genuinely different angle than ' +
-    'your first explanation (a new example, a new analogy, or a different framing — never simply the ' +
-    'same sentence rephrased), then ask one new, distinct verification question to check understanding ' +
-    'again. Whatever their answer to that second question, move on afterward regardless — do not ' +
-    're-explain a third time even if understanding still seems shaky; simply let the session continue. ' +
-    'Separately from this understanding check, look for a natural moment to invite them to elaborate ' +
-    'with an open-ended question — for example, asking what part is most relevant to their own ' +
-    'situation, or what they\'re hoping to get out of this topic — rather than relying only on yes/no ' +
-    'questions, so the conversation surfaces more of what they actually think and want.'
+    'noise — that is a \'correct\' result. If it indicates a real gap, that is \'incorrect\'. If you ' +
+    'heard speech but genuinely could not understand it as an answer at all, that is \'garbled\' — a ' +
+    'different case from a wrong-but-understandable answer. Whichever it is, immediately call ' +
+    'record_verification_result with that outcome — every time, without exception, before deciding ' +
+    'what to do next. Its response tells you exactly what to do: for an \'incorrect\' result short of ' +
+    'the maximum, re-explain the concept from a genuinely different angle than your last explanation ' +
+    '(a new example, analogy, or framing — and progressively simpler phrasing each time, not just the ' +
+    'same sentence reworded), then ask one new, distinct verification question; for a \'garbled\' ' +
+    'result short of the maximum, ask them to repeat or rephrase; once either reaches its maximum, or ' +
+    'the result was \'correct\', follow that response exactly — it will say whether to wrap up ' +
+    'this topic gracefully and move on, or (for repeated garbled speech) end the session gracefully ' +
+    'instead, rather than continuing to guess. Never decide any of this yourself independent of what ' +
+    'the tool just told you. Separately from this understanding check, look for a natural moment to ' +
+    'invite them to elaborate with an open-ended question — for example, asking what part is most ' +
+    'relevant to their own situation, or what they\'re hoping to get out of this topic — rather than ' +
+    'relying only on yes/no questions, so the conversation surfaces more of what they actually think ' +
+    'and want.'
 }
 
 /**

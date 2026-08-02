@@ -102,6 +102,18 @@ vi.mock('@/lib/supabase', () => ({
       if (table === 'partner_session_trace_logs') {
         return { insert: vi.fn((row: Record<string, unknown>) => traceLogInsertMock(row)) }
       }
+      // 2026-08-02 — B2B item 5: dispatchMeetingBot() call sites now look up getThemeConfig()
+      // (assistant_display_name) before dispatching. No data → falls back to Clio's defaults,
+      // exactly like every pre-existing test expects (none of them care about bot naming).
+      if (table === 'partner_theme_config') {
+        return {
+          select: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              maybeSingle: vi.fn(async () => ({ data: null })),
+            })),
+          })),
+        }
+      }
       throw new Error(`Unexpected table: ${table}`)
     }),
   })),

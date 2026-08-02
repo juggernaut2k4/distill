@@ -39,12 +39,13 @@ export interface CreateBotResult {
 export async function createBot(
   meetingUrl: string,
   userId: string,
-  walkthroughUrl: string
+  walkthroughUrl: string,
+  botDisplayName?: string | null
 ): Promise<CreateBotResult> {
   if (isPlaceholder) {
     const mockBotId = `mock-bot-${userId}-${Date.now()}`
     // SECURITY: walkthroughUrl carries the audit token as a query param — never log it raw.
-    console.log('[MOCK RECALL] createBot called', { meetingUrl, userId, walkthroughUrl: redactAuditTokenFromUrl(walkthroughUrl), mockBotId })
+    console.log('[MOCK RECALL] createBot called', { meetingUrl, userId, walkthroughUrl: redactAuditTokenFromUrl(walkthroughUrl), mockBotId, botName: botDisplayName ?? 'Clio AI Coach' })
     return { botId: mockBotId }
   }
 
@@ -53,7 +54,7 @@ export async function createBot(
     headers: recallHeaders(),
     body: JSON.stringify({
       meeting_url: meetingUrl,
-      bot_name: 'Clio AI Coach',
+      bot_name: botDisplayName ?? 'Clio AI Coach',
       // bot_webhook_url receives all bot status events (bot.joining_call, bot.call_ended, etc.).
       // We embed userId so the webhook handler can look up walkthrough_state by user_id
       // when bot_id is absent from the payload (which varies by event type).

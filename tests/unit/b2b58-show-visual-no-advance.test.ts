@@ -77,7 +77,9 @@ describe('B2B-58 — inlineTools.show_visual is a page-position no-op', () => {
 
 describe('B2B-58 — inlineTools.advance_tab is unchanged (still the only inline advance path)', () => {
   it('inline advance_tab still calls advanceOnTransition via the page transitionMarker', () => {
-    expect(inlineAdvanceTabBlock).toMatch(/const marker = inlinePages!\[activeIndexRef\.current\]\?\.transitionMarker/)
+    // 2026-08-02 — B2B items 6/7 introduced `const idx = activeIndexRef.current` above this line
+    // (for the new verification gate check) and the marker lookup now reads from `idx`.
+    expect(inlineAdvanceTabBlock).toMatch(/const marker = inlinePages!\[idx\]\?\.transitionMarker/)
     expect(inlineAdvanceTabBlock).toMatch(/if \(marker\) advanceOnTransition\(marker\)/)
     expect(inlineAdvanceTabBlock).toMatch(/return 'Advanced\.'/)
   })

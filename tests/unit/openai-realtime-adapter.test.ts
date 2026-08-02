@@ -51,8 +51,10 @@ function installFakeSocket(adapter: OpenAIRealtimeAdapter) {
 }
 
 describe('OPENAI_REALTIME_TOOLS shape', () => {
-  it('defines exactly show_visual, advance_tab, and end_session as flat function tools', () => {
-    expect(OPENAI_REALTIME_TOOLS.map((t) => t.name)).toEqual(['show_visual', 'advance_tab', 'end_session'])
+  it('defines exactly show_visual, record_verification_result, advance_tab, and end_session as flat function tools', () => {
+    // 2026-08-02 — B2B items 6/7 added record_verification_result, the code-enforced
+    // "ready to advance" signal that gates advance_tab (see docs/2026-08-02-farewell-narration-findings.md §6).
+    expect(OPENAI_REALTIME_TOOLS.map((t) => t.name)).toEqual(['show_visual', 'record_verification_result', 'advance_tab', 'end_session'])
     for (const tool of OPENAI_REALTIME_TOOLS) {
       expect(tool.type).toBe('function')
       expect(tool.parameters.type).toBe('object')
@@ -67,6 +69,12 @@ describe('OPENAI_REALTIME_TOOLS shape', () => {
     const endSession = OPENAI_REALTIME_TOOLS.find((t) => t.name === 'end_session')!
     expect(advanceTab.parameters.required).toEqual([])
     expect(endSession.parameters.required).toEqual([])
+  })
+
+  it("record_verification_result requires a result param, constrained to the three valid outcomes", () => {
+    const tool = OPENAI_REALTIME_TOOLS.find((t) => t.name === 'record_verification_result')!
+    expect(tool.parameters.required).toEqual(['result'])
+    expect(tool.parameters.properties.result.enum).toEqual(['correct', 'incorrect', 'garbled'])
   })
 
   it('show_visual exposes section_index and topic_title, matching PartnerRenderClient.resolveSectionIndex', () => {
