@@ -4,6 +4,22 @@ Running notes from live test calls verifying the B2B-68/B2B-69 single-document O
 rebuild's farewell fix. No code changes made from these findings yet — investigation only, per
 Arun's explicit instruction.
 
+## Tracking — renumbered 2026-08-02 for closure
+
+Single sequential list, replacing the earlier mixed "item 1/2/3" + "Arun's issue 2-7" numbering.
+Update this table's Status the instant any item changes state.
+
+| # | Item | Status | Detail |
+|---|------|--------|--------|
+| 1 | Farewell/`end_session` fires without a real spoken goodbye | **Open** — confirmed in both test calls (webhook timing), root cause now tied to #7's mechanism | §1, §2 below |
+| 2 | Meta-narration guard not holding ("let's"/"let me" still leak through) | **Open** — survived two prompt-fix rounds (B2B-67, B2B-68) | §1, §2 below |
+| 3 | Connect-time warm-up (voice racing / screen blur) | **Approved to build** — holding for full go-ahead across all items | §3, Issue 3 |
+| 4 | Icebreaker too small | **Approved to build** — holding for full go-ahead | §3, Issue 4 |
+| 5 | Reseller-configurable bot join-name | **Approved to build** — holding for full go-ahead | §3, Issue 5 |
+| 6 | Bounded re-teach loop redesign (progressive simplification, silence handling) | **Pending** — needs silence-detection capability check + short BA note before build | §3, Issue 6; §4 |
+| 7 | Transition-silence root cause (`advance_tab` blocks model's turn on playback catch-up) | **Active discussion now** | §3, Issue 7; see below |
+| 8 | Meeting-bot admission prompt (Google Meet/Teams/Zoom) | **Backlog, not priority** — deferred until #7 closes, moved to `BACKLOG.md` | §3, Issue 2; `BACKLOG.md` |
+
 ## 1. claude-ai test call (session `3eae41bf-68a7-400b-b953-36100dd94d42`, 2026-08-02 ~13:15–13:26 UTC)
 
 **Arun's own observation, live:** after Marin summarized the session, the farewell did not happen —

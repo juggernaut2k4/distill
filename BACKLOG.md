@@ -110,6 +110,20 @@ no auth), so neither required CEO escalation — both are logged here as candida
   B2B-30, and do not build any document-generation/e-signature mechanism, until Arun explicitly
   restarts this thread. `docusign-esign` was pre-approved in `CLAUDE.md`'s library list for whenever
   this resumes.
+- **Meeting-platform bot admission (Google Meet / Teams / Zoom knock-and-admit prompt)** — Arun
+  reported the meeting bot (Attendee.dev by default, Recall.ai as rollback — see
+  `lib/meeting-bot/provider.ts`) shows up as an unverified/"risky" participant in Google Meet's 2026
+  two-queue admission model, requiring a manual host override to admit it, with the admit option
+  sometimes not obviously surfaced. Researched 2026-08-02 (see item 8,
+  `docs/2026-08-02-farewell-narration-findings.md`): this is host/Workspace-side meeting config, not a
+  Clio code fix — Meet's "confirmed users" queue auto-admits calendar-invited participants, so the
+  likely lever is inviting the bot's own join identity/email (if the vendor exposes one) as an actual
+  guest on the calendar event, rather than just pasting the raw Meet link — not yet confirmed whether
+  Attendee.dev/Recall.ai expose such an identity. Teams and Zoom have their own, less favorable
+  versions (Teams still gates *detected bots* even with lobby-bypass open; Zoom's Waiting Room has no
+  bot exception at all). **Explicitly deprioritized by Arun 2026-08-02**: "lets discuss more once the
+  last [transition-silence fix] is done... its not priority." Do not pick this up until that item
+  closes and Arun revisits it directly.
 
 ---
 
