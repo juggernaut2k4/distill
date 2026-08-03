@@ -376,12 +376,23 @@ export default function PartnerRenderClient({
           },
         }
 
+        // 2026-08-03 — Arun's A/B isolation test, per his direct instruction: two independent
+        // page-advance mechanisms exist today — the "primary" advance_tab tool call (explicit,
+        // model-decided, already gated on local playback catch-up via waitForPlaybackCaughtUp)
+        // and the "secondary" transcript-phrase-match watcher just below (fires the instant
+        // matching TEXT arrives, with no playback-completion gate at all — flagged by the CEO
+        // agent as the likely cause of the page advancing before a topic's summary has actually
+        // finished being heard). Round 1: secondary disabled, primary left completely untouched,
+        // to test whether removing the racy secondary path alone fixes the symptom. Round 2 (a
+        // later, separate change) will flip this and disable primary instead, to compare.
+        const SECONDARY_TRANSCRIPT_MATCH_ENABLED = false
+
         // B2B-60 transcript-watch (primary signal, inline only) — two-stage natural cue.
         // Extends RTV-02/03's forward-only, single-hit-decisive pattern: Stage 1 arms on the
         // fixed wrap-up phrase, Stage 2 (the next page's real title) then triggers the advance.
         // `transitionMarker` is no longer spoken/matched here — it is passed to
         // advanceOnTransition() purely as the internal dedup key (unchanged plumbing).
-        const onMessage = isInline
+        const onMessage = isInline && SECONDARY_TRANSCRIPT_MATCH_ENABLED
           ? (text: string, source: string) => {
               if (source !== 'ai' || !text) return
               const idx = activeIndexRef.current
