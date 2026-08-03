@@ -9,7 +9,6 @@ import { shouldAdvanceOnTransition } from '@/lib/partner/advance-transition'
 import { reportClientError } from '@/lib/partner/report-client-error'
 import { resolveWidgetJumpIndex, computeNextProgressIndex } from '@/lib/voice/widget-jump-resolution'
 import { createJumpGuardState, shouldAllowJump } from '@/lib/partner/widget-jump-debounce'
-import { WIDGET_JUMP_RULE_TEXT } from '@/lib/voice/widget-prompt-rules'
 
 /**
  * B2B-71 (docs/specs/B2B-71-requirement-document.md §6.2-§6.5) — the widget channel's OWN,
@@ -68,11 +67,12 @@ export interface WidgetRenderClientProps {
   inlinePages: WidgetInlinePageProp[]
   humeConfigId: string | null
   voiceProvider: 'hume' | 'openai_realtime'
-  // OpenAI Realtime's self-contained prompt (lib/voice/openai-realtime-prompt-template.ts's output,
-  // computed server-side, reused unmodified). Hume needs no equivalent prop here — its prompt is
-  // baked server-side into the opaque `humeConfigId` before this component ever mounts (confirmed,
-  // §0 of the requirement doc); HumeAdapter.create() below passes no instructions text at all,
-  // matching PartnerRenderClient.tsx's own current behavior exactly.
+  // The widget channel's OWN, fully self-contained OpenAI Realtime prompt
+  // (lib/voice/widget-prompt-rules.ts's assembleWidgetOpenAIPrompt() output, computed server-side in
+  // widget-render/page.tsx — already includes the on-topic-jump rule, no client-side concatenation
+  // needed). Hume needs no equivalent prop here — its prompt is baked server-side into the opaque
+  // `humeConfigId` before this component ever mounts; HumeAdapter.create() below passes no
+  // instructions text at all, matching PartnerRenderClient.tsx's own current behavior exactly.
   openaiVoiceInstructions: string | null
 }
 
@@ -281,13 +281,13 @@ export default function WidgetRenderClient({
                 keepalive: true,
               }).catch(() => {})
             },
-            // §6.6 — the widget-only jump rule, appended client-side onto the already-assembled,
-            // channel-agnostic OpenAI prompt. Never added to the shared prompt-template file itself.
+            // Already-complete widget-only prompt (lib/voice/widget-prompt-rules.ts), computed
+            // server-side — no client-side string concatenation.
             instructions:
-              (openaiVoiceInstructions ??
-                'You are Clio, an AI business coach delivering a live coaching session over voice. ' +
-                  'Use the show_visual, advance_tab, and end_session tools exactly as instructed by ' +
-                  'their own descriptions.') + WIDGET_JUMP_RULE_TEXT,
+              openaiVoiceInstructions ??
+              'You are Clio, an AI business coach delivering a live coaching session over voice. ' +
+                'Use the show_visual, advance_tab, and end_session tools exactly as instructed by ' +
+                'their own descriptions.',
             userId: clioSessionRef,
             mediaStream: micStream,
             tools,

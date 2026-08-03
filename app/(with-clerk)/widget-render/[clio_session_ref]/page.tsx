@@ -1,7 +1,9 @@
-import { getPartnerSession, resolveLiveSessionRender } from '@/lib/partner/live-render'
+import { getPartnerSession, resolveLiveSessionRender, buildInlineSessionContent } from '@/lib/partner/live-render'
 import { getThemeConfig } from '@/lib/partner/theme'
+import { getPromptConfig } from '@/lib/partner/prompt-config'
 import { getActiveVoiceProvider } from '@/lib/voice/provider-config'
 import { createSupabaseAdminClient } from '@/lib/supabase'
+import { assembleWidgetOpenAIPrompt } from '@/lib/voice/widget-prompt-rules'
 import WidgetRenderClient from './WidgetRenderClient'
 
 /**
@@ -109,13 +111,41 @@ export default async function WidgetRenderPage({
     return <ThemedMessage primaryColor={theme.primaryColor} message="This session's content isn't available right now." />
   }
 
+  // Per Arun's direct instruction (2026-08-03): "bring all the prompt from shared file and merge
+  // to this file" — the widget channel's OpenAI Realtime prompt is now assembled entirely from
+  // lib/voice/widget-prompt-rules.ts's own self-contained template, not from
+  // resolveLiveSessionRender()'s result.assembledOpenAIPrompt (which is still computed above for
+  // Hume's sake, via the shared, do-not-touch lib/voice/openai-realtime-prompt-template.ts, and
+  // simply discarded here). sessionContent is plain narration-text formatting
+  // (buildInlineSessionContent), not "the prompt" itself, so it stays reused as-is.
+  const promptConfig = await getPromptConfig(session.partnerAccountId)
+  const sessionContent = buildInlineSessionContent(session, session.contentPages ?? [])
+  const openaiVoiceInstructions = assembleWidgetOpenAIPrompt({
+    profileContext: '',
+    intentContext: '',
+    sessionContent,
+    assistantName: theme.assistantDisplayName ?? undefined,
+    audienceDescription: session.endUserRole?.trim() || undefined,
+    participantName: session.endUserName ?? undefined,
+    endUserIndustry: session.endUserIndustry ?? undefined,
+    promptBehavior: {
+      tonePersona: promptConfig.tonePersona,
+      deferralPhrasing: promptConfig.deferralPhrasing,
+      closingConfirmationQuestion: promptConfig.closingConfirmationQuestion,
+      goodbyeLine: promptConfig.goodbyeLine,
+      verificationQuestionStyle: promptConfig.verificationQuestionStyle,
+      interSectionRecapStyle: promptConfig.interSectionRecapStyle,
+    },
+    conversationLanguage: session.conversationLanguage ?? undefined,
+  })
+
   return (
     <WidgetRenderClient
       clioSessionRef={session.id}
       inlinePages={result.inlinePages}
       humeConfigId={result.humeConfigId}
       voiceProvider={voiceProvider}
-      openaiVoiceInstructions={result.assembledOpenAIPrompt}
+      openaiVoiceInstructions={openaiVoiceInstructions}
     />
   )
 }
