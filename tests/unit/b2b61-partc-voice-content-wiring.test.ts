@@ -280,6 +280,23 @@ describe('B2B-68 — the new OpenAI prompt template is genuinely self-contained'
     expect(normalized).toContain('[SPEAK THIS OVERVIEW EXACTLY ONCE PER SESSION')
   })
 
+  // 2026-08-03 — a live test call showed real content being skipped (the underlying material named
+  // "Reinforcement Learning from Human Feedback" but the model never explained it). The pre-existing
+  // "own words" guidance only warned against SHORTENING as a style-flag-gated aside; this is a new,
+  // unconditional, explicit full-coverage mandate that fires for every section regardless of that flag.
+  it('rule 3 carries an unconditional full-content-coverage mandate — own words allowed, omissions are not', () => {
+    const normalized = OPENAI_REALTIME_PROMPT_TEMPLATE.replace(/\s+/g, ' ')
+    expect(normalized).toContain('Cover every substantive point in that section\'s content before moving to its verification question')
+    expect(normalized).toContain('paraphrasing is never a license to skip, shorten, or quietly drop part of it')
+    expect(normalized).toContain('Reinforcement Learning from Human Feedback')
+    expect(normalized).toContain('Thoroughness comes first')
+  })
+
+  it('rule 8 cross-references rule 3\'s coverage mandate at its own teach-in-full stopping point', () => {
+    const normalized = OPENAI_REALTIME_PROMPT_TEMPLATE.replace(/\s+/g, ' ')
+    expect(normalized).toContain('and explain that material in full — per rule 3, every substantive point it establishes, own words are fine but omissions are not')
+  })
+
   it('rule 13 (participant asks to end) checks for genuine ambiguity first, motivated by the semantic_vad/empty-transcript finding', () => {
     const normalized = OPENAI_REALTIME_PROMPT_TEMPLATE.replace(/\s+/g, ' ')
     expect(normalized).toContain('make sure it is an actual, clear, unambiguous')
@@ -360,7 +377,7 @@ describe('B2B-68 — transition/advancement substance is unchanged (Arun\'s expl
     const humeRule3 = extractRule(humeSource, '3. For every section', '4. After teaching')
     const openaiRule3 = extractRule(OPENAI_REALTIME_PROMPT_TEMPLATE, '3. Show the Visual', '4. Verification')
     const normalize = (t: string) => t.replace(/\s+/g, ' ').trim()
-    // Two intentional, documented differences are stripped before comparing (both explained in the
+    // Three intentional, documented differences are stripped before comparing (all explained in the
     // module doc comment above the template): (1) each file's own equivalent, toggle-gated
     // placeholder token (Hume's raw source still has the unevaluated `${ADAPTIVE_DELIVERY_PLACEHOLDER}`
     // syntax since humeSource is read via fs.readFileSync; OPENAI_REALTIME_PROMPT_TEMPLATE is
@@ -368,10 +385,28 @@ describe('B2B-68 — transition/advancement substance is unchanged (Arun\'s expl
     // bracketed value at module load); (2) this file's OpenAI-only rule title and trailing
     // turn-continuation bracket marker — Hume's own turn-taking model doesn't need an explicit
     // response.create to keep speaking after a tool result the way OpenAI Realtime does, so
-    // there's nothing on Hume's side to mirror for this specific addition.
+    // there's nothing on Hume's side to mirror for this specific addition; (3) 2026-08-03 — a new,
+    // explicit, unconditional full-content-coverage mandate added after a live test call showed
+    // real content being skipped (a named concept — "Reinforcement Learning from Human Feedback"
+    // — went unexplained even though the underlying material named it). Scoped to OpenAI only,
+    // same as the rule 5/8 divergences below — Hume's file was not touched by this fix.
     const openaiRule3Stripped = normalize(openaiRule3)
       .replace('3. Show the Visual — Sync the Screen Before Teaching Each Section.', '3.')
       .replace(' in that same turn — [show_visual DOES NOT END YOUR TURN — KEEP TEACHING IMMEDIATELY AFTER CALLING IT].', '.')
+      .replace(
+        ' ' +
+          normalize(
+            `Cover every substantive point in that section's content before moving to its verification
+   question — every named concept, term, or idea the underlying material actually establishes, not
+   just the ones that feel easiest to explain. You may, and should, speak in your own words rather
+   than reading the material verbatim — but paraphrasing is never a license to skip, shorten, or
+   quietly drop part of it. If the content names a specific term (for example, a concept like
+   "Reinforcement Learning from Human Feedback") actually explain that term, not just the
+   surrounding idea around it. Thoroughness comes first, even if covering a section well takes a
+   little longer than covering it quickly.`
+          ),
+        ''
+      )
       .replace('[ADAPTIVE DELIVERY GUIDANCE]', '')
     expect(openaiRule3Stripped).toBe(normalize(humeRule3).replace('${ADAPTIVE_DELIVERY_PLACEHOLDER}', ''))
   })
