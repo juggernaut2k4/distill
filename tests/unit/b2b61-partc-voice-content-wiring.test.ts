@@ -155,7 +155,7 @@ describe('B2B-68 — the new OpenAI prompt template is genuinely self-contained'
   })
 
   it('OPENAI_PROMPT_TEMPLATE_VERSION is exported and versioned independently of the shared template\'s PROMPT_TEMPLATE_VERSION', () => {
-    expect(OPENAI_PROMPT_TEMPLATE_VERSION).toBe('v8')
+    expect(OPENAI_PROMPT_TEMPLATE_VERSION).toBe('v9')
   })
 
   // 2026-08-02 — Arun reviewed the pre-B2B-68 prompt directly and asked for every tone/personality
@@ -229,7 +229,7 @@ describe('B2B-68 — the new OpenAI prompt template is genuinely self-contained'
 
   it('every rule has a short title immediately after its number (2026-08-02 titling pass)', () => {
     expect(OPENAI_REALTIME_PROMPT_TEMPLATE).toContain('1. Opening — Greeting, Encouragement, Readiness Check & Session Overview.')
-    expect(OPENAI_REALTIME_PROMPT_TEMPLATE).toContain('4. Verification — Judge the Answer Into One of Four Fixed Response')
+    expect(OPENAI_REALTIME_PROMPT_TEMPLATE).toContain('4. Verification — Ask, Judge the Answer, Respond, Then Summarize.')
     expect(OPENAI_REALTIME_PROMPT_TEMPLATE).toContain('9. Closing Sequence — Recap, Confirm Nothing\'s Left, Say Goodbye, Then End')
     expect(OPENAI_REALTIME_PROMPT_TEMPLATE).toContain('10. Never Stop Mid-Sequence — A Tool Call Never Ends Your Turn.')
     expect(OPENAI_REALTIME_PROMPT_TEMPLATE).toContain('13. Participant Asks to End — Shortened Goodbye, Same end_session')
@@ -265,12 +265,14 @@ describe('B2B-68 — the new OpenAI prompt template is genuinely self-contained'
     expect(rulesSection.indexOf('[GLOBAL RULE')).toBeLessThan(rulesSection.indexOf('1. Opening'))
   })
 
-  it('bracketed turn-continuation markers sit right where the live-call evidence showed the model stopping: end of rule 3, mid-rule 4, end of rule 5, end of rule 8', () => {
+  it('bracketed turn-continuation markers sit right where the live-call evidence showed the model stopping: end of rule 3, end of rule 5, end of rule 8', () => {
+    // 2026-08-02 (architecture revision) — record_verification_result's own bracketed marker was
+    // removed along with the tool itself; the mid-rule-4 stopping point it guarded against no
+    // longer exists (rule 4 has no tool call in it anymore).
     const normalized = OPENAI_REALTIME_PROMPT_TEMPLATE.replace(/\s+/g, ' ')
     expect(normalized).toContain('[show_visual DOES NOT END YOUR TURN — KEEP TEACHING IMMEDIATELY AFTER CALLING IT]')
-    expect(normalized).toContain('[record_verification_result RETURNING A RESPONSE DOES NOT END YOUR TURN')
     expect(normalized).toContain('[advance_tab SUCCEEDING DOES NOT END YOUR TURN')
-    expect(normalized).toContain('[THIS ENTIRE SEQUENCE — RECAP, NAME, advance_tab, TEACH — HAPPENS IN ONE')
+    expect(normalized).toContain('[THIS ENTIRE SEQUENCE — advance_tab, NAME, TEACH — HAPPENS IN ONE')
   })
 
   it('rule 1 carries a "speak this overview exactly once" marker (cheap insurance against the reported "double overview" symptom)', () => {
@@ -322,22 +324,24 @@ describe('B2B-68 — the new OpenAI prompt template is genuinely self-contained'
     expect(normalized).toContain('"Take care, talk soon — bye for now,"')
   })
 
-  it('has exactly one closing/goodbye/end_session MECHANISM (rule 9c), applied at exactly five triggers — no second, disconnected, competing closing paragraph anywhere in the file', () => {
+  it('has exactly one closing/goodbye/end_session MECHANISM (rule 9c), applied at exactly six triggers — no second, disconnected, competing closing paragraph anywhere in the file', () => {
     // Whitespace-normalized so line-wrapping inside the template literal (e.g. "end_session\n
     // tool.") doesn't hide/split a real occurrence.
     const normalized = OPENAI_REALTIME_PROMPT_TEMPLATE.replace(/\s+/g, ' ')
     const endSessionMentions = (normalized.match(/call the end_session tool/g) ?? []).length
-    // Five legitimate mentions, all pointing at the SAME single mechanism, never a competing
+    // Six legitimate mentions, all pointing at the SAME single mechanism, never a competing
     // second version of it: (1) === SESSION SHAPE ==='s framing sentence ("only then, call the
-    // end_session tool"), (2) rule 4's total-silence graceful closing (2026-08-02 addition),
-    // (3) rule 4's repeated-garbled-speech graceful closing (2026-08-02 CEO-review follow-up
-    // addition — note rule 1's own silence-escape says "calling", not "call", so it doesn't add a
-    // 6th match here; it's still covered by its own dedicated test), (4) rule 9c (self-initiated
-    // close), (5) rule 13, was rule 12 before the second CEO-review pass inserted new rule 10
-    // (participant-initiated close) — rule 13's own text explicitly says "exactly as rule 9c
-    // already establishes." Anything beyond 5 would indicate a reintroduced duplicate; anything
-    // less would mean one of the five legitimate references lost its own end_session requirement.
-    expect(endSessionMentions).toBe(5)
+    // end_session tool"), (2) rule 4's GARBLED outcome step b (participant confirms they want to
+    // end after the check-in), (3) rule 4's GARBLED outcome step c (third-strike graceful close),
+    // (4) rule 4's SILENCE outcome step b (2026-08-02 architecture revision split what used to be
+    // two mentions — silence and repeated-garbled — into three, since GARBLED now has its own
+    // two-stage escalation before its final close — note rule 1's own silence-escape says
+    // "calling", not "call", so it doesn't add a 7th match here; it's still covered by its own
+    // dedicated test), (5) rule 9c (self-initiated close), (6) rule 13 (participant-initiated
+    // close) — rule 13's own text explicitly says "exactly as rule 9c already establishes."
+    // Anything beyond 6 would indicate a reintroduced duplicate; anything less would mean one of
+    // the six legitimate references lost its own end_session requirement.
+    expect(endSessionMentions).toBe(6)
   })
 })
 
@@ -372,21 +376,23 @@ describe('B2B-68 — transition/advancement substance is unchanged (Arun\'s expl
     expect(openaiRule3Stripped).toBe(normalize(humeRule3).replace('${ADAPTIVE_DELIVERY_PLACEHOLDER}', ''))
   })
 
-  // 2026-08-02 — B2B items 6/7 intentionally diverged rule 5 (and rule 4) between the two files:
-  // OpenAI's advance_tab is now gated on a new record_verification_result tool call (the
-  // code-enforced "ready to advance" signal — see docs/2026-08-02-farewell-narration-findings.md
-  // §6), replacing trust in the model's own unaided judgment. Hume's tools are configured on
-  // Hume's own hosted dashboard (lib/voice/hume-native/config-provisioner.ts), out of reach for
-  // this build, so Hume's rule 5 is deliberately left unchanged.
-  it('rule 5 (advance_tab): Hume keeps its original wording; OpenAI gains the record_verification_result gate plus its own ordering/timing rule', () => {
+  // 2026-08-02 (architecture revision) — B2B items 6/7's record_verification_result-gated advance_tab
+  // (see docs/2026-08-02-farewell-narration-findings.md §6 for that original design) was removed
+  // entirely: the two-hop structure it required was the root cause of a whole night's "silence after
+  // a correct answer" bug family. advance_tab is back to pure model-judgment gating, the same trust
+  // in the model's own unaided judgment Hume's design already uses — so rule 5 no longer diverges
+  // from Hume on this point (it still carries its own OpenAI-only turn-continuation bracket marker
+  // and ordering guidance, verified separately below).
+  it('rule 5 (advance_tab): pure model-judgment gating, matching Hume\'s own trust-the-model approach — no verification tool anywhere', () => {
     const humeRule5 = extractRule(humeSource, '5. When you judge', '6. If the participant asks')
     expect(humeRule5).toContain('5. When you judge a section is complete')
     expect(humeRule5).not.toContain('record_verification_result')
 
     const openaiRule5 = extractRule(OPENAI_REALTIME_PROMPT_TEMPLATE, '5. Advance the Topic', '6. In-Session Questions')
     const openaiRule5Normalized = openaiRule5.replace(/\s+/g, ' ')
-    expect(openaiRule5Normalized).toContain("record_verification_result's response")
-    expect(openaiRule5Normalized).toContain('does advance_tab become available to call')
+    expect(openaiRule5Normalized).not.toContain('record_verification_result')
+    expect(openaiRule5Normalized).toContain('there is no separate verification tool gating it')
+    expect(openaiRule5Normalized).toContain('your own judgment, applied in rule 4, is the only check')
     expect(openaiRule5Normalized).toContain('[advance_tab SUCCEEDING DOES NOT END YOUR TURN')
   })
 
@@ -431,9 +437,11 @@ describe('B2B-68 — transition/advancement substance is unchanged (Arun\'s expl
     expect(openaiClause.trim()).toBe(humeClause.trim())
   })
 
-  it('rule 8 intentionally diverges from Hume\'s rule 11 beyond that point: the advance_tab-timing + explicit-teach-the-new-topic instruction is OpenAI-only', () => {
+  it('rule 8 intentionally diverges from Hume\'s rule 11 beyond that point: the explicit-teach-the-new-topic instruction is OpenAI-only', () => {
+    // 2026-08-02 (architecture revision) — advance_tab's own call now happens in rule 5 (pure
+    // model-judgment gating), not timed inside rule 8 anymore; rule 8 picks up immediately after.
     const normalized = OPENAI_REALTIME_PROMPT_TEMPLATE.replace(/\s+/g, ' ')
-    expect(normalized).toContain('Then call the advance_tab tool at the exact moment you begin')
+    expect(normalized).toContain('This rule picks up right where rule 5 leaves off')
     expect(normalized).toContain('find that topic\'s own content block in SESSION CONTENT')
     expect(normalized).toContain('the name is the doorway, not the room')
     // Hume's own file is untouched and does not carry this OpenAI-only addition.

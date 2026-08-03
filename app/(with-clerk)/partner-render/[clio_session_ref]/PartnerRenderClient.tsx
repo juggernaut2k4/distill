@@ -116,24 +116,22 @@ export interface PartnerRenderClientProps {
   inlinePages?: InlinePageProp[]
 }
 
-// B2B items 6/7 (2026-08-02) — code-enforced correctness gate on advance_tab, per Arun's design:
-// the tool call itself (via record_verification_result), not phrase-matching, is the authoritative
-// "ready to advance" signal. See docs/2026-08-02-farewell-narration-findings.md §6 for the full
-// design discussion and rationale. OpenAI Realtime only — Hume's tools are configured on Hume's own
-// hosted dashboard (lib/voice/hume-native/config-provisioner.ts), out of reach for this build.
-const MAX_WRONG_ANSWER_ATTEMPTS = 5
-const MAX_GARBLED_ATTEMPTS = 2
+// 2026-08-02 (architecture revision) — the code-enforced correctness gate on advance_tab
+// (record_verification_result, MAX_WRONG_ANSWER_ATTEMPTS, MAX_GARBLED_ATTEMPTS,
+// PageVerificationState) has been removed entirely, per Arun's direct instruction: the two-hop
+// structure it required (record_verification_result, then advance_tab) was the root cause of a
+// whole night's "silence after a correct answer" bug family — the CORRECT path always had two
+// tool-call turn-boundaries where the INCORRECT path only ever had one. Rather than merging the two
+// tools ("no let advance tool do one thing only, no need to verify result. no need to merge the
+// functionalities"), advance_tab is back to a bare, single-purpose, pure-model-judgment tool call,
+// and correctness/garbled/silence handling all moved into the prompt itself (see rule 4 in
+// lib/voice/openai-realtime-prompt-template.ts). See docs/2026-08-02-farewell-narration-findings.md
+// §6 for the original design discussion this superseded.
 // Silence-after-a-turn threshold (item 6) — deliberately generous per Arun's "10-15s, even ok to go
 // longer to really confirm" guidance. A one-shot, narrowly-scoped timer (not the general watchdog
 // Arun rejected): it only ever fires the graceful audio-issue closing, never a blind "keep talking"
 // nudge for its own sake.
 const SILENCE_THRESHOLD_MS = 12_000
-
-interface PageVerificationState {
-  status: 'unresolved' | 'correct' | 'capped'
-  wrongCount: number
-  garbledCount: number
-}
 
 const SILENCE_RECOVERY_INSTRUCTION =
   'The participant has not responded at all for a while — this is likely an audio or connection ' +
@@ -169,18 +167,16 @@ export default function PartnerRenderClient({
   const [showConnectWarmup, setShowConnectWarmup] = useState(Boolean(humeConfigId))
   const warmupTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // B2B items 6/7 — per-page verification state, keyed by page index, and the silence-after-a-turn
-  // timer. See the module-level doc comment above these constants for the full design.
-  const verificationStateRef = useRef<Record<number, PageVerificationState>>({})
+  // Silence-after-a-turn timer — see the module-level doc comment above SILENCE_THRESHOLD_MS.
   const silenceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // 2026-08-02 — narrow, code-level backstop for the record_verification_result/advance_tab
-  // silence family of bugs (three live test calls now, each a new wording of the same underlying
-  // model tendency, per docs/2026-08-02-farewell-narration-findings.md and the CEO agent's own
-  // diagnosis). Deliberately separate from silenceTimeoutRef above (the general, now-disabled
-  // silence-after-any-turn timer that caused a real false-positive premature end) — this one only
-  // ever arms in the few seconds immediately after these two specific tool calls resolve, where a
-  // continuation is structurally owed per rule 10, never as a general per-turn timer. See
-  // armPostToolNudge()'s own doc comment below for the full design.
+  // 2026-08-02 — narrow, code-level backstop for the advance_tab silence family of bugs (three live
+  // test calls now, each a new wording of the same underlying model tendency, per
+  // docs/2026-08-02-farewell-narration-findings.md and the CEO agent's own diagnosis). Deliberately
+  // separate from silenceTimeoutRef above (the general, now-disabled silence-after-any-turn timer
+  // that caused a real false-positive premature end) — this one only ever arms in the few seconds
+  // immediately after advance_tab resolves, where a continuation is structurally owed per rule 10,
+  // never as a general per-turn timer. See armPostToolNudge()'s own doc comment below for the full
+  // design.
   const postToolNudgeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // B2B-61 Part A — typed against the provider-agnostic interface, not HumeAdapter directly, so
   // this ref works unchanged regardless of which adapter `connect()` below constructs.
@@ -309,58 +305,6 @@ export default function PartnerRenderClient({
         // with no other value possible.
         connectStartRef.current = Date.now()
 
-        // B2B items 6/7 — record_verification_result is the authoritative signal for whether the
-        // current page's understanding check has been satisfied; advance_tab is gated on it below.
-        // Shared by both inline and template tool sets (identical logic, just called from either).
-        const getVerificationState = (idx: number): PageVerificationState => {
-          if (!verificationStateRef.current[idx]) {
-            verificationStateRef.current[idx] = { status: 'unresolved', wrongCount: 0, garbledCount: 0 }
-          }
-          return verificationStateRef.current[idx]
-        }
-
-        // 2026-08-02 — armPostToolNudge() fires here unconditionally, on every outcome: rule 10
-        // requires the model to continue speaking after ANY tool result, not just a successful one,
-        // so the recovery nudge backstop applies the same way regardless of which branch below runs.
-        const recordVerificationResult = async (params: Record<string, unknown>): Promise<string> => {
-          const idx = activeIndexRef.current
-          const state = getVerificationState(idx)
-          const result = params?.result
-          armPostToolNudge()
-
-          if (result === 'correct') {
-            state.status = 'correct'
-            return 'Recorded: correct. You can wrap up this topic and call advance_tab when ready.'
-          }
-
-          if (result === 'garbled') {
-            state.garbledCount += 1
-            if (state.garbledCount >= MAX_GARBLED_ATTEMPTS) {
-              state.status = 'capped'
-              return (
-                'Recorded: garbled (max attempts reached). Do not keep guessing — this may be an ' +
-                'audio or connection issue. Gracefully let the participant know you are having ' +
-                'trouble understanding them clearly, then end the session now via end_session, ' +
-                'rather than calling advance_tab.'
-              )
-            }
-            return `Recorded: garbled (attempt ${state.garbledCount} of ${MAX_GARBLED_ATTEMPTS}). Ask them to repeat or rephrase their answer.`
-          }
-
-          // 'incorrect' (or any unrecognized value — treat as not-yet-correct rather than silently
-          // advancing, since a malformed/missing result should never be trusted as success).
-          state.wrongCount += 1
-          if (state.wrongCount >= MAX_WRONG_ANSWER_ATTEMPTS) {
-            state.status = 'capped'
-            return (
-              `Recorded: incorrect (attempt ${state.wrongCount} of ${MAX_WRONG_ANSWER_ATTEMPTS}, max reached). ` +
-              'Do not ask again — gracefully let the participant know you will cover this properly ' +
-              'in a future session, then wrap up and call advance_tab.'
-            )
-          }
-          return `Recorded: incorrect (attempt ${state.wrongCount} of ${MAX_WRONG_ANSWER_ATTEMPTS}). Re-explain from a different angle or in simpler terms, then ask again.`
-        }
-
         // Tool handlers differ per mode. Option 2 keeps its exact prior behavior;
         // inline mode: only advance_tab (plus the transcript phrase-match backup below)
         // advances the page. B2B-58 — show_visual used to be wired identically to
@@ -370,23 +314,12 @@ export default function PartnerRenderClient({
           show_visual: async () => {
             return 'Visual is showing.'
           },
-          record_verification_result: recordVerificationResult,
           advance_tab: async () => {
-            // B2B items 6/7 (2026-08-02) — gate on the recorded verification outcome for the
-            // CURRENT page before doing anything else. A premature/invalid call is told explicitly
-            // to continue the same topic rather than silently no-op'ing — silence here risks Clio
-            // believing the move succeeded and drifting into the next topic's content while the
-            // screen hasn't actually moved (a real display/speech desync, worse than not advancing).
+            // 2026-08-02 (architecture revision) — reverted to unconditional, pure model-judgment
+            // advance: the model itself decides when a topic is fully covered (rule 4/5 in
+            // lib/voice/openai-realtime-prompt-template.ts), there is no code-level gate anymore.
             armPostToolNudge()
             const idx = activeIndexRef.current
-            if (getVerificationState(idx).status === 'unresolved') {
-              return (
-                'Not yet — this page\'s verification result has not been recorded as correct (or ' +
-                'capped) via record_verification_result. Continue teaching or clarifying this same ' +
-                'topic; do not move to the next one and do not talk about the next topic\'s content.'
-              )
-            }
-
             const marker = inlinePages![idx]?.transitionMarker
             // B2B-61 round 3 — the model can call this tool the instant it finishes GENERATING the
             // sentence naming the next topic, while that audio may still be mid-flight through the
@@ -420,19 +353,11 @@ export default function PartnerRenderClient({
             const title = sections?.[idx]?.section.meta.subtopicTitle ?? `section ${idx + 1}`
             return `Visual is now showing: "${title}" (section ${idx + 1} of ${count}).`
           },
-          record_verification_result: recordVerificationResult,
           advance_tab: async () => {
-            // B2B items 6/7 — same gate as inlineTools.advance_tab above, checked against the
-            // CURRENT page (not the target page being advanced to).
+            // 2026-08-02 (architecture revision) — same unconditional, pure model-judgment advance
+            // as inlineTools.advance_tab above; no code-level verification gate anymore.
             armPostToolNudge()
             const currentIdx = activeIndexRef.current
-            if (getVerificationState(currentIdx).status === 'unresolved') {
-              return (
-                'Not yet — this section\'s verification result has not been recorded as correct ' +
-                '(or capped) via record_verification_result. Continue teaching or clarifying this ' +
-                'same section; do not move to the next one and do not talk about its content.'
-              )
-            }
 
             // B2B-61 round 3 / B2B item 7a — same playback-catch-up guard, now fire-and-forget
             // (see inlineTools.advance_tab above for the full rationale).
@@ -524,12 +449,13 @@ export default function PartnerRenderClient({
           // design) to re-enable.
         }
 
-        // 2026-08-02 — narrow, scoped recovery nudge for the record_verification_result/advance_tab
-        // silence family of bugs. Unlike the general silence-after-any-turn timer above (disabled
-        // after it produced a real false positive on an ordinary conversational pause), this only
-        // ever arms in the specific, few-second window right after these two tool calls resolve —
-        // exactly the one place rule 10 says a continuation is structurally owed, never a general
-        // per-turn timer. Per the CEO agent's own recommendation: prompt instructions for turn-taking
+        // 2026-08-02 — narrow, scoped recovery nudge for the advance_tab silence family of bugs.
+        // Unlike the general silence-after-any-turn timer above (disabled after it produced a real
+        // false positive on an ordinary conversational pause), this only ever arms in the specific,
+        // few-second window right after advance_tab resolves (the one remaining tool call in this
+        // flow, since record_verification_result was removed entirely in the 2026-08-02 architecture
+        // revision) — exactly the one place rule 10 says a continuation is structurally owed, never a
+        // general per-turn timer. Per the CEO agent's own recommendation: prompt instructions for turn-taking
         // are probabilistic, not guaranteed, so this is a mechanical floor under the specific window,
         // not a replacement for the rule 4/8/10 prompt fixes — those are still expected to do most of
         // the work; this only catches what they miss. A short threshold (well under the disabled
@@ -554,9 +480,9 @@ export default function PartnerRenderClient({
             adapterRef.current?.triggerRecoveryNudge?.(
               'You have gone silent immediately after a tool call. Per rule 10, a tool call never ' +
                 'ends your turn — continue speaking right now, in this same turn, with whatever the ' +
-                'rule that triggered the call requires next (the re-explanation, the rule 8 recap and ' +
-                'next topic, or the section you were already teaching). Do not acknowledge this ' +
-                'message or explain yourself — simply continue exactly where you left off.'
+                'rule that triggered the call requires next (naming and teaching the next topic per ' +
+                'rule 8). Do not acknowledge this message or explain yourself — simply continue ' +
+                'exactly where you left off.'
             )
           }, POST_TOOL_NUDGE_MS)
         }

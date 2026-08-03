@@ -51,10 +51,14 @@ function installFakeSocket(adapter: OpenAIRealtimeAdapter) {
 }
 
 describe('OPENAI_REALTIME_TOOLS shape', () => {
-  it('defines exactly show_visual, record_verification_result, advance_tab, and end_session as flat function tools', () => {
-    // 2026-08-02 — B2B items 6/7 added record_verification_result, the code-enforced
-    // "ready to advance" signal that gates advance_tab (see docs/2026-08-02-farewell-narration-findings.md §6).
-    expect(OPENAI_REALTIME_TOOLS.map((t) => t.name)).toEqual(['show_visual', 'record_verification_result', 'advance_tab', 'end_session'])
+  it('defines exactly show_visual, advance_tab, and end_session as flat function tools', () => {
+    // 2026-08-02 (architecture revision) — record_verification_result (B2B items 6/7's code-enforced
+    // "ready to advance" gate) was removed entirely: it required two chained tool-call turn-boundaries
+    // on the correct-answer path where the incorrect-answer path only ever needed one, which was the
+    // root cause of a whole night's "silence after a correct answer" bug family. advance_tab is back
+    // to a bare, single-purpose, pure-model-judgment tool call (see docs/2026-08-02-farewell-narration-findings.md §6
+    // for the original design, superseded by this change).
+    expect(OPENAI_REALTIME_TOOLS.map((t) => t.name)).toEqual(['show_visual', 'advance_tab', 'end_session'])
     for (const tool of OPENAI_REALTIME_TOOLS) {
       expect(tool.type).toBe('function')
       expect(tool.parameters.type).toBe('object')
@@ -71,19 +75,12 @@ describe('OPENAI_REALTIME_TOOLS shape', () => {
     expect(endSession.parameters.required).toEqual([])
   })
 
-  it("record_verification_result requires a result param, constrained to the three valid outcomes", () => {
-    const tool = OPENAI_REALTIME_TOOLS.find((t) => t.name === 'record_verification_result')!
-    expect(tool.parameters.required).toEqual(['result'])
-    expect(tool.parameters.properties.result.enum).toEqual(['correct', 'incorrect', 'garbled'])
-  })
-
-  // 2026-08-02 — the first live test call showed a real gap after the tool call resolves: the model
-  // said one throwaway filler line ("let me think about how to build on that") then went silent for
-  // ~12.5s instead of continuing per the result. This tool description is live context the model
-  // reasons over too, alongside the prompt's own rule 10/4 — it was silent on "same turn" before.
-  it("record_verification_result's description reinforces acting on the result immediately, in the same turn", () => {
-    const tool = OPENAI_REALTIME_TOOLS.find((t) => t.name === 'record_verification_result')!
-    expect(tool.description).toContain('you must act on it immediately, in the same turn, without pausing')
+  it('advance_tab is bare, pure-model-judgment, and single-purpose — no parameters', () => {
+    // 2026-08-02 (architecture revision) — advance_tab reverted to its pre-gate shape: no result
+    // param, no verification-outcome gating, just the model's own judgment on section timing.
+    const tool = OPENAI_REALTIME_TOOLS.find((t) => t.name === 'advance_tab')!
+    expect(Object.keys(tool.parameters.properties)).toEqual([])
+    expect(tool.description).toContain('Use your own judgment on timing')
   })
 
   it('show_visual exposes section_index and topic_title, matching PartnerRenderClient.resolveSectionIndex', () => {
@@ -184,29 +181,29 @@ describe('OpenAIRealtimeAdapter tool-call dispatch (response.output_item.done)',
 
   // 2026-08-02 — closes a real diagnostic gap found while investigating the correct-answer silence
   // bug: previously only event TYPES were logged for unhandled events, never the actual tool call
-  // arguments or return values, so "did record_verification_result really get called with 'correct',
-  // and what did advance_tab actually return" could only be inferred from the transcript, never
-  // confirmed directly. Now logged for every tool call via onDiagnostic('tool_call', ...).
+  // arguments or return values, so "did advance_tab actually get called, and what did it return"
+  // could only be inferred from the transcript, never confirmed directly. Now logged for every tool
+  // call via onDiagnostic('tool_call', ...).
   it('reports every tool call (name, parsed arguments, and the actual return value) via onDiagnostic', async () => {
-    const handler = vi.fn().mockResolvedValue('Recorded: correct. You can wrap up this topic and call advance_tab when ready.')
+    const handler = vi.fn().mockResolvedValue('Advanced.')
     const onDiagnostic = vi.fn()
-    const adapter = makeAdapter({ tools: { record_verification_result: handler }, onDiagnostic })
+    const adapter = makeAdapter({ tools: { advance_tab: handler }, onDiagnostic })
     installFakeSocket(adapter)
 
     await feedMessage(adapter, {
       type: 'response.output_item.done',
       item: {
         type: 'function_call',
-        name: 'record_verification_result',
-        call_id: 'call-verify-1',
-        arguments: JSON.stringify({ result: 'correct' }),
+        name: 'advance_tab',
+        call_id: 'call-advance-1',
+        arguments: '{}',
       },
     })
 
     expect(onDiagnostic).toHaveBeenCalledWith('tool_call', {
-      name: 'record_verification_result',
-      params: { result: 'correct' },
-      result: 'Recorded: correct. You can wrap up this topic and call advance_tab when ready.',
+      name: 'advance_tab',
+      params: {},
+      result: 'Advanced.',
     })
   })
 

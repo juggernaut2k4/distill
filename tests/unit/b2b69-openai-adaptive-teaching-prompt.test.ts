@@ -32,8 +32,8 @@ describe('assembleOpenAIRealtimePrompt — B2B-69 adaptive-teaching persona', ()
     else process.env.HUME_NATIVE_ADAPTIVE_TEACHING_ENABLED = originalFlag
   })
 
-  it('OPENAI_PROMPT_TEMPLATE_VERSION is v8 (2026-08-02: v3 through v7, then v8\'s shape-based rule 10 rewrite, four fixed rule-4 response patterns, and the advance_tab/rule-8 ordering + explicit teaching fix)', () => {
-    expect(OPENAI_PROMPT_TEMPLATE_VERSION).toBe('v8')
+  it('OPENAI_PROMPT_TEMPLATE_VERSION is v9 (2026-08-02: v3 through v8, then v9\'s removal of record_verification_result entirely — advance_tab reverted to pure model-judgment, rule 4 now a linear respond-then-summarize flow with prompt-only garbled/silence escalation)', () => {
+    expect(OPENAI_PROMPT_TEMPLATE_VERSION).toBe('v9')
   })
 
   describe('rule 4 (verification/garbled/silence handling) — always present, independent of the flag', () => {
@@ -41,7 +41,7 @@ describe('assembleOpenAIRealtimePrompt — B2B-69 adaptive-teaching persona', ()
       delete process.env.HUME_NATIVE_ADAPTIVE_TEACHING_ENABLED
       const normalized = assembleOpenAIRealtimePrompt(BASE_INPUT).replace(/\s+/g, ' ')
       expect(normalized).toContain('give the participant the benefit of the doubt on phrasing and disfluency')
-      expect(normalized).toContain('immediately call the record_verification_result tool')
+      expect(normalized).toContain('There is no tool call anywhere in this rule')
       expect(normalized).toContain('garbled')
     })
 
@@ -55,20 +55,22 @@ describe('assembleOpenAIRealtimePrompt — B2B-69 adaptive-teaching persona', ()
       expect(withoutFlag).toContain('give the participant the benefit of the doubt on phrasing and disfluency')
     })
 
-    it('covers correct/incorrect/garbled outcomes and defers capping to record_verification_result', () => {
+    it('covers correct/incorrect/garbled outcomes as a linear flow — no tool call, no retry loop, no capping', () => {
+      // 2026-08-02 (architecture revision) — record_verification_result is gone entirely, and with
+      // it the retry loop / max-attempts capping it used to gate. CORRECT and INCORRECT are now a
+      // single linear flow: respond once, summarize, move to rule 5 — every time, no exceptions.
       const normalized = assembleOpenAIRealtimePrompt(BASE_INPUT).replace(/\s+/g, ' ')
-      expect(normalized).toContain("immediately call the record_verification_result tool")
-      expect(normalized).toContain('a genuinely different, simpler way than your last')
-      expect(normalized).toContain('Never decide any of this yourself independent of what the tool just told you')
-      // The old one-shot cap is gone — capping is now the tool's job, not a fixed rule in the prompt.
+      expect(normalized).not.toContain('record_verification_result')
+      expect(normalized).toContain('There is no retry loop and no second question here')
+      expect(normalized).toContain('explain it once, well, then summarize and move on to rule 5')
       expect(normalized).not.toContain('re-explain the concept exactly once')
       expect(normalized).not.toContain('do not re-explain a third time')
     })
 
-    it('covers total silence (no response at all) as its own graceful-closing case', () => {
+    it('covers total silence (no response at all) as its own two-stage, prompt-only escalation', () => {
       const normalized = assembleOpenAIRealtimePrompt(BASE_INPUT).replace(/\s+/g, ' ')
       expect(normalized).toContain('likely audio or connection issue, not a wrong answer')
-      expect(normalized).toContain("I haven't been able to hear anything")
+      expect(normalized).toContain("I haven't heard anything for a little while")
       expect(normalized).toContain('call the end_session tool immediately after saying it')
     })
 
@@ -77,55 +79,53 @@ describe('assembleOpenAIRealtimePrompt — B2B-69 adaptive-teaching persona', ()
       expect(normalized).toContain('Adapt your depth to their response')
     })
 
-    // 2026-08-02 — CEO-review follow-up: the garbled-max ending had no actual script, unlike the
-    // silence case right next to it — a model with no concrete line for "end gracefully" is exactly
-    // where inconsistent behavior (or skipping the mandatory spoken goodbye) would show up.
-    it('the repeated-garbled-speech ending now has a concrete spoken line, not just "end gracefully"', () => {
+    // 2026-08-02 (architecture revision) — GARBLED is now a 3-stage, purely prompt-tracked
+    // escalation (repeat → check in on ending → end citing an audio issue), per Arun's explicit
+    // instruction. Each stage has a concrete spoken line, not just "end gracefully."
+    it('the repeated-garbled-speech ending is a 3-stage escalation with concrete spoken lines at each stage', () => {
       const normalized = assembleOpenAIRealtimePrompt(BASE_INPUT).replace(/\s+/g, ' ')
-      expect(normalized).toContain("I'm having trouble hearing you clearly enough to keep going")
-      expect(normalized).toContain('same spoken-goodbye-then-end_session pattern required everywhere else')
+      expect(normalized).toContain("Sorry, I couldn't quite make that out")
+      expect(normalized).toContain("I'm still not able to make that out clearly — would you like to stop here for now")
+      expect(normalized).toContain("I'm having real trouble hearing you clearly")
+      expect(normalized).toContain('spoken-goodbye-then-end_session pattern required everywhere')
     })
 
-    // 2026-08-02 — Arun's direct feedback after seeing rule 10's fix in a real call: banning "let
-    // me think about how to build on that" as a stopping point wasn't enough — the phrase itself
-    // reads unnaturally regardless of whether the model keeps talking after it. A real person
-    // either directly agrees or pivots with "but"/"though" into the correction, never announces
-    // that they're about to think about the answer. This is a phrasing-style fix in rule 4,
-    // distinct from rule 10's turn-continuation mechanism.
-    // 2026-08-02 — superseded the single "speak naturally, agree or pivot with but/though" guidance
-    // with four named, fixed response patterns (CORRECT/INCORRECT/GARBLED/SILENCE), per Arun's direct
-    // instruction: instead of banning bad phrasing, give the model a parameterized template to fill
-    // in for each judged outcome, so there's no freeform space left to drift into a stall phrase.
-    it('rule 4 judges the answer into exactly four fixed response patterns — CORRECT, INCORRECT, GARBLED, SILENCE', () => {
+    // 2026-08-02 (architecture revision) — the earlier four "PATTERN" names (built around calling
+    // record_verification_result) are gone along with that tool. Rule 4 now judges into four
+    // "OUTCOME" cases, handled entirely in speech: CORRECT/INCORRECT are a single linear
+    // respond-then-summarize flow; GARBLED/SILENCE are their own prompt-only escalations.
+    it('rule 4 judges the answer into exactly four outcomes — CORRECT, INCORRECT, GARBLED, SILENCE — with no tool call anywhere', () => {
       const normalized = assembleOpenAIRealtimePrompt(BASE_INPUT).replace(/\s+/g, ' ')
-      expect(normalized).toContain('PATTERN — CORRECT')
-      expect(normalized).toContain('PATTERN — INCORRECT')
-      expect(normalized).toContain('PATTERN — GARBLED')
-      expect(normalized).toContain('PATTERN — SILENCE')
-      expect(normalized).toContain('Vary the actual wording of every pattern each time')
+      expect(normalized).toContain('OUTCOME — CORRECT')
+      expect(normalized).toContain('OUTCOME — INCORRECT')
+      expect(normalized).toContain('OUTCOME — GARBLED')
+      expect(normalized).toContain('OUTCOME — SILENCE')
+      expect(normalized).toContain('Vary the actual wording of every outcome each time')
     })
 
-    it('the CORRECT pattern hands off directly into rule 8\'s recap-and-transition, not a self-contained reaction', () => {
+    it('the CORRECT outcome gives its own brief summary, then hands off to rule 5\'s advance_tab — not a self-contained reaction', () => {
       const normalized = assembleOpenAIRealtimePrompt(BASE_INPUT).replace(/\s+/g, ' ')
-      expect(normalized).toContain('then, in that same breath, move directly into rule')
-      expect(normalized).toContain('8\'s recap-and-transition sequence')
+      expect(normalized).toContain('give a brief one- or two-sentence summary of what was just learned in this topic')
+      expect(normalized).toContain('move on to rule 5 (advance_tab) when you\'re ready')
     })
 
-    // 2026-08-02 — Arun's explicit instruction: the re-explanation must land as real teaching before
-    // the new question follows, not be crammed into the same breath as the correction like a rushed quiz.
-    it('the INCORRECT pattern gives the re-explanation room to land before asking a new, simpler question — not bundled into the same breath', () => {
+    // 2026-08-02 (architecture revision) — per Arun's later, final instruction, INCORRECT no longer
+    // asks a follow-up question at all: explain it once, well, then summarize and move on, exactly
+    // like CORRECT. The earlier "give the re-explanation room to land before a new question" design
+    // (from the four-PATTERN/record_verification_result era) is superseded by this simpler flow.
+    it('the INCORRECT outcome explains once, with no retry loop and no follow-up question, then summarizes exactly like CORRECT', () => {
       const normalized = assembleOpenAIRealtimePrompt(BASE_INPUT).replace(/\s+/g, ' ')
-      expect(normalized).toContain('Once that explanation has actually landed')
-      expect(normalized).toContain('not crammed into the same breath as the correction')
-      expect(normalized).toContain('Give the explanation real weight before the new question')
+      expect(normalized).toContain('There is no retry loop and no second question here')
+      expect(normalized).toContain('explain it once, well, then summarize and move on to rule 5 (advance_tab) exactly the way the CORRECT outcome does')
     })
 
     // 2026-08-02 — Arun's direct feedback: "so I don't want to keep talking to an empty room" read as
-    // rude. Dropped entirely; straight from acknowledging the gap into the reassurance.
-    it('the SILENCE pattern no longer includes the "empty room" line', () => {
+    // rude. Dropped entirely; straight from acknowledging the gap into the reassurance. Still true
+    // under the architecture revision — the SILENCE outcome's wording carries this forward.
+    it('the SILENCE outcome no longer includes the "empty room" line', () => {
       const normalized = assembleOpenAIRealtimePrompt(BASE_INPUT).replace(/\s+/g, ' ')
       expect(normalized).not.toContain('empty room')
-      expect(normalized).toContain('I haven\'t been able to hear anything for a little while — if something\'s off with your mic or connection')
+      expect(normalized).toContain('I haven\'t heard anything for a little while — are you still there?')
     })
   })
 
