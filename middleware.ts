@@ -22,6 +22,7 @@ const isPublicRoute = createRouteMatcher([
   '/api/admin/seed-topic-cache', // Role topic cache seeder — no user session needed
   '/walkthrough/(.*)',        // Public walkthrough page shared by Recall.ai bot
   '/partner-render/(.*)',     // B2B-02: placeholder render stub, loaded headlessly by the meeting bot on a partner's behalf — no Clerk session available
+  '/widget-render/(.*)',      // B2B-71: dedicated widget-channel render route, loaded by a reseller's own iframe — no Clerk session available, mirrors /partner-render
   '/partner-questionnaire/(.*)', // B2B-05 fix: pre-existing gap — this end-user-facing, no-auth route (B2B-03) was missing from this list; see build report
   '/test-harness-render/(.*)', // B2B-32: public, unauthenticated — fetched by the real safeFetchPartnerPage() pipeline, mirrors /partner-render and /showcase-render
   '/demo', // "Learn with AI" demo catalog on test.hello-clio.com — public, no sign-in, per Arun's direct instruction
@@ -49,6 +50,11 @@ const TENANT_SCOPED_PATTERNS = [
   /^\/questionnaire$/,
   /^\/partner-questionnaire\/.+/,
   /^\/partner-render\/.+/,
+  // B2B-71: same defensive reasoning as /partner-render — today's widget render_url is always built
+  // from NEXT_PUBLIC_APP_URL (Clio's own domain), never a partner's white-label host, but this entry
+  // means the gap can't resurface if a future change starts serving widget-render URLs under a
+  // partner's own domain.
+  /^\/widget-render\/.+/,
   /^\/api\/hume-token$/,
   /^\/api\/partner\/render\/end-session$/,
 ]

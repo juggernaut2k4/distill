@@ -194,7 +194,9 @@ export async function POST(request: NextRequest) {
         {
           clio_session_ref: original.id,
           status: original.status,
-          render_url: `${appUrl}/partner-render/${original.id}`,
+          // B2B-71 (docs/specs/B2B-71-requirement-document.md §6.2) — widget sessions render on
+          // their own dedicated route, not the shared /partner-render path meeting-bot sessions use.
+          render_url: `${appUrl}/widget-render/${original.id}`,
           reseller_unique_id,
         },
         { status: 201 }
@@ -209,7 +211,9 @@ export async function POST(request: NextRequest) {
 
   const clioSessionRef = inserted.id as string
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
-  const renderUrl = `${appUrl}/partner-render/${clioSessionRef}`
+  // B2B-71 (docs/specs/B2B-71-requirement-document.md §6.2) — same reasoning as the idempotent-
+  // replay branch above.
+  const renderUrl = `${appUrl}/widget-render/${clioSessionRef}`
 
   const { error: traceLogError } = await supabase.from('partner_session_trace_logs').insert({
     clio_session_ref: clioSessionRef,

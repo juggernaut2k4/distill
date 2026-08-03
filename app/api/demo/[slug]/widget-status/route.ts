@@ -42,6 +42,9 @@ export async function GET(_request: NextRequest, { params }: { params: { slug: s
   return NextResponse.json({
     active: true,
     clio_session_ref: latestWidget.id,
-    render_url: `${appUrl}/partner-render/${latestWidget.id}`,
+    // B2B-71 (docs/specs/B2B-71-requirement-document.md §6.2) — must be updated in lockstep with
+    // widget-sessions/route.ts's own construction, or this refresh-survives-reload endpoint would
+    // keep pointing the Widget Demo tab at the old route pattern.
+    render_url: `${appUrl}/widget-render/${latestWidget.id}`,
   })
 }

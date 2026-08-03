@@ -6,7 +6,7 @@
 
 export const RESERVED_SUBDOMAIN_SLUGS = [
   'www', 'api', 'app', 'admin', 'dashboard', 'sign-in', 'sign-up', 'pricing', 'onboarding', 'plan',
-  'checkout', 'topics', 'walkthrough', 'partner-render', 'partner-questionnaire', 'questionnaire',
+  'checkout', 'topics', 'walkthrough', 'partner-render', 'widget-render', 'partner-questionnaire', 'questionnaire',
   'mail', 'ftp', 'staging', 'dev', 'test', 'docs', 'status', 'blog', 'cdn', 'static', 'assets',
   'help', 'support', 'clio', 'vercel',
 ] as const
