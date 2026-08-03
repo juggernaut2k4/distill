@@ -501,6 +501,15 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
           console.warn('[OpenAIRealtimeAdapter] No handler for tool:', item.name)
         }
 
+        // 2026-08-02 — closes a real diagnostic gap found while investigating the correct-answer
+        // silence bug: the previous diagnostic capture only logged event TYPES for unhandled events,
+        // never the actual tool call arguments or return values, so "did record_verification_result
+        // really get called with 'correct', and what did advance_tab actually return" could only be
+        // inferred from the surrounding transcript, never confirmed directly. Logs both for every
+        // tool call (not just these two) so the next live test call gives a direct answer instead of
+        // an inference.
+        this.config.onDiagnostic?.('tool_call', { name: item.name, params, result })
+
         this.ws?.send(JSON.stringify({
           type: 'conversation.item.create',
           item: { type: 'function_call_output', call_id: item.call_id, output: result },

@@ -182,6 +182,52 @@ describe('OpenAIRealtimeAdapter tool-call dispatch (response.output_item.done)',
     expect(secondPayload).toEqual({ type: 'response.create' })
   })
 
+  // 2026-08-02 — closes a real diagnostic gap found while investigating the correct-answer silence
+  // bug: previously only event TYPES were logged for unhandled events, never the actual tool call
+  // arguments or return values, so "did record_verification_result really get called with 'correct',
+  // and what did advance_tab actually return" could only be inferred from the transcript, never
+  // confirmed directly. Now logged for every tool call via onDiagnostic('tool_call', ...).
+  it('reports every tool call (name, parsed arguments, and the actual return value) via onDiagnostic', async () => {
+    const handler = vi.fn().mockResolvedValue('Recorded: correct. You can wrap up this topic and call advance_tab when ready.')
+    const onDiagnostic = vi.fn()
+    const adapter = makeAdapter({ tools: { record_verification_result: handler }, onDiagnostic })
+    installFakeSocket(adapter)
+
+    await feedMessage(adapter, {
+      type: 'response.output_item.done',
+      item: {
+        type: 'function_call',
+        name: 'record_verification_result',
+        call_id: 'call-verify-1',
+        arguments: JSON.stringify({ result: 'correct' }),
+      },
+    })
+
+    expect(onDiagnostic).toHaveBeenCalledWith('tool_call', {
+      name: 'record_verification_result',
+      params: { result: 'correct' },
+      result: 'Recorded: correct. You can wrap up this topic and call advance_tab when ready.',
+    })
+  })
+
+  it('reports the tool_call diagnostic even when the tool execution fails', async () => {
+    const handler = vi.fn().mockRejectedValue(new Error('boom'))
+    const onDiagnostic = vi.fn()
+    const adapter = makeAdapter({ tools: { advance_tab: handler }, onDiagnostic })
+    installFakeSocket(adapter)
+
+    await feedMessage(adapter, {
+      type: 'response.output_item.done',
+      item: { type: 'function_call', name: 'advance_tab', call_id: 'call-2', arguments: '{}' },
+    })
+
+    expect(onDiagnostic).toHaveBeenCalledWith('tool_call', {
+      name: 'advance_tab',
+      params: {},
+      result: 'Tool execution failed.',
+    })
+  })
+
   /**
    * 2026-08-02 — root-cause fix for live session 98be7c6d-c316-4bc2-a2ff-fe45adcdd434: prompting
    * the model to continue after it has already decided to end the call serves no purpose and only
