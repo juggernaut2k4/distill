@@ -228,7 +228,10 @@ export async function extractInsightsForPartnerSession(partnerSessionId: string)
     // 2026-08-01 — extended further to include voice_provider (migration 106), so this function
     // can tell which vendor a given session actually used instead of blindly calling Hume's API
     // for every session regardless of provider.
-    .select('id, partner_account_id, hume_chat_id, test_mode, partner_reference, end_client_id, reseller_unique_id, hume_config_id, voice_provider')
+    // B2B-70 v2.0 (docs/specs/B2B-70-requirement-document.md §6.4) — extended further to include
+    // delivery_channel, so the terminal write below can scope its new content-purge step to widget
+    // sessions only.
+    .select('id, partner_account_id, hume_chat_id, test_mode, partner_reference, end_client_id, reseller_unique_id, hume_config_id, voice_provider, delivery_channel')
     .eq('id', partnerSessionId)
     .limit(1)
 
@@ -358,6 +361,31 @@ export async function extractInsightsForPartnerSession(partnerSessionId: string)
     resellerUniqueId: (session.reseller_unique_id as string | null) ?? null,
   })
 
+  // B2B-70 v2.0 (docs/specs/B2B-70-requirement-document.md §6.4) — "no leftovers": once our own
+  // findings have been recorded (the recordInsightsReadyEvent() call immediately above), a widget
+  // session's reseller-supplied content is purged from partner_sessions — content_pages/
+  // content_to_explain/content_title/content_subtitle, plus assembled_prompt_snapshot (the one
+  // derived artifact that embeds the same material verbatim, lib/partner/live-render.ts). Scoped to
+  // delivery_channel='widget' only — meeting-bot sessions are completely unaffected, per Arun's own
+  // explicit instruction not to change anything about the existing inline-content flow. Best-effort:
+  // logged, never thrown — a purge failure must never revert or block the insights write that
+  // precedes it.
+  if (session.delivery_channel === 'widget') {
+    const { error: purgeError } = await supabase
+      .from('partner_sessions')
+      .update({
+        content_pages: null,
+        content_to_explain: null,
+        content_title: null,
+        content_subtitle: null,
+        assembled_prompt_snapshot: null,
+      })
+      .eq('id', partnerSessionId)
+    if (purgeError) {
+      console.error(`[partner-session-insights-extractor] Content purge failed for widget session ${partnerSessionId} (non-fatal):`, purgeError.message)
+    }
+  }
+
   // B2B-63 §4.2/§11 Q3 — best-effort cleanup now that extraction succeeded (terminal 'success' or
   // 'success_empty'); never throws. Deliberately NOT called from markInsightsExtractionFailed() —
   // on permanent failure the key is left in place, relying only on its 24h TTL, so a human can
@@ -414,8 +442,11 @@ export async function markInsightsExtractionFailed(partnerSessionId: string, err
     .from('partner_session_insights')
     // B2B-38 (docs/specs/B2B-38-requirement-document.md §6.9) — FK embed extended to also carry
     // reseller_unique_id/hume_config_id through to the recordInsightsReadyEvent() call below.
+    // B2B-70 v2.0 (docs/specs/B2B-70-requirement-document.md §6.4) — embed extended to also carry
+    // delivery_channel through, so the permanent-failure branch below can scope its content-purge
+    // step to widget sessions only, same as the success path above.
     .select(
-      'attempt_count, partner_account_id, partner_sessions!inner(test_mode, partner_reference, end_client_id, reseller_unique_id, hume_config_id)'
+      'attempt_count, partner_account_id, partner_sessions!inner(test_mode, partner_reference, end_client_id, reseller_unique_id, hume_config_id, delivery_channel)'
     )
     .eq('partner_session_id', partnerSessionId)
     .limit(1)
@@ -451,6 +482,7 @@ export async function markInsightsExtractionFailed(partnerSessionId: string, err
       end_client_id: string | null
       reseller_unique_id: string | null
       hume_config_id: string | null
+      delivery_channel: string | null
     } | null
     await recordInsightsReadyEvent({
       partnerSessionId,
@@ -462,6 +494,26 @@ export async function markInsightsExtractionFailed(partnerSessionId: string, err
       // B2B-38 §6.9 — threaded through same as endClientId immediately above.
       resellerUniqueId: embeddedSession?.reseller_unique_id ?? null,
     })
+
+    // B2B-70 v2.0 (docs/specs/B2B-70-requirement-document.md §6.4) — same "no leftovers" purge as
+    // the success path in extractInsightsForPartnerSession() above: a permanently-failed extraction
+    // still had its findings-attempt "sent" (the extraction_status:'failed' event itself is a
+    // finding), so a widget session's content is no more needed here than after a success.
+    if (embeddedSession?.delivery_channel === 'widget') {
+      const { error: purgeError } = await supabase
+        .from('partner_sessions')
+        .update({
+          content_pages: null,
+          content_to_explain: null,
+          content_title: null,
+          content_subtitle: null,
+          assembled_prompt_snapshot: null,
+        })
+        .eq('id', partnerSessionId)
+      if (purgeError) {
+        console.error(`[partner-session-insights-extractor] Content purge failed for widget session ${partnerSessionId} (non-fatal):`, purgeError.message)
+      }
+    }
   }
 }
 

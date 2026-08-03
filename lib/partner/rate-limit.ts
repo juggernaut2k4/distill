@@ -24,12 +24,16 @@ interface Bucket {
 
 const buckets = new Map<string, Bucket>()
 
-export type RateLimitClass = 'sessions_create' | 'reads' | 'oauth_token'
+export type RateLimitClass = 'sessions_create' | 'reads' | 'oauth_token' | 'widget_sessions_create'
 
 const LIMITS: Record<RateLimitClass, { capacity: number; refillPerMs: number }> = {
   sessions_create: { capacity: 60, refillPerMs: 60 / 60_000 }, // 60/min
   reads: { capacity: 300, refillPerMs: 300 / 60_000 }, // 300/min
   oauth_token: { capacity: 20, refillPerMs: 20 / 60_000 }, // B2B-06 — 20/min, keyed by client_id, not partner_account_id
+  // B2B-70 (docs/specs/B2B-70-requirement-document.md §6.4) — deliberately higher than
+  // sessions_create: a reseller's in-app "Learn with AI" button is expected to be clicked far more
+  // often per minute than the meeting-bot flow's one-per-scheduled-meeting pattern.
+  widget_sessions_create: { capacity: 300, refillPerMs: 300 / 60_000 }, // 300/min
 }
 
 /** Returns { allowed, retryAfterSeconds } for a given partner account + route class. Mutates in-memory bucket state. */

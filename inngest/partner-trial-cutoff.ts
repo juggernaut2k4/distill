@@ -162,10 +162,15 @@ export const partnerTrialStuckSessionBackstopSweep = inngest.createFunction(
 
     const stuckSessions = await step.run('find-stuck-sessions', async () => {
       const cutoff = new Date(Date.now() - STUCK_SESSION_CEILING_MS).toISOString()
+      // B2B-70 (docs/specs/B2B-70-requirement-document.md §6.11) — 'widget_active' added so an
+      // abandoned widget tab (closed without the pagehide beacon firing — e.g. a hard crash) is
+      // recovered the same way a stuck meeting-bot session already is. runTrialCutoffSequence()'s
+      // leave-bot step already no-ops when provider_bot_id is null (true for every widget session),
+      // so this addition needed no other change in this file.
       const { data, error } = await supabase
         .from('partner_sessions')
         .select('id, partner_account_id, provider_bot_id')
-        .in('status', ['requested', 'bot_active'])
+        .in('status', ['requested', 'bot_active', 'widget_active'])
         .eq('test_mode', true)
         .lt('updated_at', cutoff)
 

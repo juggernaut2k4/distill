@@ -33,7 +33,7 @@ import {
   COLORS,
 } from '../_styles'
 
-const TABS = ['Course Overview', 'Transcript', 'Visuals', 'Resources', 'Discussion', 'Meeting', 'Learning Check', 'Performance'] as const
+const TABS = ['Course Overview', 'Transcript', 'Visuals', 'Resources', 'Discussion', 'Meeting', 'Widget Demo', 'Learning Check', 'Performance'] as const
 type Tab = (typeof TABS)[number]
 
 // B2B-34 Piece 1 (docs/specs/B2B-34-requirement-document.md Part C §6.2) — mirrors the API route's own
@@ -350,6 +350,21 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
   const [dispatchPasscodeInput, setDispatchPasscodeInput] = useState('')
   const [dispatchPasscodeError, setDispatchPasscodeError] = useState<string | null>(null)
 
+  // B2B-70 (docs/specs/B2B-70-requirement-document.md §6.8/§6.9) — Widget Demo tab state. Wholly
+  // separate from the Meeting tab's own dispatch state above (different channel, different route,
+  // no shared state) — the only thing reused is the passcode-prompt UI pattern.
+  const [widgetStatusLoading, setWidgetStatusLoading] = useState(true)
+  const [widgetActive, setWidgetActive] = useState(false)
+  const [widgetSessionRef, setWidgetSessionRef] = useState<string | null>(null)
+  const [widgetRenderUrl, setWidgetRenderUrl] = useState<string | null>(null)
+  const [widgetStartedAt, setWidgetStartedAt] = useState<number | null>(null)
+  const [widgetNameInput, setWidgetNameInput] = useState('')
+  const [widgetShowPasscode, setWidgetShowPasscode] = useState(false)
+  const [widgetPasscodeInput, setWidgetPasscodeInput] = useState('')
+  const [widgetDispatching, setWidgetDispatching] = useState(false)
+  const [widgetEnding, setWidgetEnding] = useState(false)
+  const [widgetErrorMessage, setWidgetErrorMessage] = useState<string | null>(null)
+
   // B2B-34 Piece 1 — Performance tab data, fetched eagerly on mount (§3: "eager on mount, matching the
   // existing savedMeetingUrl fetch pattern already in this component, so switching to the tab never
   // shows an avoidable loading flash for data that could have already arrived").
@@ -447,6 +462,119 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
     const t = window.setTimeout(() => setSaveSuccess(false), 4000)
     return () => window.clearTimeout(t)
   }, [saveSuccess])
+
+  // B2B-70 §6.9 — restores an already-active widget session on page load/refresh, so the iframe
+  // reappears instead of the operator losing track of an in-progress session. widgetStartedAt is
+  // deliberately left null on a restore (an exact start time isn't recoverable from this endpoint) —
+  // handleEndWidgetSession() falls back to duration_minutes: 0 in that case, matching the existing
+  // end-session route's own default for an unknown duration.
+  useEffect(() => {
+    let cancelled = false
+    setWidgetStatusLoading(true)
+    fetch(`/api/demo/${topic.slug}/widget-status`)
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error('fetch failed'))))
+      .then((data: { active: boolean; clio_session_ref: string | null; render_url: string | null }) => {
+        if (cancelled) return
+        setWidgetActive(data.active)
+        setWidgetSessionRef(data.clio_session_ref)
+        setWidgetRenderUrl(data.render_url)
+      })
+      .catch(() => {
+        // Fails closed — leaves widgetActive as false, so the operator sees the start form rather
+        // than an iframe backed by an unknown state.
+      })
+      .finally(() => {
+        if (!cancelled) setWidgetStatusLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [topic.slug])
+
+  async function handleStartWidgetSession() {
+    setWidgetDispatching(true)
+    setWidgetErrorMessage(null)
+    try {
+      const res = await fetch(`/api/demo/${topic.slug}/widget-dispatch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ passcode: widgetPasscodeInput, end_user_name: widgetNameInput }),
+      })
+      const data = await res.json().catch(() => null)
+
+      if (res.ok && data?.status === 'dispatched') {
+        setWidgetActive(true)
+        setWidgetSessionRef(data.clio_session_ref)
+        setWidgetRenderUrl(data.render_url)
+        setWidgetStartedAt(Date.now())
+        setWidgetShowPasscode(false)
+        setWidgetPasscodeInput('')
+        return
+      }
+
+      const code = data?.error?.code
+      if (code === 'incorrect_passcode') {
+        setWidgetErrorMessage('Incorrect passcode.')
+        return
+      }
+      setWidgetShowPasscode(false)
+      setWidgetPasscodeInput('')
+      // B2B-70 v2.0 — the no_widget_container branch is retired: content is assembled by the
+      // widget-dispatch route itself (from this topic's own already-authored chapters), so there is
+      // nothing left to be "not registered." Every other failure falls to the generic catch-all.
+      if (code === 'session_already_active') {
+        setWidgetErrorMessage(data?.error?.message ?? 'A widget session is already active for this topic.')
+      } else {
+        setWidgetErrorMessage('Something went wrong starting the widget session. Try again in a moment.')
+      }
+    } catch {
+      setWidgetShowPasscode(false)
+      setWidgetPasscodeInput('')
+      setWidgetErrorMessage('Something went wrong starting the widget session. Try again in a moment.')
+    } finally {
+      setWidgetDispatching(false)
+    }
+  }
+
+  // B2B-70 — abandoned-tab fallback (Requirement Doc §6.10): if the operator just closes the tab
+  // instead of clicking "End session," this best-effort beacon still reports the session's end so it
+  // doesn't sit on the stuck-session backstop sweep's up-to-60-minute recovery window. `sendBeacon`
+  // has no custom-header support, so the JSON body is sent as a Blob typed 'application/json' —
+  // the existing end-session route reads it via request.json(), which works identically either way.
+  useEffect(() => {
+    if (!widgetActive || !widgetSessionRef) return
+    const sessionRef = widgetSessionRef
+    const startedAt = widgetStartedAt
+    function handlePageHide() {
+      const durationMinutes = startedAt ? Math.max(0, Math.round((Date.now() - startedAt) / 60000)) : 0
+      const blob = new Blob([JSON.stringify({ clio_session_ref: sessionRef, duration_minutes: durationMinutes })], { type: 'application/json' })
+      navigator.sendBeacon('/api/partner/render/end-session', blob)
+    }
+    window.addEventListener('pagehide', handlePageHide)
+    return () => window.removeEventListener('pagehide', handlePageHide)
+  }, [widgetActive, widgetSessionRef, widgetStartedAt])
+
+  async function handleEndWidgetSession() {
+    if (!widgetSessionRef) return
+    setWidgetEnding(true)
+    try {
+      const durationMinutes = widgetStartedAt ? Math.max(0, Math.round((Date.now() - widgetStartedAt) / 60000)) : 0
+      await fetch('/api/partner/render/end-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clio_session_ref: widgetSessionRef, duration_minutes: durationMinutes }),
+      })
+    } catch {
+      // Best-effort — the stuck-session backstop sweep (inngest/partner-trial-cutoff.ts) recovers
+      // this session even if the explicit end-session call fails here.
+    } finally {
+      setWidgetActive(false)
+      setWidgetSessionRef(null)
+      setWidgetRenderUrl(null)
+      setWidgetStartedAt(null)
+      setWidgetEnding(false)
+    }
+  }
 
   async function handleSave() {
     setSaveNameError(null)
@@ -877,6 +1005,131 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
 
               {saveSuccess && <div style={{ fontSize: 13, color: COLORS.green, marginTop: 10 }}>✓ Saved.</div>}
               {saveGenericError && <div style={{ fontSize: 13, color: COLORS.red, marginTop: 10 }}>{saveGenericError}</div>}
+            </div>
+          )}
+
+          {activeTab === 'Widget Demo' && (
+            <div style={{ maxWidth: 760, marginTop: 24 }}>
+              <p style={{ ...chapterBodyStyle, marginBottom: 20 }}>
+                A different delivery channel from the Meeting tab above: no Google Meet, no bot joining a
+                call — Clio renders directly in the box below, exactly as it would embedded in a
+                reseller&apos;s own web page.
+              </p>
+
+              {widgetStatusLoading ? (
+                <p style={{ color: COLORS.textMuted, fontSize: 14 }}>Checking…</p>
+              ) : widgetActive && widgetRenderUrl ? (
+                <>
+                  <div
+                    style={{
+                      border: `1px solid ${COLORS.border}`,
+                      borderRadius: 10,
+                      overflow: 'hidden',
+                      aspectRatio: '16 / 9',
+                      background: '#000',
+                    }}
+                  >
+                    {/* B2B-70 v2.0 (docs/specs/B2B-70-requirement-document.md §4.B/§6.6) —
+                        allow="microphone; autoplay", no sandbox attribute: a sandboxed cross-origin
+                        iframe without allow-same-origin cannot reliably be granted permissions-policy
+                        features (getUserMedia), and autoplay is load-bearing for the voice connection
+                        to start without a user gesture inside the iframe itself. */}
+                    <iframe
+                      src={widgetRenderUrl}
+                      allow="microphone; autoplay"
+                      style={{ width: '100%', height: '100%', border: 'none' }}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    disabled={widgetEnding}
+                    onClick={handleEndWidgetSession}
+                    style={{
+                      ...secondaryButtonStyle,
+                      marginTop: 16,
+                      opacity: widgetEnding ? 0.5 : 1,
+                      cursor: widgetEnding ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    {widgetEnding ? 'Ending…' : 'End session'}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div style={{ ...meetingFieldWrapStyle, marginBottom: 16 }}>
+                    <label style={meetingLabelStyle} htmlFor="widget-name-input">
+                      Name
+                    </label>
+                    <input
+                      id="widget-name-input"
+                      type="text"
+                      value={widgetNameInput}
+                      onChange={(e) => setWidgetNameInput(e.target.value)}
+                      disabled={widgetDispatching}
+                      placeholder="Participant's name"
+                      style={meetingInputStyle}
+                    />
+                  </div>
+
+                  {widgetShowPasscode ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <input
+                        type="password"
+                        autoFocus
+                        value={widgetPasscodeInput}
+                        onChange={(e) => setWidgetPasscodeInput(e.target.value)}
+                        disabled={widgetDispatching}
+                        placeholder="Passcode"
+                        style={{ ...meetingInputStyle, width: 160 }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && widgetPasscodeInput.length > 0 && !widgetDispatching) handleStartWidgetSession()
+                        }}
+                      />
+                      <button
+                        type="button"
+                        style={{
+                          ...aiButtonStyle,
+                          opacity: widgetPasscodeInput.length === 0 || widgetDispatching ? 0.5 : 1,
+                          cursor: widgetPasscodeInput.length === 0 || widgetDispatching ? 'not-allowed' : 'pointer',
+                        }}
+                        disabled={widgetPasscodeInput.length === 0 || widgetDispatching}
+                        onClick={handleStartWidgetSession}
+                      >
+                        {widgetDispatching ? 'Starting…' : 'Start widget session'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={widgetDispatching}
+                        onClick={() => {
+                          setWidgetShowPasscode(false)
+                          setWidgetPasscodeInput('')
+                        }}
+                        style={{ background: 'none', border: 'none', color: COLORS.textMuted, fontSize: 13, cursor: widgetDispatching ? 'not-allowed' : 'pointer' }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      style={{
+                        ...aiButtonStyle,
+                        opacity: widgetNameInput.trim().length === 0 ? 0.5 : 1,
+                        cursor: widgetNameInput.trim().length === 0 ? 'not-allowed' : 'pointer',
+                      }}
+                      disabled={widgetNameInput.trim().length === 0}
+                      onClick={() => {
+                        setWidgetErrorMessage(null)
+                        setWidgetShowPasscode(true)
+                      }}
+                    >
+                      ✨ Start widget session
+                    </button>
+                  )}
+
+                  {widgetErrorMessage && <p style={{ fontSize: 13, color: COLORS.red, marginTop: 10 }}>{widgetErrorMessage}</p>}
+                </>
+              )}
             </div>
           )}
 
