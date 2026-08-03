@@ -421,6 +421,24 @@ export default function WidgetRenderClient({
     </div>
   )
 
+  // B2B-72 — once the session has ended (the model's own end_session tool call after its spoken
+  // farewell, per rule 9, or the participant disconnecting), fully replace the page stack with a
+  // plain "thanks" screen — not an overlay on top of still-mounted iframes. Arun's own framing ("so
+  // the user can no longer talk to the bot") is about visual/interactive closure: the inline pages
+  // stop being rendered entirely, not just visually covered. No new termination mechanism needed —
+  // endSessionOnce()/adapter.endSession()/the end-session API call already run on both the
+  // end_session tool path and onDisconnect/unmount; this is a pure rendering-branch addition.
+  if (status === 'ended') {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-black">
+        <div className="text-center px-6">
+          <p className="text-white text-xl font-medium mb-2">Thanks for joining.</p>
+          <p className="text-white/60 text-sm">This session has ended.</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="relative h-screen w-screen overflow-y-auto bg-black">
       {connectWarmupOverlay}

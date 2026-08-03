@@ -1020,26 +1020,23 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
                 <p style={{ color: COLORS.textMuted, fontSize: 14 }}>Checking…</p>
               ) : widgetActive && widgetRenderUrl ? (
                 <>
-                  <div
-                    style={{
-                      border: `1px solid ${COLORS.border}`,
-                      borderRadius: 10,
-                      overflow: 'hidden',
-                      aspectRatio: '16 / 9',
-                      background: '#000',
-                    }}
+                  {/* B2B-72 — per Arun's direct instruction: the widget no longer renders small,
+                      embedded in this tab's own column. It opens in a new browser tab/window instead,
+                      where WidgetRenderClient.tsx's own `h-screen w-screen` root already fills the
+                      full viewport natively — no iframe sizing constraint at all. Zero change to the
+                      widget-render route/component itself; this is purely how the demo page launches
+                      it, mirroring exactly what a real reseller's own "Learn with AI" button does
+                      (open render_url, full-viewport, in the reseller's own new tab/window). */}
+                  <button
+                    type="button"
+                    onClick={() => window.open(widgetRenderUrl, '_blank', 'noopener,noreferrer')}
+                    style={aiButtonStyle}
                   >
-                    {/* B2B-70 v2.0 (docs/specs/B2B-70-requirement-document.md §4.B/§6.6) —
-                        allow="microphone; autoplay", no sandbox attribute: a sandboxed cross-origin
-                        iframe without allow-same-origin cannot reliably be granted permissions-policy
-                        features (getUserMedia), and autoplay is load-bearing for the voice connection
-                        to start without a user gesture inside the iframe itself. */}
-                    <iframe
-                      src={widgetRenderUrl}
-                      allow="microphone; autoplay"
-                      style={{ width: '100%', height: '100%', border: 'none' }}
-                    />
-                  </div>
+                    ✨ Open widget session (full screen)
+                  </button>
+                  <p style={{ color: COLORS.textMuted, fontSize: 13, marginTop: 10 }}>
+                    Opens in a new tab at {widgetRenderUrl}
+                  </p>
                   <button
                     type="button"
                     disabled={widgetEnding}
