@@ -411,6 +411,60 @@ describe('OpenAIRealtimeAdapter error handling', () => {
 
     expect(onError).toHaveBeenCalledWith('OpenAI Realtime error')
   })
+
+  // 2026-08-03 — closes the "network/connection issue vs. model behavior stall" visibility gap:
+  // a live test call showed several 30-65s stretches with zero events, and this protocol-level
+  // 'error' event previously only reached onError (not persisted to the per-session diagnostic
+  // timeline used to investigate exactly this kind of gap).
+  it('reports the protocol-level error via onDiagnostic, alongside onError', async () => {
+    const onDiagnostic = vi.fn()
+    const adapter = makeAdapter({ onDiagnostic })
+
+    await feedMessage(adapter, { type: 'error', error: { message: 'boom', code: 'rate_limit_exceeded', type: 'invalid_request_error' } })
+
+    expect(onDiagnostic).toHaveBeenCalledWith('realtime_error', {
+      message: 'boom',
+      code: 'rate_limit_exceeded',
+      errorType: 'invalid_request_error',
+    })
+  })
+})
+
+describe('OpenAIRealtimeAdapter response lifecycle diagnostics', () => {
+  // 2026-08-03 — response.created/response.done are handled cases (they update internal state),
+  // so they never fell through to the `default: unhandled_event` diagnostic branch either — meaning
+  // they were completely invisible in the per-session diagnostic timeline before this. Now logged
+  // directly so "did the server even start/finish generating a response after this tool call" is
+  // answerable from stored data instead of inferred from a transcript gap.
+  it('reports response.created via onDiagnostic', async () => {
+    const onDiagnostic = vi.fn()
+    const adapter = makeAdapter({ onDiagnostic })
+
+    await feedMessage(adapter, { type: 'response.created' })
+
+    expect(onDiagnostic).toHaveBeenCalledWith('response_created', {})
+  })
+
+  it('reports response.done via onDiagnostic, including the server-side status', async () => {
+    const onDiagnostic = vi.fn()
+    const adapter = makeAdapter({ onDiagnostic })
+
+    await feedMessage(adapter, { type: 'response.done', response: { status: 'incomplete', status_details: { reason: 'max_output_tokens' } } })
+
+    expect(onDiagnostic).toHaveBeenCalledWith('response_done', {
+      status: 'incomplete',
+      statusDetails: { reason: 'max_output_tokens' },
+    })
+  })
+
+  it('response.done reports null status/statusDetails when the event carries no response object', async () => {
+    const onDiagnostic = vi.fn()
+    const adapter = makeAdapter({ onDiagnostic })
+
+    await feedMessage(adapter, { type: 'response.done' })
+
+    expect(onDiagnostic).toHaveBeenCalledWith('response_done', { status: null, statusDetails: null })
+  })
 })
 
 describe('OpenAIRealtimeAdapter transcript events', () => {

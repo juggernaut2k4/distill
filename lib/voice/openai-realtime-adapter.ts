@@ -321,18 +321,27 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
         if (!resolved) {
           resolved = true
           this.config.reportError?.('OpenAI Realtime WebSocket onerror (during connect, before open)')
+          this.config.onDiagnostic?.('ws_error', { phase: 'connecting' })
           reject(new Error('OpenAI Realtime WebSocket connection failed'))
         } else {
           this.config.reportError?.('OpenAI Realtime WebSocket onerror (after open)')
+          this.config.onDiagnostic?.('ws_error', { phase: 'connected' })
           this.config.onError('OpenAI Realtime connection error')
         }
       }
 
+      // 2026-08-03 — closes the "was this a real connection problem or a model-behavior stall"
+      // gap flagged after a live test call showed several 30-65s stretches with zero events of any
+      // kind, alongside the participant's own report of audio flickering/interruptions. Every
+      // branch below now also reports to onDiagnostic (the same per-session store tool_call/
+      // transcript events land in), not just console/reportError, so a WS close/reconnect shows up
+      // directly on the same timeline as everything else instead of requiring a separate log lookup.
       this.ws.onclose = (event) => {
         this.connected = false
         this.stopMicCapture()
 
         if (this.intentionalClose) {
+          this.config.onDiagnostic?.('ws_close', { code: event.code, reason: event.reason || null, intentional: true })
           this.config.onDisconnect()
           return
         }
@@ -343,6 +352,13 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
           const reason = event.reason || 'no reason given'
           console.error(`[OpenAIRealtimeAdapter] WS closed (code ${event.code}) — reason: ${reason}`)
           this.config.reportError?.(`OpenAI Realtime WebSocket closed — code ${event.code}, reason: ${reason}`)
+          this.config.onDiagnostic?.('ws_close', {
+            code: event.code,
+            reason,
+            intentional: false,
+            willReconnect: false,
+            reconnectAttempts: this.reconnectAttempts,
+          })
           this.config.onError(`OpenAI Realtime WebSocket disconnected: ${reason} (code ${event.code})`)
           this.config.onDisconnect()
           return
@@ -351,6 +367,14 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
         this.reconnectAttempts++
         const delay = Math.min(Math.pow(2, this.reconnectAttempts - 1) * 1000, OpenAIRealtimeAdapter.MAX_RECONNECT_DELAY_MS)
         console.warn(`[OpenAIRealtimeAdapter] WS closed (code ${event.code}, reason: ${event.reason || 'none'}) — reconnect attempt ${this.reconnectAttempts}/${OpenAIRealtimeAdapter.MAX_RECONNECT} in ${delay}ms`)
+        this.config.onDiagnostic?.('ws_close', {
+          code: event.code,
+          reason: event.reason || null,
+          intentional: false,
+          willReconnect: true,
+          reconnectAttempt: this.reconnectAttempts,
+          delayMs: delay,
+        })
         setTimeout(() => {
           this.openConnection().catch(() => { /* onclose handles further retries */ })
         }, delay)
@@ -394,8 +418,15 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
       // 2026-08-02 — see responseInFlight's doc comment above. Standard OpenAI Realtime response
       // lifecycle event marking a new response has started server-side (paired with 'response.done'
       // below, which this adapter already relied on before this fix).
+      //
+      // 2026-08-03 — now also reported via onDiagnostic: this event was previously invisible in the
+      // per-session diagnostic timeline (it's a named case, so it never fell through to the
+      // `default: unhandled_event` branch either) — meaning "did the server actually start
+      // generating a response after this tool call, or did the request silently go nowhere" could
+      // not be answered from stored data. Logging it closes that gap.
       case 'response.created':
         this.responseInFlight = true
+        this.config.onDiagnostic?.('response_created', {})
         break
 
       case 'input_audio_buffer.speech_started':
@@ -473,12 +504,20 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
         break
       }
 
-      case 'response.done':
+      case 'response.done': {
         this.currentResponseSpeaking = false
         this.config.onModeChange('listening')
         this.responseInFlight = false
         this.resolveResponseDoneWaiters()
+        // 2026-08-03 — see 'response.created' above: same visibility gap, same fix. `status` (e.g.
+        // 'completed', 'cancelled', 'failed', 'incomplete') is the actual server-side outcome of
+        // this response — a 'failed'/'incomplete' status here, with no further model turn following
+        // it, would directly confirm a server-side generation failure rather than a model
+        // choosing to stay silent.
+        const response = msg.response as { status?: string; status_details?: unknown } | undefined
+        this.config.onDiagnostic?.('response_done', { status: response?.status ?? null, statusDetails: response?.status_details ?? null })
         break
+      }
 
       // Per OpenAI's own docs (confirmed live during this build): "Arguments streamed in the
       // response.function_call_arguments.delta event are accumulated and the function is
@@ -544,9 +583,16 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
       }
 
       case 'error': {
-        const err = msg.error as { message?: string } | undefined
+        const err = msg.error as { message?: string; code?: string; type?: string } | undefined
         const errMsg = err?.message ?? 'OpenAI Realtime error'
         console.error('[OpenAIRealtimeAdapter] error:', errMsg)
+        // 2026-08-03 — this is the actual OpenAI Realtime protocol-level error event (e.g. a
+        // rejected response.create sent while one was already in flight — see the doc comment on
+        // the response.create call below this switch for a real, previously-suspected instance of
+        // exactly that). Previously only reached onError (surfaced to the UI as a generic status,
+        // not persisted to the per-session diagnostic timeline) — now also logged here so it lines
+        // up directly against the transcript/tool_call timeline for the next live test call.
+        this.config.onDiagnostic?.('realtime_error', { message: errMsg, code: err?.code ?? null, errorType: err?.type ?? null })
         this.config.onError(errMsg)
         break
       }
