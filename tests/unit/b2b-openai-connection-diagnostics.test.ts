@@ -63,6 +63,9 @@ class MockAudioContext {
   createScriptProcessor(_bufferSize: number, _in: number, _out: number) {
     return { onaudioprocess: null, connect: vi.fn(), disconnect: vi.fn() }
   }
+  createAnalyser() {
+    return { fftSize: 0, frequencyBinCount: 128, connect: vi.fn(), getByteFrequencyData: vi.fn() }
+  }
   close() {
     return Promise.resolve()
   }

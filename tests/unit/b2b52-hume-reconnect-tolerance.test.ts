@@ -63,6 +63,9 @@ class MockAudioContext {
   createGain() {
     return { gain: { value: 1 }, connect: vi.fn() }
   }
+  createAnalyser() {
+    return { fftSize: 0, frequencyBinCount: 128, connect: vi.fn(), getByteFrequencyData: vi.fn() }
+  }
   close() {
     return Promise.resolve()
   }

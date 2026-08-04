@@ -51,6 +51,29 @@ class InlinePageErrorBoundary extends Component<
   }
 }
 
+/** B2B-73 — circular amplitude badge for the mic/bot pills. Purely presentational: `levels` is a
+ *  4-element 0-1 array already sampled from a real AnalyserNode by the caller. `active` dims the
+ *  badge when there's nothing to show yet (e.g. bot pill before the connection is speak-verified). */
+function LevelPill({ label, levels, active }: { label: string; levels: number[]; active: boolean }) {
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <div
+        className="flex h-14 w-14 items-center justify-center gap-[3px] rounded-full border border-white/15 bg-white/[0.06]"
+        style={{ opacity: active ? 1 : 0.4 }}
+      >
+        {levels.map((level, i) => (
+          <div
+            key={i}
+            className="w-[3px] rounded-full bg-white/70"
+            style={{ height: `${Math.round(level * 22)}px`, transition: 'height 80ms linear' }}
+          />
+        ))}
+      </div>
+      <span className="text-[10px] uppercase tracking-wide text-white/50">{label}</span>
+    </div>
+  )
+}
+
 export interface WidgetInlinePageProp {
   mediaType: 'html' | 'image'
   title: string | null
@@ -121,6 +144,42 @@ export default function WidgetRenderClient({
 
   const joinGreetingRetriedRef = useRef(false)
 
+  // B2B-73 — mic/bot amplitude pills, mute, timer, connection status. Mic analyser is a dedicated
+  // AudioContext tap on the same micStream already captured for the adapter — deliberately NOT
+  // connected to its own destination, so raw mic audio is never routed back out to the speaker.
+  // Bot analyser comes from the adapter's own getOutputAnalyser() (spliced into its existing
+  // playback graph). Both are sampled on a plain interval (not a 60fps rAF loop) since bar
+  // movement doesn't need that resolution and it keeps re-render cost low.
+  const micAudioCtxRef = useRef<AudioContext | null>(null)
+  const micAnalyserRef = useRef<AnalyserNode | null>(null)
+  const levelIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [micLevels, setMicLevels] = useState<number[]>([0.12, 0.12, 0.12, 0.12])
+  const [botLevels, setBotLevels] = useState<number[]>([0.12, 0.12, 0.12, 0.12])
+  const [isMuted, setIsMuted] = useState(false)
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
+  // OpenAI gets a real live proxy via onDiagnostic (ws_close/ws_error/realtime_error); Hume has no
+  // equivalent live hook today (documented, scoped gap in the B2B-73 brief) so this stays 'green'
+  // for Hume sessions except on a hard onError, which both providers already report.
+  const [connectionHealth, setConnectionHealth] = useState<'green' | 'yellow' | 'red'>('green')
+
+  /** Splits an analyser's frequency data into `bars` contiguous bands, each normalized to 0-1 and
+   *  clamped to a small floor so a silent input never renders as literally-dead flat bars. */
+  function sampleAnalyserBars(analyser: AnalyserNode, bars = 4): number[] {
+    const data = new Uint8Array(analyser.frequencyBinCount)
+    analyser.getByteFrequencyData(data)
+    const bandSize = Math.max(1, Math.floor(data.length / bars))
+    const result: number[] = []
+    for (let i = 0; i < bars; i++) {
+      const start = i * bandSize
+      const end = i === bars - 1 ? data.length : start + bandSize
+      let sum = 0
+      for (let j = start; j < end; j++) sum += data[j]
+      const avg = sum / Math.max(1, end - start) / 255
+      result.push(Math.max(0.12, Math.min(1, avg)))
+    }
+    return result
+  }
+
   useEffect(() => {
     const onError = (event: ErrorEvent) => {
       reportClientError(clioSessionRef, 'error', event.message, event.error?.stack)
@@ -167,6 +226,24 @@ export default function WidgetRenderClient({
         if (cancelled) return
 
         connectStartRef.current = Date.now()
+
+        // B2B-73 — mic amplitude tap. Deliberately not connected to micCtx.destination: this is a
+        // read-only analysis tap, never a playback path — the mic must never be routed back out.
+        try {
+          const micCtx = new AudioContext()
+          const micSource = micCtx.createMediaStreamSource(micStream)
+          const micAnalyser = micCtx.createAnalyser()
+          micAnalyser.fftSize = 256
+          micSource.connect(micAnalyser)
+          micAudioCtxRef.current = micCtx
+          micAnalyserRef.current = micAnalyser
+        } catch { /* pill just stays at its idle floor if this fails */ }
+
+        levelIntervalRef.current = setInterval(() => {
+          if (micAnalyserRef.current) setMicLevels(sampleAnalyserBars(micAnalyserRef.current))
+          const botAnalyser = adapterRef.current?.getOutputAnalyser?.()
+          if (botAnalyser) setBotLevels(sampleAnalyserBars(botAnalyser))
+        }, 80)
 
         const clearPostToolNudge = () => {
           if (postToolNudgeTimeoutRef.current) {
@@ -239,6 +316,7 @@ export default function WidgetRenderClient({
         const sharedCallbacks = {
           onConnect: (sessionId: string) => {
             setStatus('listening')
+            setConnectionHealth('green')
             if (sessionId) {
               fetch('/api/partner/render/session-chat-id', {
                 method: 'POST',
@@ -251,6 +329,7 @@ export default function WidgetRenderClient({
           onError: (message: string) => {
             console.error('[widget-render] Voice session error:', message)
             setStatus('error')
+            setConnectionHealth('red')
             revealContentAfterWarmup()
             clearPostToolNudge()
           },
@@ -274,6 +353,17 @@ export default function WidgetRenderClient({
             model,
             onUserSpeechStarted: () => { clearPostToolNudge() },
             onDiagnostic: (label, detail) => {
+              // B2B-73 — the one real, live connection-health proxy available today (see the
+              // feature brief's item 8 analysis: neither adapter uses WebRTC, so there's no
+              // packet-loss/jitter signal to read — this is the most honest signal that exists).
+              if (label === 'ws_close') {
+                const d = detail as { willReconnect?: boolean }
+                setConnectionHealth(d.willReconnect ? 'yellow' : 'red')
+              } else if (label === 'ws_error' || label === 'realtime_error') {
+                setConnectionHealth('red')
+              } else if (label === 'response_created') {
+                setConnectionHealth('green')
+              }
               fetch('/api/partner/render/voice-diagnostic-capture', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -338,10 +428,24 @@ export default function WidgetRenderClient({
       cancelled = true
       if (warmupTimeoutRef.current) clearTimeout(warmupTimeoutRef.current)
       if (postToolNudgeTimeoutRef.current) clearTimeout(postToolNudgeTimeoutRef.current)
+      if (levelIntervalRef.current) clearInterval(levelIntervalRef.current)
+      try { micAnalyserRef.current?.disconnect() } catch { /* noop */ }
+      void micAudioCtxRef.current?.close().catch(() => {})
       void endSessionOnce()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // B2B-73 — elapsed session timer, a derived 1-second tick off connectStartRef (a plain ref, not
+  // reactive by itself). connectStartRef itself is untouched — still feeds endSessionOnce()'s
+  // billing-duration calculation exactly as before.
+  useEffect(() => {
+    if (!humeConfigId) return
+    const interval = setInterval(() => {
+      if (connectStartRef.current) setElapsedSeconds(Math.floor((Date.now() - connectStartRef.current) / 1000))
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [humeConfigId])
 
   // Join-greeting poll — reused as-is (§6.7), same proven flag-set → poll → send → clear pattern
   // PartnerRenderClient.tsx already uses.
@@ -410,6 +514,61 @@ export default function WidgetRenderClient({
     }
   }
 
+  // B2B-73 — items 7+8 collapsed into one indicator per the CEO's own call in the approved brief:
+  // a single dot/label, honestly named "Connection" (a connection-health proxy, not a measured
+  // network-quality metric). `status` covers connecting/error; `connectionHealth` adds OpenAI's
+  // finer live signal on top (stays 'green' for Hume, which has no equivalent live hook today).
+  const connectionDotColor =
+    status === 'error' || connectionHealth === 'red' ? 'bg-red-500'
+      : status === 'connecting' || connectionHealth === 'yellow' ? 'bg-amber-400'
+        : 'bg-green-500'
+  const connectionLabel =
+    status === 'connecting' ? 'Connecting'
+      : status === 'error' ? 'Disconnected'
+        : connectionHealth === 'yellow' ? 'Reconnecting'
+          : 'Connected'
+  const elapsedLabel = `${Math.floor(elapsedSeconds / 60)}:${String(elapsedSeconds % 60).padStart(2, '0')}`
+
+  function handleToggleMute() {
+    const next = !isMuted
+    setIsMuted(next)
+    adapterRef.current?.setMicMuted(next)
+  }
+
+  const callControlsOverlay = Boolean(humeConfigId) && (
+    <>
+      <div className="pointer-events-none fixed left-4 top-4 z-40 flex items-center gap-3 rounded-full border border-white/10 bg-black/60 px-4 py-2 text-xs text-white/80 backdrop-blur">
+        <span className="flex items-center gap-1.5">
+          <span className={`h-2 w-2 rounded-full ${connectionDotColor}`} />
+          {connectionLabel}
+        </span>
+        <span className="text-white/30">•</span>
+        <span className="tabular-nums">{elapsedLabel}</span>
+        <span className="text-white/30">•</span>
+        <span className="tabular-nums">{displayedIndex + 1} of {count}</span>
+      </div>
+
+      <div className="pointer-events-auto fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-end gap-4 rounded-2xl border border-white/10 bg-black/60 px-5 py-3 backdrop-blur">
+        <LevelPill label="You" levels={micLevels} active={status !== 'connecting' && !isMuted} />
+        <button
+          type="button"
+          onClick={handleToggleMute}
+          className="mb-1 flex h-10 items-center rounded-full border border-white/15 bg-white/[0.06] px-4 text-xs font-medium text-white/80 hover:bg-white/[0.12]"
+        >
+          {isMuted ? 'Unmute' : 'Mute'}
+        </button>
+        <LevelPill label="Clio" levels={botLevels} active={status === 'speaking'} />
+        <button
+          type="button"
+          onClick={() => { setStatus('ended'); void endSessionOnce() }}
+          className="mb-1 flex h-10 items-center rounded-full border border-white/15 bg-white/[0.06] px-4 text-xs font-medium text-white/80 hover:bg-red-500/20 hover:border-red-500/30"
+        >
+          End session
+        </button>
+      </div>
+    </>
+  )
+
   const connectWarmupOverlay = (
     <div
       aria-hidden={!showConnectWarmup}
@@ -442,6 +601,7 @@ export default function WidgetRenderClient({
   return (
     <div className="relative h-screen w-screen overflow-y-auto bg-black">
       {connectWarmupOverlay}
+      {callControlsOverlay}
       {inlinePages.map((page, index) => (
         <div
           key={index}

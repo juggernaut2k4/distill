@@ -102,4 +102,19 @@ export interface VoiceSessionAdapter {
    * @returns true if the send was attempted without throwing and the connection was open.
    */
   triggerRecoveryNudge?(instructionText: string): boolean
+
+  /**
+   * B2B-73 — optional extension point for a live, real bot-speaking amplitude signal (the
+   * "bot pill" in WidgetRenderClient.tsx). Both adapters already build a private
+   * gainNode -> destination playback graph; this exposes an AnalyserNode spliced into that
+   * same chain so a caller can read real frequency/time-domain data while audio plays, without
+   * any decorative/fake animation. Optional, additive, same pattern as sendWrapUpNudge/
+   * waitForPlaybackCaughtUp/triggerRecoveryNudge above — PartnerRenderClient.tsx's existing
+   * `adapter?.method?.()` call sites are unaffected since it never calls a method that doesn't
+   * exist for it.
+   *   Hume:   implemented — same gainNode chain, analyser spliced in identically.
+   *   OpenAI: implemented — same gainNode chain, analyser spliced in identically.
+   * @returns the AnalyserNode, or null if the adapter's AudioContext isn't ready yet.
+   */
+  getOutputAnalyser?(): AnalyserNode | null
 }

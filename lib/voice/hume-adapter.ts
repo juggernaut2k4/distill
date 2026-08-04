@@ -34,6 +34,10 @@ export class HumeAdapter implements VoiceSessionAdapter {
   private sessionId = ''
   private audioCtx: AudioContext | null = null
   private gainNode: GainNode | null = null
+  // B2B-73 — spliced into the existing gainNode -> destination chain so a caller can read real
+  // output-audio amplitude (the "bot pill") via getOutputAnalyser(). Purely additive: audio still
+  // reaches destination exactly as before, this just taps the signal along the way.
+  private outputAnalyser: AnalyserNode | null = null
   private mediaRecorder: MediaRecorder | null = null
   private audioQueue: ArrayBuffer[] = []
   private isPlaying = false
@@ -83,7 +87,10 @@ export class HumeAdapter implements VoiceSessionAdapter {
         this.audioCtx = new AudioContext()
         this.gainNode = this.audioCtx.createGain()
         this.gainNode.gain.value = this.outputVol
-        this.gainNode.connect(this.audioCtx.destination)
+        this.outputAnalyser = this.audioCtx.createAnalyser()
+        this.outputAnalyser.fftSize = 256
+        this.gainNode.connect(this.outputAnalyser)
+        this.outputAnalyser.connect(this.audioCtx.destination)
       }
 
       let resolved = false
@@ -400,6 +407,12 @@ export class HumeAdapter implements VoiceSessionAdapter {
   sendFeedback(_like: boolean): void { /* Hume EVI doesn't expose a per-message feedback API */ }
   getId(): string { return this.sessionId }
   isOpen(): boolean { return this.connected && this.ws?.readyState === WebSocket.OPEN }
+
+  /** B2B-73 — see VoiceSessionAdapter.getOutputAnalyser doc comment. Null until the AudioContext
+   *  has been created (first openConnection() call), same lazy-init timing as gainNode. */
+  getOutputAnalyser(): AnalyserNode | null {
+    return this.outputAnalyser
+  }
 
   /**
    * AUTOGEN-01 Part D — registers the billing-start callback. Fires exactly once

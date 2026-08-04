@@ -137,6 +137,10 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
   private sessionId = ''
   private audioCtx: AudioContext | null = null
   private gainNode: GainNode | null = null
+  // B2B-73 — spliced into the existing gainNode -> destination chain so a caller can read real
+  // output-audio amplitude (the "bot pill") via getOutputAnalyser(). Purely additive: audio still
+  // reaches destination exactly as before, this just taps the signal along the way.
+  private outputAnalyser: AnalyserNode | null = null
   private outputVol = 1.0
   // B2B item 3 (2026-08-02) — connect-time warm-up: fade the very first audio chunk in from
   // silence instead of starting at full volume the instant the connection catches up, so voice
@@ -264,7 +268,10 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
         this.audioCtx = new AudioContext({ sampleRate: OUTPUT_SAMPLE_RATE })
         this.gainNode = this.audioCtx.createGain()
         this.gainNode.gain.value = this.outputVol
-        this.gainNode.connect(this.audioCtx.destination)
+        this.outputAnalyser = this.audioCtx.createAnalyser()
+        this.outputAnalyser.fftSize = 256
+        this.gainNode.connect(this.outputAnalyser)
+        this.outputAnalyser.connect(this.audioCtx.destination)
       }
 
       this.ws.onopen = () => {
@@ -899,6 +906,12 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
   sendFeedback(_like: boolean): void { /* no-op, no provider API for this */ }
   getId(): string { return this.sessionId }
   isOpen(): boolean { return this.connected && this.ws?.readyState === WebSocket.OPEN }
+
+  /** B2B-73 — see VoiceSessionAdapter.getOutputAnalyser doc comment. Null until the AudioContext
+   *  has been created (first openConnection() call), same lazy-init timing as gainNode. */
+  getOutputAnalyser(): AnalyserNode | null {
+    return this.outputAnalyser
+  }
 
   /**
    * Mirrors HumeAdapter.onSpeakVerified exactly: fires exactly once, only after BOTH a real
