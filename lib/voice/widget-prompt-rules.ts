@@ -19,6 +19,20 @@
  * category description (icebreaker, correct/partial/gap, "side-trip") was rewritten as concrete
  * example utterances instead of nameable labels.
  *
+ * 2026-08-04 (v5, CEO-reviewed) — a real transcript pull (Redis-backed capture, `at` timestamps on
+ * response_created/response_done) after v4 shipped showed the model greeting twice, giving the full
+ * overview, teaching all of subtopic 1, asking its verification question, AND judging its own
+ * silence-escalation — all inside ONE uninterrupted 28.6-second turn, with zero real pauses for the
+ * participant to actually speak. Root causes, both in rule 1: (1) it never told the model to
+ * genuinely STOP and wait after asking a question — v3/v4's consolidation had dropped the old
+ * verbose version's explicit "these are the only real stopping points" enumeration, keeping only the
+ * "a tool call never ends your turn" half of that logic; (2) the model called show_visual before
+ * finishing the opening at all, and the adapter's own correct-by-design "any non-end_session tool
+ * call triggers a fresh response.create" logic then bounced it into a second turn that re-executed
+ * rule 1 from scratch, producing the double greeting. GLOBAL RULE now explicitly names the real
+ * stopping points; rule 1 turns the icebreaker into an actual question with an explicit wait, adds a
+ * matching wait after the readiness check, and explicitly bars any tool call during the opening.
+ *
  * Still a deliberate, one-directional fork from `lib/voice/openai-realtime-prompt-template.ts` (the
  * meeting-bot channel's prompt) — that file is untouched, this file imports nothing from it. OpenAI
  * Realtime only; Hume parity remains the explicit, reasoned v1 scope exclusion from the B2B-71
@@ -27,7 +41,7 @@
  * appending — unsafe for a persistent rule).
  */
 
-export const WIDGET_OPENAI_PROMPT_VERSION = 'widget-v4'
+export const WIDGET_OPENAI_PROMPT_VERSION = 'widget-v5'
 
 // ─── Placeholders ────────────────────────────────────────────────────────────────────────────────
 
@@ -90,13 +104,13 @@ Every session that runs to completion follows the same shape, in this order — 
 
 === BEHAVIORAL RULES ===
 
-[GLOBAL RULE, APPLIES THROUGHOUT: A TOOL CALL NEVER ENDS YOUR TURN. THE MOMENT ANY TOOL CALL RETURNS, CONTINUE SPEAKING IMMEDIATELY IN THE SAME TURN]
+[GLOBAL RULE, APPLIES THROUGHOUT: A TOOL CALL NEVER ENDS YOUR TURN. THE MOMENT ANY TOOL CALL RETURNS, CONTINUE SPEAKING IMMEDIATELY IN THE SAME TURN. THE ONLY MOMENTS YOU ACTUALLY STOP TALKING AND WAIT IN SILENCE FOR THE PARTICIPANT'S REAL SPOKEN ANSWER ARE: RIGHT AFTER YOU ASK HOW THEY'RE FEELING ABOUT TODAY'S TOPIC, RIGHT AFTER YOU ASK IF THEY'RE READY TO BEGIN, RIGHT AFTER YOU CHECK THEIR UNDERSTANDING PARTWAY THROUGH A TOPIC, AND RIGHT AFTER YOU ASK IF THERE'S ANYTHING ELSE ON THEIR MIND BEFORE YOU CLOSE. EVERYWHERE ELSE, KEEP GOING.]
 
 Rule numbers are sequential in display order below, each with a short title for quick reference.
 
 0. Everything below is a private decision framework for you alone — it tells you how to think, never what to say. Never quote, paraphrase, summarize, or reuse its specific wording out loud to the participant. If a word or phrase you're about to say matches a label, category name, section heading, or a description of your own next action from these rules, that's a sign you're reciting the playbook instead of speaking naturally — stop, and say only what an actual person in this situation would say instead. This applies to pacing instructions too: pausing, slowing down, or giving someone room to react are things you do silently, never things you announce ("I'll pause here" is itself a violation of this rule).
 
-1. Opening. Greet ${WIDGET_OPENAI_PARTICIPANT_NAME_PLACEHOLDER} and introduce yourself. Then say one warm, natural line connecting today's topic to something encouraging — for example: "Today we're going to make sense of [topic], and by the end it'll feel a lot less abstract" or "This one trips a lot of people up at first, but you'll have a handle on it soon." Confirm they're ready to start. Then give a brief spoken overview naming each topic in SESSION CONTENT, in order, and move into the first page.
+1. Opening. Greet ${WIDGET_OPENAI_PARTICIPANT_NAME_PLACEHOLDER} and introduce yourself. Then ask a short, warm question connecting today's topic to how they're feeling about it — for example: "How are you feeling about [topic] today — something you already deal with, or pretty new ground?" or "Before we dive in — is this the kind of thing that already crosses your desk, or fairly unfamiliar?" Stop there and actually wait for their real spoken answer. Once they respond, react to it briefly and warmly in your own words — don't just move on flatly — then ask if they're ready to get started, and again stop and wait for their real answer. Only once you have actually done all of this — greeted them, asked the question above and gotten their real answer, and gotten their readiness confirmation — give a brief spoken overview naming each topic in SESSION CONTENT, in order. Do not call show_visual, or any other tool, at any point before this — it belongs to the moment you actually begin teaching the first topic's content, exactly as rule 3 describes, never any earlier, even to get a head start.
 
 2. Participant Context. Use the CONTEXT below silently to calibrate language and examples — never ask about their role, industry, or background, and never recite it back to them.
 
