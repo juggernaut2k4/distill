@@ -52,20 +52,20 @@ class InlinePageErrorBoundary extends Component<
 }
 
 /** B2B-73 — circular amplitude badge for the mic/bot pills. Purely presentational: `levels` is a
- *  4-element 0-1 array already sampled from a real AnalyserNode by the caller. `active` dims the
+ *  3-element 0-1 array already sampled from a real AnalyserNode by the caller. `active` dims the
  *  badge when there's nothing to show yet (e.g. bot pill before the connection is speak-verified). */
 function LevelPill({ label, levels, active }: { label: string; levels: number[]; active: boolean }) {
   return (
-    <div className="flex flex-col items-center gap-1">
+    <div className="flex flex-col items-center gap-1.5">
       <div
-        className="flex h-14 w-14 items-center justify-center gap-[3px] rounded-full border border-white/15 bg-white/[0.06]"
+        className="flex h-20 w-20 items-center justify-center gap-[6px] rounded-full border border-white/15 bg-white/[0.06]"
         style={{ opacity: active ? 1 : 0.4 }}
       >
         {levels.map((level, i) => (
           <div
             key={i}
-            className="w-[3px] rounded-full bg-white/70"
-            style={{ height: `${Math.round(level * 22)}px`, transition: 'height 80ms linear' }}
+            className="w-[6px] rounded-full bg-white/80"
+            style={{ height: `${Math.max(6, Math.round(level * 40))}px`, transition: 'height 120ms ease-out' }}
           />
         ))}
       </div>
@@ -153,8 +153,8 @@ export default function WidgetRenderClient({
   const micAudioCtxRef = useRef<AudioContext | null>(null)
   const micAnalyserRef = useRef<AnalyserNode | null>(null)
   const levelIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const [micLevels, setMicLevels] = useState<number[]>([0.12, 0.12, 0.12, 0.12])
-  const [botLevels, setBotLevels] = useState<number[]>([0.12, 0.12, 0.12, 0.12])
+  const [micLevels, setMicLevels] = useState<number[]>([0.12, 0.12, 0.12])
+  const [botLevels, setBotLevels] = useState<number[]>([0.12, 0.12, 0.12])
   const [isMuted, setIsMuted] = useState(false)
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   // OpenAI gets a real live proxy via onDiagnostic (ws_close/ws_error/realtime_error); Hume has no
@@ -162,22 +162,23 @@ export default function WidgetRenderClient({
   // for Hume sessions except on a hard onError, which both providers already report.
   const [connectionHealth, setConnectionHealth] = useState<'green' | 'yellow' | 'red'>('green')
 
-  /** Splits an analyser's frequency data into `bars` contiguous bands, each normalized to 0-1 and
-   *  clamped to a small floor so a silent input never renders as literally-dead flat bars. */
-  function sampleAnalyserBars(analyser: AnalyserNode, bars = 4): number[] {
-    const data = new Uint8Array(analyser.frequencyBinCount)
-    analyser.getByteFrequencyData(data)
-    const bandSize = Math.max(1, Math.floor(data.length / bars))
-    const result: number[] = []
-    for (let i = 0; i < bars; i++) {
-      const start = i * bandSize
-      const end = i === bars - 1 ? data.length : start + bandSize
-      let sum = 0
-      for (let j = start; j < end; j++) sum += data[j]
-      const avg = sum / Math.max(1, end - start) / 255
-      result.push(Math.max(0.12, Math.min(1, avg)))
+  /** Computes one real amplitude level from an analyser's time-domain (waveform) data — an RMS of
+   *  the signal around its silence midpoint — then fans it out across `bars` with a center-weighted
+   *  taper for a natural look, all still driven by the same real signal (never decorative/fake).
+   *  Deliberately NOT a linear frequency-band split: voice energy concentrates almost entirely in
+   *  the lowest few frequency bins, which made bar 1 do all the moving and the rest sit idle. */
+  function sampleAnalyserBars(analyser: AnalyserNode, bars = 3): number[] {
+    const data = new Uint8Array(analyser.fftSize)
+    analyser.getByteTimeDomainData(data)
+    let sumSquares = 0
+    for (let i = 0; i < data.length; i++) {
+      const centered = (data[i] - 128) / 128
+      sumSquares += centered * centered
     }
-    return result
+    const rms = Math.sqrt(sumSquares / data.length)
+    const level = Math.max(0, Math.min(1, rms * 4)) // typical speech RMS is small; boost to fill the range
+    const taper = [0.75, 1, 0.75]
+    return Array.from({ length: bars }, (_, i) => Math.max(0.12, Math.min(1, level * (taper[i] ?? 1))))
   }
 
   useEffect(() => {
@@ -553,7 +554,11 @@ export default function WidgetRenderClient({
         <button
           type="button"
           onClick={handleToggleMute}
-          className="mb-1 flex h-10 items-center rounded-full border border-white/15 bg-white/[0.06] px-4 text-xs font-medium text-white/80 hover:bg-white/[0.12]"
+          className={
+            isMuted
+              ? 'mb-1 flex h-10 items-center rounded-full border border-red-500/40 bg-red-500/20 px-4 text-xs font-medium text-red-200 hover:bg-red-500/30'
+              : 'mb-1 flex h-10 items-center rounded-full border border-white/15 bg-white/[0.06] px-4 text-xs font-medium text-white/80 hover:bg-white/[0.12]'
+          }
         >
           {isMuted ? 'Unmute' : 'Mute'}
         </button>
