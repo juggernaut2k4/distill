@@ -1035,7 +1035,15 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
                     ✨ Open widget session (full screen)
                   </button>
                   <p style={{ color: COLORS.textMuted, fontSize: 13, marginTop: 10 }}>
-                    Opens in a new tab at {widgetRenderUrl}
+                    Opens in a new tab at{' '}
+                    <a
+                      href={widgetRenderUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: COLORS.accentBright, textDecoration: 'underline' }}
+                    >
+                      {widgetRenderUrl}
+                    </a>
                   </p>
                   <button
                     type="button"
