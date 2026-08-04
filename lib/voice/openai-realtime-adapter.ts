@@ -287,7 +287,12 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
             audio: {
               input: {
                 format: { type: 'audio/pcm', rate: INPUT_SAMPLE_RATE },
-                turn_detection: { type: 'semantic_vad', interrupt_response: true },
+                // 2026-08-04 — per Arun's explicit go-ahead: eagerness was previously omitted
+                // (defaulting to 'auto', which OpenAI's docs say is equivalent to 'medium').
+                // 'high' tunes semantic_vad to commit to end-of-turn sooner, directly targeting
+                // the first-response latency he flagged — real tradeoff: more likely to cut in
+                // if he pauses mid-thought. One field, trivially revertible (delete this line).
+                turn_detection: { type: 'semantic_vad', eagerness: 'high', interrupt_response: true },
                 transcription: { model: 'whisper-1' },
               },
               output: {
