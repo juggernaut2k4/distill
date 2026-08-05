@@ -91,6 +91,20 @@ function LevelPill({
   )
 }
 
+/** Mute button icon (Arun's approved design option C, 2026-08-04) — plain inline SVG, no icon
+ *  library, matching how the rest of this component already handles graphics. */
+function MicIcon({ muted }: { muted: boolean }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+      <path d="M12 19v4" />
+      <path d="M8 23h8" />
+      {muted && <path d="M3 3l18 18" />}
+    </svg>
+  )
+}
+
 export interface WidgetInlinePageProp {
   mediaType: 'html' | 'image'
   title: string | null
@@ -573,10 +587,11 @@ export default function WidgetRenderClient({
           onClick={handleToggleMute}
           className={
             isMuted
-              ? 'mb-1 flex h-10 items-center rounded-full border border-red-500/40 bg-red-500/20 px-4 text-xs font-medium text-red-200 hover:bg-red-500/30'
-              : 'mb-1 flex h-10 items-center rounded-full border border-white/15 bg-white/[0.06] px-4 text-xs font-medium text-white/80 hover:bg-white/[0.12]'
+              ? 'mb-1 flex h-11 items-center gap-2 rounded-full border border-red-500/40 bg-red-500/20 pl-3 pr-4 text-xs font-medium text-red-200 hover:bg-red-500/30'
+              : 'mb-1 flex h-11 items-center gap-2 rounded-full border border-blue-400/40 bg-blue-500/15 pl-3 pr-4 text-xs font-medium text-blue-200 hover:bg-blue-500/25'
           }
         >
+          <MicIcon muted={isMuted} />
           {isMuted ? 'Unmute' : 'Mute'}
         </button>
         <LevelPill label="Clio" levels={botLevels} active={status !== 'connecting'} variant="bot" />
