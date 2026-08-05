@@ -152,13 +152,36 @@ const POST_TOOL_NUDGE_MS = 7000
 // Per Arun's direct instruction (2026-08-05): if the model asks a question at one of its four real
 // stopping points and gets no spoken reply for ~20s, it should acknowledge that and it's then fine to
 // end the session. OpenAI Realtime has no built-in clock, so this can't be judged by the model on its
-// own — armed on the genuine speaking->listening transition (see onModeChange below), not on the
-// initial post-connect 'listening' state before Clio has said anything yet.
+// own — armed on the explicit awaiting_answer tool call (see the tools object below; v11 moved this
+// off the earlier, imprecise speaking->listening mode-transition trigger), not on the initial
+// post-connect 'listening' state before Clio has said anything yet.
 const SILENCE_AFTER_QUESTION_MS = 20000
 const SILENCE_AFTER_QUESTION_NUDGE_TEXT =
   'About 20 seconds have passed with no spoken reply after your last question. Acknowledge that ' +
   "gracefully, in your own words — something like \"I didn't catch anything from you there\" — then " +
   'say a real, out-loud goodbye and call end_session immediately after, in this same turn.'
+
+// v12 (CEO review, P0) — a distinct, non-terminal watchdog for the gap the precise timer above
+// can't cover: a live test showed the model asking a real stopping-point question and then simply
+// ending its turn with NO tool call at all (not even awaiting_answer), which means the timer above
+// — armed only inside the awaiting_answer handler — never arms either, so the session was hanging
+// with zero safety net. This one is deliberately imprecise (it arms on ANY response completing with
+// no tool call, regardless of why) but safe under that imprecision because its action is non-terminal
+// — a nudge to keep going, never an end_session — unlike v10's old mode-transition timer, whose harm
+// came from ending the session on an imprecise trigger, not from arming imprecisely in the first
+// place. Two stages: a NON-terminal "keep going" nudge, then — only if still nothing happens — a
+// graceful close, so a genuinely dead connection doesn't nudge forever.
+const NO_TOOL_CALL_NUDGE_MS = 30000
+const NO_TOOL_CALL_CLOSE_MS = 30000
+const NO_TOOL_CALL_NUDGE_TEXT =
+  'You have been quiet for a while and the participant has not spoken. This does not end the ' +
+  'session — do not say goodbye or call end_session. If you had just asked one of your four ' +
+  'questions, ask it once more briefly and call awaiting_answer. If you were partway through ' +
+  'explaining something, simply continue from where you left off.'
+const NO_TOOL_CALL_CLOSE_TEXT =
+  'You have now been silent for about a minute with no response and no further action. Say a ' +
+  'brief, graceful goodbye out loud right now, and call end_session immediately after, in this ' +
+  'same turn.'
 
 export default function WidgetRenderClient({
   clioSessionRef,
@@ -174,6 +197,9 @@ export default function WidgetRenderClient({
   const warmupTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const postToolNudgeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const silenceNudgeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // v12 — no-tool-call watchdog state (see NO_TOOL_CALL_* constants above).
+  const noToolWatchdogTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const responseHadToolCallRef = useRef(false)
   const adapterRef = useRef<VoiceSessionAdapter | null>(null)
   const connectStartRef = useRef<number | null>(null)
   const endedRef = useRef(false)
@@ -332,6 +358,34 @@ export default function WidgetRenderClient({
           }, SILENCE_AFTER_QUESTION_MS)
         }
 
+        const clearNoToolWatchdog = () => {
+          if (noToolWatchdogTimeoutRef.current) {
+            clearTimeout(noToolWatchdogTimeoutRef.current)
+            noToolWatchdogTimeoutRef.current = null
+          }
+        }
+        const logNoToolDiagnostic = (label: string) => {
+          fetch('/api/partner/render/voice-diagnostic-capture', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ clio_session_ref: clioSessionRef, label, detail: {} }),
+            keepalive: true,
+          }).catch(() => {})
+        }
+        const armNoToolWatchdog = () => {
+          clearNoToolWatchdog()
+          logNoToolDiagnostic('no_tool_call_watchdog_armed')
+          noToolWatchdogTimeoutRef.current = setTimeout(() => {
+            adapterRef.current?.triggerRecoveryNudge?.(NO_TOOL_CALL_NUDGE_TEXT)
+            logNoToolDiagnostic('no_tool_call_watchdog_nudge_fired')
+            noToolWatchdogTimeoutRef.current = setTimeout(() => {
+              noToolWatchdogTimeoutRef.current = null
+              adapterRef.current?.triggerRecoveryNudge?.(NO_TOOL_CALL_CLOSE_TEXT)
+              logNoToolDiagnostic('no_tool_call_watchdog_close_fired')
+            }, NO_TOOL_CALL_CLOSE_MS)
+          }, NO_TOOL_CALL_NUDGE_MS)
+        }
+
         const tools = {
           show_visual: async (params: Record<string, unknown>) => {
             const now = Date.now()
@@ -404,7 +458,7 @@ export default function WidgetRenderClient({
               }).catch((err) => console.warn('[widget-render] Failed to persist hume_chat_id:', err))
             }
           },
-          onDisconnect: () => { setStatus('ended'); clearPostToolNudge(); clearSilenceNudge() },
+          onDisconnect: () => { setStatus('ended'); clearPostToolNudge(); clearSilenceNudge(); clearNoToolWatchdog() },
           onError: (message: string) => {
             console.error('[widget-render] Voice session error:', message)
             setStatus('error')
@@ -412,6 +466,7 @@ export default function WidgetRenderClient({
             revealContentAfterWarmup()
             clearPostToolNudge()
             clearSilenceNudge()
+            clearNoToolWatchdog()
           },
           onModeChange: (mode: 'listening' | 'speaking') => {
             setStatus(mode)
@@ -438,7 +493,7 @@ export default function WidgetRenderClient({
           adapter = await OpenAIRealtimeAdapter.create({
             ephemeralToken: accessToken,
             model,
-            onUserSpeechStarted: () => { clearPostToolNudge(); clearSilenceNudge() },
+            onUserSpeechStarted: () => { clearPostToolNudge(); clearSilenceNudge(); clearNoToolWatchdog() },
             onDiagnostic: (label, detail) => {
               // B2B-73 — the one real, live connection-health proxy available today (see the
               // feature brief's item 8 analysis: neither adapter uses WebRTC, so there's no
@@ -450,6 +505,25 @@ export default function WidgetRenderClient({
                 setConnectionHealth('red')
               } else if (label === 'response_created') {
                 setConnectionHealth('green')
+                // v12 — reset per-response tracking; a new response starting also means the model
+                // resumed on its own, so any pending no-tool-call watchdog from a prior turn is moot.
+                responseHadToolCallRef.current = false
+                clearNoToolWatchdog()
+              } else if (label === 'tool_call') {
+                // Any tool call — including awaiting_answer — is real progress; never let the
+                // no-tool-call watchdog fire underneath one.
+                responseHadToolCallRef.current = true
+                clearNoToolWatchdog()
+              } else if (label === 'response_done') {
+                // v12 (CEO review, P0) — the response that just completed carried zero tool calls,
+                // meaning nothing else (not the precise awaiting_answer timer, not an auto-continue)
+                // will happen on its own. Arm the non-terminal watchdog. Also logged as its own
+                // diagnostic label so tool-call compliance at the four stopping points is directly
+                // queryable later, rather than inferred from anecdote.
+                if (!responseHadToolCallRef.current) {
+                  logNoToolDiagnostic('response_done_no_tool_call')
+                  armNoToolWatchdog()
+                }
               }
               fetch('/api/partner/render/voice-diagnostic-capture', {
                 method: 'POST',
@@ -518,6 +592,7 @@ export default function WidgetRenderClient({
       if (warmupTimeoutRef.current) clearTimeout(warmupTimeoutRef.current)
       if (postToolNudgeTimeoutRef.current) clearTimeout(postToolNudgeTimeoutRef.current)
       if (silenceNudgeTimeoutRef.current) clearTimeout(silenceNudgeTimeoutRef.current)
+      if (noToolWatchdogTimeoutRef.current) clearTimeout(noToolWatchdogTimeoutRef.current)
       if (levelIntervalRef.current) clearInterval(levelIntervalRef.current)
       try { micAnalyserRef.current?.disconnect() } catch { /* noop */ }
       void micAudioCtxRef.current?.close().catch(() => {})
