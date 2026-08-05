@@ -701,26 +701,27 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
                       widget-render route/component itself; this is purely how the demo page launches
                       it, mirroring exactly what a real reseller's own "Learn with AI" button does
                       (open render_url, full-viewport, in the reseller's own new tab/window). */}
-                  <button
-                    type="button"
-                    onClick={() => window.open(widgetRenderUrl, '_blank', 'noopener,noreferrer')}
-                    style={aiButtonStyle}
-                  >
-                    ✨ Open widget session (full screen)
-                  </button>
-                  <button
-                    type="button"
-                    disabled={widgetEnding}
-                    onClick={handleEndWidgetSession}
-                    style={{
-                      ...secondaryButtonStyle,
-                      marginTop: 16,
-                      opacity: widgetEnding ? 0.5 : 1,
-                      cursor: widgetEnding ? 'not-allowed' : 'pointer',
-                    }}
-                  >
-                    {widgetEnding ? 'Ending…' : 'End session'}
-                  </button>
+                  <div style={actionBarStyle}>
+                    <button
+                      type="button"
+                      onClick={() => window.open(widgetRenderUrl, '_blank', 'noopener,noreferrer')}
+                      style={aiButtonStyle}
+                    >
+                      ✨ Open widget session (full screen)
+                    </button>
+                    <button
+                      type="button"
+                      disabled={widgetEnding}
+                      onClick={handleEndWidgetSession}
+                      style={{
+                        ...secondaryButtonStyle,
+                        opacity: widgetEnding ? 0.5 : 1,
+                        cursor: widgetEnding ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      {widgetEnding ? 'Ending…' : 'End session'}
+                    </button>
+                  </div>
                 </>
               ) : (
                 <>

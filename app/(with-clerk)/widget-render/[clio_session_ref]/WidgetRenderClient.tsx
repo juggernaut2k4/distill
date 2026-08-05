@@ -73,21 +73,32 @@ function LevelPill({
   const speaking = active && levels.some((level) => level > 0.22)
   const barColor = speaking ? (variant === 'mic' ? '#4e8cff' : '#7dd3c8') : 'rgba(255,255,255,0.7)'
   return (
-    <div className="flex flex-col items-center gap-1.5">
+    // Relative wrapper sized to exactly the circle (56px) so this element's box is directly
+    // comparable to the Mute/End-session buttons for cross-axis alignment in the control row below —
+    // the label is positioned absolutely beneath it, out of flow, so it never affects that alignment
+    // (previously the label sat in-flow inside a flex-col, making this whole component ~20px taller
+    // than the buttons and forcing an `items-end` + manual `mb-1` offset hack that still left the
+    // circles visibly higher than the buttons — Arun's "pills group is unaligned" report).
+    <div className="relative h-14 w-14">
       <div className="flex h-14 w-14 items-center justify-center gap-[5px] rounded-full border border-white/15 bg-white/[0.06]">
         {levels.map((level, i) => (
           <div
             key={i}
             className="w-[5px] rounded-full"
             style={{
-              height: `${Math.max(14, Math.round(level * 30))}px`,
+              // Per Arun: idle state should read as a small dot, and real speech should stretch it
+              // into an unmistakably tall bar — widened from a 14-30px (barely 2x) range to 8-40px
+              // (5x) so the transition is actually noticeable, not just a subtle wobble.
+              height: `${Math.max(8, Math.round(level * 40))}px`,
               backgroundColor: barColor,
               transition: 'height 120ms ease-out, background-color 150ms',
             }}
           />
         ))}
       </div>
-      <span className="text-[10px] uppercase tracking-wide text-white/50">{label}</span>
+      <span className="absolute left-1/2 top-full mt-1.5 -translate-x-1/2 whitespace-nowrap text-[10px] uppercase tracking-wide text-white/50">
+        {label}
+      </span>
     </div>
   )
 }
@@ -626,15 +637,20 @@ export default function WidgetRenderClient({
         <span className="tabular-nums">{displayedIndex + 1} of {count}</span>
       </div>
 
-      <div className="pointer-events-auto fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-end gap-4 rounded-2xl border border-white/10 bg-black/60 px-5 py-3 backdrop-blur">
+      {/* items-center (not items-end) + no per-button margin hacks: LevelPill's box is now exactly
+          the 56px circle (label lives outside flow, see LevelPill above), so it's directly
+          comparable to the buttons' own heights — the browser centers all four on one true line.
+          Bottom padding is enlarged to give the two now-absolutely-positioned pill labels room to
+          sit fully inside the container's own visual bounds instead of overflowing past its edge. */}
+      <div className="pointer-events-auto fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-4 rounded-2xl border border-white/10 bg-black/60 px-5 pb-8 pt-3 backdrop-blur">
         <LevelPill label="You" levels={micLevels} active={status !== 'connecting' && !isMuted} variant="mic" />
         <button
           type="button"
           onClick={handleToggleMute}
           className={
             isMuted
-              ? 'mb-1 flex h-11 items-center gap-2 rounded-full border border-red-500/40 bg-red-500/20 pl-3 pr-4 text-xs font-medium text-red-200 hover:bg-red-500/30'
-              : 'mb-1 flex h-11 items-center gap-2 rounded-full border border-blue-400/40 bg-blue-500/15 pl-3 pr-4 text-xs font-medium text-blue-200 hover:bg-blue-500/25'
+              ? 'flex h-11 items-center gap-2 rounded-full border border-red-500/40 bg-red-500/20 pl-3 pr-4 text-xs font-medium text-red-200 hover:bg-red-500/30'
+              : 'flex h-11 items-center gap-2 rounded-full border border-blue-400/40 bg-blue-500/15 pl-3 pr-4 text-xs font-medium text-blue-200 hover:bg-blue-500/25'
           }
         >
           <MicIcon muted={isMuted} />
@@ -644,7 +660,7 @@ export default function WidgetRenderClient({
         <button
           type="button"
           onClick={() => { setStatus('ended'); void endSessionOnce() }}
-          className="mb-1 flex h-10 items-center rounded-full border border-white/15 bg-white/[0.06] px-4 text-xs font-medium text-white/80 hover:bg-red-500/20 hover:border-red-500/30"
+          className="flex h-10 items-center rounded-full border border-white/15 bg-white/[0.06] px-4 text-xs font-medium text-white/80 hover:bg-red-500/20 hover:border-red-500/30"
         >
           End session
         </button>
