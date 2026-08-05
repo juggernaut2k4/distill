@@ -287,13 +287,32 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
             audio: {
               input: {
                 format: { type: 'audio/pcm', rate: INPUT_SAMPLE_RATE },
-                // 2026-08-04 — per Arun's explicit go-ahead: eagerness was previously omitted
-                // (defaulting to 'auto', which OpenAI's docs say is equivalent to 'medium').
-                // 'high' tunes semantic_vad to commit to end-of-turn sooner, directly targeting
-                // the first-response latency he flagged — real tradeoff: more likely to cut in
-                // if he pauses mid-thought. One field, trivially revertible (delete this line).
-                turn_detection: { type: 'semantic_vad', eagerness: 'high', interrupt_response: true },
-                transcription: { model: 'whisper-1' },
+                // 2026-08-04 — per Arun, replacing the semantic_vad/eagerness experiment: he tested
+                // this exact server_vad shape directly against OpenAI and confirmed it works. This
+                // is a different underlying turn-detection algorithm, not a tweak on top of
+                // eagerness — semantic_vad has no threshold/prefix_padding_ms/silence_duration_ms
+                // slots at all, so this fully replaces it rather than adding to it.
+                // idle_timeout_ms only exists under server_vad (fires
+                // input_audio_buffer.timeout_triggered after N ms of silence) — explicitly null
+                // here, matching Arun's tested config, i.e. disabled.
+                turn_detection: {
+                  type: 'server_vad',
+                  threshold: 0.5,
+                  prefix_padding_ms: 300,
+                  silence_duration_ms: 500,
+                  idle_timeout_ms: null,
+                },
+                // 2026-08-04 — per Arun: gpt-realtime-whisper is OpenAI's purpose-built low-latency
+                // streaming transcription model for Realtime, replacing the older/cheaper whisper-1
+                // this adapter used before. (Note for a future round: OpenAI's docs now point to an
+                // even newer default, gpt-transcribe/gpt-live-transcribe, claiming ~2x better
+                // accuracy than whisper-1 — not adopted here since Arun tested this exact model
+                // name, not that one.)
+                transcription: { model: 'gpt-realtime-whisper' },
+                // 2026-08-04 — per Arun: far_field is tuned for laptop/room mics (vs near_field for
+                // headsets), which matches how widget participants actually connect. We previously
+                // had zero noise suppression on the input path.
+                noise_reduction: { type: 'far_field' },
               },
               output: {
                 format: { type: 'audio/pcm', rate: OUTPUT_SAMPLE_RATE },

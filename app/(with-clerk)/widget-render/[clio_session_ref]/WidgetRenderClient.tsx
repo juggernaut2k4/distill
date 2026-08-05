@@ -51,21 +51,38 @@ class InlinePageErrorBoundary extends Component<
   }
 }
 
-/** B2B-73 — circular amplitude badge for the mic/bot pills. Purely presentational: `levels` is a
- *  3-element 0-1 array already sampled from a real AnalyserNode by the caller. `active` dims the
- *  badge when there's nothing to show yet (e.g. bot pill before the connection is speak-verified). */
-function LevelPill({ label, levels, active }: { label: string; levels: number[]; active: boolean }) {
+/** B2B-73 — "Refined equalizer" pill (Arun's approved design option C, 2026-08-04). Purely
+ *  presentational: `levels` is a 3-element 0-1 array already sampled from a real AnalyserNode by
+ *  the caller. `active` gates whether this channel can carry real signal at all (e.g. false while
+ *  connecting, or for the mic while muted) — the bars stay neutral grey whenever `active` is false
+ *  or the real level is near the idle floor, and only take on color once the actual signal crosses
+ *  a real speaking threshold. No decorative/fake glow — color is a direct readout of the same
+ *  amplitude data driving the bar heights. */
+function LevelPill({
+  label,
+  levels,
+  active,
+  variant,
+}: {
+  label: string
+  levels: number[]
+  active: boolean
+  variant: 'mic' | 'bot'
+}) {
+  const speaking = active && levels.some((level) => level > 0.22)
+  const barColor = speaking ? (variant === 'mic' ? '#4e8cff' : '#7dd3c8') : 'rgba(255,255,255,0.7)'
   return (
     <div className="flex flex-col items-center gap-1.5">
-      <div
-        className="flex h-20 w-20 items-center justify-center gap-[6px] rounded-full border border-white/15 bg-white/[0.06]"
-        style={{ opacity: active ? 1 : 0.4 }}
-      >
+      <div className="flex h-20 w-20 items-center justify-center gap-[6px] rounded-full border border-white/15 bg-white/[0.06]">
         {levels.map((level, i) => (
           <div
             key={i}
-            className="w-[6px] rounded-full bg-white/80"
-            style={{ height: `${Math.max(6, Math.round(level * 40))}px`, transition: 'height 120ms ease-out' }}
+            className="w-[6px] rounded-full"
+            style={{
+              height: `${Math.max(6, Math.round(level * 40))}px`,
+              backgroundColor: barColor,
+              transition: 'height 120ms ease-out, background-color 150ms',
+            }}
           />
         ))}
       </div>
@@ -550,7 +567,7 @@ export default function WidgetRenderClient({
       </div>
 
       <div className="pointer-events-auto fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-end gap-4 rounded-2xl border border-white/10 bg-black/60 px-5 py-3 backdrop-blur">
-        <LevelPill label="You" levels={micLevels} active={status !== 'connecting' && !isMuted} />
+        <LevelPill label="You" levels={micLevels} active={status !== 'connecting' && !isMuted} variant="mic" />
         <button
           type="button"
           onClick={handleToggleMute}
@@ -562,7 +579,7 @@ export default function WidgetRenderClient({
         >
           {isMuted ? 'Unmute' : 'Mute'}
         </button>
-        <LevelPill label="Clio" levels={botLevels} active={status === 'speaking'} />
+        <LevelPill label="Clio" levels={botLevels} active={status !== 'connecting'} variant="bot" />
         <button
           type="button"
           onClick={() => { setStatus('ended'); void endSessionOnce() }}
