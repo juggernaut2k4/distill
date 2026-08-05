@@ -5,7 +5,6 @@ import { Building2, LayoutTemplate, Bug, Shield, Link2, Users, LucideIcon } from
 import { requireSuperAdmin } from '@/lib/internal-admin/auth'
 import DashboardShell from '@/components/dashboard/DashboardShell'
 import DemoAccessCard from './DemoAccessCard'
-import DemoPerformanceToggleCard from './DemoPerformanceToggleCard'
 import VoiceProviderCard from './VoiceProviderCard'
 
 /**
@@ -60,7 +59,6 @@ export default async function AdminHomePage() {
 
         <div className="mt-6">
           <DemoAccessCard />
-          <DemoPerformanceToggleCard />
           <VoiceProviderCard />
         </div>
 

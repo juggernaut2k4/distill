@@ -133,10 +133,6 @@ vi.mock('@/lib/partner/webhooks', () => ({
   recordInsightsReadyEvent: (...args: unknown[]) => recordInsightsReadyEventMock(...args),
 }))
 
-vi.mock('@/lib/demo/performance-config', () => ({
-  getDemoPerformanceAppendEnabled: async () => false,
-}))
-
 import { extractInsightsForPartnerSession, markInsightsExtractionFailed } from '@/inngest/partner-session-insights-extractor'
 
 describe('Content-purge — successful/empty extraction (Trigger 1, §6.4)', () => {
