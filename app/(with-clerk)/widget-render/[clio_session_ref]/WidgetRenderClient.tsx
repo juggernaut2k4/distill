@@ -137,6 +137,17 @@ export interface WidgetRenderClientProps {
 // session spent multiple live-test rounds fixing.
 const POST_TOOL_NUDGE_MS = 7000
 
+// Per Arun's direct instruction (2026-08-05): if the model asks a question at one of its four real
+// stopping points and gets no spoken reply for ~20s, it should acknowledge that and it's then fine to
+// end the session. OpenAI Realtime has no built-in clock, so this can't be judged by the model on its
+// own — armed on the genuine speaking->listening transition (see onModeChange below), not on the
+// initial post-connect 'listening' state before Clio has said anything yet.
+const SILENCE_AFTER_QUESTION_MS = 20000
+const SILENCE_AFTER_QUESTION_NUDGE_TEXT =
+  'About 20 seconds have passed with no spoken reply after your last question. Acknowledge that ' +
+  "gracefully, in your own words — something like \"I didn't catch anything from you there\" — then " +
+  'say a real, out-loud goodbye and call end_session immediately after, in this same turn.'
+
 export default function WidgetRenderClient({
   clioSessionRef,
   inlinePages,
@@ -150,6 +161,8 @@ export default function WidgetRenderClient({
   const [showConnectWarmup, setShowConnectWarmup] = useState(Boolean(humeConfigId))
   const warmupTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const postToolNudgeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const silenceNudgeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const prevModeRef = useRef<'listening' | 'speaking' | null>(null)
   const adapterRef = useRef<VoiceSessionAdapter | null>(null)
   const connectStartRef = useRef<number | null>(null)
   const endedRef = useRef(false)
@@ -294,6 +307,20 @@ export default function WidgetRenderClient({
           }, POST_TOOL_NUDGE_MS)
         }
 
+        const clearSilenceNudge = () => {
+          if (silenceNudgeTimeoutRef.current) {
+            clearTimeout(silenceNudgeTimeoutRef.current)
+            silenceNudgeTimeoutRef.current = null
+          }
+        }
+        const armSilenceNudge = () => {
+          clearSilenceNudge()
+          silenceNudgeTimeoutRef.current = setTimeout(() => {
+            silenceNudgeTimeoutRef.current = null
+            adapterRef.current?.triggerRecoveryNudge?.(SILENCE_AFTER_QUESTION_NUDGE_TEXT)
+          }, SILENCE_AFTER_QUESTION_MS)
+        }
+
         const tools = {
           show_visual: async (params: Record<string, unknown>) => {
             const now = Date.now()
@@ -357,17 +384,28 @@ export default function WidgetRenderClient({
               }).catch((err) => console.warn('[widget-render] Failed to persist hume_chat_id:', err))
             }
           },
-          onDisconnect: () => { setStatus('ended'); clearPostToolNudge() },
+          onDisconnect: () => { setStatus('ended'); clearPostToolNudge(); clearSilenceNudge() },
           onError: (message: string) => {
             console.error('[widget-render] Voice session error:', message)
             setStatus('error')
             setConnectionHealth('red')
             revealContentAfterWarmup()
             clearPostToolNudge()
+            clearSilenceNudge()
           },
           onModeChange: (mode: 'listening' | 'speaking') => {
+            const prevMode = prevModeRef.current
+            prevModeRef.current = mode
             setStatus(mode)
-            if (mode === 'speaking') clearPostToolNudge()
+            if (mode === 'speaking') {
+              clearPostToolNudge()
+              clearSilenceNudge()
+            } else if (mode === 'listening' && prevMode === 'speaking') {
+              // Only a genuine speaking->listening transition is one of the four real stopping
+              // points — the initial post-connect 'listening' (before Clio has said anything) must
+              // never arm this, or it would fire before a question was ever asked.
+              armSilenceNudge()
+            }
           },
           onMessage,
         }
@@ -383,7 +421,7 @@ export default function WidgetRenderClient({
           adapter = await OpenAIRealtimeAdapter.create({
             ephemeralToken: accessToken,
             model,
-            onUserSpeechStarted: () => { clearPostToolNudge() },
+            onUserSpeechStarted: () => { clearPostToolNudge(); clearSilenceNudge() },
             onDiagnostic: (label, detail) => {
               // B2B-73 — the one real, live connection-health proxy available today (see the
               // feature brief's item 8 analysis: neither adapter uses WebRTC, so there's no
@@ -460,6 +498,7 @@ export default function WidgetRenderClient({
       cancelled = true
       if (warmupTimeoutRef.current) clearTimeout(warmupTimeoutRef.current)
       if (postToolNudgeTimeoutRef.current) clearTimeout(postToolNudgeTimeoutRef.current)
+      if (silenceNudgeTimeoutRef.current) clearTimeout(silenceNudgeTimeoutRef.current)
       if (levelIntervalRef.current) clearInterval(levelIntervalRef.current)
       try { micAnalyserRef.current?.disconnect() } catch { /* noop */ }
       void micAudioCtxRef.current?.close().catch(() => {})
