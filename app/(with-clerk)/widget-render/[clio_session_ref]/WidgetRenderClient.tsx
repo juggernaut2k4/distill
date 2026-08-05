@@ -73,13 +73,13 @@ function LevelPill({
   const barColor = speaking ? (variant === 'mic' ? '#4e8cff' : '#7dd3c8') : 'rgba(255,255,255,0.7)'
   return (
     <div className="flex flex-col items-center gap-1.5">
-      <div className="flex h-20 w-20 items-center justify-center gap-[6px] rounded-full border border-white/15 bg-white/[0.06]">
+      <div className="flex h-14 w-14 items-center justify-center gap-[5px] rounded-full border border-white/15 bg-white/[0.06]">
         {levels.map((level, i) => (
           <div
             key={i}
-            className="w-[6px] rounded-full"
+            className="w-[5px] rounded-full"
             style={{
-              height: `${Math.max(6, Math.round(level * 40))}px`,
+              height: `${Math.max(14, Math.round(level * 30))}px`,
               backgroundColor: barColor,
               transition: 'height 120ms ease-out, background-color 150ms',
             }}
