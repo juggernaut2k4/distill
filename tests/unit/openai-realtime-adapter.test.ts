@@ -231,11 +231,15 @@ describe('OpenAIRealtimeAdapter tool-call dispatch (response.output_item.done)',
    * opens another race window against endSession()'s teardown. end_session is the one tool that
    * must NOT trigger the continuation response.create every other tool still needs.
    */
-  it('sends function_call_output but does NOT send a continuation response.create for end_session', async () => {
+  it('sends function_call_output but does NOT send a continuation response.create for end_session (after real audio was spoken)', async () => {
     const handler = vi.fn().mockResolvedValue('Session ended.')
     const adapter = makeAdapter({ tools: { end_session: handler } })
     const send = installFakeSocket(adapter)
 
+    // v11 Fix 2 — end_session is only let through to the real handler once the response carrying it
+    // actually produced audio (the model said its goodbye out loud); a response.output_audio.delta
+    // sets that flag, representing the realistic "goodbye already spoken" case this test covers.
+    await feedMessage(adapter, { type: 'response.output_audio.delta', delta: 'AAAA' })
     await feedMessage(adapter, {
       type: 'response.output_item.done',
       item: { type: 'function_call', name: 'end_session', call_id: 'call-end', arguments: '{}' },
@@ -248,6 +252,55 @@ describe('OpenAIRealtimeAdapter tool-call dispatch (response.output_item.done)',
       type: 'conversation.item.create',
       item: { type: 'function_call_output', call_id: 'call-end', output: 'Session ended.' },
     })
+  })
+
+  it('v11 Fix 2 — blocks a silent end_session (no audio produced) once, retrying instead of ending', async () => {
+    const handler = vi.fn().mockResolvedValue('Session ended.')
+    const adapter = makeAdapter({ tools: { end_session: handler } })
+    const send = installFakeSocket(adapter)
+
+    // No response.output_audio.delta fired — this response produced no audio, exactly the
+    // "end_session called with no goodbye actually spoken" failure Fix 2 exists to catch.
+    await feedMessage(adapter, {
+      type: 'response.output_item.done',
+      item: { type: 'function_call', name: 'end_session', call_id: 'call-silent', arguments: '{}' },
+    })
+
+    expect(handler).not.toHaveBeenCalled()
+    expect(send).toHaveBeenCalledTimes(2)
+    const blockedPayload = JSON.parse(send.mock.calls[0][0] as string)
+    expect(blockedPayload).toEqual({
+      type: 'conversation.item.create',
+      item: {
+        type: 'function_call_output',
+        call_id: 'call-silent',
+        output: 'Not ended. You have not said the goodbye out loud yet. Say it now, in words, then call end_session again.',
+      },
+    })
+    expect(JSON.parse(send.mock.calls[1][0] as string)).toEqual({ type: 'response.create' })
+  })
+
+  it('v11 Fix 2 — only retries once: a second silent end_session in the same session is let through', async () => {
+    const handler = vi.fn().mockResolvedValue('Session ended.')
+    const adapter = makeAdapter({ tools: { end_session: handler } })
+    const send = installFakeSocket(adapter)
+
+    await feedMessage(adapter, {
+      type: 'response.output_item.done',
+      item: { type: 'function_call', name: 'end_session', call_id: 'call-1', arguments: '{}' },
+    })
+    expect(handler).not.toHaveBeenCalled()
+
+    send.mockClear()
+    await feedMessage(adapter, {
+      type: 'response.output_item.done',
+      item: { type: 'function_call', name: 'end_session', call_id: 'call-2', arguments: '{}' },
+    })
+
+    // Never trap a participant in a call they asked to leave — the second silent attempt goes
+    // through to the real handler regardless of audio state.
+    expect(handler).toHaveBeenCalledWith({})
+    expect(send).toHaveBeenCalledTimes(1)
   })
 
   it('parses stringified arguments and passes them through to the handler', async () => {
@@ -269,13 +322,15 @@ describe('OpenAIRealtimeAdapter tool-call dispatch (response.output_item.done)',
   })
 
   it('falls back to "Tool execution failed." if the handler throws, without crashing', async () => {
+    // Uses advance_tab, not end_session — this test is about the generic handler-throws fallback,
+    // not end_session's own v11 silent-close guard (covered by its own dedicated tests above).
     const handler = vi.fn().mockRejectedValue(new Error('boom'))
-    const adapter = makeAdapter({ tools: { end_session: handler } })
+    const adapter = makeAdapter({ tools: { advance_tab: handler } })
     const send = installFakeSocket(adapter)
 
     await feedMessage(adapter, {
       type: 'response.output_item.done',
-      item: { type: 'function_call', name: 'end_session', call_id: 'call-3', arguments: '{}' },
+      item: { type: 'function_call', name: 'advance_tab', call_id: 'call-3', arguments: '{}' },
     })
 
     const firstPayload = JSON.parse(send.mock.calls[0][0] as string)

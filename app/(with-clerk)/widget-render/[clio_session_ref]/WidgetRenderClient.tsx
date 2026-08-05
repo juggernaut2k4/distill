@@ -469,6 +469,7 @@ export default function WidgetRenderClient({
             mediaStream: micStream,
             tools,
             extraTools: [WIDGET_AWAITING_ANSWER_TOOL],
+            turnEndingToolNames: ['awaiting_answer'],
             reportError: (message) => reportClientError(clioSessionRef, 'openai-realtime-adapter-error', message),
             ...sharedCallbacks,
           })

@@ -128,6 +128,19 @@ export interface OpenAIRealtimeAdapterConfig {
    * can't tell apart.
    */
   extraTools?: OpenAIRealtimeToolDef[]
+  /**
+   * 2026-08-05 (v11 CEO review, root-cause finding) — tool names that must NOT be followed by an
+   * automatic `response.create`. `end_session` has always been treated this way (see the doc
+   * comment on the dispatch site below); this makes that policy config-driven instead of a single
+   * hardcoded name check, so the widget channel can add `awaiting_answer` to the set without
+   * touching the meeting-bot channel at all (which omits this field and gets byte-for-byte the
+   * same behavior as before). This was the actual root cause of four consecutive rounds of
+   * "the model asks a question, doesn't wait, keeps going" and "filler before substance" bugs:
+   * `awaiting_answer`'s entire purpose is to end the model's turn so the participant can speak,
+   * but the previous hardcoded check forced a fresh response.create ~100-800ms later regardless,
+   * silently overriding it every time — no prompt wording could have fixed a transport-layer bug.
+   */
+  turnEndingToolNames?: string[]
   /** Mirrors HumeAdapterConfig.reportError — optional diagnostic hook for otherwise-silent
    *  WS failure paths (ws.onerror, onclose's give-up branch). */
   reportError?: (message: string) => void
@@ -187,8 +200,16 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
   private speakVerifiedFired = false
   private speakVerifiedCallback: (() => void) | null = null
 
-  // Per-response bookkeeping for the "first audio delta of a response = now speaking" signal.
+  // Per-response bookkeeping for the "first audio delta of a response = now speaking" signal. Also
+  // doubles (v11 CEO review, Fix 2) as the live self-check for a silent end_session: since
+  // response.output_item.done for a function-call item always precedes response.done for the same
+  // response (see the doc comment at the end_session dispatch site below), this flag still reflects
+  // "did the response carrying this end_session call produce any audio yet" at the moment we handle
+  // that tool call — exactly what's needed to catch a goodbye-less close, no separate field needed.
   private currentResponseSpeaking = false
+  // v11 — one retry only if end_session arrives with no audio produced: never trap a participant in
+  // a call they asked to leave.
+  private endSessionRetried = false
 
   // 2026-08-01 — Arun: "Marin needs to start speaking once joined the call. currently it waits for
   // user to start the conversation." Root cause: unlike Hume's EVI (which auto-initiates on
@@ -573,6 +594,28 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
         let params: Record<string, unknown> = {}
         try { params = JSON.parse(item.arguments ?? '{}') } catch { /* noop */ }
 
+        // v11 CEO review, Fix 2 — a live self-check for the exact "goodbye never actually spoken"
+        // failure that four rounds of prompt wording couldn't fully close: if end_session arrives on
+        // a response that produced no audio at all, don't let it through to the real handler (which
+        // would tear down the session) — tell the model directly that it hasn't said the goodbye out
+        // loud yet and force one more turn. Only one retry, so a genuinely stuck model still ends the
+        // call rather than looping forever.
+        if (item.name === 'end_session' && !this.currentResponseSpeaking && !this.endSessionRetried) {
+          this.endSessionRetried = true
+          this.config.onDiagnostic?.('end_session_blocked_no_speech', {})
+          this.ws?.send(JSON.stringify({
+            type: 'conversation.item.create',
+            item: {
+              type: 'function_call_output',
+              call_id: item.call_id,
+              output: 'Not ended. You have not said the goodbye out loud yet. Say it now, in words, then call end_session again.',
+            },
+          }))
+          await this.waitForResponseDone()
+          this.ws?.send(JSON.stringify({ type: 'response.create' }))
+          break
+        }
+
         let result = 'Tool executed.'
         const handler = this.config.tools[item.name]
         if (handler) {
@@ -616,7 +659,11 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
         // already found and fixed in endSession() below (see that method's doc comment) — asking the
         // server for something before confirming the prior operation actually finished — just at a
         // different call site. Fix: wait for this response to be confirmed done first.
-        if (item.name !== 'end_session') {
+        // 2026-08-05 (v11) — 'end_session' has always been excluded (see the long comment above);
+        // now config-driven via turnEndingToolNames so a caller (the widget channel) can add its own
+        // turn-ending tools without a second hardcoded name check here.
+        const turnEndingTools = new Set(['end_session', ...(this.config.turnEndingToolNames ?? [])])
+        if (!turnEndingTools.has(item.name)) {
           await this.waitForResponseDone()
           this.ws?.send(JSON.stringify({ type: 'response.create' }))
         }
