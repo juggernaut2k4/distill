@@ -118,6 +118,16 @@ export interface OpenAIRealtimeAdapterConfig {
   onDiagnostic?: (label: string, detail: Record<string, unknown>) => void
   onMessage: (text: string, source: 'user' | 'ai') => void
   tools: Record<string, (params: Record<string, unknown>) => Promise<string>>
+  /**
+   * 2026-08-05 — additive, optional tool definitions appended after OPENAI_REALTIME_TOOLS in the
+   * session.update payload, so callers that omit this (PartnerRenderClient.tsx, the meeting-bot
+   * channel) get byte-for-byte the same `tools` array as before — zero schema change there. Used
+   * by the widget channel alone to add `awaiting_answer` (see widget-prompt-rules.ts), a tool the
+   * model calls when it reaches one of its four real stopping points, distinguishing that from an
+   * unrelated silence (e.g. stalling mid-teaching) that a generic speaking->listening transition
+   * can't tell apart.
+   */
+  extraTools?: OpenAIRealtimeToolDef[]
   /** Mirrors HumeAdapterConfig.reportError — optional diagnostic hook for otherwise-silent
    *  WS failure paths (ws.onerror, onclose's give-up branch). */
   reportError?: (message: string) => void
@@ -127,7 +137,7 @@ export interface OpenAIRealtimeAdapterConfig {
  *  config assembled inside this adapter — re-exported here for convenience so callers building
  *  their own session.update payload elsewhere (tests, future callers) share one source of truth. */
 export { OPENAI_REALTIME_TOOLS } from './openai-realtime-tools'
-import { OPENAI_REALTIME_TOOLS } from './openai-realtime-tools'
+import { OPENAI_REALTIME_TOOLS, type OpenAIRealtimeToolDef } from './openai-realtime-tools'
 
 const OUTPUT_SAMPLE_RATE = 24000
 const INPUT_SAMPLE_RATE = 24000
@@ -330,7 +340,7 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
                 speed: 1.0,
               },
             },
-            tools: OPENAI_REALTIME_TOOLS,
+            tools: this.config.extraTools ? [...OPENAI_REALTIME_TOOLS, ...this.config.extraTools] : OPENAI_REALTIME_TOOLS,
             tool_choice: 'auto',
           },
         }))

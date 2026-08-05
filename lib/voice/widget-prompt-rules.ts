@@ -115,6 +115,21 @@
  * model-judged case) — the "don't hear anything at all, try once more" framing it used to carry is
  * removed, since pure silence is now handled by the timed system note instead of the model guessing.
  *
+ * 2026-08-05 (v10, direct owner instruction) — a live test of v9 showed the 20s-silence timer had a
+ * real design flaw: it armed on ANY speaking->listening transition, which can't distinguish "just
+ * asked one of the four real stopping-point questions" from "model unexpectedly stalled mid-teaching"
+ * (a separate, pre-existing bug class) — confirmed via diagnostics, where a teaching response cut off
+ * mid-sentence ("Claude is a family of language models... You give it text, and often i—") triggered
+ * the same 20s-then-goodbye sequence 20.0s later, ending the session mid-lesson instead of after a
+ * real question. Per Arun's direct instruction to use OpenAI Realtime's own function-tool mechanism
+ * (rather than MCP, which routes through OpenAI's own remote-server infrastructure and would add a
+ * network hop rather than solve the actual problem — this needs the signal to reach the client
+ * instantly), the client now arms the timer only on an explicit `awaiting_answer` tool call, which the
+ * model must call at the exact instant it reaches one of the four real stopping points — not on any
+ * other silence. This is the same "distinguish real stopping points from incidental silence" problem
+ * as before, solved the same way `show_visual`/`advance_tab` already solve position-tracking: an
+ * explicit signal instead of an inferred one.
+ *
  * Still a deliberate, one-directional fork from `lib/voice/openai-realtime-prompt-template.ts` (the
  * meeting-bot channel's prompt) — that file is untouched, this file imports nothing from it. OpenAI
  * Realtime only; Hume parity remains the explicit, reasoned v1 scope exclusion from the B2B-71
@@ -123,7 +138,31 @@
  * appending — unsafe for a persistent rule).
  */
 
-export const WIDGET_OPENAI_PROMPT_VERSION = 'widget-v9'
+export const WIDGET_OPENAI_PROMPT_VERSION = 'widget-v10'
+
+// ─── Tools ───────────────────────────────────────────────────────────────────────────────────────
+
+import type { OpenAIRealtimeToolDef } from './openai-realtime-tools'
+
+/** Widget-only, additive tool (see OpenAIRealtimeAdapterConfig.extraTools) — never added to the
+ *  shared OPENAI_REALTIME_TOOLS list, so the meeting-bot channel's tool schema is untouched. Lets
+ *  the client arm the 20s silence timer on an explicit signal instead of an inferred one — see the
+ *  v10 history entry above for why the inferred version (any speaking->listening transition) broke. */
+export const WIDGET_AWAITING_ANSWER_TOOL: OpenAIRealtimeToolDef = {
+  type: 'function',
+  name: 'awaiting_answer',
+  description:
+    'Call this the instant before you go silent to genuinely wait for the participant\'s spoken ' +
+    'answer — right after asking how they feel about today\'s topic, right after asking if they\'re ' +
+    'ready to begin, right after checking their understanding partway through a topic, or right after ' +
+    'asking if there\'s anything else on their mind before closing. These are the only four moments ' +
+    'you ever call this — never while teaching, never right after any other tool call.',
+  parameters: {
+    type: 'object',
+    properties: {},
+    required: [],
+  },
+}
 
 // ─── Placeholders ────────────────────────────────────────────────────────────────────────────────
 
@@ -186,7 +225,7 @@ Every session that runs to completion follows the same shape, in this order — 
 
 === BEHAVIORAL RULES ===
 
-[GLOBAL RULE, APPLIES THROUGHOUT: A TOOL CALL NEVER ENDS YOUR TURN. THE MOMENT ANY TOOL CALL RETURNS, CONTINUE SPEAKING IMMEDIATELY IN THE SAME TURN. THE ONLY MOMENTS YOU ACTUALLY STOP TALKING AND WAIT IN SILENCE FOR THE PARTICIPANT'S REAL SPOKEN ANSWER ARE: RIGHT AFTER YOU ASK HOW THEY'RE FEELING ABOUT TODAY'S TOPIC, RIGHT AFTER YOU ASK IF THEY'RE READY TO BEGIN, RIGHT AFTER YOU CHECK THEIR UNDERSTANDING PARTWAY THROUGH A TOPIC, AND RIGHT AFTER YOU ASK IF THERE'S ANYTHING ELSE ON THEIR MIND BEFORE YOU CLOSE. EVERYWHERE ELSE, KEEP GOING. EACH OF THOSE FOUR QUESTIONS IS ASKED EXACTLY ONCE PER TURN: ONCE YOU HAVE ASKED ONE OF THEM, DO NOT FOLLOW IT WITH A SECOND, DIFFERENTLY-WORDED RESTATEMENT OF THE SAME QUESTION BEFORE STOPPING TO WAIT — EVEN IF THE RESTATEMENT SOUNDS LIKE A NATURAL FOLLOW-UP. SAY IT ONCE, THEN STOP. THIS SAME PRINCIPLE — ONE REAL, SUBSTANTIVE UTTERANCE PER RESPONSE, NOT A REACTION FOLLOWED BY A SEPARATE DESCRIPTION OF WHAT COMES NEXT — APPLIES ANY TIME YOU SPEAK, NOT ONLY TO THOSE FOUR QUESTIONS. A SHORT REACTION ("YES, THAT'S RIGHT," "NOT QUITE," "NICE POINT") IS NEVER ITS OWN COMPLETE RESPONSE FOLLOWED BY A PROMISE OF WHAT YOU'LL SAY OR DO NEXT ("I'LL BUILD ON THAT," "LET ME RESPOND TO THAT," "WE'LL MOVE ON") — THE REAL CONTENT ITSELF MUST COME IMMEDIATELY, IN THAT SAME BREATH, EVERY TIME. IF YOU CATCH YOURSELF DESCRIBING WHAT YOU ARE ABOUT TO SAY RATHER THAN JUST SAYING IT, THAT IS THE FAILURE THIS RULE EXISTS TO PREVENT. IF YOU RECEIVE A SYSTEM NOTE TELLING YOU THAT ROUGHLY 20 SECONDS HAVE PASSED WITH NO SPOKEN REPLY AFTER ONE OF THOSE FOUR QUESTIONS, ACKNOWLEDGE IT GRACEFULLY IN YOUR OWN WORDS — FOR EXAMPLE, SOMETHING LIKE "I DIDN'T CATCH ANYTHING FROM YOU THERE" — THEN SAY A REAL, OUT-LOUD GOODBYE AND CALL END_SESSION IMMEDIATELY AFTER, IN THAT SAME TURN, NO MATTER WHICH OF THE FOUR QUESTIONS YOU WERE WAITING ON. DO NOT TRY AGAIN OR WAIT FURTHER ONCE YOU RECEIVE THIS NOTE — IT REPLACES ANY OTHER SILENCE-HANDLING BEHAVIOR DESCRIBED ELSEWHERE FOR THIS SITUATION.]
+[GLOBAL RULE, APPLIES THROUGHOUT: A TOOL CALL NEVER ENDS YOUR TURN. THE MOMENT ANY TOOL CALL RETURNS, CONTINUE SPEAKING IMMEDIATELY IN THE SAME TURN. THE ONLY MOMENTS YOU ACTUALLY STOP TALKING AND WAIT IN SILENCE FOR THE PARTICIPANT'S REAL SPOKEN ANSWER ARE: RIGHT AFTER YOU ASK HOW THEY'RE FEELING ABOUT TODAY'S TOPIC, RIGHT AFTER YOU ASK IF THEY'RE READY TO BEGIN, RIGHT AFTER YOU CHECK THEIR UNDERSTANDING PARTWAY THROUGH A TOPIC, AND RIGHT AFTER YOU ASK IF THERE'S ANYTHING ELSE ON THEIR MIND BEFORE YOU CLOSE. AT EACH OF THOSE FOUR MOMENTS, CALL THE awaiting_answer TOOL THE INSTANT BEFORE YOU GO SILENT TO WAIT — DO THIS EVERY SINGLE TIME, AT ALL FOUR POINTS, AND NEVER ANYWHERE ELSE (NOT WHILE TEACHING, NOT AFTER A TOOL CALL, ONLY AT THESE FOUR MOMENTS). EVERYWHERE ELSE, KEEP GOING. EACH OF THOSE FOUR QUESTIONS IS ASKED EXACTLY ONCE PER TURN: ONCE YOU HAVE ASKED ONE OF THEM, DO NOT FOLLOW IT WITH A SECOND, DIFFERENTLY-WORDED RESTATEMENT OF THE SAME QUESTION BEFORE STOPPING TO WAIT — EVEN IF THE RESTATEMENT SOUNDS LIKE A NATURAL FOLLOW-UP. SAY IT ONCE, THEN STOP. THIS SAME PRINCIPLE — ONE REAL, SUBSTANTIVE UTTERANCE PER RESPONSE, NOT A REACTION FOLLOWED BY A SEPARATE DESCRIPTION OF WHAT COMES NEXT — APPLIES ANY TIME YOU SPEAK, NOT ONLY TO THOSE FOUR QUESTIONS. A SHORT REACTION ("YES, THAT'S RIGHT," "NOT QUITE," "NICE POINT") IS NEVER ITS OWN COMPLETE RESPONSE FOLLOWED BY A PROMISE OF WHAT YOU'LL SAY OR DO NEXT ("I'LL BUILD ON THAT," "LET ME RESPOND TO THAT," "WE'LL MOVE ON") — THE REAL CONTENT ITSELF MUST COME IMMEDIATELY, IN THAT SAME BREATH, EVERY TIME. IF YOU CATCH YOURSELF DESCRIBING WHAT YOU ARE ABOUT TO SAY RATHER THAN JUST SAYING IT, THAT IS THE FAILURE THIS RULE EXISTS TO PREVENT. IF YOU RECEIVE A SYSTEM NOTE TELLING YOU THAT ROUGHLY 20 SECONDS HAVE PASSED WITH NO SPOKEN REPLY AFTER ONE OF THOSE FOUR QUESTIONS, ACKNOWLEDGE IT GRACEFULLY IN YOUR OWN WORDS — FOR EXAMPLE, SOMETHING LIKE "I DIDN'T CATCH ANYTHING FROM YOU THERE" — THEN SAY A REAL, OUT-LOUD GOODBYE AND CALL END_SESSION IMMEDIATELY AFTER, IN THAT SAME TURN, NO MATTER WHICH OF THE FOUR QUESTIONS YOU WERE WAITING ON. DO NOT TRY AGAIN OR WAIT FURTHER ONCE YOU RECEIVE THIS NOTE — IT REPLACES ANY OTHER SILENCE-HANDLING BEHAVIOR DESCRIBED ELSEWHERE FOR THIS SITUATION.]
 
 Rule numbers are sequential in display order below, each with a short title for quick reference.
 

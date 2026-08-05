@@ -9,6 +9,7 @@ import { shouldAdvanceOnTransition } from '@/lib/partner/advance-transition'
 import { reportClientError } from '@/lib/partner/report-client-error'
 import { resolveWidgetJumpIndex, computeNextProgressIndex } from '@/lib/voice/widget-jump-resolution'
 import { createJumpGuardState, shouldAllowJump } from '@/lib/partner/widget-jump-debounce'
+import { WIDGET_AWAITING_ANSWER_TOOL } from '@/lib/voice/widget-prompt-rules'
 
 /**
  * B2B-71 (docs/specs/B2B-71-requirement-document.md §6.2-§6.5) — the widget channel's OWN,
@@ -162,7 +163,6 @@ export default function WidgetRenderClient({
   const warmupTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const postToolNudgeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const silenceNudgeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const prevModeRef = useRef<'listening' | 'speaking' | null>(null)
   const adapterRef = useRef<VoiceSessionAdapter | null>(null)
   const connectStartRef = useRef<number | null>(null)
   const endedRef = useRef(false)
@@ -351,6 +351,15 @@ export default function WidgetRenderClient({
             void endSessionOnce()
             return 'Session ended.'
           },
+          // v10 — OpenAI-only signal (see WIDGET_AWAITING_ANSWER_TOOL): the model calls this the
+          // instant it reaches one of its four real stopping points, right before genuinely waiting.
+          // Arms the 20s silence timer on this explicit signal instead of inferring it from a
+          // generic mode change, which couldn't distinguish a real stopping point from the model
+          // stalling mid-teaching.
+          awaiting_answer: async () => {
+            armSilenceNudge()
+            return 'Waiting.'
+          },
         }
 
         const onMessage = (text: string, source: 'user' | 'ai') => {
@@ -394,18 +403,15 @@ export default function WidgetRenderClient({
             clearSilenceNudge()
           },
           onModeChange: (mode: 'listening' | 'speaking') => {
-            const prevMode = prevModeRef.current
-            prevModeRef.current = mode
             setStatus(mode)
             if (mode === 'speaking') {
               clearPostToolNudge()
               clearSilenceNudge()
-            } else if (mode === 'listening' && prevMode === 'speaking') {
-              // Only a genuine speaking->listening transition is one of the four real stopping
-              // points — the initial post-connect 'listening' (before Clio has said anything) must
-              // never arm this, or it would fire before a question was ever asked.
-              armSilenceNudge()
             }
+            // Silence-timer arming moved to the awaiting_answer tool handler below (v10) — a
+            // generic speaking->listening transition can't tell "just asked one of the four real
+            // stopping-point questions" apart from "model unexpectedly stalled mid-teaching," and a
+            // live test confirmed the latter also fired this timer, ending sessions mid-lesson.
           },
           onMessage,
         }
@@ -451,6 +457,7 @@ export default function WidgetRenderClient({
             userId: clioSessionRef,
             mediaStream: micStream,
             tools,
+            extraTools: [WIDGET_AWAITING_ANSWER_TOOL],
             reportError: (message) => reportClientError(clioSessionRef, 'openai-realtime-adapter-error', message),
             ...sharedCallbacks,
           })
