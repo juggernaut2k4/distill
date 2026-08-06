@@ -59,8 +59,13 @@ export const OPENAI_REALTIME_TOOLS: OpenAIRealtimeToolDef[] = [
   {
     type: 'function',
     name: 'advance_tab',
+    // "and a brief summary" was removed 2026-08-06: widget-prompt-rules.ts v17 already dropped that
+    // obligation from the answer turn (recap now fuses into the next turn's opening instead), but
+    // this description still stated the old precondition — a live contradiction the model was
+    // reading. Description is deliberately mechanical-only (when to call it); speaking behavior is
+    // governed by each channel's own prompt, not this shared tool definition.
     description:
-      "Call this when — and only when — you judge the current section is fully covered (content taught, verification question asked and answered, and you've given your response and a brief summary) and you are ready to move to the next one. This is the ONLY tool that ever advances to the next section; show_visual never does. Use your own judgment on timing.",
+      "Call this when — and only when — you judge the current section is fully covered: content taught, verification question asked and answered, and your response to that answer given. This is the ONLY tool that ever advances to the next section; show_visual never does. Use your own judgment on timing.",
     parameters: {
       type: 'object',
       properties: {},
