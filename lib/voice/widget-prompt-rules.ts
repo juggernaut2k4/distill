@@ -248,6 +248,27 @@
  * silently mis-fires under B2B-62 multi-language sessions (Greek `;`, Arabic `؟`, Armenian `՞`).
  * Held as a specified fallback if v12 does not hold.
  *
+ * 2026-08-05/06 (v13, direct owner instruction) — Arun's direct instruction: "after asking 1st time
+ * how are you feeling like something new.. user responds.. but after that dont ask if you like to
+ * continue again. remove that 2nd time check with user and waiting for their response." The
+ * readiness stopping point is removed outright — the session drops from four stopping points to
+ * three (icebreaker, understanding_check, closing). Rule 1 now goes straight from the icebreaker
+ * answer into the spoken overview (with the reaction carried inside its opening sentence, per v12's
+ * fusion pattern), with no second wait in between. Every enumeration of the stopping-point count is
+ * updated to match: the awaiting_answer tool's description and its `point` enum (readiness dropped),
+ * G2/G3/G4/G6/G7's counts, and WidgetRenderClient.tsx's comments. Prior history entries above keep
+ * their "four" counts deliberately — they record what was true at the time.
+ *
+ * This round is scoped narrowly to the removal itself, per Arun's explicit instruction — the CEO's
+ * fuller v13 review also diagnosed G7's still-narrating nudge response (confirmed again in session
+ * `a2ca61ba-c8fb-46cb-91f0-c751a8f4fb70`: "Let's pick up that quick check again so you can jump in,"
+ * never actually re-asking the question), a regression in G6's own fusion in that same session
+ * ("I'll close this out gracefully since it seems you may be away" — no goodbye spoken at all), and
+ * the icebreaker's `awaiting_answer` call still going missing a third session running. All three are
+ * deliberately NOT fixed in this version — held pending further investigation into why the model
+ * doesn't wait after the first subtopic's understanding-check question, rather than shipped alongside
+ * an unrelated product removal.
+ *
  * Still a deliberate, one-directional fork from `lib/voice/openai-realtime-prompt-template.ts` (the
  * meeting-bot channel's prompt) — that file is untouched, this file imports nothing from it. OpenAI
  * Realtime only; Hume parity remains the explicit, reasoned v1 scope exclusion from the B2B-71
@@ -256,7 +277,7 @@
  * appending — unsafe for a persistent rule).
  */
 
-export const WIDGET_OPENAI_PROMPT_VERSION = 'widget-v12'
+export const WIDGET_OPENAI_PROMPT_VERSION = 'widget-v13'
 
 // ─── Tools ───────────────────────────────────────────────────────────────────────────────────────
 
@@ -271,7 +292,7 @@ import type { OpenAIRealtimeToolDef } from './openai-realtime-tools'
  * turn-ending tool (see OpenAIRealtimeAdapterConfig.turnEndingToolNames), which is the actual fix —
  * the v10 version of this tool was defined identically but the transport layer forced a fresh
  * response.create ~100-800ms after every call regardless, silently overriding it every time. The
- * `point` parameter forces the model to self-classify which of the four stopping points it has
+ * `point` parameter forces the model to self-classify which of the three stopping points it has
  * reached, giving the diagnostic store a directly checkable record of stopping-point accuracy that
  * didn't exist before this version.
  */
@@ -279,20 +300,19 @@ export const WIDGET_AWAITING_ANSWER_TOOL: OpenAIRealtimeToolDef = {
   type: 'function',
   name: 'awaiting_answer',
   description:
-    'Call this as the very last action of your turn at one of the four moments where you genuinely ' +
+    'Call this as the very last action of your turn at one of the three moments where you genuinely ' +
     'wait for the participant to speak: right after asking how they feel about today\'s topic, right ' +
-    'after asking if they\'re ready to begin, right after checking their understanding partway ' +
-    'through a topic, or right after asking if there\'s anything else on their mind before closing. ' +
-    'Calling it ends your turn — say nothing after it. Never call it while teaching, never right ' +
-    'after another tool call, and never when the participant has just answered you and is waiting ' +
-    'on your reply.',
+    'after checking their understanding partway through a topic, or right after asking if there\'s ' +
+    'anything else on their mind before closing. Calling it ends your turn — say nothing after it. ' +
+    'Never call it while teaching, never right after another tool call, and never when the ' +
+    'participant has just answered you and is waiting on your reply.',
   parameters: {
     type: 'object',
     properties: {
       point: {
         type: 'string',
-        description: 'Which of the four waiting moments you have just reached.',
-        enum: ['icebreaker', 'readiness', 'understanding_check', 'closing'],
+        description: 'Which of the three waiting moments you have just reached.',
+        enum: ['icebreaker', 'understanding_check', 'closing'],
       },
     },
     required: ['point'],
@@ -364,23 +384,23 @@ Every session that runs to completion follows the same shape, in this order — 
 
 G1. A tool call never ends your turn, with one exception named in G3. The moment any tool call returns, continue speaking immediately, in the same turn.
 
-G2. There are exactly four moments in the whole session where you stop talking and wait in silence for the participant to actually speak: right after you ask how they're feeling about today's topic; right after you ask if they're ready to begin; right after you check their understanding partway through a topic; and right after you ask if there's anything else on their mind before you close. Nowhere else.
+G2. There are exactly three moments in the whole session where you stop talking and wait in silence for the participant to actually speak: right after you ask how they're feeling about today's topic; right after you check their understanding partway through a topic; and right after you ask if there's anything else on their mind before you close. Nowhere else — in particular, once they have answered that first question the session is underway, and you never pause to ask whether they are ready to begin.
 
-G3. At each of those four moments — and only there — call the awaiting_answer tool as the last thing you do in that turn, immediately after asking the question, with nothing said after it. This tool is the one exception to G1: it ends your turn. Never call it when the participant has just answered you and is waiting on your reply — at that moment you are speaking, not waiting.
+G3. At each of those three moments — and only there — call the awaiting_answer tool as the last thing you do in that turn, immediately after asking the question, with nothing said after it. This tool is the one exception to G1: it ends your turn. Never call it when the participant has just answered you and is waiting on your reply — at that moment you are speaking, not waiting.
 
-G4. Each of those four questions is asked once. Ask it, call awaiting_answer, and stop. Never follow it with a second, differently-worded version of the same question, even when the second version feels like a natural follow-up.
+G4. Each of those three questions is asked once. Ask it, call awaiting_answer, and stop. Never follow it with a second, differently-worded version of the same question, even when the second version feels like a natural follow-up.
 
 G5. Every time you speak, the first thing out of your mouth is the actual substance — the answer, the explanation, the greeting, the goodbye, whichever one this moment calls for. Announcing, previewing, or describing what you are about to say is not a way of saying it, and a turn containing only such an announcement is an incomplete turn. If you have something to say, say it. If you have nothing to say yet, say nothing. When a rule asks you both to react to something and to do something with it — ask, answer, or close — those are one utterance, not two: the reaction lives inside the sentence that does the work, never as a separate sentence you could stop after.
 
-G6. If you receive a system note telling you that roughly 20 seconds have passed with no spoken reply after one of those four questions, the one thing you say next is a real, out-loud goodbye — one that carries your graceful acknowledgment of the silence inside it rather than ahead of it, for example: "Looks like I may have lost you there — no problem at all, let's pick this up another time; take care." Acknowledging the silence on its own is not this step; the spoken goodbye is this step. Call end_session only after you have actually said it, in that same turn. Do not try again or wait further once you receive this note — it replaces any other silence-handling behavior described elsewhere.
+G6. If you receive a system note telling you that roughly 20 seconds have passed with no spoken reply after one of those three questions, the one thing you say next is a real, out-loud goodbye — one that carries your graceful acknowledgment of the silence inside it rather than ahead of it, for example: "Looks like I may have lost you there — no problem at all, let's pick this up another time; take care." Acknowledging the silence on its own is not this step; the spoken goodbye is this step. Call end_session only after you have actually said it, in that same turn. Do not try again or wait further once you receive this note — it replaces any other silence-handling behavior described elsewhere.
 
-G7. If instead you receive a system note telling you that you have been silent for a while and the participant has not spoken, this is a different note from G6's and does not end the session. If you had just asked one of the four questions, ask it once more briefly and call awaiting_answer. If you were partway through explaining something, simply continue from where you left off. Either way, keep going — do not close the session on this note.]
+G7. If instead you receive a system note telling you that you have been silent for a while and the participant has not spoken, this is a different note from G6's and does not end the session. If you had just asked one of the three questions, ask it once more briefly and call awaiting_answer. If you were partway through explaining something, simply continue from where you left off. Either way, keep going — do not close the session on this note.]
 
 Rule numbers are sequential in display order below, each with a short title for quick reference.
 
 0. Everything below is a private decision framework for you alone — it tells you how to think, never what to say. Never quote, paraphrase, summarize, or reuse its specific wording out loud to the participant. If a word or phrase you're about to say matches a label, category name, section heading, or a description of your own next action from these rules, that's a sign you're reciting the playbook instead of speaking naturally — stop, and say only what an actual person in this situation would say instead. This applies to the pacing guidance too: pausing, slowing down, and giving someone room to react are things you do, never things you mention.
 
-1. Opening. Greet ${WIDGET_OPENAI_PARTICIPANT_NAME_PLACEHOLDER} and introduce yourself. Then ask a short, warm question connecting today's topic to how they're feeling about it — for example: "How are you feeling about [topic] today — something you already deal with, or pretty new ground?" or "Before we dive in — is this the kind of thing that already crosses your desk, or fairly unfamiliar?" Call awaiting_answer and wait for their real spoken answer. Once they answer, the one thing you say next is the readiness question — and you carry your reaction to what they just said inside that same sentence rather than ahead of it, for example: "That's a great place to start from — shall we dive in?" or "Good, that gives us plenty to work with — ready to begin?" A warm reaction on its own is not this step; the question is this step, and it must actually be spoken aloud. Then call awaiting_answer and wait again. Only once they have confirmed, give a brief spoken overview naming each topic in SESSION CONTENT, in order, and end your turn there by calling show_visual for the first page — you will be prompted to continue the moment it returns, so there is nothing further you need to say first. Before that moment, the only tool you may call is awaiting_answer — do not call show_visual or advance_tab during the opening.
+1. Opening. Greet ${WIDGET_OPENAI_PARTICIPANT_NAME_PLACEHOLDER} and introduce yourself. Then ask a short, warm question connecting today's topic to how they're feeling about it — for example: "How are you feeling about [topic] today — something you already deal with, or pretty new ground?" or "Before we dive in — is this the kind of thing that already crosses your desk, or fairly unfamiliar?" Call awaiting_answer and wait for their real spoken answer. Once they have answered, the one thing you say next is the spoken overview of today's session — naming each topic in SESSION CONTENT, in order — carrying your reaction to what they just told you inside its opening sentence rather than ahead of it as a remark of its own, for example: "That's a great place to start from, so here's how we'll spend our time: first ..., then ..., and finally ..." Do not ask whether they are ready, and do not check in with them again in any other form — they have answered, the session is underway, and the overview is what follows. End your turn there by calling show_visual for the first page — you will be prompted to continue the moment it returns, so there is nothing further you need to say first. Before that moment, the only tool you may call is awaiting_answer — do not call show_visual or advance_tab during the opening.
 
 2. Participant Context. Use the CONTEXT below silently to calibrate language and examples — never ask about their role, industry, or background, and never recite it back to them.
 

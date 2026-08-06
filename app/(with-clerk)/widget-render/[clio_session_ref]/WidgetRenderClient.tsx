@@ -149,7 +149,7 @@ export interface WidgetRenderClientProps {
 // session spent multiple live-test rounds fixing.
 const POST_TOOL_NUDGE_MS = 7000
 
-// Per Arun's direct instruction (2026-08-05): if the model asks a question at one of its four real
+// Per Arun's direct instruction (2026-08-05): if the model asks a question at one of its three real
 // stopping points and gets no spoken reply for ~20s, it should acknowledge that and it's then fine to
 // end the session. OpenAI Realtime has no built-in clock, so this can't be judged by the model on its
 // own — armed on the explicit awaiting_answer tool call (see the tools object below; v11 moved this
@@ -417,7 +417,7 @@ export default function WidgetRenderClient({
             return 'Session ended.'
           },
           // v10 — OpenAI-only signal (see WIDGET_AWAITING_ANSWER_TOOL): the model calls this the
-          // instant it reaches one of its four real stopping points, right before genuinely waiting.
+          // instant it reaches one of its three real stopping points, right before genuinely waiting.
           // Arms the 20s silence timer on this explicit signal instead of inferring it from a
           // generic mode change, which couldn't distinguish a real stopping point from the model
           // stalling mid-teaching.
@@ -475,7 +475,7 @@ export default function WidgetRenderClient({
               clearSilenceNudge()
             }
             // Silence-timer arming moved to the awaiting_answer tool handler below (v10) — a
-            // generic speaking->listening transition can't tell "just asked one of the four real
+            // generic speaking->listening transition can't tell "just asked one of the three real
             // stopping-point questions" apart from "model unexpectedly stalled mid-teaching," and a
             // live test confirmed the latter also fired this timer, ending sessions mid-lesson.
           },
@@ -518,7 +518,7 @@ export default function WidgetRenderClient({
                 // v12 (CEO review, P0) — the response that just completed carried zero tool calls,
                 // meaning nothing else (not the precise awaiting_answer timer, not an auto-continue)
                 // will happen on its own. Arm the non-terminal watchdog. Also logged as its own
-                // diagnostic label so tool-call compliance at the four stopping points is directly
+                // diagnostic label so tool-call compliance at the three stopping points is directly
                 // queryable later, rather than inferred from anecdote.
                 if (!responseHadToolCallRef.current) {
                   logNoToolDiagnostic('response_done_no_tool_call')
