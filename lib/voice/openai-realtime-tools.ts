@@ -40,7 +40,7 @@ export const OPENAI_REALTIME_TOOLS: OpenAIRealtimeToolDef[] = [
     type: 'function',
     name: 'show_visual',
     description:
-      "Call this the moment you begin covering a new section, BEFORE you start speaking about it substantively — never after. This tool does not advance to the next section by itself; it only signals which section's visual should be shown right now. Pass whichever of section_index or topic_title you know.",
+      "Call this the moment you begin covering a new section, BEFORE you start speaking about it substantively — never after. This tool does not advance to the next section by itself; it only signals which section's visual should be shown right now. Pass whichever of section_index or topic_title you know. Calling this is a silent action: say nothing to announce, introduce, or accompany it.",
     parameters: {
       type: 'object',
       properties: {
@@ -65,7 +65,7 @@ export const OPENAI_REALTIME_TOOLS: OpenAIRealtimeToolDef[] = [
     // reading. Description is deliberately mechanical-only (when to call it); speaking behavior is
     // governed by each channel's own prompt, not this shared tool definition.
     description:
-      "Call this when — and only when — you judge the current section is fully covered: content taught, verification question asked and answered, and your response to that answer given. This is the ONLY tool that ever advances to the next section; show_visual never does. Use your own judgment on timing.",
+      "Call this when — and only when — you judge the current section is fully covered: content taught, verification question asked and answered, and your response to that answer given. This is the ONLY tool that ever advances to the next section; show_visual never does. Use your own judgment on timing. Calling this is a silent action: say nothing to announce, introduce, or accompany it.",
     parameters: {
       type: 'object',
       properties: {},

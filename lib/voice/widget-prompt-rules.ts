@@ -424,6 +424,41 @@
  * this round is validated against a live test, per Arun's explicit sequencing instruction and the
  * CEO's own recommendation not to bundle independent interventions into one round.
  *
+ * 2026-08-06 (v19, direct owner instruction, per an earlier CEO-reviewed recommendation held pending
+ * this instruction) — Priority 2 (the filler before every tool call, confirmed still live in a fresh
+ * test even after v18: "Nice, that's a helpful starting point…", "Exactly, that fits. Let's build on
+ * that…" — 7 instances in one session, always immediately preceding show_visual or advance_tab) is
+ * fixed now, per Arun's direct instruction to stop deferring it. This does NOT touch idle_timeout_ms
+ * or any silence-detection mechanism — those are explicitly out of scope and permanently settled per
+ * v14's own direct instruction; this round is scoped only to tool-call narration.
+ *
+ * Root cause, per the earlier CEO review (never previously shipped): G5's old wording was a bare
+ * prohibition ("tool calls are silent actions... never announce") that named the RULE but not the
+ * documented platform mechanism it was fighting — OpenAI trains Realtime models to speak short "tool
+ * preambles" by default, and a bare prohibition evidently isn't a strong enough counter-signal on its
+ * own. Fix: (1) G5 rewritten around the documented shape of the problem instead of a flat ban — it
+ * now names what a preamble actually IS (a placeholder sentence for "I'm about to do something"),
+ * explains why none of this session's tools ever need one (they're instant, they only change what's
+ * already visible), and states explicitly that the ban is on the SHAPE of the sentence, not any
+ * particular wording — consistent with this file's own repeated lesson (v3→v4, v11) that banning
+ * exact phrases just produces a reworded version of the same failure; (2) show_visual and advance_tab
+ * (lib/voice/openai-realtime-tools.ts, shared with the meeting-bot channel) each gained one added
+ * sentence — "Calling this is a silent action: say nothing to announce, introduce, or accompany it."
+ * — per OpenAI's own developer-community finding that per-tool descriptions are followed more closely
+ * than general prompt rules, giving the no-narration instruction a second, higher-authority channel to
+ * land through. Meeting-bot's own prompt already states its own no-narration rules independently in
+ * its own wording, so this addition only reinforces what that channel already enforces — no behavior
+ * change there.
+ *
+ * Also worth recording: the same live test that reconfirmed the filler showed it consuming an entire
+ * closing turn once ("That's a good one to remember. Let me affirm it and then we'll wrap things up."
+ * — no actual goodbye spoken, followed immediately by end_session) — a more severe case than the
+ * usual tool-preamble instance, since here the "something I'm about to do" being deferred was the
+ * goodbye itself. G5's new shape-based framing covers this case too, on the same logic, even though
+ * end_session's own tool description doesn't get the added "silent action" sentence (unlike
+ * show_visual/advance_tab, ending the call always requires real spoken content first — a real goodbye
+ * — so a blanket "say nothing" instruction doesn't apply there the same way).
+ *
  * Still a deliberate, one-directional fork from `lib/voice/openai-realtime-prompt-template.ts` (the
  * meeting-bot channel's prompt) — that file is untouched, this file imports nothing from it. OpenAI
  * Realtime only; Hume parity remains the explicit, reasoned v1 scope exclusion from the B2B-71
@@ -432,7 +467,7 @@
  * appending — unsafe for a persistent rule).
  */
 
-export const WIDGET_OPENAI_PROMPT_VERSION = 'widget-v18'
+export const WIDGET_OPENAI_PROMPT_VERSION = 'widget-v19'
 
 // ─── Placeholders ────────────────────────────────────────────────────────────────────────────────
 
@@ -505,7 +540,7 @@ G3. If you receive a system note telling you the participant has gone quiet for 
 
 G4. If you receive a system note telling you the session has reached its maximum allowed length, the one thing you say next is a real, out-loud goodbye — briefly wrapping up wherever you are right now, even if not everything has been covered, with your acknowledgment that time is up carried inside the goodbye itself rather than ahead of it. Call end_session only after you have actually said it, in that same turn. This is the only note that ever tells you to close the session — every other note in this file explicitly does not.
 
-G5. Tool calls are silent actions. Never announce, describe, or narrate a tool call — not what it does, not that you are about to make it, not that it is done. The participant can already see the screen change; saying it out loud adds nothing they don't already have. Making a tool call needs no words of its own, and as G1 says you'll be prompted to continue right afterward, so there is never anything you need to say first.]
+G5. Preambles — never speak one in this session. A preamble is a short spoken sentence whose only job is to tell the listener you are about to do something — that you are moving on, thinking it over, checking, or bringing something up. Preambles exist for slow lookups where the listener would otherwise sit through silence; every tool here is instant and only changes what is already on the participant's screen, so a preamble tells them nothing they cannot already see. It is the SHAPE that is banned, not any particular wording: any sentence whose job is to introduce, announce, describe, or hold a place for what you are about to do is a preamble no matter how it is phrased, and rewording it does not make it something else. A response whose entire spoken content is such a sentence is an empty response — it has not said the thing this moment actually calls for. If the only thing you have to say right now is that you are about to do something, say nothing at all and just do it.]
 
 Rule numbers are sequential in display order below, each with a short title for quick reference.
 
