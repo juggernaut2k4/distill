@@ -118,29 +118,6 @@ export interface OpenAIRealtimeAdapterConfig {
   onDiagnostic?: (label: string, detail: Record<string, unknown>) => void
   onMessage: (text: string, source: 'user' | 'ai') => void
   tools: Record<string, (params: Record<string, unknown>) => Promise<string>>
-  /**
-   * 2026-08-05 — additive, optional tool definitions appended after OPENAI_REALTIME_TOOLS in the
-   * session.update payload, so callers that omit this (PartnerRenderClient.tsx, the meeting-bot
-   * channel) get byte-for-byte the same `tools` array as before — zero schema change there. Used
-   * by the widget channel alone to add `awaiting_answer` (see widget-prompt-rules.ts), a tool the
-   * model calls when it reaches one of its four real stopping points, distinguishing that from an
-   * unrelated silence (e.g. stalling mid-teaching) that a generic speaking->listening transition
-   * can't tell apart.
-   */
-  extraTools?: OpenAIRealtimeToolDef[]
-  /**
-   * 2026-08-05 (v11 CEO review, root-cause finding) — tool names that must NOT be followed by an
-   * automatic `response.create`. `end_session` has always been treated this way (see the doc
-   * comment on the dispatch site below); this makes that policy config-driven instead of a single
-   * hardcoded name check, so the widget channel can add `awaiting_answer` to the set without
-   * touching the meeting-bot channel at all (which omits this field and gets byte-for-byte the
-   * same behavior as before). This was the actual root cause of four consecutive rounds of
-   * "the model asks a question, doesn't wait, keeps going" and "filler before substance" bugs:
-   * `awaiting_answer`'s entire purpose is to end the model's turn so the participant can speak,
-   * but the previous hardcoded check forced a fresh response.create ~100-800ms later regardless,
-   * silently overriding it every time — no prompt wording could have fixed a transport-layer bug.
-   */
-  turnEndingToolNames?: string[]
   /** Mirrors HumeAdapterConfig.reportError — optional diagnostic hook for otherwise-silent
    *  WS failure paths (ws.onerror, onclose's give-up branch). */
   reportError?: (message: string) => void
@@ -323,15 +300,24 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
                 // is a different underlying turn-detection algorithm, not a tweak on top of
                 // eagerness — semantic_vad has no threshold/prefix_padding_ms/silence_duration_ms
                 // slots at all, so this fully replaces it rather than adding to it.
-                // idle_timeout_ms only exists under server_vad (fires
-                // input_audio_buffer.timeout_triggered after N ms of silence) — explicitly null
-                // here, matching Arun's tested config, i.e. disabled.
+                // 2026-08-06 (v14) — idle_timeout_ms enabled per Arun's direct instruction, replacing
+                // the awaiting_answer tool-call mechanism entirely: he was uncomfortable depending on
+                // the model reliably remembering to call a function at the right moment (confirmed
+                // unreliable across multiple live tests), and asked for a "wait, check again, then
+                // end gracefully if still nothing" flow driven by real silence instead. This is a
+                // platform-native VAD signal — fires `input_audio_buffer.timeout_triggered` after N
+                // ms of silence on the input audio line, independent of what the model is doing or
+                // whether it called any tool — so the safety net no longer depends on the model's own
+                // compliance at all. NOT confirmed against a live connection whether this fires once
+                // per silence window or repeatedly on continued silence — WidgetRenderClient.tsx's
+                // handling is written defensively (a counter, not an assumption) pending that
+                // confirmation on the next live test.
                 turn_detection: {
                   type: 'server_vad',
                   threshold: 0.5,
                   prefix_padding_ms: 300,
                   silence_duration_ms: 500,
-                  idle_timeout_ms: null,
+                  idle_timeout_ms: 12000,
                 },
                 // 2026-08-04 — per Arun: gpt-realtime-whisper is OpenAI's purpose-built low-latency
                 // streaming transcription model for Realtime, replacing the older/cheaper whisper-1
@@ -361,7 +347,7 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
                 speed: 1.0,
               },
             },
-            tools: this.config.extraTools ? [...OPENAI_REALTIME_TOOLS, ...this.config.extraTools] : OPENAI_REALTIME_TOOLS,
+            tools: OPENAI_REALTIME_TOOLS,
             tool_choice: 'auto',
           },
         }))
@@ -502,6 +488,16 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
         this.currentResponseSpeaking = false
         this.config.onModeChange('listening')
         this.config.onUserSpeechStarted?.()
+        break
+
+      // 2026-08-06 (v14) — the native silence-detector signal idle_timeout_ms enables above. Fires
+      // after N ms of silence on the input audio line, entirely independent of the model's own
+      // behavior or tool calls — this is what replaced the awaiting_answer mechanism. Forwarded as a
+      // diagnostic only; WidgetRenderClient.tsx owns the "first fire = check in, second fire = close
+      // gracefully" staging logic, matching the existing pattern for other client-owned timers in
+      // this file (see triggerRecoveryNudge's own callers).
+      case 'input_audio_buffer.timeout_triggered':
+        this.config.onDiagnostic?.('idle_timeout_triggered', {})
         break
 
       case 'response.output_audio.delta': {
@@ -659,11 +655,7 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
         // already found and fixed in endSession() below (see that method's doc comment) — asking the
         // server for something before confirming the prior operation actually finished — just at a
         // different call site. Fix: wait for this response to be confirmed done first.
-        // 2026-08-05 (v11) — 'end_session' has always been excluded (see the long comment above);
-        // now config-driven via turnEndingToolNames so a caller (the widget channel) can add its own
-        // turn-ending tools without a second hardcoded name check here.
-        const turnEndingTools = new Set(['end_session', ...(this.config.turnEndingToolNames ?? [])])
-        if (!turnEndingTools.has(item.name)) {
+        if (item.name !== 'end_session') {
           await this.waitForResponseDone()
           this.ws?.send(JSON.stringify({ type: 'response.create' }))
         }

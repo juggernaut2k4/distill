@@ -9,7 +9,6 @@ import { shouldAdvanceOnTransition } from '@/lib/partner/advance-transition'
 import { reportClientError } from '@/lib/partner/report-client-error'
 import { resolveWidgetJumpIndex, computeNextProgressIndex } from '@/lib/voice/widget-jump-resolution'
 import { createJumpGuardState, shouldAllowJump } from '@/lib/partner/widget-jump-debounce'
-import { WIDGET_AWAITING_ANSWER_TOOL } from '@/lib/voice/widget-prompt-rules'
 
 /**
  * B2B-71 (docs/specs/B2B-71-requirement-document.md §6.2-§6.5) — the widget channel's OWN,
@@ -149,39 +148,35 @@ export interface WidgetRenderClientProps {
 // session spent multiple live-test rounds fixing.
 const POST_TOOL_NUDGE_MS = 7000
 
-// Per Arun's direct instruction (2026-08-05): if the model asks a question at one of its three real
-// stopping points and gets no spoken reply for ~20s, it should acknowledge that and it's then fine to
-// end the session. OpenAI Realtime has no built-in clock, so this can't be judged by the model on its
-// own — armed on the explicit awaiting_answer tool call (see the tools object below; v11 moved this
-// off the earlier, imprecise speaking->listening mode-transition trigger), not on the initial
-// post-connect 'listening' state before Clio has said anything yet.
-const SILENCE_AFTER_QUESTION_MS = 20000
-const SILENCE_AFTER_QUESTION_NUDGE_TEXT =
-  'About 20 seconds have passed with no spoken reply after your last question. Acknowledge that ' +
-  "gracefully, in your own words — something like \"I didn't catch anything from you there\" — then " +
-  'say a real, out-loud goodbye and call end_session immediately after, in this same turn.'
-
-// v12 (CEO review, P0) — a distinct, non-terminal watchdog for the gap the precise timer above
-// can't cover: a live test showed the model asking a real stopping-point question and then simply
-// ending its turn with NO tool call at all (not even awaiting_answer), which means the timer above
-// — armed only inside the awaiting_answer handler — never arms either, so the session was hanging
-// with zero safety net. This one is deliberately imprecise (it arms on ANY response completing with
-// no tool call, regardless of why) but safe under that imprecision because its action is non-terminal
-// — a nudge to keep going, never an end_session — unlike v10's old mode-transition timer, whose harm
-// came from ending the session on an imprecise trigger, not from arming imprecisely in the first
-// place. Two stages: a NON-terminal "keep going" nudge, then — only if still nothing happens — a
-// graceful close, so a genuinely dead connection doesn't nudge forever.
-const NO_TOOL_CALL_NUDGE_MS = 30000
-const NO_TOOL_CALL_CLOSE_MS = 30000
-const NO_TOOL_CALL_NUDGE_TEXT =
-  'You have been quiet for a while and the participant has not spoken. This does not end the ' +
-  'session — do not say goodbye or call end_session. If you had just asked one of your four ' +
-  'questions, ask it once more briefly and call awaiting_answer. If you were partway through ' +
-  'explaining something, simply continue from where you left off.'
-const NO_TOOL_CALL_CLOSE_TEXT =
-  'You have now been silent for about a minute with no response and no further action. Say a ' +
-  'brief, graceful goodbye out loud right now, and call end_session immediately after, in this ' +
-  'same turn.'
+// v14 — per Arun's direct instruction, the entire awaiting_answer tool-call mechanism (v10-v13) is
+// removed: he was uncomfortable depending on the model reliably remembering to call a function at
+// the right moment (confirmed unreliable across several live tests — the model repeatedly skipped
+// it at genuine stopping points), and asked for a "wait, check in again, then end gracefully" flow
+// driven by real silence instead. Clio's basic ability to wait after asking a question was never in
+// question — that's native OpenAI Realtime turn-taking and always worked on its own; only the
+// *safety-net* timing needed a reliable signal, and it now comes from OpenAI's own native
+// idle_timeout_ms silence detector (see openai-realtime-adapter.ts's turn_detection config) instead
+// of a tool call — a platform-level signal that fires on real audio silence regardless of what the
+// model is doing, with zero dependency on it calling anything.
+//
+// Two-stage, both non-terminal until the second: first fire → check in warmly, don't end. Second
+// consecutive fire with no real user speech in between → say goodbye and end. Counter resets the
+// instant real user speech is detected. NOT confirmed against a live connection whether
+// idle_timeout_ms re-fires repeatedly on continued silence or only once per window — this is written
+// defensively (a counter incremented per fire, not an assumption about firing cadence) pending that
+// confirmation on the next live test.
+const IDLE_TIMEOUT_CHECKIN_TEXT =
+  'You have gone quiet for a bit and the participant has not spoken. This does not end the ' +
+  "session. Check in warmly and briefly, in your own words — something like \"Still there?\" or " +
+  '"Take your time — whenever you\'re ready" — then continue naturally: if you had just asked a ' +
+  'question, wait for their real answer again; if you were partway through explaining something, ' +
+  'simply continue from where you left off.'
+const IDLE_TIMEOUT_CLOSE_TEXT =
+  'You have now gone quiet twice in a row with no response from the participant at all. The one ' +
+  'thing you say next is a real, out-loud goodbye, with your acknowledgment that you haven\'t ' +
+  'heard from them in a while carried inside it rather than ahead of it — for example: "Looks ' +
+  'like I may have lost you there — no problem at all, let\'s pick this up another time; take ' +
+  'care." Then call end_session immediately after, in this same turn.'
 
 export default function WidgetRenderClient({
   clioSessionRef,
@@ -196,10 +191,9 @@ export default function WidgetRenderClient({
   const [showConnectWarmup, setShowConnectWarmup] = useState(Boolean(humeConfigId))
   const warmupTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const postToolNudgeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const silenceNudgeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // v12 — no-tool-call watchdog state (see NO_TOOL_CALL_* constants above).
-  const noToolWatchdogTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const responseHadToolCallRef = useRef(false)
+  // v14 — counts consecutive native idle_timeout_ms fires with no real user speech in between;
+  // reset to 0 the instant real speech is detected (see onUserSpeechStarted below).
+  const idleTimeoutFireCountRef = useRef(0)
   const adapterRef = useRef<VoiceSessionAdapter | null>(null)
   const connectStartRef = useRef<number | null>(null)
   const endedRef = useRef(false)
@@ -344,46 +338,26 @@ export default function WidgetRenderClient({
           }, POST_TOOL_NUDGE_MS)
         }
 
-        const clearSilenceNudge = () => {
-          if (silenceNudgeTimeoutRef.current) {
-            clearTimeout(silenceNudgeTimeoutRef.current)
-            silenceNudgeTimeoutRef.current = null
-          }
-        }
-        const armSilenceNudge = () => {
-          clearSilenceNudge()
-          silenceNudgeTimeoutRef.current = setTimeout(() => {
-            silenceNudgeTimeoutRef.current = null
-            adapterRef.current?.triggerRecoveryNudge?.(SILENCE_AFTER_QUESTION_NUDGE_TEXT)
-          }, SILENCE_AFTER_QUESTION_MS)
-        }
-
-        const clearNoToolWatchdog = () => {
-          if (noToolWatchdogTimeoutRef.current) {
-            clearTimeout(noToolWatchdogTimeoutRef.current)
-            noToolWatchdogTimeoutRef.current = null
-          }
-        }
-        const logNoToolDiagnostic = (label: string) => {
+        // v14 — reacts to the platform-native idle_timeout_ms signal (openai-realtime-adapter.ts).
+        // No client-side timer needed at all: OpenAI's own server-side VAD tracks the real silence
+        // duration and tells us directly when it's crossed the threshold, so there's nothing here to
+        // arm or clear — just a counter of consecutive fires, reset the instant real speech resumes.
+        const resetIdleTimeoutCount = () => { idleTimeoutFireCountRef.current = 0 }
+        const handleIdleTimeoutFired = () => {
+          idleTimeoutFireCountRef.current += 1
           fetch('/api/partner/render/voice-diagnostic-capture', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ clio_session_ref: clioSessionRef, label, detail: {} }),
+            body: JSON.stringify({
+              clio_session_ref: clioSessionRef,
+              label: idleTimeoutFireCountRef.current === 1 ? 'idle_timeout_checkin_fired' : 'idle_timeout_close_fired',
+              detail: { count: idleTimeoutFireCountRef.current },
+            }),
             keepalive: true,
           }).catch(() => {})
-        }
-        const armNoToolWatchdog = () => {
-          clearNoToolWatchdog()
-          logNoToolDiagnostic('no_tool_call_watchdog_armed')
-          noToolWatchdogTimeoutRef.current = setTimeout(() => {
-            adapterRef.current?.triggerRecoveryNudge?.(NO_TOOL_CALL_NUDGE_TEXT)
-            logNoToolDiagnostic('no_tool_call_watchdog_nudge_fired')
-            noToolWatchdogTimeoutRef.current = setTimeout(() => {
-              noToolWatchdogTimeoutRef.current = null
-              adapterRef.current?.triggerRecoveryNudge?.(NO_TOOL_CALL_CLOSE_TEXT)
-              logNoToolDiagnostic('no_tool_call_watchdog_close_fired')
-            }, NO_TOOL_CALL_CLOSE_MS)
-          }, NO_TOOL_CALL_NUDGE_MS)
+          adapterRef.current?.triggerRecoveryNudge?.(
+            idleTimeoutFireCountRef.current === 1 ? IDLE_TIMEOUT_CHECKIN_TEXT : IDLE_TIMEOUT_CLOSE_TEXT
+          )
         }
 
         const tools = {
@@ -415,15 +389,6 @@ export default function WidgetRenderClient({
             setStatus('ended')
             void endSessionOnce()
             return 'Session ended.'
-          },
-          // v10 — OpenAI-only signal (see WIDGET_AWAITING_ANSWER_TOOL): the model calls this the
-          // instant it reaches one of its three real stopping points, right before genuinely waiting.
-          // Arms the 20s silence timer on this explicit signal instead of inferring it from a
-          // generic mode change, which couldn't distinguish a real stopping point from the model
-          // stalling mid-teaching.
-          awaiting_answer: async () => {
-            armSilenceNudge()
-            return 'Waiting.'
           },
         }
 
@@ -458,26 +423,17 @@ export default function WidgetRenderClient({
               }).catch((err) => console.warn('[widget-render] Failed to persist hume_chat_id:', err))
             }
           },
-          onDisconnect: () => { setStatus('ended'); clearPostToolNudge(); clearSilenceNudge(); clearNoToolWatchdog() },
+          onDisconnect: () => { setStatus('ended'); clearPostToolNudge() },
           onError: (message: string) => {
             console.error('[widget-render] Voice session error:', message)
             setStatus('error')
             setConnectionHealth('red')
             revealContentAfterWarmup()
             clearPostToolNudge()
-            clearSilenceNudge()
-            clearNoToolWatchdog()
           },
           onModeChange: (mode: 'listening' | 'speaking') => {
             setStatus(mode)
-            if (mode === 'speaking') {
-              clearPostToolNudge()
-              clearSilenceNudge()
-            }
-            // Silence-timer arming moved to the awaiting_answer tool handler below (v10) — a
-            // generic speaking->listening transition can't tell "just asked one of the three real
-            // stopping-point questions" apart from "model unexpectedly stalled mid-teaching," and a
-            // live test confirmed the latter also fired this timer, ending sessions mid-lesson.
+            if (mode === 'speaking') clearPostToolNudge()
           },
           onMessage,
         }
@@ -493,7 +449,7 @@ export default function WidgetRenderClient({
           adapter = await OpenAIRealtimeAdapter.create({
             ephemeralToken: accessToken,
             model,
-            onUserSpeechStarted: () => { clearPostToolNudge(); clearSilenceNudge(); clearNoToolWatchdog() },
+            onUserSpeechStarted: () => { clearPostToolNudge(); resetIdleTimeoutCount() },
             onDiagnostic: (label, detail) => {
               // B2B-73 — the one real, live connection-health proxy available today (see the
               // feature brief's item 8 analysis: neither adapter uses WebRTC, so there's no
@@ -505,25 +461,10 @@ export default function WidgetRenderClient({
                 setConnectionHealth('red')
               } else if (label === 'response_created') {
                 setConnectionHealth('green')
-                // v12 — reset per-response tracking; a new response starting also means the model
-                // resumed on its own, so any pending no-tool-call watchdog from a prior turn is moot.
-                responseHadToolCallRef.current = false
-                clearNoToolWatchdog()
-              } else if (label === 'tool_call') {
-                // Any tool call — including awaiting_answer — is real progress; never let the
-                // no-tool-call watchdog fire underneath one.
-                responseHadToolCallRef.current = true
-                clearNoToolWatchdog()
-              } else if (label === 'response_done') {
-                // v12 (CEO review, P0) — the response that just completed carried zero tool calls,
-                // meaning nothing else (not the precise awaiting_answer timer, not an auto-continue)
-                // will happen on its own. Arm the non-terminal watchdog. Also logged as its own
-                // diagnostic label so tool-call compliance at the three stopping points is directly
-                // queryable later, rather than inferred from anecdote.
-                if (!responseHadToolCallRef.current) {
-                  logNoToolDiagnostic('response_done_no_tool_call')
-                  armNoToolWatchdog()
-                }
+              } else if (label === 'idle_timeout_triggered') {
+                // v14 — the platform-native silence signal that replaced the awaiting_answer
+                // tool-call mechanism entirely. See handleIdleTimeoutFired's own doc comment.
+                handleIdleTimeoutFired()
               }
               fetch('/api/partner/render/voice-diagnostic-capture', {
                 method: 'POST',
@@ -542,8 +483,6 @@ export default function WidgetRenderClient({
             userId: clioSessionRef,
             mediaStream: micStream,
             tools,
-            extraTools: [WIDGET_AWAITING_ANSWER_TOOL],
-            turnEndingToolNames: ['awaiting_answer'],
             reportError: (message) => reportClientError(clioSessionRef, 'openai-realtime-adapter-error', message),
             ...sharedCallbacks,
           })
@@ -591,8 +530,6 @@ export default function WidgetRenderClient({
       cancelled = true
       if (warmupTimeoutRef.current) clearTimeout(warmupTimeoutRef.current)
       if (postToolNudgeTimeoutRef.current) clearTimeout(postToolNudgeTimeoutRef.current)
-      if (silenceNudgeTimeoutRef.current) clearTimeout(silenceNudgeTimeoutRef.current)
-      if (noToolWatchdogTimeoutRef.current) clearTimeout(noToolWatchdogTimeoutRef.current)
       if (levelIntervalRef.current) clearInterval(levelIntervalRef.current)
       try { micAnalyserRef.current?.disconnect() } catch { /* noop */ }
       void micAudioCtxRef.current?.close().catch(() => {})
