@@ -118,6 +118,15 @@ export interface OpenAIRealtimeAdapterConfig {
   onDiagnostic?: (label: string, detail: Record<string, unknown>) => void
   onMessage: (text: string, source: 'user' | 'ai') => void
   tools: Record<string, (params: Record<string, unknown>) => Promise<string>>
+  /**
+   * TEMPORARY — 2026-08-06, per Arun's direct instruction, to isolate whether advance_tab's own
+   * tool-call mechanics (silent, no-speech-required, forced response.create resume) are the root
+   * cause of the ordering/silent-gap bugs found in B2B-74's investigation. Overrides the tool
+   * schemas actually sent to OpenAI in `session.update` (defaults to the full OPENAI_REALTIME_TOOLS
+   * set if omitted — every existing caller, including the meeting-bot channel, is unaffected).
+   * WidgetRenderClient.tsx passes a filtered set with advance_tab excluded for this diagnostic run.
+   */
+  toolDefs?: OpenAIRealtimeToolDef[]
   /** Mirrors HumeAdapterConfig.reportError — optional diagnostic hook for otherwise-silent
    *  WS failure paths (ws.onerror, onclose's give-up branch). */
   reportError?: (message: string) => void
@@ -347,7 +356,7 @@ export class OpenAIRealtimeAdapter implements VoiceSessionAdapter {
                 speed: 1.0,
               },
             },
-            tools: OPENAI_REALTIME_TOOLS,
+            tools: this.config.toolDefs ?? OPENAI_REALTIME_TOOLS,
             tool_choice: 'auto',
           },
         }))

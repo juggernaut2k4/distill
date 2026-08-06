@@ -3,7 +3,7 @@
 import { Component, useEffect, useRef, useState } from 'react'
 import type { ErrorInfo, ReactNode } from 'react'
 import { HumeAdapter } from '@/lib/voice/hume-adapter'
-import { OpenAIRealtimeAdapter } from '@/lib/voice/openai-realtime-adapter'
+import { OpenAIRealtimeAdapter, OPENAI_REALTIME_TOOLS } from '@/lib/voice/openai-realtime-adapter'
 import type { VoiceSessionAdapter } from '@/lib/voice/adapter'
 import { shouldAdvanceOnTransition } from '@/lib/partner/advance-transition'
 import { reportClientError } from '@/lib/partner/report-client-error'
@@ -501,6 +501,12 @@ export default function WidgetRenderClient({
             userId: clioSessionRef,
             mediaStream: micStream,
             tools,
+            // TEMPORARY — 2026-08-06, per Arun's direct instruction: advance_tab excluded entirely
+            // from what's offered to the model, to isolate whether its own tool-call mechanics
+            // (silent, no speech required, forced response.create resume) are the root cause of the
+            // ordering/silent-gap bugs found in B2B-74's investigation. The model cannot call a tool
+            // that isn't offered here. Revert by deleting this `toolDefs` line.
+            toolDefs: OPENAI_REALTIME_TOOLS.filter((t) => t.name !== 'advance_tab'),
             reportError: (message) => reportClientError(clioSessionRef, 'openai-realtime-adapter-error', message),
             ...sharedCallbacks,
           })
