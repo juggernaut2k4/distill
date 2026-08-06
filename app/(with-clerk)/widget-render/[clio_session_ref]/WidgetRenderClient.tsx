@@ -178,6 +178,19 @@ const IDLE_TIMEOUT_CLOSE_TEXT =
   'like I may have lost you there — no problem at all, let\'s pick this up another time; take ' +
   'care." Then call end_session immediately after, in this same turn.'
 
+// v14 — per Arun's instruction, a hard ceiling on total call length ("max call duration set as 60
+// for now"), independent of the silence-detector logic above. Armed once, at connect time, off the
+// same connectStartRef already used for the elapsed-session UI timer and billing-duration
+// calculation — a single client-side timeout, no adapter/platform involvement needed for this one.
+const MAX_CALL_DURATION_MS = 60 * 60 * 1000
+const MAX_CALL_DURATION_NUDGE_TEXT =
+  'This session has reached its maximum allowed length. The one thing you say next is a real, ' +
+  'out-loud goodbye, briefly wrapping up wherever you are right now even if not everything has ' +
+  'been covered — with your acknowledgment that time is up carried inside the goodbye itself ' +
+  'rather than ahead of it, for example: "We\'re right at time, so let\'s wrap up here — great ' +
+  'progress today, we can pick up the rest another time." Then call end_session immediately ' +
+  'after, in this same turn.'
+
 export default function WidgetRenderClient({
   clioSessionRef,
   inlinePages,
@@ -194,6 +207,7 @@ export default function WidgetRenderClient({
   // v14 — counts consecutive native idle_timeout_ms fires with no real user speech in between;
   // reset to 0 the instant real speech is detected (see onUserSpeechStarted below).
   const idleTimeoutFireCountRef = useRef(0)
+  const maxDurationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const adapterRef = useRef<VoiceSessionAdapter | null>(null)
   const connectStartRef = useRef<number | null>(null)
   const endedRef = useRef(false)
@@ -302,6 +316,10 @@ export default function WidgetRenderClient({
         if (cancelled) return
 
         connectStartRef.current = Date.now()
+        maxDurationTimeoutRef.current = setTimeout(() => {
+          maxDurationTimeoutRef.current = null
+          adapterRef.current?.triggerRecoveryNudge?.(MAX_CALL_DURATION_NUDGE_TEXT)
+        }, MAX_CALL_DURATION_MS)
 
         // B2B-73 — mic amplitude tap. Deliberately not connected to micCtx.destination: this is a
         // read-only analysis tap, never a playback path — the mic must never be routed back out.
@@ -529,6 +547,7 @@ export default function WidgetRenderClient({
     return () => {
       cancelled = true
       if (warmupTimeoutRef.current) clearTimeout(warmupTimeoutRef.current)
+      if (maxDurationTimeoutRef.current) clearTimeout(maxDurationTimeoutRef.current)
       if (postToolNudgeTimeoutRef.current) clearTimeout(postToolNudgeTimeoutRef.current)
       if (levelIntervalRef.current) clearInterval(levelIntervalRef.current)
       try { micAnalyserRef.current?.disconnect() } catch { /* noop */ }

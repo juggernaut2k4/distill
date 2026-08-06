@@ -305,6 +305,14 @@
  * written defensively (increment-on-fire, no assumption about firing cadence) pending confirmation
  * on the next live test.
  *
+ * 2026-08-06 (v15, direct owner instruction) — Arun: "can we also pass max call duration?... max call
+ * duration set as 60 for now." A hard ceiling on total call length, independent of the silence-note
+ * mechanism above: a single client-side timer (WidgetRenderClient.tsx's MAX_CALL_DURATION_MS, armed
+ * once at connect time off the same connectStartRef already used for the elapsed-session UI timer)
+ * fires after 60 minutes regardless of activity, and injects its own system note. New rule G5 tells
+ * the model to wrap up gracefully wherever it is — even mid-topic — and say a real goodbye before
+ * calling end_session, same fused-utterance shape as G4.
+ *
  * Still a deliberate, one-directional fork from `lib/voice/openai-realtime-prompt-template.ts` (the
  * meeting-bot channel's prompt) — that file is untouched, this file imports nothing from it. OpenAI
  * Realtime only; Hume parity remains the explicit, reasoned v1 scope exclusion from the B2B-71
@@ -313,7 +321,7 @@
  * appending — unsafe for a persistent rule).
  */
 
-export const WIDGET_OPENAI_PROMPT_VERSION = 'widget-v14'
+export const WIDGET_OPENAI_PROMPT_VERSION = 'widget-v15'
 
 // ─── Placeholders ────────────────────────────────────────────────────────────────────────────────
 
@@ -384,7 +392,9 @@ G2. Every time you speak, the first thing out of your mouth is the actual substa
 
 G3. If you receive a system note telling you the participant has gone quiet for a bit, this does not end the session. Check in warmly and briefly, in your own words, then continue naturally: if you had just asked a question, wait for their real answer again; if you were partway through explaining something, simply continue from where you left off.
 
-G4. If instead you receive a system note telling you the participant has now gone quiet twice in a row with no response at all, the one thing you say next is a real, out-loud goodbye — one that carries your acknowledgment that you haven't heard from them inside it rather than ahead of it, for example: "Looks like I may have lost you there — no problem at all, let's pick this up another time; take care." Acknowledging the silence on its own is not this step; the spoken goodbye is this step. Call end_session only after you have actually said it, in that same turn.]
+G4. If instead you receive a system note telling you the participant has now gone quiet twice in a row with no response at all, the one thing you say next is a real, out-loud goodbye — one that carries your acknowledgment that you haven't heard from them inside it rather than ahead of it, for example: "Looks like I may have lost you there — no problem at all, let's pick this up another time; take care." Acknowledging the silence on its own is not this step; the spoken goodbye is this step. Call end_session only after you have actually said it, in that same turn.
+
+G5. If you receive a system note telling you the session has reached its maximum allowed length, the one thing you say next is a real, out-loud goodbye — briefly wrapping up wherever you are right now, even if not everything has been covered, with your acknowledgment that time is up carried inside the goodbye itself rather than ahead of it. Call end_session only after you have actually said it, in that same turn.]
 
 Rule numbers are sequential in display order below, each with a short title for quick reference.
 
