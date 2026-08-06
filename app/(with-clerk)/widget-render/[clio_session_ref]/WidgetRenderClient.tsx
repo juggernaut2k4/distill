@@ -159,24 +159,23 @@ const POST_TOOL_NUDGE_MS = 7000
 // of a tool call — a platform-level signal that fires on real audio silence regardless of what the
 // model is doing, with zero dependency on it calling anything.
 //
-// Two-stage, both non-terminal until the second: first fire → check in warmly, don't end. Second
-// consecutive fire with no real user speech in between → say goodbye and end. Counter resets the
-// instant real user speech is detected. NOT confirmed against a live connection whether
-// idle_timeout_ms re-fires repeatedly on continued silence or only once per window — this is written
-// defensively (a counter incremented per fire, not an assumption about firing cadence) pending that
-// confirmation on the next live test.
+// v16 — per Arun's direct instruction, silence alone never ends a session anymore: every fire gets
+// the same non-terminal "check in warmly" reaction, no matter how many times in a row it happens.
+// This sidesteps a real bug found via live testing (a growing audio-playback backlog — generation
+// runs 3-5x faster than real speech, so a long teaching turn can leave several responses queued
+// locally; the native idle_timeout_ms signal is anchored to the SERVER's own generation timeline,
+// not to what the participant has actually heard yet, so it could fire while the participant was
+// still hearing an EARLIER response, well before they'd even heard the question being asked) without
+// needing to touch response pacing or reintroduce a client-side clock — the only way a session ends
+// automatically now is the max-call-duration cap below. Deliberately the simple fix for now; revisit
+// with a pacing-aware fix only if this needs further optimization later.
 const IDLE_TIMEOUT_CHECKIN_TEXT =
   'You have gone quiet for a bit and the participant has not spoken. This does not end the ' +
-  "session. Check in warmly and briefly, in your own words — something like \"Still there?\" or " +
-  '"Take your time — whenever you\'re ready" — then continue naturally: if you had just asked a ' +
+  "session — silence alone is never a reason to close, no matter how many times you receive this " +
+  'note. Check in warmly and briefly, in your own words — something like "Still there?" or "Take ' +
+  'your time — whenever you\'re ready" — then continue naturally: if you had just asked a ' +
   'question, wait for their real answer again; if you were partway through explaining something, ' +
   'simply continue from where you left off.'
-const IDLE_TIMEOUT_CLOSE_TEXT =
-  'You have now gone quiet twice in a row with no response from the participant at all. The one ' +
-  'thing you say next is a real, out-loud goodbye, with your acknowledgment that you haven\'t ' +
-  'heard from them in a while carried inside it rather than ahead of it — for example: "Looks ' +
-  'like I may have lost you there — no problem at all, let\'s pick this up another time; take ' +
-  'care." Then call end_session immediately after, in this same turn.'
 
 // v14 — per Arun's instruction, a hard ceiling on total call length ("max call duration set as 60
 // for now"), independent of the silence-detector logic above. Armed once, at connect time, off the
@@ -204,8 +203,9 @@ export default function WidgetRenderClient({
   const [showConnectWarmup, setShowConnectWarmup] = useState(Boolean(humeConfigId))
   const warmupTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const postToolNudgeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // v14 — counts consecutive native idle_timeout_ms fires with no real user speech in between;
-  // reset to 0 the instant real speech is detected (see onUserSpeechStarted below).
+  // v16 — a running total of native idle_timeout_ms fires this session, for observability only
+  // (see handleIdleTimeoutFired's doc comment — v16 removed the escalate-on-repeated-fire behavior
+  // this counter used to gate).
   const idleTimeoutFireCountRef = useRef(0)
   const maxDurationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const adapterRef = useRef<VoiceSessionAdapter | null>(null)
@@ -356,11 +356,13 @@ export default function WidgetRenderClient({
           }, POST_TOOL_NUDGE_MS)
         }
 
-        // v14 — reacts to the platform-native idle_timeout_ms signal (openai-realtime-adapter.ts).
+        // v14/v16 — reacts to the platform-native idle_timeout_ms signal (openai-realtime-adapter.ts).
         // No client-side timer needed at all: OpenAI's own server-side VAD tracks the real silence
-        // duration and tells us directly when it's crossed the threshold, so there's nothing here to
-        // arm or clear — just a counter of consecutive fires, reset the instant real speech resumes.
-        const resetIdleTimeoutCount = () => { idleTimeoutFireCountRef.current = 0 }
+        // duration and tells us directly when it's crossed the threshold. v16 removed the old
+        // escalate-to-close-on-second-fire staging — every fire now gets the identical non-terminal
+        // check-in reaction (see IDLE_TIMEOUT_CHECKIN_TEXT's own doc comment for why); the counter
+        // here is kept purely for observability (how many times this fired in a session), not to
+        // gate behavior.
         const handleIdleTimeoutFired = () => {
           idleTimeoutFireCountRef.current += 1
           fetch('/api/partner/render/voice-diagnostic-capture', {
@@ -368,14 +370,12 @@ export default function WidgetRenderClient({
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               clio_session_ref: clioSessionRef,
-              label: idleTimeoutFireCountRef.current === 1 ? 'idle_timeout_checkin_fired' : 'idle_timeout_close_fired',
+              label: 'idle_timeout_checkin_fired',
               detail: { count: idleTimeoutFireCountRef.current },
             }),
             keepalive: true,
           }).catch(() => {})
-          adapterRef.current?.triggerRecoveryNudge?.(
-            idleTimeoutFireCountRef.current === 1 ? IDLE_TIMEOUT_CHECKIN_TEXT : IDLE_TIMEOUT_CLOSE_TEXT
-          )
+          adapterRef.current?.triggerRecoveryNudge?.(IDLE_TIMEOUT_CHECKIN_TEXT)
         }
 
         const tools = {
@@ -467,7 +467,7 @@ export default function WidgetRenderClient({
           adapter = await OpenAIRealtimeAdapter.create({
             ephemeralToken: accessToken,
             model,
-            onUserSpeechStarted: () => { clearPostToolNudge(); resetIdleTimeoutCount() },
+            onUserSpeechStarted: () => { clearPostToolNudge() },
             onDiagnostic: (label, detail) => {
               // B2B-73 — the one real, live connection-health proxy available today (see the
               // feature brief's item 8 analysis: neither adapter uses WebRTC, so there's no

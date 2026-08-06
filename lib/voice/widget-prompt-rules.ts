@@ -313,6 +313,35 @@
  * the model to wrap up gracefully wherever it is — even mid-topic — and say a real goodbye before
  * calling end_session, same fused-utterance shape as G4.
  *
+ * 2026-08-06 (v16, direct owner instruction, CEO-reviewed investigation) — a joint live-test
+ * investigation (session `f9c0a0c9-ce96-47f4-9868-394148179657`) found the real cause behind
+ * Arun's report that subtopic 2 "did not wait and ended the call": a growing audio-playback
+ * backlog, not a broken silence detector. Generation runs 3-5x faster than real speech, and every
+ * teaching turn in this product runs 14-22 seconds, so by the time a participant has actually heard
+ * a question out loud, several more responses (including the idle-timeout escalation sequence) can
+ * already be generated and queued behind it — from the participant's seat, question and "goodbye"
+ * arrive back to back with no real gap to answer in, even though real server-side time had passed.
+ * A proper fix exists natively in-repo (gate the tool-dispatch response.create on
+ * waitForPlaybackCaughtUp(), the same wait advance_tab's own visual update already uses) but changes
+ * response pacing, so it's deferred pending its own spec round rather than folded into a bug-fix
+ * release. In the meantime, per Arun's direct instruction ("let's go with 60 min max call duration
+ * driven solution... look into it later if we need optimization"), the four-stopping-point silence
+ * timer's escalate-to-close behavior is removed outright: G4 (the old "second fire → goodbye →
+ * end_session" rule) is deleted, and G3 (the check-in) now explicitly applies no matter how many
+ * times it fires in a row — silence alone can never end a session anymore. The former G5 (max
+ * duration) renumbers to G4 and becomes the ONLY note that ever instructs a close. This sidesteps the
+ * backlog bug entirely for the "premature ending" symptom without touching pacing or reintroducing
+ * any client-side clock beyond the existing 60-minute cap.
+ *
+ * Also confirmed as a standalone, separately-worth-knowing finding during this investigation: this
+ * file's own transcript-capture timestamps mix clocks — AI turns are stamped at
+ * response.output_audio_transcript.done (generation-complete time), while participant turns are
+ * stamped at actual speech time — so any transcript read that compares an AI turn's timestamp
+ * against a participant turn's timestamp as if both were "when it was heard" will misread elapsed
+ * silence, sometimes by a full order of magnitude. A prior read of this exact session initially
+ * (incorrectly) concluded the participant took 78 seconds to answer subtopic 1's question; the true
+ * gap, once corrected for this, was a few seconds after the response actually finished playing.
+ *
  * Still a deliberate, one-directional fork from `lib/voice/openai-realtime-prompt-template.ts` (the
  * meeting-bot channel's prompt) — that file is untouched, this file imports nothing from it. OpenAI
  * Realtime only; Hume parity remains the explicit, reasoned v1 scope exclusion from the B2B-71
@@ -321,7 +350,7 @@
  * appending — unsafe for a persistent rule).
  */
 
-export const WIDGET_OPENAI_PROMPT_VERSION = 'widget-v15'
+export const WIDGET_OPENAI_PROMPT_VERSION = 'widget-v16'
 
 // ─── Placeholders ────────────────────────────────────────────────────────────────────────────────
 
@@ -390,11 +419,9 @@ G1. A tool call never ends your turn. The moment any tool call returns, continue
 
 G2. Every time you speak, the first thing out of your mouth is the actual substance — the answer, the explanation, the greeting, the goodbye, whichever one this moment calls for. Announcing, previewing, or describing what you are about to say is not a way of saying it, and a turn containing only such an announcement is an incomplete turn. If you have something to say, say it. If you have nothing to say yet, say nothing. When a rule asks you both to react to something and to do something with it — ask, answer, or close — those are one utterance, not two: the reaction lives inside the sentence that does the work, never as a separate sentence you could stop after. Once you have asked a question and are waiting on a real answer, never follow it with a second, differently-worded version of the same question in that same turn, even if the restatement feels like a natural follow-up — ask it once, then actually stop and wait.
 
-G3. If you receive a system note telling you the participant has gone quiet for a bit, this does not end the session. Check in warmly and briefly, in your own words, then continue naturally: if you had just asked a question, wait for their real answer again; if you were partway through explaining something, simply continue from where you left off.
+G3. If you receive a system note telling you the participant has gone quiet for a bit, this does NOT end the session — silence alone is never a reason to close. Check in warmly and briefly, in your own words, then continue naturally: if you had just asked a question, wait for their real answer again; if you were partway through explaining something, simply continue from where you left off. This applies no matter how many of these notes you receive in a row.
 
-G4. If instead you receive a system note telling you the participant has now gone quiet twice in a row with no response at all, the one thing you say next is a real, out-loud goodbye — one that carries your acknowledgment that you haven't heard from them inside it rather than ahead of it, for example: "Looks like I may have lost you there — no problem at all, let's pick this up another time; take care." Acknowledging the silence on its own is not this step; the spoken goodbye is this step. Call end_session only after you have actually said it, in that same turn.
-
-G5. If you receive a system note telling you the session has reached its maximum allowed length, the one thing you say next is a real, out-loud goodbye — briefly wrapping up wherever you are right now, even if not everything has been covered, with your acknowledgment that time is up carried inside the goodbye itself rather than ahead of it. Call end_session only after you have actually said it, in that same turn.]
+G4. If you receive a system note telling you the session has reached its maximum allowed length, the one thing you say next is a real, out-loud goodbye — briefly wrapping up wherever you are right now, even if not everything has been covered, with your acknowledgment that time is up carried inside the goodbye itself rather than ahead of it. Call end_session only after you have actually said it, in that same turn. This is the only note that ever tells you to close the session — every other note in this file explicitly does not.]
 
 Rule numbers are sequential in display order below, each with a short title for quick reference.
 
