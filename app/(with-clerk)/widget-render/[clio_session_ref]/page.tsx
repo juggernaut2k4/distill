@@ -119,7 +119,11 @@ export default async function WidgetRenderPage({
   // simply discarded here). sessionContent is plain narration-text formatting
   // (buildInlineSessionContent), not "the prompt" itself, so it stays reused as-is.
   const promptConfig = await getPromptConfig(session.partnerAccountId)
-  const sessionContent = buildInlineSessionContent(session, session.contentPages ?? [])
+  // 2026-08-07 — 'widget' variant: this channel's own widget-prompt-rules.ts v21 owns all speaking
+  // and tool-calling instructions now; the shared per-page stage direction states only page facts.
+  // See buildInlineSessionContent's own doc comment. Meeting-bot's PartnerRenderClient.tsx call site
+  // is untouched and keeps the 'meeting_bot' default.
+  const sessionContent = buildInlineSessionContent(session, session.contentPages ?? [], 'widget')
   const openaiVoiceInstructions = assembleWidgetOpenAIPrompt({
     profileContext: '',
     intentContext: '',

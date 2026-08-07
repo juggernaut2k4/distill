@@ -715,10 +715,6 @@ async function resolveInlineSessionRender(session: PartnerSessionRow): Promise<L
   }
 }
 
-/** Which channel's rule set `buildInlineSessionContent()`'s per-page stage direction should speak
- *  to. Defaults to `'meeting_bot'` so every existing caller's output stays byte-identical. */
-export type InlineStageDirectionVariant = 'meeting_bot' | 'widget'
-
 /**
  * Builds the SESSION CONTENT block for an inline session's assembled prompt.
  * Each page gets a stage-direction (leveraging the fixed template's rule 10 —
@@ -732,24 +728,8 @@ export type InlineStageDirectionVariant = 'meeting_bot' | 'widget'
  * (unchanged, `lib/content/transition-markers.ts`) but is no longer spoken —
  * it now serves only as `PartnerRenderClient.tsx`'s internal, opaque dedup
  * key for the debounce/idempotency layer.
- *
- * 2026-08-07 — this function's stage-direction text is shared between the meeting-bot channel
- * (`PartnerRenderClient.tsx`, this file's original caller) and the widget channel
- * (`app/(with-clerk)/widget-render/[clio_session_ref]/page.tsx`), but the two channels' prompts
- * disagree on rule numbers, tool-calling order, and whether a fixed wrap-up phrase should be
- * spoken at all — the widget's own `widget-prompt-rules.ts` v21 rewrite found the shared text was
- * pointing widget sessions at a nonexistent "rule 8," ordering `advance_tab` backwards relative to
- * its own rule 3h, and mandating a preamble its own G16 bans. The `variant` param (default
- * `'meeting_bot'`, reproducing this function's pre-2026-08-07 output byte-for-byte) lets each
- * channel get its own correct stage direction from one shared body, rather than forking the whole
- * function — only the two branches below actually differ per channel; everything else (title,
- * subtitle, page headers, content blocks) is genuine shared formatting.
  */
-export function buildInlineSessionContent(
-  session: PartnerSessionRow,
-  pages: InlineContentPage[],
-  variant: InlineStageDirectionVariant = 'meeting_bot',
-): string {
+export function buildInlineSessionContent(session: PartnerSessionRow, pages: InlineContentPage[]): string {
   const blocks: string[] = []
 
   if (session.contentTitle) blocks.push(`SESSION TITLE: ${session.contentTitle}`)
@@ -763,23 +743,19 @@ export function buildInlineSessionContent(
       `Cover each page's material, then move to the next at the transition point described for that page.`
   )
 
-  // B2B-60 §5 — non-blocking collision observability, meeting_bot variant only: the widget prompt
-  // no longer asks the model to speak STAGE_1_WRAP_UP_PHRASE at all (see the widget branch below),
-  // so checking widget sessions against it would only ever produce a meaningless warning. Same
-  // scope of source text as the pattern computeStage2Eligibility uses client-side (session-level
-  // narration + every page's own narration content), checked once here against the fixed Stage 1
-  // phrase. Never blocks session creation — there is no fallback phrase to regenerate into (the
-  // phrase is fixed and global by design).
-  if (variant === 'meeting_bot') {
-    const narrationText = [session.contentToExplain, session.contentTitle, session.contentSubtitle, ...pages.map((p) => p.content_text)]
-      .filter((v): v is string => Boolean(v))
-      .join(' ')
+  // B2B-60 §5 — non-blocking collision observability. Same scope of source text as the pattern
+  // computeStage2Eligibility uses client-side (session-level narration + every page's own
+  // narration content), checked once here against the fixed Stage 1 phrase. Never blocks
+  // session creation — there is no fallback phrase to regenerate into (the phrase is fixed and
+  // global by design).
+  const narrationText = [session.contentToExplain, session.contentTitle, session.contentSubtitle, ...pages.map((p) => p.content_text)]
+    .filter((v): v is string => Boolean(v))
+    .join(' ')
 
-    if (matchesSpokenPhrase(narrationText, STAGE_1_WRAP_UP_PHRASE)) {
-      console.warn(
-        `[B2B-60] Session ${session.id}'s narration content is close to the fixed Stage 1 wrap-up phrase ("${STAGE_1_WRAP_UP_PHRASE}"). Not blocking session creation — for awareness only.`
-      )
-    }
+  if (matchesSpokenPhrase(narrationText, STAGE_1_WRAP_UP_PHRASE)) {
+    console.warn(
+      `[B2B-60] Session ${session.id}'s narration content is close to the fixed Stage 1 wrap-up phrase ("${STAGE_1_WRAP_UP_PHRASE}"). Not blocking session creation — for awareness only.`
+    )
   }
 
   pages.forEach((page, index) => {
@@ -790,17 +766,7 @@ export function buildInlineSessionContent(
     // B2B-35 F1 — the page's actual teaching content, when the partner has supplied it. Absent
     // for every pre-B2B-35 page — this block's output stays byte-identical in that case.
     if (page.content_text) lines.push(`CONTENT TO TEACH ON THIS PAGE:\n${page.content_text}`)
-
-    if (variant === 'widget') {
-      // 2026-08-07 — states only per-page facts (page number, this page's closing point, the next
-      // page's title). Zero speaking or tool-calling instructions: widget-prompt-rules.ts's own
-      // rules 3/6 own all of that now, so there is nothing here to contradict them.
-      lines.push(
-        isLast
-          ? `[FOR YOU ONLY — DO NOT SAY] Page ${pageNo} of ${pages.length}, the last one. Closing point for this page: "${page.transition_trigger}". There is no next page — after this one, go to rule 6.`
-          : `[FOR YOU ONLY — DO NOT SAY] Page ${pageNo} of ${pages.length}. Closing point for this page: "${page.transition_trigger}".${pages[index + 1]?.title ? ` Next page: "${pages[index + 1].title}".` : ''}`
-      )
-    } else if (isLast) {
+    if (isLast) {
       // B2B-60 §4c — the spoken-marker instruction is dropped entirely on the final page:
       // nothing is listening for it (there's no next page), and keeping it would sit directly
       // next to rule 8's own natural close, reading as a redundant, slightly odd double wrap-up.

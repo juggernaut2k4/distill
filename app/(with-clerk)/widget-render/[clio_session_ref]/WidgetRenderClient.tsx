@@ -3,7 +3,7 @@
 import { Component, useEffect, useRef, useState } from 'react'
 import type { ErrorInfo, ReactNode } from 'react'
 import { HumeAdapter } from '@/lib/voice/hume-adapter'
-import { OpenAIRealtimeAdapter, OPENAI_REALTIME_TOOLS } from '@/lib/voice/openai-realtime-adapter'
+import { OpenAIRealtimeAdapter } from '@/lib/voice/openai-realtime-adapter'
 import type { VoiceSessionAdapter } from '@/lib/voice/adapter'
 import { shouldAdvanceOnTransition } from '@/lib/partner/advance-transition'
 import { reportClientError } from '@/lib/partner/report-client-error'
@@ -555,14 +555,12 @@ export default function WidgetRenderClient({
             userId: clioSessionRef,
             mediaStream: micStream,
             tools,
-            // TEMPORARY — 2026-08-06, per Arun's direct instruction: advance_tab excluded entirely
-            // from what's offered to the model, to isolate whether its own tool-call mechanics
-            // (silent, no speech required, forced response.create resume) are the root cause of the
-            // ordering/silent-gap bugs found in B2B-74's investigation. The model cannot call a tool
-            // that isn't offered here. Revert by deleting this `toolDefs` line. show_visual stays
-            // available — per Arun's 2026-08-07 instruction, only PHRASE_TRIGGERED_ADVANCE_ENABLED
-            // (below) is being turned off this round, not this tool.
-            toolDefs: OPENAI_REALTIME_TOOLS.filter((t) => t.name !== 'advance_tab'),
+            // 2026-08-07 — advance_tab re-enabled (the exclusion experiment from 2026-08-06 is
+            // over): widget-prompt-rules.ts v21's rule 3g/3h design depends on it as the real
+            // topic-boundary mechanism, and leaving it disabled would make 3g a dead instruction.
+            // It stays a model-called tool per direct instruction, not client-triggered —
+            // PHRASE_TRIGGERED_ADVANCE_ENABLED (below) stays off. No `toolDefs` override needed;
+            // the adapter's own default (OPENAI_REALTIME_TOOLS, full set) applies.
             reportError: (message) => reportClientError(clioSessionRef, 'openai-realtime-adapter-error', message),
             ...sharedCallbacks,
           })
