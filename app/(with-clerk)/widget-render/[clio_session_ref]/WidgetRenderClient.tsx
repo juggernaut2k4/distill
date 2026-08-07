@@ -190,6 +190,22 @@ const MAX_CALL_DURATION_NUDGE_TEXT =
   'progress today, we can pick up the rest another time." Then call end_session immediately ' +
   'after, in this same turn.'
 
+// 2026-08-07 — EXPERIMENTAL, per Arun's direct instruction, trivially revertible: flip to `false`
+// and redeploy to fully disable, no other changes needed. Root cause under investigation this round
+// is that advance_tab has been observed firing silently BEFORE the model finishes speaking the
+// content that belongs before it — the screen moves ahead of what's actually been said. This tries
+// a different mechanism entirely: instead of trusting the model's own tool-call timing to drive the
+// screen, watch its own completed spoken turn (onMessage's 'ai' text, already the real, final
+// transcript) for the fixed transition phrase rule 3 already asks it to say ("next up is ...") and
+// advance the screen ourselves the instant we see it — driven by what was actually said, not by a
+// separate, disconnected tool-call decision. advance_tab itself is left fully intact as a fallback:
+// if the model still calls it (nothing in the prompt tells it not to), `performAdvance`'s own
+// debounce below treats a second call within the guard window as the same transition, not a double
+// advance — so this is additive, not a replacement, and safe if phrase detection ever misses.
+const PHRASE_TRIGGERED_ADVANCE_ENABLED = true
+const NEXT_TOPIC_TRANSITION_PHRASE = /next up is/i
+const PHRASE_ADVANCE_DEBOUNCE_MS = 5000
+
 export default function WidgetRenderClient({
   clioSessionRef,
   inlinePages,
@@ -220,6 +236,10 @@ export default function WidgetRenderClient({
   const progressIndexRef = useRef(0)
   const [displayedIndex, setDisplayedIndex] = useState(0)
   const displayedIndexRef = useRef(0)
+  // 2026-08-07 — debounce guard shared by performAdvance's two call sites (the real advance_tab
+  // tool call and phrase-triggered detection below), so whichever fires first for a given topic
+  // transition wins and the other is treated as the same event, not a second advance.
+  const lastPerformAdvanceAtRef = useRef(0)
   const sectionEls = useRef<(HTMLDivElement | null)[]>([])
 
   // Forward-advance dedup — reused unmodified from lib/partner/advance-transition.ts, same as
@@ -378,6 +398,24 @@ export default function WidgetRenderClient({
           adapterRef.current?.triggerRecoveryNudge?.(IDLE_TIMEOUT_CHECKIN_TEXT)
         }
 
+        // 2026-08-07 — shared by the real advance_tab tool call and phrase-triggered detection
+        // (onMessage below). Extracted so both paths do the exact same thing and share the same
+        // debounce guard — whichever fires first for a given transition wins, the other is a no-op.
+        const performAdvance = () => {
+          const now = Date.now()
+          if (now - lastPerformAdvanceAtRef.current < PHRASE_ADVANCE_DEBOUNCE_MS) return
+          lastPerformAdvanceAtRef.current = now
+          armPostToolNudge()
+          progressIndexRef.current = computeNextProgressIndex(progressIndexRef.current, count)
+          // Same fire-and-forget playback-catch-up wait PartnerRenderClient.tsx's own advance_tab
+          // uses (VoiceSessionAdapter.waitForPlaybackCaughtUp — no-op for Hume) — the visual
+          // advance must never get ahead of what the participant has actually heard.
+          void (async () => {
+            await adapterRef.current?.waitForPlaybackCaughtUp?.()
+            scrollToIndex(progressIndexRef.current)
+          })()
+        }
+
         const tools = {
           show_visual: async (params: Record<string, unknown>) => {
             const now = Date.now()
@@ -392,15 +430,7 @@ export default function WidgetRenderClient({
             return 'Visual is showing.'
           },
           advance_tab: async () => {
-            armPostToolNudge()
-            progressIndexRef.current = computeNextProgressIndex(progressIndexRef.current, count)
-            // Same fire-and-forget playback-catch-up wait PartnerRenderClient.tsx's own advance_tab
-            // uses (VoiceSessionAdapter.waitForPlaybackCaughtUp — no-op for Hume) — the visual
-            // advance must never get ahead of what the participant has actually heard.
-            void (async () => {
-              await adapterRef.current?.waitForPlaybackCaughtUp?.()
-              scrollToIndex(progressIndexRef.current)
-            })()
+            performAdvance()
             return 'Advanced.'
           },
           end_session: async () => {
@@ -418,6 +448,25 @@ export default function WidgetRenderClient({
               body: JSON.stringify({ clio_session_ref: clioSessionRef, source, text }),
               keepalive: true,
             }).catch(() => {})
+
+            // 2026-08-07 — EXPERIMENTAL (see PHRASE_TRIGGERED_ADVANCE_ENABLED's own doc comment
+            // above). `text` here is already the final, complete transcript for this turn (the
+            // adapter only calls onMessage on response.output_audio_transcript.done), so this fires
+            // once the model has actually said the transition phrase rule 3 asks for — never before.
+            if (
+              PHRASE_TRIGGERED_ADVANCE_ENABLED &&
+              source === 'ai' &&
+              progressIndexRef.current < count - 1 &&
+              NEXT_TOPIC_TRANSITION_PHRASE.test(text)
+            ) {
+              fetch('/api/partner/render/voice-diagnostic-capture', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ clio_session_ref: clioSessionRef, label: 'phrase_triggered_advance', detail: { text } }),
+                keepalive: true,
+              }).catch(() => {})
+              performAdvance()
+            }
           }
         }
 

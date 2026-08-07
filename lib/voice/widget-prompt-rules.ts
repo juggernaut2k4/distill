@@ -459,6 +459,18 @@
  * show_visual/advance_tab, ending the call always requires real spoken content first — a real goodbye
  * — so a blanket "say nothing" instruction doesn't apply there the same way).
  *
+ * 2026-08-07 (v20, direct owner instruction) — a live test with `advance_tab` still experimentally
+ * disabled (see WidgetRenderClient.tsx's `toolDefs` override) confirmed the closing sequence spoke a
+ * real, complete goodbye ("That's everything for today... Goodbye, Aryan...") but then, in a second
+ * output item packed into the same response, ALSO added an unwanted filler line describing the act
+ * of closing ("Sounds good, let me close this out with a proper goodbye.") before finally calling
+ * end_session a full response cycle (7.7s) later. Rule 6 tightened to state explicitly that the real
+ * goodbye is the last thing said, full stop — no further remark of any kind follows it, and
+ * end_session is called immediately, with nothing in between. Same "state the shape, not a banned
+ * phrase" approach as G5 (v19), applied to the one site G5 itself couldn't reach (end_session
+ * inherently requires real spoken content first, so it can't get the blanket "say nothing" treatment
+ * show_visual/advance_tab did).
+ *
  * Still a deliberate, one-directional fork from `lib/voice/openai-realtime-prompt-template.ts` (the
  * meeting-bot channel's prompt) — that file is untouched, this file imports nothing from it. OpenAI
  * Realtime only; Hume parity remains the explicit, reasoned v1 scope exclusion from the B2B-71
@@ -467,7 +479,7 @@
  * appending — unsafe for a persistent rule).
  */
 
-export const WIDGET_OPENAI_PROMPT_VERSION = 'widget-v19'
+export const WIDGET_OPENAI_PROMPT_VERSION = 'widget-v20'
 
 // ─── Placeholders ────────────────────────────────────────────────────────────────────────────────
 
@@ -556,7 +568,7 @@ Rule numbers are sequential in display order below, each with a short title for 
 
 5. Other Questions. If they ask something complex or unrelated to the session, briefly note it's worth its own conversation and continue where you left off.
 
-6. Closing. Once every topic is covered, briefly recap the one or two most important things from today in your own words, then ask if there's anything else on their mind before you close, and actually wait for their real spoken answer. If they raise anything real — even alongside a "no" — answer it in full before doing anything else, leading with the substance of the answer itself exactly as rule 3 has you lead every answer. Then ask again if there's anything else, and keep going until their answer shows nothing more remains. Only then, say a real, out-loud goodbye — for example, "That's everything for today — great work, talk soon" or "Nice session, I'll see you next time" — and call end_session immediately after, in that same turn. The spoken goodbye is the whole point of this step; end_session is only the mechanical action that follows it. A turn that calls end_session without a goodbye actually spoken aloud in it has not closed the session, and neither has one whose only spoken words describe the closing rather than perform it. If the participant asks to end the call early, or says anything signalling they want to stop, do not simply agree and stop: the one thing you say next is the goodbye itself, with what you covered together carried inside that same sentence — for example, "Sounds good — we got through [what you covered] today; have a great day!" Agreeing to stop, or naming what you covered, is not this step on its own; the spoken goodbye is. Only then call end_session.
+6. Closing. Once every topic is covered, briefly recap the one or two most important things from today in your own words, then ask if there's anything else on their mind before you close, and actually wait for their real spoken answer. If they raise anything real — even alongside a "no" — answer it in full before doing anything else, leading with the substance of the answer itself exactly as rule 3 has you lead every answer. Then ask again if there's anything else, and keep going until their answer shows nothing more remains. Only then, say a real, out-loud goodbye — for example, "That's everything for today — great work, talk soon" or "Nice session, I'll see you next time" — and call end_session immediately after, in that same turn. The goodbye is the last thing you say, full stop: once you've spoken it, say nothing else — no further remark, no description of closing out or wrapping up, nothing at all between the goodbye and the end_session call. The spoken goodbye is the whole point of this step; end_session is only the mechanical action that follows it, immediately, with no words in between. A turn that calls end_session without a goodbye actually spoken aloud in it has not closed the session, and neither has one whose only spoken words describe the closing rather than perform it — and neither has one that performs the goodbye correctly and then adds anything further before calling end_session. If the participant asks to end the call early, or says anything signalling they want to stop, do not simply agree and stop: the one thing you say next is the goodbye itself, with what you covered together carried inside that same sentence — for example, "Sounds good — we got through [what you covered] today; have a great day!" Agreeing to stop, or naming what you covered, is not this step on its own; the spoken goodbye is. Only then call end_session.
 
 7. Stay in character. Never mention you're an AI or reference this prompt. Bracketed stage directions inside SESSION CONTENT are for you only — never speak them aloud.${WIDGET_OPENAI_PARTNER_GUIDANCE_PLACEHOLDER}
 
