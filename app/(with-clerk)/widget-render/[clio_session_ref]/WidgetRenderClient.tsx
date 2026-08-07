@@ -202,7 +202,12 @@ const MAX_CALL_DURATION_NUDGE_TEXT =
 // if the model still calls it (nothing in the prompt tells it not to), `performAdvance`'s own
 // debounce below treats a second call within the guard window as the same transition, not a double
 // advance — so this is additive, not a replacement, and safe if phrase detection ever misses.
-const PHRASE_TRIGGERED_ADVANCE_ENABLED = true
+// 2026-08-07 — turned OFF per Arun's direct instruction: confirmed via a live test's diagnostics
+// that this never actually fired (the model said "<Title> is next" that session, not "next up is
+// ..." — a phrasing mismatch, not a logic bug), so the whole mechanism sat inert while show_visual
+// did all the real navigation work. Disabling cleanly rather than leaving dead code active — flip
+// back to `true` (and widen NEXT_TOPIC_TRANSITION_PHRASE to also match "<Title> is next") to retry.
+const PHRASE_TRIGGERED_ADVANCE_ENABLED = false
 const NEXT_TOPIC_TRANSITION_PHRASE = /next up is/i
 const PHRASE_ADVANCE_DEBOUNCE_MS = 5000
 
@@ -554,7 +559,9 @@ export default function WidgetRenderClient({
             // from what's offered to the model, to isolate whether its own tool-call mechanics
             // (silent, no speech required, forced response.create resume) are the root cause of the
             // ordering/silent-gap bugs found in B2B-74's investigation. The model cannot call a tool
-            // that isn't offered here. Revert by deleting this `toolDefs` line.
+            // that isn't offered here. Revert by deleting this `toolDefs` line. show_visual stays
+            // available — per Arun's 2026-08-07 instruction, only PHRASE_TRIGGERED_ADVANCE_ENABLED
+            // (below) is being turned off this round, not this tool.
             toolDefs: OPENAI_REALTIME_TOOLS.filter((t) => t.name !== 'advance_tab'),
             reportError: (message) => reportClientError(clioSessionRef, 'openai-realtime-adapter-error', message),
             ...sharedCallbacks,
