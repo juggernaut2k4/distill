@@ -476,6 +476,25 @@ sibling token routes. One line; the only reason it was not done in B2B-75 is tha
 approved file list is exhaustive and this is the meeting-bot channel's provider, not the widget's.
 **File:** `middleware.ts`
 
+### B2B-76-FF — Live-Mode Widget Max-Call-Duration Backstop
+**Status:** Not started (fast-follow, logged per B2B-76 item 3's own scope decision).
+**What:** B2B-76 item 3 added a max-call-duration backstop for widget sessions, merged into
+`partnerTrialStuckSessionBackstopSweep` (`inngest/partner-trial-cutoff.ts`) rather than a second
+parallel cron (see that function's `MAX_WIDGET_CALL_DURATION_MS` JSDoc for the full reasoning) — but
+it is scoped to `test_mode=true` only, deliberately, for the same reason `B2B-43-FF` above scoped the
+abandoned-session half of the same sweep to test_mode: `runTrialCutoffSequence()`'s
+`record-billable-events` step hardcodes `testMode: true`, and its `availableMinutes` computation
+draws from the trial/test wallet (`Math.max(0, 20 - trial_minutes_used) + test_minutes_balance`) —
+neither is correct for a real, live-mode (test_mode=false) paid widget session. A genuinely long-
+running live-mode widget call today has no server-side duration ceiling at all beyond whatever the
+client-side `maxDurationTimeoutRef` nudge in `WidgetRenderClient.tsx` achieves (which cannot survive
+a killed or frozen tab).
+**Fix (when picked up):** needs its own availableMinutes-equivalent derivation for live-mode billing
+(the session's actual configured/purchased minute balance, not the trial/test wallet math) before
+`runTrialCutoffSequence()` — or a live-mode-specific variant of it — can be safely reused. Same class
+of follow-up work as `B2B-43-FF` above, for the sibling mechanism.
+**File:** `inngest/partner-trial-cutoff.ts` (existing sweep, test-mode-only), `inngest/partner-live-cutoff.ts` (likely home for the live-mode billing derivation, matching B2B-43-FF's own file split)
+
 ### SCR-01 — Adaptive Script System
 **Status:** ✅ Done — confirmed 2026-07-03. The approved spec (`docs/specs/SCR-01-requirement-document.md`) explicitly descopes the 7-variant system and action-item extraction (Section 10, "Out of Scope") — those live elsewhere:
 - **7 response variants per checkpoint:** built in `lib/content/script-generator.ts` (CONTENT-01's `CheckpointVariants`, 7 named fields v1-v7) as part of CONTENT-01, not this spec.

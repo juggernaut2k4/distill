@@ -6,6 +6,7 @@ import { fetchAllTranscriptEvents } from '@/lib/voice/hume-native/session-detail
 import { formatTranscriptLines } from './hume-action-item-extractor' // verbatim reuse, unmodified import
 import { recordInsightsReadyEvent } from '@/lib/partner/webhooks'
 import { getStoredTranscriptTurns, formatOpenAITranscriptLines, deleteStoredTranscript } from '@/lib/voice/openai-realtime-transcript-store'
+import { fetchElevenLabsNativeTranscript } from '@/lib/voice/elevenlabs-native-transcript' // B2B-76 §1.4
 
 /**
  * B2B-09 — Session Delivery Extraction Fix + Internal Glitch Dashboard.
@@ -237,18 +238,37 @@ export async function extractInsightsForPartnerSession(partnerSessionId: string)
   const session = sessionRows?.[0] ?? null
 
   if (!session) throw new Error(`No partner_sessions row for id ${partnerSessionId}`)
-  if (!session.hume_chat_id) throw new Error(`partner_sessions ${partnerSessionId} has no hume_chat_id`)
 
+  // B2B-76 §1.1 (item 1) — the idempotency guard MUST run before the hume_chat_id null check, not
+  // after. Confirmed live trap: a session that never reached onConnect (e.g. a 502 auth failure —
+  // real production example: partner_sessions 24e253eb-37d1-4001-add1-2a3ccb2c52a1) has
+  // hume_chat_id=null. Under the OLD ordering, the null check threw BEFORE any
+  // partner_session_insights row existed, so markInsightsExtractionFailed() (called by both
+  // triggers' outer catch) found nothing to update and no-op'd (`if (!current) return`) — total
+  // silence, zero rows, nothing on any dashboard. Running the guard first guarantees a real row
+  // exists (status 'pending', hume_chat_id NULL) for the null-check throw below to land against, so
+  // the failure becomes visible via extraction_status='failed' + error_message on whatever surface
+  // already reads partner_session_insights (app/(with-clerk)/dashboard/admin/glitches and the
+  // partner-facing insights surface both already key off this table — no new surface needed).
+  //
+  // Passing `session.hume_chat_id` here (nullable) is safe and unchanged behavior for the guard
+  // itself: runInsightsIdempotencyGuard()'s `humeChatId` parameter has always been typed
+  // `string | null` and only ever writes it straight into the upsert row — it never assumed non-null.
   const guard = await runInsightsIdempotencyGuard(
     supabase,
     partnerSessionId,
     session.partner_account_id as string,
-    session.hume_chat_id as string,
+    (session.hume_chat_id as string | null) ?? null,
     (session.end_client_id as string | null) ?? null,
     (session.reseller_unique_id as string | null) ?? null,
     (session.hume_config_id as string | null) ?? null
   )
   if (guard.shortCircuit) return { status: guard.status }
+
+  // Moved below the guard — see the ordering comment above. The thrown message is deliberately
+  // stable/greppable ('no_provider_session_id') so it's identifiable in error_message without
+  // parsing free text, matching the brief's own suggested reason string.
+  if (!session.hume_chat_id) throw new Error(`no_provider_session_id: partner_sessions ${partnerSessionId} has no hume_chat_id (never reached onConnect)`)
 
   // B2B-63 (docs/specs/B2B-63-requirement-document.md §6) — replaces the prior unconditional throw
   // for openai_realtime sessions. `voice_provider` (NULL/'hume' vs 'openai_realtime') is captured
@@ -262,15 +282,33 @@ export async function extractInsightsForPartnerSession(partnerSessionId: string)
   // before): the guard must run first so a real partner_session_insights row exists for any
   // downstream failure to record against.
   let messageLines: string[]
-  // B2B-75: 'elevenlabs' joins 'openai_realtime' on the live-capture (Redis) path. NULL and 'hume'
-  // remain on Hume's own transcript API. Written as an explicit two-value check rather than
-  // `!== 'hume'` so a future fourth provider must make a deliberate choice here rather than silently
-  // inheriting one. Without this, an ElevenLabs session would fall through to Hume's API with an
-  // ElevenLabs conversation id — the exact failure class migration 106 was created to fix for
-  // OpenAI. (ElevenLabs does have a post-hoc transcript API of its own; live capture is used anyway
-  // because it already exists and is proven, and because the post-call availability delay could not
-  // be verified — see Requirement Doc §6.9.)
-  if (session.voice_provider === 'openai_realtime' || session.voice_provider === 'elevenlabs') {
+  // B2B-76 §1.4 (item 4) — tracks which transcript source actually produced messageLines for an
+  // ElevenLabs session, written into the terminal row below so the unverified post-call-availability
+  // question (B2B-76 §0/§1.4) gets answered empirically from real production runs instead of staying
+  // a guess forever. null for every non-ElevenLabs provider (Hume/OpenAI have exactly one source
+  // each — no "which one was used" question to answer).
+  let elevenLabsTranscriptSource: 'elevenlabs_native' | 'redis_live_capture' | null = null
+  // B2B-75 §6.9 originally put 'elevenlabs' on the same Redis live-capture branch as
+  // 'openai_realtime'. B2B-76 §1.4 is a disclosed, deliberate REVERSAL of that specific call for
+  // ElevenLabs only (see lib/voice/elevenlabs-native-transcript.ts's own doc comment for the full
+  // reasoning) — 'openai_realtime' is UNCHANGED (OpenAI Realtime still has no post-hoc transcript API
+  // at all, ever) and 'elevenlabs' now gets its own branch: try the native API first (bounded retry,
+  // never throws), fall back to the same proven Redis path if the native fetch returns null. This
+  // keeps the change strictly additive/safer than the pre-B2B-76 path — it can only succeed in MORE
+  // cases than before, never fewer, since Redis capture still runs exactly as it always has whenever
+  // the native fetch doesn't produce usable turns.
+  if (session.voice_provider === 'elevenlabs') {
+    const nativeTurns = await fetchElevenLabsNativeTranscript(session.hume_chat_id as string)
+    if (nativeTurns) {
+      elevenLabsTranscriptSource = 'elevenlabs_native'
+      messageLines = formatOpenAITranscriptLines(nativeTurns)
+    } else {
+      elevenLabsTranscriptSource = 'redis_live_capture'
+      const turns = await getStoredTranscriptTurns(partnerSessionId) // partnerSessionId === clio_session_ref
+      messageLines = formatOpenAITranscriptLines(turns)
+    }
+    console.log(`[partner-session-insights-extractor] ElevenLabs transcript source for ${partnerSessionId}: ${elevenLabsTranscriptSource}`)
+  } else if (session.voice_provider === 'openai_realtime') {
     const turns = await getStoredTranscriptTurns(partnerSessionId) // partnerSessionId === clio_session_ref
     messageLines = formatOpenAITranscriptLines(turns)
   } else {
@@ -331,6 +369,10 @@ export async function extractInsightsForPartnerSession(partnerSessionId: string)
       transcript_event_count: result.eventCount,
       error_message: result.isMock ? '[MOCK] ANTHROPIC_API_KEY not configured — mock data written' : null,
       extracted_at: new Date().toISOString(),
+      // B2B-76 §1.4 (item 4) — null for every non-ElevenLabs session (migration 112). Written on
+      // every terminal outcome (success/success_empty), not only success, since which source
+      // produced messageLines is already decided before either branch runs.
+      transcript_source: elevenLabsTranscriptSource,
     })
     .eq('partner_session_id', partnerSessionId)
 

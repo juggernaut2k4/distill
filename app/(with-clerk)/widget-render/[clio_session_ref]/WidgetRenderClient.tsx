@@ -188,6 +188,13 @@ const IDLE_TIMEOUT_CHECKIN_TEXT =
 // for now"), independent of the silence-detector logic above. Armed once, at connect time, off the
 // same connectStartRef already used for the elapsed-session UI timer and billing-duration
 // calculation — a single client-side timeout, no adapter/platform involvement needed for this one.
+//
+// B2B-76 §1.3 — this is a NUDGE only (asks Clio to wrap up out loud); it cannot survive a killed
+// tab or a JS-frozen background tab. inngest/partner-trial-cutoff.ts's
+// `MAX_WIDGET_CALL_DURATION_MS` is the genuine server-side backstop for the same ceiling, copied
+// from this exact value rather than sharing an import (this is a 'use client' browser bundle, that
+// is a server-only Inngest function) — if this number ever changes, that one must change with it,
+// and vice versa.
 const MAX_CALL_DURATION_MS = 60 * 60 * 1000
 const MAX_CALL_DURATION_NUDGE_TEXT =
   'This session has reached its maximum allowed length. The one thing you say next is a real, ' +

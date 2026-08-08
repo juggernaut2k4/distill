@@ -18,32 +18,50 @@ interface FakeSession {
   status: string
   test_mode: boolean
   updated_at: string
+  // B2B-76 §1.3 (item 3) — optional; unset in every fixture in this file, so the new merged
+  // max-duration query (filters on delivery_channel + created_at) never matches these rows.
+  delivery_channel?: string
+  created_at?: string
 }
 
 let sessionsById: Record<string, FakeSession> = {}
 let walletsByAccount: Record<string, { trial_minutes_used: number; test_minutes_balance: number }> = {}
 let sessionUpdates: Record<string, Record<string, unknown>> = {}
 
+// B2B-76 §1.3 — same generic chainable query-builder mock as
+// tests/unit/b2b43-stuck-session-backstop-sweep.test.ts (see that file's comment for why this
+// replaced the old narrow `.in().eq().lt()`-only shape).
+function makePartnerSessionsQuery() {
+  type Row = FakeSession
+  type Filter = (row: Row) => boolean
+  function builder(filters: Filter[]): {
+    eq: (col: string, val: unknown) => ReturnType<typeof builder>
+    in: (col: string, vals: unknown[]) => ReturnType<typeof builder>
+    lt: (col: string, val: string) => Promise<{ data: unknown[]; error: null }>
+  } {
+    return {
+      eq: (col, val) => builder([...filters, (row) => (row as unknown as Record<string, unknown>)[col] === val]),
+      in: (col, vals) => builder([...filters, (row) => vals.includes((row as unknown as Record<string, unknown>)[col])]),
+      lt: async (col, val) => {
+        const matched = Object.values(sessionsById).filter(
+          (row) => filters.every((f) => f(row)) && ((row as unknown as Record<string, unknown>)[col] as string | undefined) !== undefined && ((row as unknown as Record<string, unknown>)[col] as string) < val
+        )
+        return {
+          data: matched.map((s) => ({ id: s.id, partner_account_id: s.partner_account_id, provider_bot_id: s.provider_bot_id })),
+          error: null,
+        }
+      },
+    }
+  }
+  return { select: (_cols: string) => builder([]) }
+}
+
 vi.mock('@/lib/supabase', () => ({
   createSupabaseAdminClient: () => ({
     from: (table: string) => {
       if (table === 'partner_sessions') {
         return {
-          select: (_cols: string) => ({
-            in: (_col: string, statuses: string[]) => ({
-              eq: (_col2: string, testModeVal: boolean) => ({
-                lt: async (_col3: string, cutoffIso: string) => {
-                  const rows = Object.values(sessionsById).filter(
-                    (s) => statuses.includes(s.status) && s.test_mode === testModeVal && s.updated_at < cutoffIso
-                  )
-                  return {
-                    data: rows.map((s) => ({ id: s.id, partner_account_id: s.partner_account_id, provider_bot_id: s.provider_bot_id })),
-                    error: null,
-                  }
-                },
-              }),
-            }),
-          }),
+          ...makePartnerSessionsQuery(),
           update: (fields: Record<string, unknown>) => ({
             eq: async (_col: string, id: string) => {
               sessionUpdates[id] = fields

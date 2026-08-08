@@ -125,6 +125,54 @@ export const partnerTrialCutoffJob = inngest.createFunction(
 const STUCK_SESSION_CEILING_MS = 60 * 60 * 1000
 
 /**
+ * B2B-76 §1.3 (item 3) — server-side max-call-duration backstop for widget sessions.
+ *
+ * Arun asked for a way to pass ElevenLabs a max call duration so it ends the session itself.
+ * elevenlabs-docs (live-doc-verified, B2B-76 §0/§1.3) found no confirmed vendor field for this on
+ * either the conversation_config_override surface or the token-mint query params — only
+ * `max_conversation_duration_message`, which controls what the agent SAYS when some other limit
+ * fires, not a duration limit itself. Sending an unconfirmed override field is not a safe no-op
+ * (B2B-75 §0.B: ElevenLabs throws on an override for a field whose Security-tab toggle isn't
+ * enabled) — so this is the closest real equivalent instead: genuinely server-side, survives a
+ * killed tab or a dead client timer (unlike WidgetRenderClient.tsx's existing
+ * `maxDurationTimeoutRef` client-side nudge, which cannot).
+ *
+ * VALUE: copied from WidgetRenderClient.tsx's own `MAX_CALL_DURATION_MS` (also 60 minutes) rather
+ * than introducing a second, independent duration constant that could drift from the client's — the
+ * two files can't share an import (one is a 'use client' browser bundle, the other a server-only
+ * Inngest function), so this is a deliberately paired literal; if the client's nudge threshold ever
+ * changes, this one must change with it (see the matching comment at that file's own constant).
+ *
+ * MERGED INTO THE EXISTING SWEEP BELOW, not a second parallel cron, and this is a considered
+ * decision, not just following "don't build a second safety net" (that instruction was about item 2
+ * specifically): STUCK_SESSION_CEILING_MS and MAX_WIDGET_CALL_DURATION_MS are numerically identical
+ * today (60 min each), and nothing currently heartbeats partner_sessions.updated_at during an active
+ * widget call (grep-confirmed — the only mid-call write on a widget row is the one-time
+ * hume_chat_id set at connect), so `updated_at` effectively equals `created_at` for the entire life
+ * of a widget_active row. A second cron on the identical every-15-minutes schedule, querying the same
+ * table for a functionally-overlapping condition, would race this one on every tick — both could
+ * observe the same `status='widget_active'` row before either writes, and both would then call
+ * runTrialCutoffSequence() for it, double-consuming trial/test minutes and double-recording billable
+ * events. Merging avoids that class of bug entirely, because the FIRST query result to reach
+ * mark-session-completed flips status away from 'widget_active', which the SECOND query's own filter
+ * then naturally excludes on its next run — there is no "next run" race within a single sweep
+ * invocation since both queries execute in the same step before any writes happen, and the loop
+ * below already dedupes by id.
+ *
+ * SCOPED TO test_mode=true, delivery_channel='widget' ONLY — deliberately, for the same reason
+ * STUCK_SESSION_CEILING_MS's own sweep is test_mode-only (see that JSDoc immediately below):
+ * runTrialCutoffSequence()'s `record-billable-events` step hardcodes `testMode: true` on every event
+ * it emits (it is fundamentally a TRIAL-cutoff sequence), and its availableMinutes computation draws
+ * from the trial/test wallet (Math.max(0, 20 - trial_minutes_used) + test_minutes_balance) — neither
+ * is correct for a real, live-mode (test_mode=false) paid session. Extending this mechanism to
+ * live-mode sessions would misrecord real usage as test usage and would need its own
+ * availableMinutes/billing derivation — exactly the class of work B2B-76 §1.2 point 3 already named
+ * and deferred (B2B-43-FF) for the abandoned-session sweep. A live-mode max-duration backstop is a
+ * real gap but a separate piece of work, not silently built here — flagged to BACKLOG.md.
+ */
+const MAX_WIDGET_CALL_DURATION_MS = 60 * 60 * 1000 // MUST match WidgetRenderClient.tsx's MAX_CALL_DURATION_MS — see that file's paired comment
+
+/**
  * B2B-43 Fix 3 — the ONLY thing that arms a test-mode session's cutoff timer is a single
  * fire-and-forget `inngest.send('clio/partner-trial.started')` call in
  * app/api/partner/v1/sessions/route.ts, with no retry and no DB flag marking "cutoff armed." If that
@@ -167,18 +215,49 @@ export const partnerTrialStuckSessionBackstopSweep = inngest.createFunction(
       // recovered the same way a stuck meeting-bot session already is. runTrialCutoffSequence()'s
       // leave-bot step already no-ops when provider_bot_id is null (true for every widget session),
       // so this addition needed no other change in this file.
-      const { data, error } = await supabase
+      const { data: staleData, error: staleError } = await supabase
         .from('partner_sessions')
         .select('id, partner_account_id, provider_bot_id')
         .in('status', ['requested', 'bot_active', 'widget_active'])
         .eq('test_mode', true)
         .lt('updated_at', cutoff)
 
-      if (error) {
-        console.error('[partner-trial-backstop] Failed to query stuck sessions:', error.message)
-        throw new Error(`Stuck-session backstop sweep query failed: ${error.message}`)
+      if (staleError) {
+        console.error('[partner-trial-backstop] Failed to query stuck sessions:', staleError.message)
+        throw new Error(`Stuck-session backstop sweep query failed: ${staleError.message}`)
       }
-      return (data ?? []) as { id: string; partner_account_id: string; provider_bot_id: string | null }[]
+
+      // B2B-76 §1.3 (item 3) — max-call-duration overrun, merged into this same query/step rather
+      // than a second cron (see MAX_WIDGET_CALL_DURATION_MS's own JSDoc above for why). Keyed off
+      // `created_at` (call start), not `updated_at` (last write) — the two happen to coincide for a
+      // widget_active row today (nothing heartbeats updated_at mid-call), but created_at is the
+      // semantically correct signal for "this call has run too long" and stays correct even if a
+      // future change (a glitch log write, a mid-call nudge write) touches the row and would
+      // otherwise reset a staleness-based clock without the call actually being shorter.
+      const durationCutoff = new Date(Date.now() - MAX_WIDGET_CALL_DURATION_MS).toISOString()
+      const { data: overrunData, error: overrunError } = await supabase
+        .from('partner_sessions')
+        .select('id, partner_account_id, provider_bot_id')
+        .eq('status', 'widget_active')
+        .eq('delivery_channel', 'widget')
+        .eq('test_mode', true)
+        .lt('created_at', durationCutoff)
+
+      if (overrunError) {
+        console.error('[partner-trial-backstop] Failed to query max-duration overrun sessions:', overrunError.message)
+        throw new Error(`Max-duration backstop sweep query failed: ${overrunError.message}`)
+      }
+
+      // Dedupe by id — a session can legitimately satisfy both conditions at once (today, always,
+      // per the JSDoc above), and must only be force-completed once.
+      const byId = new Map<string, { id: string; partner_account_id: string; provider_bot_id: string | null }>()
+      for (const row of (staleData ?? []) as { id: string; partner_account_id: string; provider_bot_id: string | null }[]) {
+        byId.set(row.id, row)
+      }
+      for (const row of (overrunData ?? []) as { id: string; partner_account_id: string; provider_bot_id: string | null }[]) {
+        byId.set(row.id, row)
+      }
+      return Array.from(byId.values())
     })
 
     console.log(`[partner-trial-backstop] Stuck test-mode sessions found: ${stuckSessions.length}`)
