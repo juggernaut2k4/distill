@@ -30,6 +30,12 @@ export type ClientErrorSource =
   // B2B-61 Part A — OpenAIRealtimeAdapter's own ws.onerror / ws.onclose failure paths, mirroring
   // 'hume-adapter-error' exactly for the alternate voice provider.
   | 'openai-realtime-adapter-error'
+  // B2B-75 — ElevenLabsAdapter's own failure sink. Required by the Requirement Doc's §6.7c call
+  // site, which specifies `reportClientError(clioSessionRef, 'elevenlabs-adapter-error', message)`.
+  // Widened here AND in app/api/partner/render/client-error/route.ts's Zod enum in the same change,
+  // per this file's own doc comment above — the "forgot to widen the enum" bug (B2B-44 Fix 2) is
+  // silent, not loud.
+  | 'elevenlabs-adapter-error'
 
 export function reportClientError(clioSessionRef: string, source: ClientErrorSource, message: string, stack?: string) {
   try {

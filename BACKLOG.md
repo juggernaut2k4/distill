@@ -459,6 +459,23 @@ the Usage page, matching the existing `COLORS.cyan` `Link` pattern already used 
 (e.g. its Integration/Playground cross-links).
 **File:** `app/(with-clerk)/dashboard/configurator/docs/DocsClient.tsx`
 
+### B2B-75-FF — `/api/openai-realtime-token` missing from `middleware.ts`'s `TENANT_SCOPED_PATTERNS`
+**Status:** Not started. **Observation only, deliberately NOT fixed in B2B-75** (different channel's
+provider, out of that spec's scope — logged per its §6.11 and §10.B).
+**What:** `middleware.ts`'s `TENANT_SCOPED_PATTERNS` lists `/^\/api\/hume-token$/` (and, as of
+B2B-75, `/^\/api\/elevenlabs-token$/`) but **not** `/api/openai-realtime-token`. Pre-existing since
+B2B-61 Part A.
+**Why it is currently dormant, and what would wake it:** widget and partner render URLs are always
+built today from `NEXT_PUBLIC_APP_URL` (Clio's own domain), never from a partner's white-label host,
+so the tenant-host branch never evaluates this path. The moment a render page is served under a
+resolved partner domain, `neutralNotFoundResponse()` would 404 that route and every OpenAI Realtime
+session on that host would silently fail to obtain a token — the same latent gap the existing
+`/partner-render` and `/widget-render` entries were added defensively to prevent.
+**Fix (when picked up):** add `/^\/api\/openai-realtime-token$/` to the same array, alongside the two
+sibling token routes. One line; the only reason it was not done in B2B-75 is that that build's
+approved file list is exhaustive and this is the meeting-bot channel's provider, not the widget's.
+**File:** `middleware.ts`
+
 ### SCR-01 — Adaptive Script System
 **Status:** ✅ Done — confirmed 2026-07-03. The approved spec (`docs/specs/SCR-01-requirement-document.md`) explicitly descopes the 7-variant system and action-item extraction (Section 10, "Out of Scope") — those live elsewhere:
 - **7 response variants per checkpoint:** built in `lib/content/script-generator.ts` (CONTENT-01's `CheckpointVariants`, 7 named fields v1-v7) as part of CONTENT-01, not this spec.

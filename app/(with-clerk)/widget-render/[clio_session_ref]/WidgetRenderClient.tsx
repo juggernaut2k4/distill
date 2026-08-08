@@ -4,6 +4,7 @@ import { Component, useEffect, useRef, useState } from 'react'
 import type { ErrorInfo, ReactNode } from 'react'
 import { HumeAdapter } from '@/lib/voice/hume-adapter'
 import { OpenAIRealtimeAdapter } from '@/lib/voice/openai-realtime-adapter'
+import { ElevenLabsAdapter } from '@/lib/voice/elevenlabs-adapter'
 import type { VoiceSessionAdapter } from '@/lib/voice/adapter'
 import { shouldAdvanceOnTransition } from '@/lib/partner/advance-transition'
 import { reportClientError } from '@/lib/partner/report-client-error'
@@ -131,7 +132,7 @@ export interface WidgetRenderClientProps {
   clioSessionRef: string
   inlinePages: WidgetInlinePageProp[]
   humeConfigId: string | null
-  voiceProvider: 'hume' | 'openai_realtime'
+  voiceProvider: 'hume' | 'openai_realtime' | 'elevenlabs'
   // The widget channel's OWN, fully self-contained OpenAI Realtime prompt
   // (lib/voice/widget-prompt-rules.ts's assembleWidgetOpenAIPrompt() output, computed server-side in
   // widget-render/page.tsx — already includes the on-topic-jump rule, no client-side concatenation
@@ -139,6 +140,12 @@ export interface WidgetRenderClientProps {
   // `humeConfigId` before this component ever mounts; HumeAdapter.create() below passes no
   // instructions text at all, matching PartnerRenderClient.tsx's own current behavior exactly.
   openaiVoiceInstructions: string | null
+  // B2B-75 — the ElevenLabs agent id (a plain identifier, NOT a secret; the API key is never a
+  // prop and never reaches the browser) and this channel's own ElevenLabs prompt, assembled
+  // server-side by lib/voice/widget-elevenlabs-prompt-rules.ts. Both null unless
+  // voiceProvider === 'elevenlabs'.
+  elevenlabsAgentId: string | null
+  elevenlabsVoiceInstructions: string | null
 }
 
 // Same anti-stall floor `PartnerRenderClient.tsx`'s own advance_tab uses — ported because it uses
@@ -217,11 +224,23 @@ export default function WidgetRenderClient({
   humeConfigId,
   voiceProvider,
   openaiVoiceInstructions,
+  elevenlabsAgentId,
+  elevenlabsVoiceInstructions,
 }: WidgetRenderClientProps) {
   const count = inlinePages.length
 
+  // B2B-75 (§6.7b). `humeConfigId` was doing double duty as "is voice configured at all" for EVERY
+  // provider, including OpenAI Realtime — a latent gate a third provider would silently trip (it
+  // guarded the whole connect() body, the warm-up overlay, the elapsed timer, and the entire
+  // call-controls overlay, so an ElevenLabs session would have connected with no visible controls
+  // and no timer). Replaced by an explicit per-provider precondition. Deliberately byte-equivalent
+  // for 'hume' and 'openai_realtime' — both still require humeConfigId, exactly as today — so no
+  // existing behaviour changes; only the 'elevenlabs' arm is new.
+  const voiceEnabled =
+    voiceProvider === 'elevenlabs' ? Boolean(elevenlabsAgentId) : Boolean(humeConfigId)
+
   const [status, setStatus] = useState<'connecting' | 'listening' | 'speaking' | 'error' | 'ended'>('connecting')
-  const [showConnectWarmup, setShowConnectWarmup] = useState(Boolean(humeConfigId))
+  const [showConnectWarmup, setShowConnectWarmup] = useState(voiceEnabled)
   const warmupTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const postToolNudgeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // v16 — a running total of native idle_timeout_ms fires this session, for observability only
@@ -295,6 +314,21 @@ export default function WidgetRenderClient({
     return Array.from({ length: bars }, (_, i) => Math.max(0.12, Math.min(1, level * (taper[i] ?? 1))))
   }
 
+  /** B2B-75 — the same real amplitude readout as sampleAnalyserBars above, computed from byte
+   *  FREQUENCY data instead of an AnalyserNode's time-domain data, for adapters whose SDK exposes
+   *  the data but not the node producing it (ElevenLabs). Mean of the frequency bins, normalised to
+   *  0-1, with the identical [0.75, 1, 0.75] centre-weighted taper and the identical 0.12 idle
+   *  floor, so the pill's visual language is the same across providers. This is a real readout of
+   *  real audio via a different (but equally real) accessor — never a decorative animation. */
+  function sampleFrequencyBars(data: Uint8Array, bars = 3): number[] {
+    if (data.length === 0) return Array.from({ length: bars }, () => 0.12)
+    let sum = 0
+    for (let i = 0; i < data.length; i++) sum += data[i]
+    const level = Math.max(0, Math.min(1, (sum / data.length / 255) * 4))
+    const taper = [0.75, 1, 0.75]
+    return Array.from({ length: bars }, (_, i) => Math.max(0.12, Math.min(1, level * (taper[i] ?? 1))))
+  }
+
   useEffect(() => {
     const onError = (event: ErrorEvent) => {
       reportClientError(clioSessionRef, 'error', event.message, event.error?.stack)
@@ -332,7 +366,7 @@ export default function WidgetRenderClient({
     let cancelled = false
 
     async function connect() {
-      if (!humeConfigId) return // session proceeds without voice; content still renders
+      if (!voiceEnabled) return // session proceeds without voice; content still renders
 
       warmupTimeoutRef.current = setTimeout(() => setShowConnectWarmup(false), 6000)
 
@@ -361,7 +395,15 @@ export default function WidgetRenderClient({
         levelIntervalRef.current = setInterval(() => {
           if (micAnalyserRef.current) setMicLevels(sampleAnalyserBars(micAnalyserRef.current))
           const botAnalyser = adapterRef.current?.getOutputAnalyser?.()
-          if (botAnalyser) setBotLevels(sampleAnalyserBars(botAnalyser))
+          if (botAnalyser) {
+            setBotLevels(sampleAnalyserBars(botAnalyser))
+          } else {
+            // B2B-75 — ElevenLabs owns its own playback graph and exposes no AnalyserNode, only
+            // real byte frequency data. When neither accessor is available the pill simply sits at
+            // its idle floor, which is the existing behaviour when an analyser isn't ready yet.
+            const freq = adapterRef.current?.getOutputFrequencyData?.()
+            if (freq) setBotLevels(sampleFrequencyBars(freq))
+          }
         }, 80)
 
         const clearPostToolNudge = () => {
@@ -446,7 +488,11 @@ export default function WidgetRenderClient({
         }
 
         const onMessage = (text: string, source: 'user' | 'ai') => {
-          if (voiceProvider === 'openai_realtime' && text.trim()) {
+          // B2B-75 §6.7d — widened from an openai_realtime-only check. Hume's transcripts are
+          // retrieved post-hoc from Hume's own API; every non-Hume provider needs live capture. The
+          // nested phrase-triggered-advance block below keeps its own PHRASE_TRIGGERED_ADVANCE_ENABLED
+          // guard (currently false), so widening this outer condition has no effect on it.
+          if (voiceProvider !== 'hume' && text.trim()) {
             fetch('/api/partner/render/transcript-capture', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -512,7 +558,49 @@ export default function WidgetRenderClient({
 
         let adapter: VoiceSessionAdapter
 
-        if (voiceProvider === 'openai_realtime') {
+        if (voiceProvider === 'elevenlabs') {
+          // B2B-75 §6.7c. No `mediaStream` is passed: the @elevenlabs/client SDK captures and
+          // streams microphone audio itself once permission has been granted. `micStream` above is
+          // still obtained (it must run to get permission before startSession, and it feeds the mic
+          // analyser tap) — it is simply not handed to this adapter.
+          const tokenRes = await fetch('/api/elevenlabs-token')
+          if (!tokenRes.ok) throw new Error(`ElevenLabs token fetch failed: ${tokenRes.status}`)
+          const { conversationToken } = (await tokenRes.json()) as { conversationToken: string; agentId: string }
+          if (cancelled) return
+
+          adapter = await ElevenLabsAdapter.create({
+            conversationToken,
+            instructions: elevenlabsVoiceInstructions ?? '',
+            userId: clioSessionRef,
+            tools,
+            onDiagnostic: (label, detail) => {
+              if (label === 'el_status_change') {
+                // Status has FOUR values. 'disconnecting' is a normal teardown step, not a fault —
+                // mapping it to red would flash a false "Disconnected" during every clean session
+                // end. This is a REAL signal for ElevenLabs (onStatusChange is a first-class
+                // provider event), unlike Hume, which has no equivalent live hook and stays green.
+                const status = (detail as { status?: string }).status
+                if (status === 'connected') setConnectionHealth('green')
+                else if (status === 'connecting') setConnectionHealth('yellow')
+                else if (status === 'disconnected') setConnectionHealth('red')
+                // 'disconnecting' — deliberately leaves the pill unchanged
+              } else if (label === 'el_error' || label === 'el_override_rejected') {
+                setConnectionHealth('red')
+              }
+              // NOTE: 'el_tool_error' deliberately does NOT touch connectionHealth — a tool fault is
+              // not a connection fault (§6.6.6). It is still captured below like every other
+              // diagnostic.
+              fetch('/api/partner/render/voice-diagnostic-capture', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ clio_session_ref: clioSessionRef, label, detail }),
+                keepalive: true,
+              }).catch(() => {})
+            },
+            reportError: (message) => reportClientError(clioSessionRef, 'elevenlabs-adapter-error', message),
+            ...sharedCallbacks,
+          })
+        } else if (voiceProvider === 'openai_realtime') {
           const tokenRes = await fetch('/api/openai-realtime-token')
           if (!tokenRes.ok) throw new Error(`OpenAI Realtime token fetch failed: ${tokenRes.status}`)
           const { accessToken, model } = (await tokenRes.json()) as { accessToken: string; model: string }
@@ -570,6 +658,12 @@ export default function WidgetRenderClient({
           const { accessToken } = (await tokenRes.json()) as { accessToken: string }
           if (cancelled) return
 
+          // B2B-75 §6.7b — removing `if (!humeConfigId) return` above removed the narrowing that
+          // let `configId: humeConfigId` type-check against HumeAdapterConfig.configId: string.
+          // An explicit guard rather than a non-null assertion: this throw is caught by the
+          // surrounding try/catch and produces the existing status:'error' degradation.
+          if (!humeConfigId) throw new Error('Hume selected but no config id was resolved for this session')
+
           adapter = await HumeAdapter.create({
             accessToken,
             configId: humeConfigId,
@@ -621,12 +715,12 @@ export default function WidgetRenderClient({
   // reactive by itself). connectStartRef itself is untouched — still feeds endSessionOnce()'s
   // billing-duration calculation exactly as before.
   useEffect(() => {
-    if (!humeConfigId) return
+    if (!voiceEnabled) return
     const interval = setInterval(() => {
       if (connectStartRef.current) setElapsedSeconds(Math.floor((Date.now() - connectStartRef.current) / 1000))
     }, 1000)
     return () => clearInterval(interval)
-  }, [humeConfigId])
+  }, [voiceEnabled])
 
   // Join-greeting poll — reused as-is (§6.7), same proven flag-set → poll → send → clear pattern
   // PartnerRenderClient.tsx already uses.
@@ -716,7 +810,7 @@ export default function WidgetRenderClient({
     adapterRef.current?.setMicMuted(next)
   }
 
-  const callControlsOverlay = Boolean(humeConfigId) && (
+  const callControlsOverlay = voiceEnabled && (
     <>
       <div className="pointer-events-none fixed left-4 top-4 z-40 flex items-center gap-3 rounded-full border border-white/10 bg-black/60 px-4 py-2 text-xs text-white/80 backdrop-blur">
         <span className="flex items-center gap-1.5">

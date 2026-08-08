@@ -57,6 +57,10 @@ const ClientErrorSchema = z.object({
     'hume-adapter-error',
     'hume-connect-error',
     'openai-realtime-adapter-error',
+    // B2B-75 — widened again for 'elevenlabs-adapter-error' (ElevenLabsAdapter's own reportError
+    // sink, including the tool-level failures §6.6.6 deliberately keeps OUT of the connection-error
+    // path). Same lesson, same discipline: widened in the same change that starts sending it.
+    'elevenlabs-adapter-error',
   ]),
 })
 

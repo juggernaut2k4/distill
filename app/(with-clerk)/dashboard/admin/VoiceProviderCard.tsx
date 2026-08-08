@@ -109,7 +109,8 @@ export default function VoiceProviderCard() {
     <div className="bg-[#111111] border border-[#222222] rounded-xl p-5 mb-6">
       <h2 className="text-white text-base font-semibold mb-0.5">Live voice provider</h2>
       <p className="text-[#475569] text-xs mb-4">
-        Controls which voice AI powers new live sessions across all partners.
+        Controls which voice AI powers new meeting-bot sessions across all partners. The widget
+        channel is configured separately below.
       </p>
 
       {loadError && (

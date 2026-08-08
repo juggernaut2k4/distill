@@ -56,6 +56,12 @@ const TENANT_SCOPED_PATTERNS = [
   // partner's own domain.
   /^\/widget-render\/.+/,
   /^\/api\/hume-token$/,
+  // B2B-75: same defensive reasoning as /api/hume-token above — widget render URLs are always built
+  // from NEXT_PUBLIC_APP_URL today, so this is dormant, but adding it here means the ElevenLabs
+  // token route can never become the odd one out if a future change serves widget-render under a
+  // partner's own domain. (Note the pre-existing, out-of-scope omission of
+  // /api/openai-realtime-token from this list — logged in BACKLOG.md, deliberately not fixed here.)
+  /^\/api\/elevenlabs-token$/,
   /^\/api\/partner\/render\/end-session$/,
 ]
 

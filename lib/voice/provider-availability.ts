@@ -21,3 +21,23 @@
  * purpose and should not accumulate unrelated flags.
  */
 export const OPENAI_REALTIME_ADAPTER_AVAILABLE = true
+
+/**
+ * B2B-75 (docs/specs/B2B-75-requirement-document.md §6.3). Gates whether the
+ * "ElevenLabs" option in the WIDGET voice-provider selector is offered at all —
+ * in the UI (app/(with-clerk)/dashboard/admin/WidgetVoiceProviderCard.tsx) and,
+ * defense-in-depth, in PATCH /api/admin/widget-voice-config itself.
+ *
+ * Ships `true`: unlike B2B-61's OpenAI flag above (which shipped `false` because
+ * the adapter genuinely did not exist yet), this build ships the adapter
+ * complete, and the real gate on selecting ElevenLabs is whether Arun has
+ * actually saved credentials — a condition that cannot be satisfied by accident.
+ * Per the feature brief §8 the feature ships "selectable but not selected."
+ *
+ * Flip to `false` to withdraw the option entirely without a migration.
+ *
+ * Scope reminder: this gates the WIDGET channel only. `active_provider` — which
+ * drives the inline / meeting-bot channel — keeps its two-value domain and is
+ * never affected by this flag (Decision D2).
+ */
+export const ELEVENLABS_ADAPTER_AVAILABLE = true

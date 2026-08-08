@@ -262,7 +262,15 @@ export async function extractInsightsForPartnerSession(partnerSessionId: string)
   // before): the guard must run first so a real partner_session_insights row exists for any
   // downstream failure to record against.
   let messageLines: string[]
-  if (session.voice_provider === 'openai_realtime') {
+  // B2B-75: 'elevenlabs' joins 'openai_realtime' on the live-capture (Redis) path. NULL and 'hume'
+  // remain on Hume's own transcript API. Written as an explicit two-value check rather than
+  // `!== 'hume'` so a future fourth provider must make a deliberate choice here rather than silently
+  // inheriting one. Without this, an ElevenLabs session would fall through to Hume's API with an
+  // ElevenLabs conversation id — the exact failure class migration 106 was created to fix for
+  // OpenAI. (ElevenLabs does have a post-hoc transcript API of its own; live capture is used anyway
+  // because it already exists and is proven, and because the post-call availability delay could not
+  // be verified — see Requirement Doc §6.9.)
+  if (session.voice_provider === 'openai_realtime' || session.voice_provider === 'elevenlabs') {
     const turns = await getStoredTranscriptTurns(partnerSessionId) // partnerSessionId === clio_session_ref
     messageLines = formatOpenAITranscriptLines(turns)
   } else {

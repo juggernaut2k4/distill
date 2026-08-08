@@ -117,4 +117,18 @@ export interface VoiceSessionAdapter {
    * @returns the AnalyserNode, or null if the adapter's AudioContext isn't ready yet.
    */
   getOutputAnalyser?(): AnalyserNode | null
+
+  /**
+   * B2B-75 — optional, provider-agnostic accessor for real output-audio frequency data,
+   * for adapters whose SDK exposes the data but not the AnalyserNode producing it.
+   *   Hume / OpenAI: not implemented — both build their own gainNode -> analyser ->
+   *     destination graph and expose the AnalyserNode directly via getOutputAnalyser().
+   *   ElevenLabs:    implemented — @elevenlabs/client owns its playback graph and exposes
+   *     only getOutputByteFrequencyData(), never an AnalyserNode.
+   * Callers should prefer getOutputAnalyser() and fall back to this. Both carry the SAME
+   * real signal from the same real audio — this is an accessor difference, not a fidelity
+   * difference, and neither is a decorative/simulated animation source.
+   * @returns real byte frequency data, or null if playback isn't running yet.
+   */
+  getOutputFrequencyData?(): Uint8Array | null
 }

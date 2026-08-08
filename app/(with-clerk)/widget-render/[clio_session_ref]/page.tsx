@@ -1,9 +1,10 @@
 import { getPartnerSession, resolveLiveSessionRender, buildInlineSessionContent } from '@/lib/partner/live-render'
 import { getThemeConfig } from '@/lib/partner/theme'
 import { getPromptConfig } from '@/lib/partner/prompt-config'
-import { getActiveVoiceProvider } from '@/lib/voice/provider-config'
+import { getWidgetVoiceProvider, getElevenLabsAgentId } from '@/lib/voice/provider-config'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { assembleWidgetOpenAIPrompt } from '@/lib/voice/widget-prompt-rules'
+import { assembleWidgetElevenLabsPrompt } from '@/lib/voice/widget-elevenlabs-prompt-rules'
 import WidgetRenderClient from './WidgetRenderClient'
 
 /**
@@ -89,7 +90,13 @@ export default async function WidgetRenderPage({
   }
 
   const theme = await getThemeConfig(session.partnerAccountId)
-  const voiceProvider = await getActiveVoiceProvider()
+  // B2B-75 (docs/specs/B2B-75-requirement-document.md §6.8) — the widget channel reads its OWN
+  // provider setting. `getActiveVoiceProvider()` is deliberately untouched and now has exactly one
+  // caller left: partner-render/page.tsx, the inline / meeting-bot channel, which keeps running on
+  // `active_provider` with its existing two-value domain. This is the whole point of Decision D2 —
+  // selecting ElevenLabs here can never route a meeting-bot session to a provider it has no wiring
+  // for.
+  const voiceProvider = await getWidgetVoiceProvider()
 
   // Same load-bearing persistence write /partner-render/page.tsx already performs (§6.1) — read
   // back later by inngest/partner-session-insights-extractor.ts. Copied here explicitly since this
@@ -124,7 +131,13 @@ export default async function WidgetRenderPage({
   // See buildInlineSessionContent's own doc comment. Meeting-bot's PartnerRenderClient.tsx call site
   // is untouched and keeps the 'meeting_bot' default.
   const sessionContent = buildInlineSessionContent(session, session.contentPages ?? [], 'widget')
-  const openaiVoiceInstructions = assembleWidgetOpenAIPrompt({
+
+  // B2B-75 §6.8 — both assemblers take the IDENTICAL input object, so this is a provider switch,
+  // not two different data pipelines. `promptConfig` and `sessionContent` above are computed once
+  // and shared. `buildInlineSessionContent(..., 'widget')` keeps its variant argument unchanged —
+  // its stage direction states per-page facts only, with no provider-specific content, so it is
+  // correct for ElevenLabs as-is, and the 'meeting_bot' default stays untouched.
+  const promptInput = {
     profileContext: '',
     intentContext: '',
     sessionContent,
@@ -141,7 +154,24 @@ export default async function WidgetRenderPage({
       interSectionRecapStyle: promptConfig.interSectionRecapStyle,
     },
     conversationLanguage: session.conversationLanguage ?? undefined,
-  })
+  }
+
+  const openaiVoiceInstructions =
+    voiceProvider === 'openai_realtime' ? assembleWidgetOpenAIPrompt(promptInput) : null
+
+  const elevenlabsVoiceInstructions =
+    voiceProvider === 'elevenlabs' ? assembleWidgetElevenLabsPrompt(promptInput) : null
+
+  const elevenlabsAgentId = voiceProvider === 'elevenlabs' ? await getElevenLabsAgentId() : null
+
+  // B2B-75 §6.8.4 — FAIL CLOSED, never fall back to a different provider. A session quietly running
+  // on Hume while the admin believes it is on ElevenLabs is exactly the ambiguity this governance
+  // model exists to prevent. With a null agent id the client's `voiceEnabled` resolves false, so the
+  // page renders its content with no voice — the same degradation a missing humeConfigId already
+  // produces today.
+  if (voiceProvider === 'elevenlabs' && !elevenlabsAgentId) {
+    console.error('[widget-render] widget provider is elevenlabs but no agent id is configured — rendering without voice')
+  }
 
   return (
     <WidgetRenderClient
@@ -150,6 +180,8 @@ export default async function WidgetRenderPage({
       humeConfigId={result.humeConfigId}
       voiceProvider={voiceProvider}
       openaiVoiceInstructions={openaiVoiceInstructions}
+      elevenlabsAgentId={elevenlabsAgentId}
+      elevenlabsVoiceInstructions={elevenlabsVoiceInstructions}
     />
   )
 }
