@@ -548,7 +548,22 @@ export default function WidgetRenderClient({
               }).catch((err) => console.warn('[widget-render] Failed to persist hume_chat_id:', err))
             }
           },
-          onDisconnect: () => { setStatus('ended'); clearPostToolNudge() },
+          // 2026-08-08 — previously only updated UI state, never called endSessionOnce(). That left a
+          // real gap: the SDK's own onDisconnect is the authoritative "this call is over" signal
+          // (matches the shared VoiceSessionAdapter contract every provider uses), but only the
+          // explicit end_session tool call, the "End call" button, and unmount cleanup ever triggered
+          // the actual end-of-session flow (POST /api/partner/render/end-session -> handleSessionEnd()
+          // -> clio/partner-session.ended -> the whole insights-extraction pipeline). A session whose
+          // connection dropped for any OTHER reason (the provider closing it server-side, a network
+          // failure) was left stuck at status='widget_active' forever — confirmed live in production
+          // 2026-08-08 (partner_sessions 3da087d0-...). endSessionOnce()'s own endedRef guard makes
+          // this call safe even when onDisconnect fires as a side effect of the end_session tool path
+          // (which already called it) — a second call here is a guaranteed no-op, not a double-charge.
+          //
+          // Deliberately NOT added to onError below: per B2B-75 §6.6.6, onError also fires for
+          // non-fatal tool faults (an unregistered tool call, a throwing tool handler) that must NOT
+          // be treated as the call ending — onDisconnect is the one unambiguous signal.
+          onDisconnect: () => { setStatus('ended'); clearPostToolNudge(); void endSessionOnce() },
           onError: (message: string) => {
             console.error('[widget-render] Voice session error:', message)
             setStatus('error')
