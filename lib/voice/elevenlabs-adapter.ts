@@ -73,11 +73,21 @@ export interface ElevenLabsAdapterConfig {
   reportError?: (message: string) => void
 }
 
-/** §6.6.4 — the bounded wait `waitForPlaybackCaughtUp()` and `endSession()` both use. Deliberately
- *  3000ms rather than OpenAI's 8000ms: this is an explicitly-labelled PROXY (ElevenLabs exposes no
- *  audio queue and no playback-complete event), so the worst case must be a 3-second delayed page
- *  move rather than a visible stall. */
-const MODE_WAIT_TIMEOUT_MS = 3000
+/** 2026-08-09 — raised from the original 3000ms (and brought in line with OpenAI's own 8000ms for
+ *  the same class of wait) after a live session showed a ~33-word closing summary genuinely needs
+ *  10-14s to speak aloud; 3000ms was too tight for a realistic closing turn even when the wait
+ *  logic below worked perfectly. Used by `waitForPlaybackCaughtUp()` (show_visual/advance_tab —
+ *  worst case is a slightly delayed page move). `endSession()` uses its own, longer
+ *  `END_SESSION_WAIT_TIMEOUT_MS` below, since a premature hangup is a strictly worse failure than a
+ *  few extra seconds of silence before the call actually ends. */
+const MODE_WAIT_TIMEOUT_MS = 8000
+
+/** 2026-08-09 — end_session's own bound, longer than MODE_WAIT_TIMEOUT_MS. The closing turn is
+ *  frequently a full-session summary plus a farewell line, the longest single utterance in a
+ *  session by design — it needs more headroom than a mid-session page-advance wait, and cutting the
+ *  farewell off (the original bug this fixes) is a worse outcome than a longer pause before the
+ *  call actually ends. */
+const END_SESSION_WAIT_TIMEOUT_MS = 15000
 
 export class ElevenLabsAdapter implements VoiceSessionAdapter {
   private conversation: VoiceConversation | null = null
@@ -90,6 +100,13 @@ export class ElevenLabsAdapter implements VoiceSessionAdapter {
    *  (WidgetRenderClient's `adapter?.isOpen()` gate). */
   private connected = false
   private mode: 'listening' | 'speaking' = 'listening'
+  /** 2026-08-09 — epoch ms of the last `onModeChange` and the last AI `onMessage`, used to detect a
+   *  STALE mode reading — see `waitForListening()`'s own doc comment for the exact failure this
+   *  fixes (a live session where `mode` was already 'listening' from a PRIOR turn before the
+   *  farewell utterance's own speaking cycle had even started, so the wait resolved instantly and
+   *  protected nothing). */
+  private lastModeChangeAt = 0
+  private lastAiMessageAt = 0
   private outputVol = 1.0
   private canSendFeedbackFlag = false
   private intentionalClose = false
@@ -277,11 +294,13 @@ export class ElevenLabsAdapter implements VoiceSessionAdapter {
    * to run against user turns only. Asserted by a unit test (AT-22).
    */
   private handleMessage(payload: { message: string; source: 'user' | 'ai'; role?: string }): void {
+    if (payload.source === 'ai') this.lastAiMessageAt = Date.now()
     this.config.onMessage(payload.message, payload.source)
   }
 
   private handleModeChange(mode: 'speaking' | 'listening'): void {
     this.mode = mode
+    this.lastModeChangeAt = Date.now()
     this.config.onDiagnostic?.('el_mode_change', { mode })
     if (mode === 'speaking') {
       this.hasSpokenOnce = true
@@ -334,7 +353,15 @@ export class ElevenLabsAdapter implements VoiceSessionAdapter {
   }
 
   private waitForListening(timeoutMs: number): Promise<void> {
-    if (this.mode !== 'speaking') return Promise.resolve()
+    // 2026-08-09 — do not trust an already-'listening' mode reading if it predates the newest AI
+    // utterance: it may be a STALE signal left over from a PRIOR turn, observed before THIS
+    // utterance's own speaking cycle has even been reported — the exact failure class that let a
+    // real farewell get cut off (see this method's callers' own doc comments for the incident).
+    // Genuinely caught-up: mode is not 'speaking' AND that mode reading is at least as new as the
+    // latest AI message. Anything else (currently speaking, or a stale/older listening reading)
+    // must wait for a real, subsequent 'listening' transition instead of trusting the snapshot.
+    const freshlyListening = this.mode !== 'speaking' && this.lastModeChangeAt >= this.lastAiMessageAt
+    if (freshlyListening) return Promise.resolve()
     return new Promise<void>((resolve) => {
       let settled = false
       const finish = () => {
@@ -392,7 +419,7 @@ export class ElevenLabsAdapter implements VoiceSessionAdapter {
   async endSession(): Promise<void> {
     this.intentionalClose = true
     try {
-      await this.waitForListening(MODE_WAIT_TIMEOUT_MS)
+      await this.waitForListening(END_SESSION_WAIT_TIMEOUT_MS)
       await this.conversation?.endSession()
     } catch (err) {
       console.warn('[elevenlabs-adapter] endSession failed (non-fatal):', err instanceof Error ? err.message : err)

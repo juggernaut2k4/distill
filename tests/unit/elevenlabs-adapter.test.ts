@@ -395,17 +395,50 @@ describe('ElevenLabsAdapter — waitForPlaybackCaughtUp()', () => {
     expect(resolved).toBe(true)
   })
 
-  it("resolves within the 3000ms cap when 'listening' never arrives", async () => {
+  it("resolves within the 8000ms cap when 'listening' never arrives", async () => {
+    // 2026-08-09 — raised from 3000ms to 8000ms (see MODE_WAIT_TIMEOUT_MS's own comment): a live
+    // session showed 3000ms too tight for a realistic closing turn even when the wait logic works
+    // correctly.
     vi.useFakeTimers()
     const { adapter, options } = await createAdapter()
     options.onModeChange!({ mode: 'speaking' })
     let resolved = false
     const pending = adapter.waitForPlaybackCaughtUp().then(() => { resolved = true })
-    await vi.advanceTimersByTimeAsync(2999)
+    await vi.advanceTimersByTimeAsync(7999)
     expect(resolved).toBe(false)
     await vi.advanceTimersByTimeAsync(2)
     await pending
     expect(resolved).toBe(true)
+  })
+
+  // 2026-08-09 — regression coverage for the real incident: a live session's mode reading was
+  // already 'listening' from a PRIOR turn before the newest AI utterance's own speaking cycle had
+  // been reported, so the old snapshot-only check resolved instantly and protected nothing — the
+  // farewell got cut off. `lastModeChangeAt`/`lastAiMessageAt` staleness tracking fixes this.
+  it("does NOT resolve immediately on a stale 'listening' reading that predates the newest AI message", async () => {
+    const { adapter, options } = await createAdapter()
+    options.onModeChange!({ mode: 'speaking' })
+    options.onModeChange!({ mode: 'listening' }) // mode is now 'listening' — but this is about to go stale
+    await new Promise((r) => setTimeout(r, 5)) // ensure a real timestamp gap before the next message
+    options.onMessage!({ message: 'One more thing before we wrap up.', source: 'ai', role: 'agent' })
+
+    let resolved = false
+    const pending = adapter.waitForPlaybackCaughtUp().then(() => { resolved = true })
+    await Promise.resolve()
+    expect(resolved).toBe(false) // must NOT trust the stale 'listening' snapshot
+
+    options.onModeChange!({ mode: 'listening' }) // a genuinely fresh transition, after the message
+    await pending
+    expect(resolved).toBe(true)
+  })
+
+  it("DOES resolve immediately when the 'listening' reading is genuinely at or after the newest AI message", async () => {
+    const { adapter, options } = await createAdapter()
+    options.onMessage!({ message: 'Here is the summary.', source: 'ai', role: 'agent' })
+    await new Promise((r) => setTimeout(r, 5))
+    options.onModeChange!({ mode: 'speaking' })
+    options.onModeChange!({ mode: 'listening' }) // fresh — happens after the message
+    await expect(adapter.waitForPlaybackCaughtUp()).resolves.toBeUndefined()
   })
 })
 

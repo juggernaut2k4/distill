@@ -480,6 +480,14 @@ export default function WidgetRenderClient({
               return 'Visual is showing.'
             }
             const idx = resolveWidgetJumpIndex(params, inlinePages, displayedIndexRef.current)
+            // 2026-08-09 — previously moved the screen unconditionally, with no playback-catch-up
+            // wait at all (unlike advance_tab, which at least attempts one). Confirmed live: the
+            // screen jumped to the next topic's page while ElevenLabs was still ~8 seconds from
+            // finishing speaking the CURRENT topic's content, reproducing exactly what Arun
+            // described ("navigated to topic 2 while explaining topic 1"). "Wait for response" is
+            // off for this tool, so awaiting here does not block the model's own turn-taking — it
+            // only delays when the SCREEN visibly updates, which is the entire point.
+            await adapterRef.current?.waitForPlaybackCaughtUp?.()
             scrollToIndex(idx)
             return 'Visual is showing.'
           },
