@@ -708,7 +708,24 @@ describe('lib/voice/widget-elevenlabs-prompt-rules', () => {
 
   it('exports its own version constant, distinct from the OpenAI widget prompt', async () => {
     const { WIDGET_ELEVENLABS_PROMPT_VERSION } = await import('@/lib/voice/widget-elevenlabs-prompt-rules')
-    expect(WIDGET_ELEVENLABS_PROMPT_VERSION).toBe('widget-el-v3')
+    expect(WIDGET_ELEVENLABS_PROMPT_VERSION).toBe('widget-el-v4')
+  })
+
+  it('G23 names the native silence-detection mechanism, distinct from G22\'s real note', async () => {
+    const { WIDGET_ELEVENLABS_PROMPT_TEMPLATE } = await import('@/lib/voice/widget-elevenlabs-prompt-rules')
+    expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).toContain('G23. Unlike G22')
+  })
+
+  it('rule 3c requires two silences before ending the call, with a spoken check-in after the first', async () => {
+    const { WIDGET_ELEVENLABS_PROMPT_TEMPLATE } = await import('@/lib/voice/widget-elevenlabs-prompt-rules')
+    expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).toContain('The first time silence (G23) fires with no real answer from them, say plainly that you did not hear their answer, and ask the question again.')
+    expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).toContain('If silence fires a second time with still no real answer')
+  })
+
+  it('rule 3g and rule 4c move on immediately on a single silence, without waiting further', async () => {
+    const { WIDGET_ELEVENLABS_PROMPT_TEMPLATE } = await import('@/lib/voice/widget-elevenlabs-prompt-rules')
+    expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).toContain('If they say no, or if silence (G23) fires, that means move on — go to 3h immediately, without waiting any further.')
+    expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).toContain('If silence (G23) fires, treat that the same as a "no"')
   })
 
   it('instructs show_visual by title, never by number, for the opening page and topic transitions', async () => {
