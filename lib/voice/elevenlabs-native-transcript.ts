@@ -45,16 +45,17 @@ interface ElevenLabsConversationResponse {
 
 /**
  * 2026-08-09 — TEMPORARY, one-off debug helper for the same `debug-widget-session` route as
- * `fetchElevenLabsNativeTranscript`. Fetches the RAW conversation record and returns
- * `conversation_initiation_client_data.conversation_config_override.agent.prompt.prompt` — the
- * actual per-session prompt text this codebase sent via `overrides.agent.prompt.prompt` at
- * `Conversation.startSession()` time (elevenlabs-adapter.ts), as ElevenLabs itself recorded it.
- * Distinct from `fetchElevenLabsNativeTranscript`, which only reads `transcript`/`status` — this is
- * the one field neither that function nor any other code path in this app currently exposes. Single
- * attempt, no retry loop (unlike the transcript fetch): this is an on-demand manual lookup, not part
- * of the automated post-call extraction pipeline. NEVER THROWS — returns null on any failure.
+ * `fetchElevenLabsNativeTranscript`. Fetches the RAW conversation record and returns the FULL
+ * `conversation_initiation_client_data` object — the complete client-supplied request ElevenLabs
+ * recorded for that conversation (conversation_config_override in full, not just
+ * agent.prompt.prompt, plus user_id/dynamic_variables/source_info/etc), i.e. everything
+ * `Conversation.startSession()` actually sent (elevenlabs-adapter.ts), as ElevenLabs itself
+ * recorded it — not a narrowed single field. Distinct from `fetchElevenLabsNativeTranscript`,
+ * which only reads `transcript`/`status`. Single attempt, no retry loop (unlike the transcript
+ * fetch): this is an on-demand manual lookup, not part of the automated post-call extraction
+ * pipeline. NEVER THROWS — returns null on any failure.
  */
-export async function fetchElevenLabsConversationPromptOverride(conversationId: string): Promise<string | null> {
+export async function fetchElevenLabsConversationInitiationData(conversationId: string): Promise<Record<string, unknown> | null> {
   const supabase = createSupabaseAdminClient()
 
   const { data, error } = await supabase
@@ -77,12 +78,10 @@ export async function fetchElevenLabsConversationPromptOverride(conversationId: 
     if (!res.ok) return null
 
     const parsed = (await res.json().catch(() => null)) as {
-      conversation_initiation_client_data?: {
-        conversation_config_override?: { agent?: { prompt?: { prompt?: string | null } } }
-      }
+      conversation_initiation_client_data?: Record<string, unknown>
     } | null
 
-    return parsed?.conversation_initiation_client_data?.conversation_config_override?.agent?.prompt?.prompt ?? null
+    return parsed?.conversation_initiation_client_data ?? null
   } catch {
     return null
   }

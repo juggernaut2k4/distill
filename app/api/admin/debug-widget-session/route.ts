@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireSuperAdmin } from '@/lib/internal-admin/auth'
 import { getStoredTranscriptTurns } from '@/lib/voice/openai-realtime-transcript-store'
 import { getStoredDiagnosticEvents } from '@/lib/voice/openai-realtime-diagnostic-store'
-import { fetchElevenLabsConversationPromptOverride } from '@/lib/voice/elevenlabs-native-transcript'
+import { fetchElevenLabsConversationInitiationData } from '@/lib/voice/elevenlabs-native-transcript'
 
 /**
  * TEMPORARY — 2026-08-08, one-off manual read-back of the B2B-75 live test call's captured
@@ -42,11 +42,11 @@ export async function GET(request: NextRequest) {
 
   const conversationId = request.nextUrl.searchParams.get('elevenlabs_conversation_id')
 
-  const [transcript, diagnostics, elevenlabsPromptOverride] = await Promise.all([
+  const [transcript, diagnostics, elevenlabsConversationInitiationData] = await Promise.all([
     getStoredTranscriptTurns(sessionRef),
     getStoredDiagnosticEvents(sessionRef),
-    conversationId ? fetchElevenLabsConversationPromptOverride(conversationId) : Promise.resolve(null),
+    conversationId ? fetchElevenLabsConversationInitiationData(conversationId) : Promise.resolve(null),
   ])
 
-  return NextResponse.json({ sessionRef, transcript, diagnostics, elevenlabsPromptOverride })
+  return NextResponse.json({ sessionRef, transcript, diagnostics, elevenlabsConversationInitiationData })
 }
