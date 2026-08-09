@@ -1,0 +1,12 @@
+diff --git a/node_modules/@elevenlabs/client/dist/utils/overrides.js b/node_modules/@elevenlabs/client/dist/utils/overrides.js
+index fd53908..d6e4507 100644
+--- a/node_modules/@elevenlabs/client/dist/utils/overrides.js
++++ b/node_modules/@elevenlabs/client/dist/utils/overrides.js
+@@ -17,6 +17,7 @@ export function constructOverrides(config) {
+                 stability: config.overrides.tts?.stability,
+                 similarity_boost: config.overrides.tts?.similarityBoost,
+             },
++            turn: { turn_timeout: 5 },
+             ...(config.overrides.asr?.keywords !== undefined
+                 ? { asr: { keywords: config.overrides.asr.keywords } }
+                 : {}),
