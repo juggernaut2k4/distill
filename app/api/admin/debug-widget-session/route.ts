@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireSuperAdmin } from '@/lib/internal-admin/auth'
 import { getStoredTranscriptTurns } from '@/lib/voice/openai-realtime-transcript-store'
 import { getStoredDiagnosticEvents } from '@/lib/voice/openai-realtime-diagnostic-store'
-import { fetchElevenLabsConversationInitiationData } from '@/lib/voice/elevenlabs-native-transcript'
+import { fetchElevenLabsConversationInitiationData, fetchElevenLabsAgentConfig } from '@/lib/voice/elevenlabs-native-transcript'
 
 /**
  * TEMPORARY — 2026-08-08, one-off manual read-back of the B2B-75 live test call's captured
@@ -35,9 +35,15 @@ export async function GET(request: NextRequest) {
     if (admin.error) return admin.error
   }
 
+  const agentId = request.nextUrl.searchParams.get('elevenlabs_agent_id')
+  if (agentId) {
+    const agentConfig = await fetchElevenLabsAgentConfig(agentId)
+    return NextResponse.json({ agentId, agentConfig })
+  }
+
   const sessionRef = request.nextUrl.searchParams.get('session_ref')
   if (!sessionRef) {
-    return NextResponse.json({ error: 'session_ref query param required' }, { status: 400 })
+    return NextResponse.json({ error: 'session_ref (or elevenlabs_agent_id) query param required' }, { status: 400 })
   }
 
   const conversationId = request.nextUrl.searchParams.get('elevenlabs_conversation_id')

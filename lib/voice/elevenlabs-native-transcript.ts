@@ -87,6 +87,40 @@ export async function fetchElevenLabsConversationInitiationData(conversationId: 
   }
 }
 
+/**
+ * 2026-08-09 — TEMPORARY, one-off debug helper, same family as the two functions above. READ-ONLY:
+ * `GET /v1/convai/agents/{agent_id}` — the agent's own saved/base configuration (voice, tools,
+ * turn-taking, the base prompt, everything). Used to preview what a base-prompt sync would look
+ * like before any write is made; this function itself never writes anything. NEVER THROWS — returns
+ * null on any failure.
+ */
+export async function fetchElevenLabsAgentConfig(agentId: string): Promise<Record<string, unknown> | null> {
+  const supabase = createSupabaseAdminClient()
+
+  const { data, error } = await supabase
+    .from('system_voice_config')
+    .select('elevenlabs_api_key_ciphertext')
+    .eq('id', SINGLETON_ID)
+    .maybeSingle()
+
+  if (error || !data) return null
+
+  const ciphertext = (data as { elevenlabs_api_key_ciphertext: string | null }).elevenlabs_api_key_ciphertext
+  const apiKey = decryptOutboundToken(ciphertext)
+  if (!apiKey) return null
+
+  try {
+    const res = await fetch(
+      `https://api.elevenlabs.io/v1/convai/agents/${encodeURIComponent(agentId)}`,
+      { method: 'GET', headers: { 'xi-api-key': apiKey }, cache: 'no-store' }
+    )
+    if (!res.ok) return null
+    return (await res.json().catch(() => null)) as Record<string, unknown> | null
+  } catch {
+    return null
+  }
+}
+
 const FETCH_ATTEMPTS = 3
 // Delay BEFORE attempt 2 and attempt 3, respectively. The post-call availability delay is
 // unverified anywhere in ElevenLabs' docs (B2B-76 §0) — this is a bounded, conservative guess, not
