@@ -222,6 +222,23 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
     }
   }
 
+  // 2026-08-09 — this component's own page is served on the test-harness host (test.hello-clio.com),
+  // a DIFFERENT origin from the widget itself (widgetRenderUrl, always the main app domain — see
+  // app/api/partner/v1/widget-sessions/route.ts's own renderUrl construction). A relative
+  // '/api/partner/render/end-session' fetch from here resolves against THIS page's own origin, which
+  // has no such route (middleware.ts's testHarnessHost branch 404s anything outside its own narrow
+  // allow-list) — confirmed live in production, reproduced via a real dispatched session. Deriving the
+  // origin from widgetRenderUrl itself (rather than reading NEXT_PUBLIC_APP_URL directly here) keeps
+  // this in sync with wherever the widget actually lives, with no second source of truth to drift.
+  function endSessionUrl(): string {
+    if (!widgetRenderUrl) return '/api/partner/render/end-session'
+    try {
+      return `${new URL(widgetRenderUrl).origin}/api/partner/render/end-session`
+    } catch {
+      return '/api/partner/render/end-session'
+    }
+  }
+
   // B2B-70 — abandoned-tab fallback (Requirement Doc §6.10): if the operator just closes the tab
   // instead of clicking "End session," this best-effort beacon still reports the session's end so it
   // doesn't sit on the stuck-session backstop sweep's up-to-60-minute recovery window. `sendBeacon`
@@ -231,21 +248,23 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
     if (!widgetActive || !widgetSessionRef) return
     const sessionRef = widgetSessionRef
     const startedAt = widgetStartedAt
+    const url = endSessionUrl()
     function handlePageHide() {
       const durationMinutes = startedAt ? Math.max(0, Math.round((Date.now() - startedAt) / 60000)) : 0
       const blob = new Blob([JSON.stringify({ clio_session_ref: sessionRef, duration_minutes: durationMinutes })], { type: 'application/json' })
-      navigator.sendBeacon('/api/partner/render/end-session', blob)
+      navigator.sendBeacon(url, blob)
     }
     window.addEventListener('pagehide', handlePageHide)
     return () => window.removeEventListener('pagehide', handlePageHide)
-  }, [widgetActive, widgetSessionRef, widgetStartedAt])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [widgetActive, widgetSessionRef, widgetStartedAt, widgetRenderUrl])
 
   async function handleEndWidgetSession() {
     if (!widgetSessionRef) return
     setWidgetEnding(true)
     try {
       const durationMinutes = widgetStartedAt ? Math.max(0, Math.round((Date.now() - widgetStartedAt) / 60000)) : 0
-      await fetch('/api/partner/render/end-session', {
+      await fetch(endSessionUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ clio_session_ref: widgetSessionRef, duration_minutes: durationMinutes }),
