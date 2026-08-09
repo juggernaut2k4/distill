@@ -527,6 +527,22 @@ export default function WidgetRenderClient({
             return 'Visual is showing.'
           },
           advance_tab: async () => {
+            // 2026-08-09 — code-level guard, per Arun's explicit instruction: widget-elevenlabs-
+            // prompt-rules.ts never instructs calling this tool (show_visual alone carries progress
+            // for this provider — see its own handler above), but that is only a prompt-level
+            // guarantee. If advance_tab is still registered as an available client tool on the
+            // ElevenLabs agent's dashboard config, the model could technically call it anyway;
+            // throwing here — rather than silently no-opping or returning a success-shaped string —
+            // makes that call actually FAIL: `@elevenlabs/client` catches a thrown handler and
+            // reports it back to the model as `is_error: true` (see elevenlabs-adapter.ts's
+            // `handleError` §6.6.6 doc comment), routed to the `el_tool_error` diagnostic rather than
+            // the session-level error state, so this never flashes the connection-health pill or
+            // disrupts the call — only the one stray tool call itself is rejected. OpenAI is
+            // unaffected: it is the only provider whose prompt still calls this tool, and this guard
+            // only fires for voiceProvider === 'elevenlabs'.
+            if (voiceProvider === 'elevenlabs') {
+              throw new Error('advance_tab is not available on this provider — call show_visual for the next page instead.')
+            }
             performAdvance()
             return 'Advanced.'
           },
