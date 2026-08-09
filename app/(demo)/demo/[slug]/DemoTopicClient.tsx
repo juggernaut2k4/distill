@@ -223,48 +223,42 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
   }
 
   // 2026-08-09 — this component's own page is served on the test-harness host (test.hello-clio.com),
-  // a DIFFERENT origin from the widget itself (widgetRenderUrl, always the main app domain — see
-  // app/api/partner/v1/widget-sessions/route.ts's own renderUrl construction). A relative
-  // '/api/partner/render/end-session' fetch from here resolves against THIS page's own origin, which
-  // has no such route (middleware.ts's testHarnessHost branch 404s anything outside its own narrow
-  // allow-list) — confirmed live in production, reproduced via a real dispatched session. Deriving the
-  // origin from widgetRenderUrl itself (rather than reading NEXT_PUBLIC_APP_URL directly here) keeps
-  // this in sync with wherever the widget actually lives, with no second source of truth to drift.
-  function endSessionUrl(): string {
-    if (!widgetRenderUrl) return '/api/partner/render/end-session'
-    try {
-      return `${new URL(widgetRenderUrl).origin}/api/partner/render/end-session`
-    } catch {
-      return '/api/partner/render/end-session'
-    }
-  }
+  // a DIFFERENT origin from the real end-session route (main app domain). Two things were tried and
+  // confirmed broken live in production before this one: a relative '/api/partner/render/end-session'
+  // fetch resolves against THIS page's own origin, which has no such route (middleware.ts's
+  // testHarnessHost branch 404s anything outside its own narrow allow-list); an ABSOLUTE cross-origin
+  // fetch to the real route resolves the right host, but that route sends no
+  // Access-Control-Allow-Origin header, so the browser blocks the request as CORS before it's even
+  // sent ("Failed to fetch", confirmed via direct in-page fetch). A same-origin proxy
+  // (/api/demo/[slug]/widget-end-session, mirrors widget-dispatch's own upstream-proxy pattern)
+  // sidesteps both: the browser only ever talks same-origin, and the real cross-domain hop happens
+  // server-to-server, which CORS never applies to.
+  const endSessionUrl = `/api/demo/${topic.slug}/widget-end-session`
 
   // B2B-70 — abandoned-tab fallback (Requirement Doc §6.10): if the operator just closes the tab
   // instead of clicking "End session," this best-effort beacon still reports the session's end so it
   // doesn't sit on the stuck-session backstop sweep's up-to-60-minute recovery window. `sendBeacon`
   // has no custom-header support, so the JSON body is sent as a Blob typed 'application/json' —
-  // the existing end-session route reads it via request.json(), which works identically either way.
+  // the proxy route reads it via request.json(), which works identically either way.
   useEffect(() => {
     if (!widgetActive || !widgetSessionRef) return
     const sessionRef = widgetSessionRef
     const startedAt = widgetStartedAt
-    const url = endSessionUrl()
     function handlePageHide() {
       const durationMinutes = startedAt ? Math.max(0, Math.round((Date.now() - startedAt) / 60000)) : 0
       const blob = new Blob([JSON.stringify({ clio_session_ref: sessionRef, duration_minutes: durationMinutes })], { type: 'application/json' })
-      navigator.sendBeacon(url, blob)
+      navigator.sendBeacon(endSessionUrl, blob)
     }
     window.addEventListener('pagehide', handlePageHide)
     return () => window.removeEventListener('pagehide', handlePageHide)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [widgetActive, widgetSessionRef, widgetStartedAt, widgetRenderUrl])
+  }, [widgetActive, widgetSessionRef, widgetStartedAt, endSessionUrl])
 
   async function handleEndWidgetSession() {
     if (!widgetSessionRef) return
     setWidgetEnding(true)
     try {
       const durationMinutes = widgetStartedAt ? Math.max(0, Math.round((Date.now() - widgetStartedAt) / 60000)) : 0
-      await fetch(endSessionUrl(), {
+      await fetch(endSessionUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ clio_session_ref: widgetSessionRef, duration_minutes: durationMinutes }),
