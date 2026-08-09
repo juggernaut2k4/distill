@@ -196,13 +196,27 @@ const IDLE_TIMEOUT_CHECKIN_TEXT =
 // is a server-only Inngest function) — if this number ever changes, that one must change with it,
 // and vice versa.
 const MAX_CALL_DURATION_MS = 60 * 60 * 1000
-const MAX_CALL_DURATION_NUDGE_TEXT =
+const MAX_CALL_DURATION_NUDGE_TEXT_OPENAI =
   'This session has reached its maximum allowed length. The one thing you say next is a real, ' +
   'out-loud goodbye, briefly wrapping up wherever you are right now even if not everything has ' +
   'been covered — with your acknowledgment that time is up carried inside the goodbye itself ' +
   'rather than ahead of it, for example: "We\'re right at time, so let\'s wrap up here — great ' +
   'progress today, we can pick up the rest another time." Then call end_session immediately ' +
   'after, in this same turn.'
+
+// 2026-08-09 — ElevenLabs variant, using the native end_call system tool instead of the custom
+// end_session client tool (per Arun's direct instruction to switch to it). end_call's own
+// `message` parameter is spoken by the ElevenLabs platform itself before hangup, so this asks
+// Clio to carry the goodbye as that parameter rather than needing to say it out loud first, then
+// call the tool in a separate step — see widget-elevenlabs-prompt-rules.ts's G22 for the mirrored,
+// primary copy of this instruction (this nudge is the one client-side path that can't go through
+// that file, since it fires from a plain JS timer, not from the prompt).
+const MAX_CALL_DURATION_NUDGE_TEXT_ELEVENLABS =
+  'This session has reached its maximum allowed length. Call the end_call tool now, with a reason ' +
+  'noting the time limit, and set its message to a real, warm goodbye — briefly wrapping up ' +
+  'wherever you are right now even if not everything has been covered, with your acknowledgment ' +
+  'that time is up carried inside the goodbye itself, for example: "We\'re right at time, so ' +
+  'let\'s wrap up here — great progress today, we can pick up the rest another time."'
 
 // 2026-08-07 — EXPERIMENTAL, per Arun's direct instruction, trivially revertible: flip to `false`
 // and redeploy to fully disable, no other changes needed. Root cause under investigation this round
@@ -260,10 +274,13 @@ export default function WidgetRenderClient({
   const endedRef = useRef(false)
 
   // §6.5 — the two distinct pieces of position state. `progressIndexRef` is where real forward
-  // progress continues from, touched ONLY by advance_tab. `displayedIndex`/`displayedIndexRef` is
-  // what's currently scrolled into view, touched by BOTH handlers via the shared `scrollToIndex`
-  // helper below — this is the entire mechanism realizing "a side-trip, not a redefinition of
-  // progress."
+  // progress continues from, touched by advance_tab (OpenAI) and, since 2026-08-09, by show_visual
+  // itself when voiceProvider === 'elevenlabs' AND the requested page is exactly the next one in
+  // sequence (widget-elevenlabs-prompt-rules.ts no longer instructs a separate advance_tab call —
+  // see that file's rule 3g and the show_visual handler below). `displayedIndex`/`displayedIndexRef`
+  // is what's currently scrolled into view, touched by every show_visual/advance_tab call via the
+  // shared `scrollToIndex` helper below — this is the entire mechanism realizing "a side-trip, not
+  // a redefinition of progress" for any jump that isn't the next page in order.
   const progressIndexRef = useRef(0)
   const [displayedIndex, setDisplayedIndex] = useState(0)
   const displayedIndexRef = useRef(0)
@@ -384,7 +401,9 @@ export default function WidgetRenderClient({
         connectStartRef.current = Date.now()
         maxDurationTimeoutRef.current = setTimeout(() => {
           maxDurationTimeoutRef.current = null
-          adapterRef.current?.triggerRecoveryNudge?.(MAX_CALL_DURATION_NUDGE_TEXT)
+          adapterRef.current?.triggerRecoveryNudge?.(
+            voiceProvider === 'elevenlabs' ? MAX_CALL_DURATION_NUDGE_TEXT_ELEVENLABS : MAX_CALL_DURATION_NUDGE_TEXT_OPENAI
+          )
         }, MAX_CALL_DURATION_MS)
 
         // B2B-73 — mic amplitude tap. Deliberately not connected to micCtx.destination: this is a
@@ -480,13 +499,29 @@ export default function WidgetRenderClient({
               return 'Visual is showing.'
             }
             const idx = resolveWidgetJumpIndex(params, inlinePages, displayedIndexRef.current)
-            // 2026-08-09 — previously moved the screen unconditionally, with no playback-catch-up
-            // wait at all (unlike advance_tab, which at least attempts one). Confirmed live: the
-            // screen jumped to the next topic's page while ElevenLabs was still ~8 seconds from
-            // finishing speaking the CURRENT topic's content, reproducing exactly what Arun
-            // described ("navigated to topic 2 while explaining topic 1"). "Wait for response" is
-            // off for this tool, so awaiting here does not block the model's own turn-taking — it
-            // only delays when the SCREEN visibly updates, which is the entire point.
+            // 2026-08-09 — free-navigation redesign, per Arun's direct instruction: ElevenLabs'
+            // prompt (widget-elevenlabs-prompt-rules.ts) no longer calls advance_tab at all, so
+            // show_visual must carry advance_tab's progress-tracking job itself. Calling it for the
+            // exact next page in SESSION CONTENT order IS what "moving forward" means; calling it
+            // for any other page (jumping elsewhere to answer a question, or returning to the page
+            // already at the front of progress) only changes what's displayed — mirrors
+            // computeNextProgressIndex's own forward-only clamp, just triggered from this tool
+            // instead of a separate one. Gated to voiceProvider === 'elevenlabs' so OpenAI's own
+            // advance_tab-then-show_visual flow (unmodified, widget-prompt-rules.ts v21) can never
+            // hit this branch even if its call order ever changes — by the time OpenAI's show_visual
+            // fires, advance_tab has already set progressIndexRef to idx, so idx === current + 1 is
+            // never true for that provider.
+            if (voiceProvider === 'elevenlabs' && idx === progressIndexRef.current + 1) {
+              progressIndexRef.current = idx
+              armPostToolNudge()
+            }
+            // previously moved the screen unconditionally, with no playback-catch-up wait at all
+            // (unlike advance_tab, which at least attempts one). Confirmed live: the screen jumped
+            // to the next topic's page while ElevenLabs was still ~8 seconds from finishing speaking
+            // the CURRENT topic's content, reproducing exactly what Arun described ("navigated to
+            // topic 2 while explaining topic 1"). "Wait for response" is off for this tool, so
+            // awaiting here does not block the model's own turn-taking — it only delays when the
+            // SCREEN visibly updates, which is the entire point.
             await adapterRef.current?.waitForPlaybackCaughtUp?.()
             scrollToIndex(idx)
             return 'Visual is showing.'

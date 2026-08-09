@@ -708,6 +708,23 @@ describe('lib/voice/widget-elevenlabs-prompt-rules', () => {
 
   it('exports its own version constant, distinct from the OpenAI widget prompt', async () => {
     const { WIDGET_ELEVENLABS_PROMPT_VERSION } = await import('@/lib/voice/widget-elevenlabs-prompt-rules')
-    expect(WIDGET_ELEVENLABS_PROMPT_VERSION).toBe('widget-el-v1')
+    expect(WIDGET_ELEVENLABS_PROMPT_VERSION).toBe('widget-el-v2')
+  })
+
+  it('instructs the native end_call tool, not the custom end_session tool, for closing', async () => {
+    const { WIDGET_ELEVENLABS_PROMPT_TEMPLATE } = await import('@/lib/voice/widget-elevenlabs-prompt-rules')
+    expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).toContain('end_call')
+    expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).not.toContain('end_session')
+  })
+
+  it('no longer instructs a separate advance_tab call — show_visual carries progress', async () => {
+    const { WIDGET_ELEVENLABS_PROMPT_TEMPLATE } = await import('@/lib/voice/widget-elevenlabs-prompt-rules')
+    expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).not.toContain('advance_tab')
+    expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).toContain('moves your progress forward')
+  })
+
+  it('rule 4 asks whether there are more questions before returning to the taught page', async () => {
+    const { WIDGET_ELEVENLABS_PROMPT_TEMPLATE } = await import('@/lib/voice/widget-elevenlabs-prompt-rules')
+    expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).toContain('ask if they have any other questions on this')
   })
 })
