@@ -708,7 +708,19 @@ describe('lib/voice/widget-elevenlabs-prompt-rules', () => {
 
   it('exports its own version constant, distinct from the OpenAI widget prompt', async () => {
     const { WIDGET_ELEVENLABS_PROMPT_VERSION } = await import('@/lib/voice/widget-elevenlabs-prompt-rules')
-    expect(WIDGET_ELEVENLABS_PROMPT_VERSION).toBe('widget-el-v2')
+    expect(WIDGET_ELEVENLABS_PROMPT_VERSION).toBe('widget-el-v3')
+  })
+
+  it('instructs show_visual by title, never by number, for the opening page and topic transitions', async () => {
+    const { WIDGET_ELEVENLABS_PROMPT_TEMPLATE } = await import('@/lib/voice/widget-elevenlabs-prompt-rules')
+    expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).toContain("call show_visual with the first page's exact title — never a number")
+    expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).toContain("then call show_visual with that page's exact title — never a number")
+  })
+
+  it('rule 3 asks whether there are more questions on the topic before moving on', async () => {
+    const { WIDGET_ELEVENLABS_PROMPT_TEMPLATE } = await import('@/lib/voice/widget-elevenlabs-prompt-rules')
+    expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).toContain('3f. Otherwise, once your reply is spoken, ask if they have any other questions on this topic')
+    expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).toContain('that means move on')
   })
 
   it('instructs the native end_call tool, not the custom end_session tool, for closing', async () => {
