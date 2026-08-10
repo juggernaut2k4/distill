@@ -1,40 +1,13 @@
-import { auth } from '@clerk/nextjs/server'
 import { redirect } from 'next/navigation'
-import { getConfiguratorAccountsForClerkUser } from '@/lib/partner/admin-accounts'
-import { createSupabaseAdminClient } from '@/lib/supabase'
-import { NoPartnerAccounts } from '../../_shared'
-import PlaygroundClient from './PlaygroundClient'
 
 /**
- * /dashboard/configurator/api/playground — B2B-07, moved under `api/` by B2B-16
- * (Requirement Doc Section 4.6). Identical gate shape to ../page.tsx —
- * duplicated here rather than shared via a layout, matching how every other
- * Configurator route pair in this codebase gates independently rather than via
- * a shared parent gate.
+ * /dashboard/configurator/api/playground — superseded 2026-08-10. The playground is now folded
+ * directly into the unified 3-pane /dashboard/configurator/api page (docs + live playground in one
+ * surface) rather than living on its own route. This redirect exists only so any old bookmark/link
+ * still lands somewhere real instead of a dead 404. PlaygroundClient.tsx in this directory is now
+ * unreferenced dead code — left in place rather than deleted without explicit confirmation.
  */
-export default async function PlaygroundPage({ searchParams }: { searchParams: { partner_account_id?: string } }) {
-  const { userId } = auth()
-  if (!userId) redirect('/sign-in')
-
-  const accounts = await getConfiguratorAccountsForClerkUser(userId)
-  if (accounts.length === 0) return <NoPartnerAccounts />
-
-  const activeId = searchParams.partner_account_id && accounts.some((a) => a.id === searchParams.partner_account_id)
-    ? searchParams.partner_account_id
-    : accounts[0].id
-
-  // B2B-05 wizard entry-point redirect (Requirement Doc Section 13.3, architecture.md §14.7.4) —
-  // same convention every other Configurator screen follows.
-  const supabase = createSupabaseAdminClient()
-  const { data: account } = await supabase
-    .from('partner_accounts')
-    .select('onboarding_completed_at')
-    .eq('id', activeId)
-    .single()
-
-  if (!account?.onboarding_completed_at) {
-    redirect(`/dashboard/configurator/wizard?partner_account_id=${activeId}`)
-  }
-
-  return <PlaygroundClient accounts={accounts} activePartnerAccountId={activeId} />
+export default function PlaygroundPageRedirect({ searchParams }: { searchParams: { partner_account_id?: string } }) {
+  const qs = searchParams.partner_account_id ? `?partner_account_id=${searchParams.partner_account_id}` : ''
+  redirect(`/dashboard/configurator/api${qs}`)
 }

@@ -1,20 +1,33 @@
 // app/dashboard/configurator/api/content.ts
 //
-// Hand-transcribed from the live route files cited in
-// docs/specs/B2B-07-requirement-document.md's header, verified against them
-// directly (not from any other spec doc, which can drift). Update this file
-// whenever any of those four routes' request/response contract changes — a
-// stale reference here is worse than none, matching this repo's existing
-// docs/reference-vendor-api-integrations.md convention.
+// Hand-transcribed from the live route files cited in each entry's comment,
+// verified against them directly (not from any other spec doc, which can
+// drift). Update this file whenever any of these routes' request/response
+// contract changes — a stale reference here is worse than none, matching
+// this repo's existing docs/reference-vendor-api-integrations.md convention.
 //
 // This is hand-authored reference content, never populated by an AI/LLM API
 // call (Requirement Doc Section 4.A, standing repo rule against speculative
-// model output on undefined-content screens).
+// model output on undefined-content screens). Only fields that actually
+// exist in the live request/response schema are documented here — a field
+// discussed but not yet built (e.g. end_user_domain, considered during a
+// 2026-08-10 planning conversation but never added to
+// lib/partner/widget-session-schema.ts) must not appear until it ships.
 
-export type PlaygroundEndpointId = 'sessions_create' | 'sessions_get' | 'usage' | 'wallet'
+export type PlaygroundEndpointId =
+  | 'oauth_token'
+  | 'content_sources_create'
+  | 'sessions_create'
+  | 'sessions_get'
+  | 'widget_sessions_create'
+  | 'usage'
+  | 'wallet'
+
+export type EndpointCategory = 'Auth' | 'Content' | 'Sessions' | 'Reporting'
 
 export interface EndpointDoc {
   id: PlaygroundEndpointId
+  category: EndpointCategory
   method: 'GET' | 'POST'
   path: string // display path, e.g. '/api/partner/v1/sessions/:clio_session_ref'
   purpose: string
@@ -28,11 +41,74 @@ export interface EndpointDoc {
   otherResponses: { status: string; meaning: string }[]
   playgroundDisabled: boolean
   playgroundDisabledReason?: string
+  /** oauth_token is how you GET a credential — it takes no Authorization header itself. */
+  noAuthRequired?: boolean
 }
 
 export const ENDPOINTS: EndpointDoc[] = [
   {
+    id: 'oauth_token',
+    category: 'Auth',
+    method: 'POST',
+    path: '/api/partner/v1/oauth/token',
+    purpose:
+      'Exchanges your client_id/client_secret for a short-lived access token (RFC 6749 §4.4 Client Credentials grant). A static API key works too, sent the same way as the token below — this endpoint only matters if you specifically want OAuth2.',
+    rateLimit: '300 requests/minute per partner account.',
+    requestFields: [
+      { field: 'grant_type', type: 'string', required: 'Yes', notes: 'Always "client_credentials".' },
+      { field: 'client_id', type: 'string', required: 'Yes', notes: '' },
+      { field: 'client_secret', type: 'string', required: 'Yes', notes: '' },
+    ],
+    exampleRequestBody: { grant_type: 'client_credentials', client_id: 'clio_oauth_...', client_secret: 'secret_...' },
+    exampleResponse: { access_token: 'string', token_type: 'Bearer', expires_in: 3600 },
+    responseNotes: [
+      'Also accepts application/x-www-form-urlencoded, the RFC-standard body shape for this grant type — JSON is a fallback for callers that prefer it.',
+      'Tokens expire after 1 hour — re-authenticate for a new one.',
+      'Uses the RFC 6749 §5.2 error shape { error, error_description } — the one route in this API that does not use the usual { error: { code, message, request_id } } envelope.',
+    ],
+    otherResponses: [{ status: '400', meaning: 'invalid_request / invalid_client / invalid_grant' }],
+    playgroundDisabled: false,
+    noAuthRequired: true,
+  },
+  {
+    id: 'content_sources_create',
+    category: 'Content',
+    method: 'POST',
+    path: '/api/partner/v1/content-sources',
+    purpose:
+      'Registers how Clio should authenticate when it fetches your content page URLs. Register once, reuse the returned content_source_id on every session.',
+    rateLimit: '300 requests/minute per partner account (reads rate-limit class).',
+    requestFields: [
+      { field: 'auth_type', type: '"none" | "static_bearer" | "oauth2_client_credentials"', required: 'Yes', notes: '' },
+      { field: 'label', type: 'string', required: 'No', notes: 'Your own name for this source.' },
+      { field: 'token', type: 'string', required: 'static_bearer only', notes: 'Encrypted at rest, never returned again.' },
+      { field: 'header_name', type: 'string', required: 'No', notes: 'static_bearer only. Default "Authorization".' },
+      { field: 'header_scheme', type: 'string', required: 'No', notes: 'static_bearer only. Default "Bearer" — use "" for a raw header value.' },
+      { field: 'token_url', type: 'string (URL)', required: 'oauth2_client_credentials only', notes: 'Your own token endpoint.' },
+      { field: 'client_id', type: 'string', required: 'oauth2_client_credentials only', notes: '' },
+      { field: 'client_secret', type: 'string', required: 'oauth2_client_credentials only', notes: 'Encrypted at rest, never returned again.' },
+      { field: 'scope', type: 'string', required: 'No', notes: 'oauth2_client_credentials only.' },
+      { field: 'audience', type: 'string', required: 'No', notes: 'oauth2_client_credentials only.' },
+    ],
+    exampleRequestBody: {
+      auth_type: 'static_bearer',
+      label: 'My content API',
+      token: 'sk_live_...',
+      header_name: 'Authorization',
+      header_scheme: 'Bearer',
+    },
+    exampleResponse: { content_source_id: 'uuid' },
+    responseNotes: [
+      'auth_type: "none" needs no other fields — for content that is fully public.',
+      '"mtls" (client certificate) and "presigned_url" are documented for the future but rejected today with content_source_auth_type_not_supported.',
+      'The plaintext token/client_secret you send is never returned again in any response.',
+    ],
+    otherResponses: [{ status: '422', meaning: 'validation failure, or auth_type not yet supported' }],
+    playgroundDisabled: false,
+  },
+  {
     id: 'sessions_create',
+    category: 'Sessions',
     method: 'POST',
     path: '/api/partner/v1/sessions',
     purpose:
@@ -73,19 +149,14 @@ export const ENDPOINTS: EndpointDoc[] = [
       { status: '422', meaning: 'validation failure' },
       { status: '429', meaning: 'rate limit exceeded, Retry-After header present' },
     ],
-    // Enabled 2026-07-16 per Arun's direct confirmation: a test-mode dispatch
-    // from this Playground is meant to behave exactly like any other
-    // test-mode API call — a real bot, bounded by B2B-08's existing trial
-    // gate (free 20-minute allowance, then a paid test block). No separate
-    // Playground-specific safeguard is needed; B2B-08's 402 trial_exhausted
-    // response is the intended limit.
     playgroundDisabled: false,
   },
   {
     id: 'sessions_get',
+    category: 'Sessions',
     method: 'GET',
     path: '/api/partner/v1/sessions/:clio_session_ref',
-    purpose: 'Reads the current status of a session you previously created.',
+    purpose: 'Reads the current status of a session you previously created (meeting-bot or widget).',
     rateLimit: '300 requests/minute per partner account.',
     pathParam: { name: 'clio_session_ref', type: 'UUID', notes: 'Required.' },
     exampleResponse: { clio_session_ref: 'uuid', status: 'bot_active', created_at: 'ISO 8601', ended_at: null },
@@ -97,7 +168,64 @@ export const ENDPOINTS: EndpointDoc[] = [
     playgroundDisabled: false,
   },
   {
+    id: 'widget_sessions_create',
+    category: 'Sessions',
+    method: 'POST',
+    path: '/api/partner/v1/widget-sessions',
+    purpose:
+      'Starts a standalone session for one end user — no meeting required. Returns a render_url you open directly to join the live session, embeddable anywhere.',
+    rateLimit: '60 requests/minute per partner account (widget_sessions_create rate-limit class).',
+    requestFields: [
+      { field: 'content_pages', type: 'array', required: 'Yes', notes: 'One or more pages — see below.' },
+      { field: 'content_source_id', type: 'string (UUID)', required: 'Yes', notes: 'Registered via content-sources.' },
+      { field: 'content_title', type: 'string', required: 'No', notes: 'Session-level title.' },
+      { field: 'content_subtitle', type: 'string', required: 'No', notes: 'Session-level subtitle.' },
+      { field: 'content_to_explain', type: 'string', required: 'No', notes: 'Overall narration guidance, up to 5000 chars.' },
+      { field: 'expected_duration_minutes', type: 'integer', required: 'No', notes: 'Default 30. Used for the wallet/billing gate.' },
+      { field: 'end_user_name', type: 'string', required: 'Yes', notes: '' },
+      { field: 'end_user_role', type: 'string', required: 'No', notes: '' },
+      { field: 'end_user_industry', type: 'string', required: 'No', notes: '' },
+      { field: 'language', type: 'string', required: 'No', notes: 'Spoken delivery language.' },
+      { field: 'reseller_id', type: 'string (UUID)', required: 'Yes', notes: 'Must match the account resolved from your API key.' },
+      { field: 'client_id', type: 'string (UUID)', required: 'Channel-partner accounts only', notes: 'Must already be registered to your account.' },
+      { field: 'partner_end_user_ref', type: 'string', required: 'No', notes: '1–256 printable-ASCII chars. Powers the optional profile-pull callback.' },
+      { field: 'partner_reference', type: 'string', required: 'No', notes: '1–256 printable-ASCII chars. Echoed on every usage webhook.' },
+      { field: 'reseller_unique_id', type: 'string', required: 'No', notes: 'Idempotency key — a retry with the same value returns the original session.' },
+    ],
+    exampleRequestBody: {
+      content_source_id: '11111111-1111-1111-1111-111111111111',
+      content_pages: [
+        {
+          url: 'https://content.partner.example.com/module-1.html',
+          media_type: 'html',
+          title: 'Module 1',
+          subtitle: 'Getting started',
+          transition_trigger: 'after module 1',
+          content_text: 'The actual narration material for this page.',
+        },
+      ],
+      end_user_name: 'Jordan Lee',
+      reseller_id: '22222222-2222-2222-2222-222222222222',
+      partner_reference: 'acct_492',
+    },
+    exampleResponse: { clio_session_ref: 'uuid', status: 'widget_active', render_url: 'string', reseller_unique_id: 'string (only if sent)' },
+    responseNotes: [
+      'content_pages items also accept media_type: "image" instead of "html".',
+      'client_id is required for channel-partner (reseller) accounts and rejected as unnecessary for direct partner accounts.',
+      '409 session_already_active only applies to the demo-only dispatch route, not this one — a real production call always creates a new session.',
+    ],
+    otherResponses: [
+      { status: '401', meaning: 'invalid_api_key / revoked_api_key' },
+      { status: '402', meaning: 'card_required / trial_exhausted / funding_required / balance_exhausted' },
+      { status: '403', meaning: 'account_suspended' },
+      { status: '422', meaning: 'validation failure, invalid_reseller_id, client_id_required, invalid_client_id, content_source_not_found, or content_source_url_rejected' },
+      { status: '429', meaning: 'rate limit exceeded, Retry-After header present' },
+    ],
+    playgroundDisabled: false,
+  },
+  {
     id: 'usage',
+    category: 'Reporting',
     method: 'GET',
     path: '/api/partner/v1/usage',
     purpose: "Reads your account's own billable usage history — one row per metered event.",
@@ -129,6 +257,7 @@ export const ENDPOINTS: EndpointDoc[] = [
   },
   {
     id: 'wallet',
+    category: 'Reporting',
     method: 'GET',
     path: '/api/partner/v1/wallet',
     purpose: 'Reads your current prepaid balance, per-event-type burn rate, and projected days-until-exhausted.',
@@ -151,29 +280,40 @@ export const ENDPOINTS: EndpointDoc[] = [
     responseNotes: [
       'burn_rate_by_event_type always lists all 8 current event types; rate_usd: null means no rate configured yet.',
       'No explicit 4xx handling beyond auth — a DB read failure surfaces as a generic, unstructured 500.',
-      'trial_minutes_used/trial_minutes_remaining/test_minutes_balance are test-mode-only concepts (they gate POST /api/partner/v1/sessions when called with a test-mode API key) but are always present in this response regardless of which key mode you call /wallet with — they simply read 0 used / full cap remaining for an account that has never dispatched a test-mode session.',
+      'trial_minutes_used/trial_minutes_remaining/test_minutes_balance are test-mode-only concepts (they gate session-creation when called with a test-mode API key) but are always present in this response regardless of which key mode you call /wallet with.',
     ],
     otherResponses: [{ status: '401/403', meaning: 'same as usage' }],
     playgroundDisabled: false,
   },
 ]
 
+export const ENDPOINT_CATEGORIES: EndpointCategory[] = ['Auth', 'Content', 'Sessions', 'Reporting']
+
+// B2B-02 architecture.md §7.3 + lib/partner/webhooks.ts's WebhookPayload interface, transcribed
+// field-for-field against the live type — not a paraphrase. This is what you RECEIVE, pushed to
+// your own outbound_base_url, not something you call.
 export const WEBHOOK_DOC = {
   path: 'POST {your outbound_base_url}/webhooks/usage',
+  eventTypes: ['usage.voice_minute', 'usage.llm_generation_call', 'session.completed', 'session.insights_ready'],
   payloadFields: [
-    'event_id',
-    'event_type',
-    'clio_session_ref',
-    'partner_reference',
-    'quantity',
-    'unit',
-    'generation_type',
-    'occurred_at',
-    'dispatched_at',
-    'test_mode',
+    { field: 'event_id', notes: 'Unique per delivery attempt.' },
+    { field: 'event_type', notes: 'One of the four types above.' },
+    { field: 'clio_session_ref', notes: '' },
+    { field: 'partner_reference', notes: 'Echoed from your session-creation request, if you sent one.' },
+    { field: 'quantity', notes: 'usage.* events only.' },
+    { field: 'unit', notes: '"minutes" | "calls" — usage.* events only.' },
+    { field: 'generation_type', notes: 'usage.llm_generation_call only.' },
+    { field: 'occurred_at', notes: 'When the event actually happened.' },
+    { field: 'dispatched_at', notes: 'When this delivery attempt was sent.' },
+    { field: 'test_mode', notes: 'true for any session created with a test-mode key — filter these out of real billing.' },
+    { field: 'extraction_status', notes: 'session.insights_ready only — "success" | "success_empty" | "failed".' },
+    { field: 'action_items', notes: 'session.insights_ready only — extracted action items, [{ text }].' },
+    { field: 'learner_insight', notes: 'session.insights_ready only — { summary, topics_of_interest, engagement_style, suggested_next_topics }.' },
+    { field: 'end_client_id', notes: 'Present on channel-partner sessions — which of your clients this was.' },
+    { field: 'reseller_id', notes: 'Your own account id, always populated.' },
+    { field: 'reseller_unique_id', notes: 'Echoed if you sent one at session creation.' },
   ],
   signatureHeader: 'Clio-Signature: t=<unix_timestamp>,v1=<hex_hmac>',
   verificationRecipe: 'HMAC-SHA256(signing_secret, `${t}.${raw_body}`), constant-time compare, reject if |now - t| > 300s.',
   retrySchedule: '1m, 5m, 30m, 2h, 6h (5 attempts total, then marked exhausted).',
-  knownGap: 'No transcript, action-item, glitch, or psychology data in this payload today — usage/billing fields only.',
 }
