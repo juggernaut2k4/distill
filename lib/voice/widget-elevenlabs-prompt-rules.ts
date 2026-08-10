@@ -144,9 +144,17 @@
  * 3. Rule 3c (the verification question): now explicitly TWO silences, not one check-in-then-end —
  *    the first silence gets "I didn't hear your answer," said plainly, and the question repeated;
  *    only a SECOND silence with still no real answer ends the call via end_call.
+ *
+ * v5 (2026-08-10) — one change, per Arun's direct instruction: G23 itself now carries a concrete
+ * default action (re-engage once, then end_call with a warm farewell) instead of deferring entirely
+ * to whichever specific rule cites it. 3c/3f/3g/4c are UNCHANGED — their own, more specific reactions
+ * (re-ask once then end on the verification question; just move on for "any other questions?") still
+ * govern their own moments, since a locally-stated instruction reads as more specific than the general
+ * G rule. G23's new default action now also fills two previously-unhandled silences that had no
+ * escalation at all: 1c (the opening question) and 6c (the closing "anything else?" check).
  */
 
-export const WIDGET_ELEVENLABS_PROMPT_VERSION = 'widget-el-v4'
+export const WIDGET_ELEVENLABS_PROMPT_VERSION = 'widget-el-v5'
 
 // ─── Placeholders ────────────────────────────────────────────────────────────────────────────────
 
@@ -239,7 +247,7 @@ G21. When a tool returns you will be prompted to continue. Pick up right there w
 
 G22. If you receive a note that the session has reached its maximum length, that is the only note that ever ends the session. Call end_call with a reason noting the time limit, and set its message to a real, warm goodbye, wrapping up wherever you are even if topics remain, with your acknowledgment that time is up carried inside that message.
 
-G23. Unlike G22's note, the platform's own silence detection carries no text of its own — it simply prompts you to continue speaking with no new real spoken turn from them since your last question. That absence IS the "silence" or "no real answer" the rules below refer to. Treat it as your cue to act immediately, exactly as the rule you are in instructs — never by waiting longer, and never by repeating yourself first.]
+G23. Unlike G22's note, the platform's own silence detection carries no text of its own — it simply prompts you to continue speaking with no new real spoken turn from them since your last question. That absence IS the "silence" the rules below refer to. If the participant is silent, unresponsive, or does not reply after you have already tried once to re-engage them, call end_call with a reason noting no participant response, and set its message to a warm farewell such as "Since I haven't heard from you, I'm going to end our session now. Have a great day!"]
 
 1. Opening.
 1a. Greet ${WIDGET_ELEVENLABS_PARTICIPANT_NAME_PLACEHOLDER} and introduce yourself.

@@ -708,12 +708,19 @@ describe('lib/voice/widget-elevenlabs-prompt-rules', () => {
 
   it('exports its own version constant, distinct from the OpenAI widget prompt', async () => {
     const { WIDGET_ELEVENLABS_PROMPT_VERSION } = await import('@/lib/voice/widget-elevenlabs-prompt-rules')
-    expect(WIDGET_ELEVENLABS_PROMPT_VERSION).toBe('widget-el-v4')
+    expect(WIDGET_ELEVENLABS_PROMPT_VERSION).toBe('widget-el-v5')
   })
 
   it('G23 names the native silence-detection mechanism, distinct from G22\'s real note', async () => {
     const { WIDGET_ELEVENLABS_PROMPT_TEMPLATE } = await import('@/lib/voice/widget-elevenlabs-prompt-rules')
     expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).toContain('G23. Unlike G22')
+  })
+
+  it('G23 defaults to a re-engage-once-then-end_call farewell for otherwise-unhandled silence', async () => {
+    const { WIDGET_ELEVENLABS_PROMPT_TEMPLATE } = await import('@/lib/voice/widget-elevenlabs-prompt-rules')
+    expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).toContain(
+      'If the participant is silent, unresponsive, or does not reply after you have already tried once to re-engage them, call end_call with a reason noting no participant response, and set its message to a warm farewell such as "Since I haven\'t heard from you, I\'m going to end our session now. Have a great day!"'
+    )
   })
 
   it('rule 3c requires two silences before ending the call, with a spoken check-in after the first', async () => {
