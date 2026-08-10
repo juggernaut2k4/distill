@@ -6,6 +6,7 @@ import {
   fetchElevenLabsConversationInitiationData,
   fetchElevenLabsAgentConfig,
   fetchElevenLabsConversationVersionInfo,
+  fetchElevenLabsRawConversation,
 } from '@/lib/voice/elevenlabs-native-transcript'
 
 /**
@@ -52,11 +53,12 @@ export async function GET(request: NextRequest) {
 
   const conversationId = request.nextUrl.searchParams.get('elevenlabs_conversation_id')
 
-  const [transcript, diagnostics, elevenlabsConversationInitiationData, versionInfo] = await Promise.all([
+  const [transcript, diagnostics, elevenlabsConversationInitiationData, versionInfo, elevenlabsRawConversation] = await Promise.all([
     getStoredTranscriptTurns(sessionRef),
     getStoredDiagnosticEvents(sessionRef),
     conversationId ? fetchElevenLabsConversationInitiationData(conversationId) : Promise.resolve(null),
     conversationId ? fetchElevenLabsConversationVersionInfo(conversationId) : Promise.resolve(null),
+    conversationId ? fetchElevenLabsRawConversation(conversationId) : Promise.resolve(null),
   ])
 
   // Resolved, effective config the call actually ran on — the agent's full config snapshot AT the
@@ -75,5 +77,6 @@ export async function GET(request: NextRequest) {
     elevenlabsConversationInitiationData,
     elevenlabsConversationVersionInfo: versionInfo,
     elevenlabsEffectiveAgentConfig,
+    elevenlabsRawConversation,
   })
 }
