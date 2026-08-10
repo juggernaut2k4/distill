@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireSuperAdmin } from '@/lib/internal-admin/auth'
 import { getStoredTranscriptTurns } from '@/lib/voice/openai-realtime-transcript-store'
 import { getStoredDiagnosticEvents } from '@/lib/voice/openai-realtime-diagnostic-store'
-import { fetchElevenLabsConversationInitiationData, fetchElevenLabsAgentConfig } from '@/lib/voice/elevenlabs-native-transcript'
+import {
+  fetchElevenLabsConversationInitiationData,
+  fetchElevenLabsAgentConfig,
+  fetchElevenLabsConversationVersionInfo,
+} from '@/lib/voice/elevenlabs-native-transcript'
 
 /**
  * TEMPORARY — 2026-08-08, one-off manual read-back of the B2B-75 live test call's captured
@@ -48,11 +52,28 @@ export async function GET(request: NextRequest) {
 
   const conversationId = request.nextUrl.searchParams.get('elevenlabs_conversation_id')
 
-  const [transcript, diagnostics, elevenlabsConversationInitiationData] = await Promise.all([
+  const [transcript, diagnostics, elevenlabsConversationInitiationData, versionInfo] = await Promise.all([
     getStoredTranscriptTurns(sessionRef),
     getStoredDiagnosticEvents(sessionRef),
     conversationId ? fetchElevenLabsConversationInitiationData(conversationId) : Promise.resolve(null),
+    conversationId ? fetchElevenLabsConversationVersionInfo(conversationId) : Promise.resolve(null),
   ])
 
-  return NextResponse.json({ sessionRef, transcript, diagnostics, elevenlabsConversationInitiationData })
+  // Resolved, effective config the call actually ran on — the agent's full config snapshot AT the
+  // exact version this conversation used (voice/turn/tts/tools all resolved, not just our override).
+  // Falls back to the agent's CURRENT config if the conversation record has no version_id (agent
+  // versioning may not be enabled, or this predates it being turned on).
+  const elevenlabsEffectiveAgentConfig =
+    versionInfo?.agentId
+      ? await fetchElevenLabsAgentConfig(versionInfo.agentId, versionInfo.versionId)
+      : null
+
+  return NextResponse.json({
+    sessionRef,
+    transcript,
+    diagnostics,
+    elevenlabsConversationInitiationData,
+    elevenlabsConversationVersionInfo: versionInfo,
+    elevenlabsEffectiveAgentConfig,
+  })
 }

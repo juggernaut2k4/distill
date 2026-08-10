@@ -93,8 +93,51 @@ export async function fetchElevenLabsConversationInitiationData(conversationId: 
  * turn-taking, the base prompt, everything). Used to preview what a base-prompt sync would look
  * like before any write is made; this function itself never writes anything. NEVER THROWS — returns
  * null on any failure.
+ *
+ * `versionId`, when passed, appends `?version_id=...` — ElevenLabs' agent-versioning feature
+ * (docs: "Agent versioning") keeps an immutable snapshot of the FULL config per version, and
+ * fetching with a specific version_id returns that exact historical snapshot rather than
+ * whatever the agent's config currently is. Used together with
+ * `fetchElevenLabsConversationVersionInfo()` below to reconstruct the actual, resolved config a
+ * specific past conversation ran on — not just the (mostly-null) override we sent it.
  */
-export async function fetchElevenLabsAgentConfig(agentId: string): Promise<Record<string, unknown> | null> {
+export async function fetchElevenLabsAgentConfig(agentId: string, versionId?: string | null): Promise<Record<string, unknown> | null> {
+  const supabase = createSupabaseAdminClient()
+
+  const { data, error } = await supabase
+    .from('system_voice_config')
+    .select('elevenlabs_api_key_ciphertext')
+    .eq('id', SINGLETON_ID)
+    .maybeSingle()
+
+  if (error || !data) return null
+
+  const ciphertext = (data as { elevenlabs_api_key_ciphertext: string | null }).elevenlabs_api_key_ciphertext
+  const apiKey = decryptOutboundToken(ciphertext)
+  if (!apiKey) return null
+
+  const url = versionId
+    ? `https://api.elevenlabs.io/v1/convai/agents/${encodeURIComponent(agentId)}?version_id=${encodeURIComponent(versionId)}`
+    : `https://api.elevenlabs.io/v1/convai/agents/${encodeURIComponent(agentId)}`
+
+  try {
+    const res = await fetch(url, { method: 'GET', headers: { 'xi-api-key': apiKey }, cache: 'no-store' })
+    if (!res.ok) return null
+    return (await res.json().catch(() => null)) as Record<string, unknown> | null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 2026-08-10 — TEMPORARY debug helper. Fetches the TOP-LEVEL `agent_id`/`version_id`/`branch_id`
+ * fields off a conversation record (distinct from `fetchElevenLabsConversationInitiationData`,
+ * which only reads the nested `conversation_initiation_client_data` — the override we sent, not
+ * which agent version the call actually ran against). NEVER THROWS — returns null on any failure.
+ */
+export async function fetchElevenLabsConversationVersionInfo(
+  conversationId: string
+): Promise<{ agentId: string | null; versionId: string | null; branchId: string | null } | null> {
   const supabase = createSupabaseAdminClient()
 
   const { data, error } = await supabase
@@ -111,11 +154,23 @@ export async function fetchElevenLabsAgentConfig(agentId: string): Promise<Recor
 
   try {
     const res = await fetch(
-      `https://api.elevenlabs.io/v1/convai/agents/${encodeURIComponent(agentId)}`,
+      `https://api.elevenlabs.io/v1/convai/conversations/${encodeURIComponent(conversationId)}`,
       { method: 'GET', headers: { 'xi-api-key': apiKey }, cache: 'no-store' }
     )
     if (!res.ok) return null
-    return (await res.json().catch(() => null)) as Record<string, unknown> | null
+
+    const parsed = (await res.json().catch(() => null)) as {
+      agent_id?: string | null
+      version_id?: string | null
+      branch_id?: string | null
+    } | null
+    if (!parsed) return null
+
+    return {
+      agentId: parsed.agent_id ?? null,
+      versionId: parsed.version_id ?? null,
+      branchId: parsed.branch_id ?? null,
+    }
   } catch {
     return null
   }
