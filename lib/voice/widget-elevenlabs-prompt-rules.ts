@@ -144,21 +144,9 @@
  * 3. Rule 3c (the verification question): now explicitly TWO silences, not one check-in-then-end —
  *    the first silence gets "I didn't hear your answer," said plainly, and the question repeated;
  *    only a SECOND silence with still no real answer ends the call via end_call.
- *
- * v5 (2026-08-10) — v4's G23 assumed ElevenLabs' native turn_timeout was the real silence signal.
- * Two live findings this round proved that assumption wrong: (1) the installed SDK's own
- * constructOverrides() source has no code path to send a `turn` override at all — confirmed by
- * reading it directly, not inferring from docs; (2) `silence_end_call_timeout` (the platform's
- * call-terminating silence field) is documented as counting time "since the user last spoke," which
- * does NOT reset while Clio herself is mid-monologue — set to 15s live, it killed a call while Clio
- * was actively teaching. Neither native mechanism can be trusted for this. G23 is now backed by a
- * genuinely client-owned mutual-silence timer (WidgetRenderClient.tsx): armed the instant Clio stops
- * talking, cleared the instant she resumes OR a real user transcript arrives, firing a real
- * contextual note only when NEITHER side has said anything for ~7 seconds. G23's own wording is
- * updated to describe this honestly — it's a real note we send, not an unannounced platform prompt.
  */
 
-export const WIDGET_ELEVENLABS_PROMPT_VERSION = 'widget-el-v5'
+export const WIDGET_ELEVENLABS_PROMPT_VERSION = 'widget-el-v4'
 
 // ─── Placeholders ────────────────────────────────────────────────────────────────────────────────
 
@@ -251,7 +239,7 @@ G21. When a tool returns you will be prompted to continue. Pick up right there w
 
 G22. If you receive a note that the session has reached its maximum length, that is the only note that ever ends the session. Call end_call with a reason noting the time limit, and set its message to a real, warm goodbye, wrapping up wherever you are even if topics remain, with your acknowledgment that time is up carried inside that message.
 
-G23. If you receive a note that neither of you has said anything for several seconds, that is a genuine silence signal — not a guess, a real detector. Treat it as your cue to act immediately, exactly as the rule you are currently in instructs for silence — never by waiting longer, and never by repeating yourself first. This is the "silence" or "no real answer" every rule below means whenever it says "silence (G23)."]
+G23. Unlike G22's note, the platform's own silence detection carries no text of its own — it simply prompts you to continue speaking with no new real spoken turn from them since your last question. That absence IS the "silence" or "no real answer" the rules below refer to. Treat it as your cue to act immediately, exactly as the rule you are in instructs — never by waiting longer, and never by repeating yourself first.]
 
 1. Opening.
 1a. Greet ${WIDGET_ELEVENLABS_PARTICIPANT_NAME_PLACEHOLDER} and introduce yourself.
