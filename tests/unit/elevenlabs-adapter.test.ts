@@ -708,12 +708,12 @@ describe('lib/voice/widget-elevenlabs-prompt-rules', () => {
 
   it('exports its own version constant, distinct from the OpenAI widget prompt', async () => {
     const { WIDGET_ELEVENLABS_PROMPT_VERSION } = await import('@/lib/voice/widget-elevenlabs-prompt-rules')
-    expect(WIDGET_ELEVENLABS_PROMPT_VERSION).toBe('widget-el-v4')
+    expect(WIDGET_ELEVENLABS_PROMPT_VERSION).toBe('widget-el-v5')
   })
 
-  it('G23 names the native silence-detection mechanism, distinct from G22\'s real note', async () => {
+  it('G23 describes a real client-sent note, not an unannounced native platform signal', async () => {
     const { WIDGET_ELEVENLABS_PROMPT_TEMPLATE } = await import('@/lib/voice/widget-elevenlabs-prompt-rules')
-    expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).toContain('G23. Unlike G22')
+    expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).toContain('G23. If you receive a note that neither of you has said anything')
   })
 
   it('rule 3c requires two silences before ending the call, with a spoken check-in after the first', async () => {

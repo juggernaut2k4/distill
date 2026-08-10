@@ -218,6 +218,33 @@ const MAX_CALL_DURATION_NUDGE_TEXT_ELEVENLABS =
   'that time is up carried inside the goodbye itself, for example: "We\'re right at time, so ' +
   'let\'s wrap up here — great progress today, we can pick up the rest another time."'
 
+// 2026-08-10 — mutual-silence nudge, ElevenLabs only. Built after confirming, live, that neither
+// ElevenLabs' native turn_timeout (per-agent "Take turn after silence") nor
+// silence_end_call_timeout ("End conversation after silence") can be trusted for this: the SDK has
+// no client-side override path for turn_timeout at all (verified against the installed SDK's own
+// constructOverrides() source — it never even reads a `turn` field from what we pass), and
+// silence_end_call_timeout is documented as counting "since the user last spoke" — it does NOT
+// reset while Clio herself is mid-monologue, so any value low enough to matter kills real sessions
+// mid-sentence (confirmed live: set to 15s, ended a call while Clio was actively teaching). This
+// timer is the fully client-owned replacement discussed with Arun: we already get live
+// onModeChange events, so we can track "has NEITHER side said anything" ourselves, with no
+// dependency on either unreliable native mechanism.
+//
+// Armed the instant mode flips to 'listening' (Clio stopped talking); cleared the instant mode
+// flips back to 'speaking' (Clio resumed) OR a user transcript actually arrives (whichever comes
+// first — catches the case where the participant answered but Clio's reply hasn't started
+// generating yet, which would otherwise let the timer fire on a false positive). At 7s with
+// neither, sends a real contextual nudge via the same triggerRecoveryNudge/sendContextualUpdate
+// path the other nudges already use — see widget-elevenlabs-prompt-rules.ts's G23 for the matching
+// prompt-side instruction on how to act on this note.
+const MUTUAL_SILENCE_NUDGE_MS = 7000
+const MUTUAL_SILENCE_NUDGE_TEXT =
+  'Neither of you has said anything for about 7 seconds — this is genuine silence, not you still ' +
+  "speaking. Treat it exactly as your own instructions say to treat silence for whatever you're " +
+  "currently doing: if you're waiting on the answer to a specific question, that's your cue to act " +
+  'on it now, in your own words, per that rule. If you were just checking whether they have ' +
+  'anything more to add, treat this as a "no" and move on now, without waiting any further.'
+
 // 2026-08-07 — EXPERIMENTAL, per Arun's direct instruction, trivially revertible: flip to `false`
 // and redeploy to fully disable, no other changes needed. Root cause under investigation this round
 // is that advance_tab has been observed firing silently BEFORE the model finishes speaking the
@@ -264,6 +291,7 @@ export default function WidgetRenderClient({
   const [showConnectWarmup, setShowConnectWarmup] = useState(voiceEnabled)
   const warmupTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const postToolNudgeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const mutualSilenceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // v16 — a running total of native idle_timeout_ms fires this session, for observability only
   // (see handleIdleTimeoutFired's doc comment — v16 removed the escalate-on-repeated-fire behavior
   // this counter used to gate).
@@ -449,6 +477,28 @@ export default function WidgetRenderClient({
           }, POST_TOOL_NUDGE_MS)
         }
 
+        // 2026-08-10 — the mutual-silence timer's own arm/clear pair. ElevenLabs only: OpenAI keeps
+        // its existing native idle_timeout_ms path (handleIdleTimeoutFired below) unchanged.
+        const clearMutualSilenceTimer = () => {
+          if (mutualSilenceTimeoutRef.current) {
+            clearTimeout(mutualSilenceTimeoutRef.current)
+            mutualSilenceTimeoutRef.current = null
+          }
+        }
+        const armMutualSilenceTimer = () => {
+          clearMutualSilenceTimer()
+          mutualSilenceTimeoutRef.current = setTimeout(() => {
+            mutualSilenceTimeoutRef.current = null
+            fetch('/api/partner/render/voice-diagnostic-capture', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ clio_session_ref: clioSessionRef, label: 'mutual_silence_nudge_fired', detail: {} }),
+              keepalive: true,
+            }).catch(() => {})
+            adapterRef.current?.triggerRecoveryNudge?.(MUTUAL_SILENCE_NUDGE_TEXT)
+          }, MUTUAL_SILENCE_NUDGE_MS)
+        }
+
         // v14/v16 — reacts to the platform-native idle_timeout_ms signal (openai-realtime-adapter.ts).
         // No client-side timer needed at all: OpenAI's own server-side VAD tracks the real silence
         // duration and tells us directly when it's crossed the threshold. v16 removed the old
@@ -559,6 +609,12 @@ export default function WidgetRenderClient({
           // nested phrase-triggered-advance block below keeps its own PHRASE_TRIGGERED_ADVANCE_ENABLED
           // guard (currently false), so widening this outer condition has no effect on it.
           if (voiceProvider !== 'hume' && text.trim()) {
+            // 2026-08-10 — a real user transcript arriving means they DID say something, even if
+            // Clio's reply hasn't started generating yet (mode hasn't flipped to 'speaking' yet) —
+            // clear the mutual-silence timer here too, not just on the mode flip, so a slow-to-start
+            // reply can never cause a false-positive nudge on an already-answered question.
+            if (voiceProvider === 'elevenlabs' && source === 'user') clearMutualSilenceTimer()
+
             fetch('/api/partner/render/transcript-capture', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -632,7 +688,12 @@ export default function WidgetRenderClient({
           },
           onModeChange: (mode: 'listening' | 'speaking') => {
             setStatus(mode)
-            if (mode === 'speaking') clearPostToolNudge()
+            if (mode === 'speaking') {
+              clearPostToolNudge()
+              clearMutualSilenceTimer()
+            } else if (mode === 'listening' && voiceProvider === 'elevenlabs') {
+              armMutualSilenceTimer()
+            }
           },
           onMessage,
         }
@@ -784,6 +845,7 @@ export default function WidgetRenderClient({
       if (warmupTimeoutRef.current) clearTimeout(warmupTimeoutRef.current)
       if (maxDurationTimeoutRef.current) clearTimeout(maxDurationTimeoutRef.current)
       if (postToolNudgeTimeoutRef.current) clearTimeout(postToolNudgeTimeoutRef.current)
+      if (mutualSilenceTimeoutRef.current) clearTimeout(mutualSilenceTimeoutRef.current)
       if (levelIntervalRef.current) clearInterval(levelIntervalRef.current)
       try { micAnalyserRef.current?.disconnect() } catch { /* noop */ }
       void micAudioCtxRef.current?.close().catch(() => {})
