@@ -168,6 +168,21 @@ INFRA-* (Mia Digital LLC migration) — parallel, non-blocking, land before prod
 
 ## Changelog
 
+- **2026-08-10 (later)**: Root cause found and confirmed fixed, closing the open item from the entry
+  below ("no mutual-silence mechanism currently exists"). A live test call
+  (`conv_4801kznz50dge3s9mp1qbr1tak4k`) showed G23's new re-engage-then-`end_call` logic never firing —
+  the call was instead hard-terminated by ElevenLabs' platform-level `silence_end_call_timeout` (30s,
+  `metadata.termination_reason: "Ending conversation after 30 seconds of silence."`, confirmed via the
+  new `elevenlabsRawConversation` debug field). Per-turn transcript timing showed `turn_timeout` (7s)
+  never fired in either long silence gap (78s→186s, 211s→269s) despite being configured. Root cause,
+  confirmed against ElevenLabs' own docs (not guessed): the native `skip_turn` system tool — which
+  Clio was calling at every "stop and wait" point (1c/3c/3f/4c) to defer her turn — is documented to
+  explicitly **suppress `turn_timeout`** while active ("prevents turn timeout from being triggered
+  during intentional user pauses"), and our prompt was using it far more broadly than its intended
+  narrow purpose (explicit "give me a second" moments), effectively disabling `turn_timeout` for the
+  entire session every time. Fix: **`skip_turn` removed from the agent's enabled Tools in the
+  ElevenLabs dashboard** — config-only, no code change, no commit. Arun tested live immediately after
+  and confirmed `turn_timeout` now fires correctly.
 - **2026-08-09/10**: Live-test-driven B2B-75 ElevenLabs widget hardening round, continuing past B2B-76.
   No BA spec — all narrow reliability/debug-tooling work per CLAUDE.md's carve-out, driven turn-by-turn
   by Arun running real widget test calls and reporting findings. **Two real bugs fixed and confirmed
