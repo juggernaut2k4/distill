@@ -168,6 +168,75 @@ INFRA-* (Mia Digital LLC migration) — parallel, non-blocking, land before prod
 
 ## Changelog
 
+- **2026-08-09/10**: Live-test-driven B2B-75 ElevenLabs widget hardening round, continuing past B2B-76.
+  No BA spec — all narrow reliability/debug-tooling work per CLAUDE.md's carve-out, driven turn-by-turn
+  by Arun running real widget test calls and reporting findings. **Two real bugs fixed and confirmed
+  live** (commit `308e584`): off-by-one page navigation (rules 1f/3g told Clio to call `show_visual`
+  "for page 1" with no identification method, and the model resolved that as a 1-indexed
+  `section_index` against the 0-indexed `inlinePages` array — every screen jump landed one page ahead
+  of what was actually being taught; fixed by making every `show_visual` call use the page's exact
+  title, never a number) and a missing "any other questions?" check in the main per-topic loop (rule 3
+  jumped straight to the next topic with no chance for the participant to ask a follow-up, unlike the
+  different-page-jump rule which already had this). Two rounds of silence-handling prompt refinement
+  followed (`d356b7d`, then folded into `f440560`'s native-`end_call`/free-navigation rewrite), settling
+  on today's G22 (max-duration note ends the session) / G23 (native silence detection carries no text
+  of its own, is the sole "no real answer" signal) split.
+  - **Definitively settled two ElevenLabs native-mechanism questions this round, by reading source and
+    testing live rather than trusting docs.** (1) The installed `@elevenlabs/client@1.17.0`'s own
+    `constructOverrides()` has **no code path to send a `turn` field at all** — confirmed by reading the
+    shipped SDK source directly, not inferred. Per Arun's explicit, informed request (after he supplied
+    a working Playground config as evidence the underlying platform *does* support it), built and
+    deployed a `patch-package`-based forced injection of `turn: {turn_timeout: 5}` into every override
+    (`efeb1d5`) — a real test call confirmed the server still recorded `turn: null`, so the injection had
+    zero effect (consistent with `turn_timeout` not being in this agent's allowed Security-tab override
+    list). Reverted cleanly (`a75e35d`) per Arun's explicit go-ahead once disproven — no lingering patch
+    infra. (2) `silence_end_call_timeout` was confirmed via a live test (set to 15s) to count time
+    **since the user last spoke**, never resetting during Clio's own monologues — it killed a real call
+    mid-sentence. Recommended left disabled (`-1`); still disabled as of the latest test call.
+  - **Built and then reverted a client-owned "mutual silence" timer**, since neither native mechanism
+    above could be trusted for "end/nudge only on genuine two-way silence." Shipped (`191be6f`):
+    armed the instant ElevenLabs mode flips to `listening`, cleared on `speaking` or a real user
+    transcript (whichever first), fired a contextual nudge at 7s via the existing recovery-nudge path.
+    Live test showed a genuine ~13.5s silence gap with **zero** `mutual_silence_nudge_fired` diagnostic
+    recorded — the timer never fired. Code was traced thoroughly (arm/clear wiring, the `onModeChange`
+    callback it depends on, which is independently confirmed reliable via its own `el_mode_change`
+    diagnostics firing correctly) with no bug found. Best untested hypothesis: browser-tab
+    backgrounding throttling `setTimeout`. **Root cause was never confirmed either way** — Arun
+    directed a straight revert (`9a733f5`) rather than continuing to debug in place. **Net effect:
+    there is currently no reliable mutual-silence detection mechanism in the widget at all** — this is
+    the open item to pick up first.
+  - **Self-serve ElevenLabs debug tooling** built incrementally on the existing (B2B-75-era)
+    `debug-widget-session` route, all in `lib/voice/elevenlabs-native-transcript.ts`, all read-only,
+    all `NEVER THROWS`: `fetchElevenLabsConversationInitiationData` (the full override request a call
+    actually received), `fetchElevenLabsAgentConfig` (now accepts an optional `versionId`) +
+    `fetchElevenLabsConversationVersionInfo` (together reconstruct the exact resolved agent config —
+    voice/turn/tools — a past call ran on, via ElevenLabs' agent-versioning snapshots, not just the
+    mostly-null override). Used to independently confirm, straight from ElevenLabs' own API (not our
+    DB/logs), the tool-call sequence of the latest real test call
+    (`conv_7601kzn0x75zfytrjk8afd2wq42c`): `skip_turn` fired 3× (each a deliberate wait-for-answer
+    yield, not silence detection), `contextual_update` fired once with **empty params** — the tell that
+    it was platform-injected, not model-chosen — right after a brief stall following the 3rd
+    `skip_turn`, and the call closed correctly via a genuine user-requested stop (not a
+    silence/timeout). No wordless native `turn_timeout` re-prompt was observed in this call. Confirmed
+    live settings: `turn_timeout: 5`, `silence_end_call_timeout: -1`.
+  - **Discovered and documented `BILL-01`** in `BACKLOG.md` (P0) while diagnosing test-blocking 502s:
+    the admin dashboard shows `demo_minutes_balance` (a separate, purchased-minutes counter) while
+    actual widget-session dispatch is gated by a completely disconnected `trial_minutes_used`/
+    `test_minutes_balance` pair on the same wallet row — a healthy-looking dashboard balance can still
+    502 with an opaque "credits exhausted" error. Unblocked testing immediately with a targeted
+    `credit_test_minutes_balance` RPC call (data op, not code); real fix explicitly deferred until
+    current widget testing is complete, per Arun's instruction.
+  - **Also confirmed, no code needed**: no lever exists — not in our code, not in ElevenLabs' dashboard
+    settings (so far as checked) — to delay Clio's first spoken utterance by a fixed interval after
+    join. The existing 6-second connect warm-up overlay is purely visual (hides our own loading screen)
+    and does not hold back `Conversation.startSession()` or Clio's actual speech at all.
+  - **Open, unresolved, carried into tomorrow**: (1) no mutual-silence mechanism currently exists,
+    per above — needs either a fixed version of the client timer (with the backgrounding hypothesis
+    actually confirmed/ruled out first) or a different approach entirely; (2) Arun reported Clio saying
+    something like *"I am ready and I can take it [message cut off]"* on a call join — never
+    investigated further (no full quote or session ref supplied before the conversation moved on); no
+    hardcoded string matching this exists anywhere in the prompt or adapter code, so if real it was
+    model-improvised, not scripted — needs the full quote + session ref to trace properly.
 - **2026-07-30**: CEO Agent dispatched to review the full reseller-facing `WebhookPayload` field-by-field
   (`lib/partner/webhooks.ts`) per Arun's full brainstorm review, and to trace codebase-wide impact
   before any change. Outcome: three new items filed. **B2B-53** (technical-fix path, ready to build,
