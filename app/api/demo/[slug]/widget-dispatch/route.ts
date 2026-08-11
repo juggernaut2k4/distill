@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { getDemoTopicBySlug, flattenBlocksToNarrationText } from '@/app/(demo)/demo/_content'
 import { resolveDemoPasscodeToAccount } from '@/lib/demo/passcode-accounts'
-import { ELEVENLABS_VOICE_OPTIONS, DEFAULT_ELEVENLABS_VOICE_OPTION, getElevenLabsAgentIdForVoice } from '@/lib/voice/elevenlabs-agents'
+import { ELEVENLABS_VOICE_OPTIONS, DEFAULT_ELEVENLABS_VOICE_OPTION, getElevenLabsAgentIdForVoice, getElevenLabsLanguageForVoice } from '@/lib/voice/elevenlabs-agents'
 
 /**
  * POST /api/demo/[slug]/widget-dispatch
@@ -95,6 +95,12 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
   }
   const apiBaseUrl = process.env.DEMO_PARTNER_API_BASE_URL ?? 'https://www.hello-clio.com'
   const elevenlabsAgentId = getElevenLabsAgentIdForVoice(parsed.data.voice)
+  // 2026-08-10 — per Arun's direct instruction: forwarded as the existing generic `language` field
+  // on widget-sessions (already flows through to conversation_language -> conversationLanguage ->
+  // assembleWidgetElevenLabsPrompt's language instruction, unchanged). Only sent when the selected
+  // voice actually has a language (Catherine's is null, so her sessions carry no language field at
+  // all — byte-identical prompt to before this feature existed).
+  const elevenlabsLanguage = getElevenLabsLanguageForVoice(parsed.data.voice)
 
   // §6.5 step 3 — identical construction to app/api/demo/[slug]/dispatch/route.ts's own content_pages
   // assembly (not a paraphrase — the same transform applied to the same topic object).
@@ -131,6 +137,7 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
         partner_reference: params.slug,
         reseller_id: demoPartnerAccountId,
         ...(elevenlabsAgentId ? { elevenlabs_agent_id: elevenlabsAgentId } : {}),
+        ...(elevenlabsLanguage ? { language: elevenlabsLanguage } : {}),
       }),
     })
     upstreamStatus = upstream.status

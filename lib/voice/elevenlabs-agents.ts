@@ -10,12 +10,17 @@ export interface ElevenLabsVoiceOption {
   voice: 'catherine_us_english' | 'anjura_hindi' | 'vani_tamil'
   label: string
   agentId: string
+  // 2026-08-10 — per Arun's direct instruction: picking a non-English voice should also make Clio
+  // actually teach in that language, not just change the accent. Null means "no language
+  // instruction" (buildLanguageInstruction() in widget-elevenlabs-prompt-rules.ts returns '' for
+  // null/blank), so Catherine's session prompt is byte-identical to before this field existed.
+  language: string | null
 }
 
 export const ELEVENLABS_VOICE_OPTIONS: ElevenLabsVoiceOption[] = [
-  { voice: 'catherine_us_english', label: 'Catherine — US English', agentId: 'agent_0701krp1ta48fswrff17ctb0520m' },
-  { voice: 'anjura_hindi', label: 'Anjura — Hindi', agentId: 'agent_4701kzq913nrep3s92229bwhkbdr' },
-  { voice: 'vani_tamil', label: 'Vani — Tamil', agentId: 'agent_2201kzq90jdkeww9z4n1rn1vex2d' },
+  { voice: 'catherine_us_english', label: 'Catherine — US English', agentId: 'agent_0701krp1ta48fswrff17ctb0520m', language: null },
+  { voice: 'anjura_hindi', label: 'Anjura — Hindi', agentId: 'agent_4701kzq913nrep3s92229bwhkbdr', language: 'Hindi' },
+  { voice: 'vani_tamil', label: 'Vani — Tamil', agentId: 'agent_2201kzq90jdkeww9z4n1rn1vex2d', language: 'Tamil' },
 ]
 
 export const DEFAULT_ELEVENLABS_VOICE_OPTION = ELEVENLABS_VOICE_OPTIONS[0]
@@ -24,4 +29,8 @@ export const ELEVENLABS_AGENT_IDS = ELEVENLABS_VOICE_OPTIONS.map((o) => o.agentI
 
 export function getElevenLabsAgentIdForVoice(voice: string): string | null {
   return ELEVENLABS_VOICE_OPTIONS.find((o) => o.voice === voice)?.agentId ?? null
+}
+
+export function getElevenLabsLanguageForVoice(voice: string): string | null {
+  return ELEVENLABS_VOICE_OPTIONS.find((o) => o.voice === voice)?.language ?? null
 }
