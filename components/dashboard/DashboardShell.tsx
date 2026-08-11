@@ -1,7 +1,7 @@
 'use client'
 
 import { UserButton } from '@clerk/nextjs'
-import { Building2, LayoutTemplate, Bug, Shield, Link2, Users, Home } from 'lucide-react'
+import { Building2, LayoutTemplate, Bug, Shield, Link2, Users, Home, BookOpen } from 'lucide-react'
 import Link from 'next/link'
 
 interface ShellUser {
@@ -30,6 +30,12 @@ const NAV_ITEMS = [
   // super-admin-only, enforced by their own requireSuperAdmin() server gate.
   { href: '/dashboard/admin/partner-invites', icon: Link2, label: 'Partner invites' },
   { href: '/dashboard/admin/sales-partners', icon: Users, label: 'Sales-partners' },
+  // 2026-08-10, per Arun's direct instruction — pure reference documentation, no
+  // account-sensitive data, so it's placed here rather than gated like the rest of
+  // Configurator. Inserted AFTER the slice(0, 5) mobile-nav window (same placement
+  // reasoning as Sales-partners/Admin Home below) so the existing mobile bottom nav
+  // is untouched.
+  { href: '/dashboard/configurator/api', icon: BookOpen, label: 'Documentation' },
   // B2B-21 (docs/specs/B2B-40-requirement-document.md §0/§6.2) — Admin Home
   // is appended LAST, not prepended: MOBILE_NAV_ITEMS = NAV_ITEMS.slice(0, 5)
   // below must stay byte-identical to its pre-B2B-40 value ([Clients,

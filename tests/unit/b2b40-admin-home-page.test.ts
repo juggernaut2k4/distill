@@ -115,14 +115,18 @@ describe('B2B-40 — AT-10 (regression): DashboardShell mobile bottom nav is unc
     expect(labelMatches.slice(0, 5)).toEqual(expectedFirstFive)
   })
 
-  it('Admin Home is the 7th (last) NAV_ITEMS entry, outside the slice(0, 5) window used for the mobile bottom bar', () => {
+  it('Admin Home is the last NAV_ITEMS entry, outside the slice(0, 5) window used for the mobile bottom bar', () => {
+    // 2026-08-10 — Documentation was inserted between Sales-partners and Admin Home (same
+    // append-after-the-mobile-nav-window placement reasoning), so the list grew from 7 to 8
+    // entries and Admin Home moved from index 6 to index 7 — still last, still outside slice(0, 5).
     const labelMatches = Array.from(shellSource.matchAll(/label: '([^']+)'/g)).map((m) => m[1])
-    expect(labelMatches).toHaveLength(7)
-    expect(labelMatches[6]).toBe('Admin Home')
+    expect(labelMatches).toHaveLength(8)
+    expect(labelMatches[6]).toBe('Documentation')
+    expect(labelMatches[7]).toBe('Admin Home')
   })
 
-  it('imports the Home icon from lucide-react for the new nav entry, alongside the existing six icons', () => {
-    expect(shellSource).toMatch(/import \{ Building2, LayoutTemplate, Bug, Shield, Link2, Users, Home \} from 'lucide-react'/)
+  it('imports the Home and BookOpen icons from lucide-react for the Admin Home and Documentation nav entries, alongside the existing six icons', () => {
+    expect(shellSource).toMatch(/import \{ Building2, LayoutTemplate, Bug, Shield, Link2, Users, Home, BookOpen \} from 'lucide-react'/)
   })
 
   it('links the new entry to /dashboard/admin', () => {
