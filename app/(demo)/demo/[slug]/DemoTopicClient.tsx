@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import type { DemoTopic } from '../_content'
+import { ELEVENLABS_VOICE_OPTIONS, DEFAULT_ELEVENLABS_VOICE_OPTION } from '@/lib/voice/elevenlabs-agents'
 import {
   pageStyle,
   navStyle,
@@ -102,6 +103,10 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
   const [widgetRenderUrl, setWidgetRenderUrl] = useState<string | null>(null)
   const [widgetStartedAt, setWidgetStartedAt] = useState<number | null>(null)
   const [widgetNameInput, setWidgetNameInput] = useState('')
+  // 2026-08-10 — per Arun's direct instruction: required voice selector, prefilled to the 1st voice
+  // (Catherine - US English). Applies to both demo topics (claude-ai, oop-fundamentals) since this
+  // is the single shared client component behind both, per the [slug] dynamic route.
+  const [widgetVoiceInput, setWidgetVoiceInput] = useState(DEFAULT_ELEVENLABS_VOICE_OPTION.voice)
   const [widgetShowPasscode, setWidgetShowPasscode] = useState(false)
   const [widgetPasscodeInput, setWidgetPasscodeInput] = useState('')
   const [widgetDispatching, setWidgetDispatching] = useState(false)
@@ -184,7 +189,7 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
       const res = await fetch(`/api/demo/${topic.slug}/widget-dispatch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ passcode: widgetPasscodeInput, end_user_name: widgetNameInput }),
+        body: JSON.stringify({ passcode: widgetPasscodeInput, end_user_name: widgetNameInput, voice: widgetVoiceInput }),
       })
       const data = await res.json().catch(() => null)
 
@@ -751,6 +756,25 @@ export default function DemoTopicClient({ topic }: { topic: DemoTopic }) {
                       placeholder="Participant's name"
                       style={meetingInputStyle}
                     />
+                  </div>
+
+                  <div style={{ ...meetingFieldWrapStyle, marginBottom: 16 }}>
+                    <label style={meetingLabelStyle} htmlFor="widget-voice-input">
+                      Voice
+                    </label>
+                    <select
+                      id="widget-voice-input"
+                      value={widgetVoiceInput}
+                      onChange={(e) => setWidgetVoiceInput(e.target.value as typeof widgetVoiceInput)}
+                      disabled={widgetDispatching}
+                      style={meetingInputStyle}
+                    >
+                      {ELEVENLABS_VOICE_OPTIONS.map((option) => (
+                        <option key={option.voice} value={option.voice}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
                   {widgetShowPasscode ? (

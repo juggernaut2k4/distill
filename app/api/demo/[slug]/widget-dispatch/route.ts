@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { getDemoTopicBySlug, flattenBlocksToNarrationText } from '@/app/(demo)/demo/_content'
 import { resolveDemoPasscodeToAccount } from '@/lib/demo/passcode-accounts'
+import { ELEVENLABS_VOICE_OPTIONS, DEFAULT_ELEVENLABS_VOICE_OPTION, getElevenLabsAgentIdForVoice } from '@/lib/voice/elevenlabs-agents'
 
 /**
  * POST /api/demo/[slug]/widget-dispatch
@@ -27,6 +28,10 @@ import { resolveDemoPasscodeToAccount } from '@/lib/demo/passcode-accounts'
 const DispatchSchema = z.object({
   passcode: z.string().min(1),
   end_user_name: z.string().trim().min(1).max(200),
+  // 2026-08-10 — per Arun's direct instruction: 3 ElevenLabs agents, each its own voice/language,
+  // selectable before launching the demo widget session. Required field, prefilled to Catherine (US
+  // English) client-side so every dispatch always carries an explicit choice.
+  voice: z.enum(ELEVENLABS_VOICE_OPTIONS.map((o) => o.voice) as [string, ...string[]]).default(DEFAULT_ELEVENLABS_VOICE_OPTION.voice),
 })
 
 export async function POST(request: NextRequest, { params }: { params: { slug: string } }) {
@@ -89,6 +94,7 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
     )
   }
   const apiBaseUrl = process.env.DEMO_PARTNER_API_BASE_URL ?? 'https://www.hello-clio.com'
+  const elevenlabsAgentId = getElevenLabsAgentIdForVoice(parsed.data.voice)
 
   // §6.5 step 3 — identical construction to app/api/demo/[slug]/dispatch/route.ts's own content_pages
   // assembly (not a paraphrase — the same transform applied to the same topic object).
@@ -124,6 +130,7 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
         end_user_name: parsed.data.end_user_name,
         partner_reference: params.slug,
         reseller_id: demoPartnerAccountId,
+        ...(elevenlabsAgentId ? { elevenlabs_agent_id: elevenlabsAgentId } : {}),
       }),
     })
     upstreamStatus = upstream.status

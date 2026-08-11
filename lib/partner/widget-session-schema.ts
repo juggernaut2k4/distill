@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { ContentPageSchema, DEFAULT_EXPECTED_DURATION_MINUTES } from '@/lib/partner/session-schema'
+import { ELEVENLABS_AGENT_IDS } from '@/lib/voice/elevenlabs-agents'
 
 /**
  * B2B-70 v2.0 (docs/specs/B2B-70-requirement-document.md §6.2) — request schema for
@@ -34,6 +35,11 @@ export const CreateWidgetSessionSchema = z
     language: z.string().trim().min(1).max(60).optional(),
     reseller_id: z.string().uuid('reseller_id must be a valid UUID'),
     client_id: z.string().uuid().optional(),
+    // 2026-08-10 — optional per-session ElevenLabs agent override (migration 113). Validated against
+    // the 3 known agent IDs rather than accepted as free text — a caller-supplied agent_id that
+    // doesn't belong to Clio's ElevenLabs account would fail opaquely at token-mint time instead of
+    // at request validation. Omitted/undefined falls back to the system-wide default agent.
+    elevenlabs_agent_id: z.enum(ELEVENLABS_AGENT_IDS).optional(),
   })
   .refine((data) => Boolean(data.content_source_id), {
     message: 'content_source_id is required when content_pages is provided.',

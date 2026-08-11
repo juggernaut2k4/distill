@@ -644,7 +644,10 @@ export default function WidgetRenderClient({
           // streams microphone audio itself once permission has been granted. `micStream` above is
           // still obtained (it must run to get permission before startSession, and it feeds the mic
           // analyser tap) — it is simply not handed to this adapter.
-          const tokenRes = await fetch('/api/elevenlabs-token')
+          // 2026-08-10 (migration 113) — clio_session_ref lets the token route resolve this
+          // session's own elevenlabs_agent_id (one of the 3 known voice agents), falling back to
+          // the system-wide default when the session has none set.
+          const tokenRes = await fetch(`/api/elevenlabs-token?clio_session_ref=${encodeURIComponent(clioSessionRef)}`)
           if (!tokenRes.ok) throw new Error(`ElevenLabs token fetch failed: ${tokenRes.status}`)
           const { conversationToken } = (await tokenRes.json()) as { conversationToken: string; agentId: string }
           if (cancelled) return

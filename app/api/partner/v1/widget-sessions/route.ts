@@ -53,6 +53,7 @@ export async function POST(request: NextRequest) {
     language,
     reseller_id,
     client_id,
+    elevenlabs_agent_id,
   } = parsed.data
 
   const supabase = createSupabaseAdminClient()
@@ -174,6 +175,7 @@ export async function POST(request: NextRequest) {
       end_user_industry: end_user_industry ?? null,
       conversation_language: language ?? null,
       reseller_unique_id: reseller_unique_id ?? null,
+      elevenlabs_agent_id: elevenlabs_agent_id ?? null,
       status: 'widget_active',
     })
     .select('id')

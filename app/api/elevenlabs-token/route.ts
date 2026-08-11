@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { decryptOutboundToken } from '@/lib/partner/crypto'
 
@@ -53,8 +53,16 @@ const SINGLETON_ID = '00000000-0000-0000-0000-000000000001'
  * this endpoint and matches the sibling signed-URL endpoint and every other convai endpoint. It is
  * an inference from examples rather than a doc-stated requirement — labelled honestly here rather
  * than overclaimed. We send it regardless, so nothing depends on resolving the ambiguity.
+ *
+ * PER-SESSION AGENT OVERRIDE (2026-08-10, migration 113): an optional `clio_session_ref` query
+ * param lets a caller resolve a specific session's own `elevenlabs_agent_id` (set at
+ * widget-session-creation time — see lib/voice/elevenlabs-agents.ts for the 3 known agents) instead
+ * of always using the system-wide default from `system_voice_config`. No `clio_session_ref`, no
+ * matching session, or a null `elevenlabs_agent_id` on that session all fall back to the existing
+ * default-agent behavior unchanged. The API key always comes from `system_voice_config` regardless
+ * — all 3 agents share the same ElevenLabs account.
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   let apiKeyCiphertext: string | null = null
   let agentId: string | null = null
 
@@ -74,6 +82,19 @@ export async function GET() {
     const row = data as { elevenlabs_api_key_ciphertext: string | null; elevenlabs_agent_id: string | null }
     apiKeyCiphertext = row.elevenlabs_api_key_ciphertext
     agentId = row.elevenlabs_agent_id
+
+    const clioSessionRef = request.nextUrl.searchParams.get('clio_session_ref')
+    if (clioSessionRef) {
+      const { data: sessionRow } = await supabase
+        .from('partner_sessions')
+        .select('elevenlabs_agent_id')
+        .eq('id', clioSessionRef)
+        .maybeSingle()
+      const sessionAgentId = (sessionRow as { elevenlabs_agent_id: string | null } | null)?.elevenlabs_agent_id
+      if (sessionAgentId) {
+        agentId = sessionAgentId
+      }
+    }
   } catch (err) {
     console.error('[elevenlabs-token] Failed to read voice config:', err instanceof Error ? err.message : err)
     return NextResponse.json({ error: 'ElevenLabs credentials not configured' }, { status: 500, headers: NO_CACHE })

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 
 /**
  * B2B-75 (docs/specs/B2B-75-requirement-document.md §13.2) — integration coverage for the three
@@ -460,6 +460,13 @@ describe('GET /api/elevenlabs-token', () => {
     } as unknown as Response
   }
 
+  // 2026-08-10 (migration 113) — GET now takes a NextRequest so it can read the optional
+  // clio_session_ref query param. No param, matching every one of these pre-existing tests' own
+  // intent: exercise the system-wide default agent path, unchanged.
+  function elevenLabsTokenRequest(): NextRequest {
+    return new NextRequest('https://hello-clio.com/api/elevenlabs-token')
+  }
+
   async function seedConfiguredKey() {
     const { encryptOutboundToken } = await import('@/lib/partner/crypto')
     db.voiceConfigRow = defaultVoiceConfigRow({ elevenlabs_api_key_ciphertext: encryptOutboundToken(REAL_KEY) })
@@ -468,7 +475,7 @@ describe('GET /api/elevenlabs-token', () => {
   it('500s when no credentials are configured, without logging any ciphertext', async () => {
     db.voiceConfigRow = defaultVoiceConfigRow({ elevenlabs_api_key_ciphertext: null })
     const { GET } = await import('@/app/api/elevenlabs-token/route')
-    const res = await GET()
+    const res = await GET(elevenLabsTokenRequest())
     const body = await res.json()
     expect(res.status).toBe(500)
     expect(body.error).toBe('ElevenLabs credentials not configured')
@@ -478,7 +485,7 @@ describe('GET /api/elevenlabs-token', () => {
   it('500s when the stored ciphertext cannot be decrypted, leaking neither ciphertext nor plaintext', async () => {
     db.voiceConfigRow = defaultVoiceConfigRow({ elevenlabs_api_key_ciphertext: 'v1:corrupt:corrupt:corrupt' })
     const { GET } = await import('@/app/api/elevenlabs-token/route')
-    const res = await GET()
+    const res = await GET(elevenLabsTokenRequest())
     const body = await res.json()
     expect(res.status).toBe(500)
     expect(body.error).toBe('ElevenLabs credentials could not be read')
@@ -490,7 +497,7 @@ describe('GET /api/elevenlabs-token', () => {
     stubFetch(() => jsonResponse({ detail: 'invalid api key' }, 401))
 
     const { GET } = await import('@/app/api/elevenlabs-token/route')
-    const res = await GET()
+    const res = await GET(elevenLabsTokenRequest())
     const body = await res.json()
 
     expect(res.status).toBe(502)
@@ -504,7 +511,7 @@ describe('GET /api/elevenlabs-token', () => {
     stubFetch(() => jsonResponse({ conversation_id: 'conv_1' }, 200))
 
     const { GET } = await import('@/app/api/elevenlabs-token/route')
-    const res = await GET()
+    const res = await GET(elevenLabsTokenRequest())
     const body = await res.json()
     expect(res.status).toBe(502)
     expect(body.error).toBe('Unexpected response from ElevenLabs conversation-token endpoint')
@@ -515,7 +522,7 @@ describe('GET /api/elevenlabs-token', () => {
     stubFetch(() => jsonResponse({ token: 'conv_token_xyz', conversation_id: 'conv_should_not_leak' }, 200))
 
     const { GET } = await import('@/app/api/elevenlabs-token/route')
-    const res = await GET()
+    const res = await GET(elevenLabsTokenRequest())
     const body = await res.json()
 
     expect(res.status).toBe(200)
@@ -530,7 +537,7 @@ describe('GET /api/elevenlabs-token', () => {
     const spy = stubFetch(() => jsonResponse({ token: 'conv_token_xyz' }, 200))
 
     const { GET } = await import('@/app/api/elevenlabs-token/route')
-    await GET()
+    await GET(elevenLabsTokenRequest())
 
     const [url, init] = spy.mock.calls[0] as [string, RequestInit & { cache?: string }]
     expect(url).toContain('https://api.elevenlabs.io/v1/convai/conversation/token')
@@ -546,7 +553,7 @@ describe('GET /api/elevenlabs-token', () => {
     stubFetch(() => Promise.reject(new Error('network down')))
 
     const { GET } = await import('@/app/api/elevenlabs-token/route')
-    const res = await GET()
+    const res = await GET(elevenLabsTokenRequest())
     expect(res.status).toBe(502)
   })
 })
