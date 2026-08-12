@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { resolveDispatchPasscode } from '@/lib/partner/dispatch-passcodes'
+import { checkRateLimit } from '@/lib/partner/rate-limit'
 
 /**
  * POST /api/partner/v1/bot-dispatch
@@ -19,13 +20,13 @@ import { resolveDispatchPasscode } from '@/lib/partner/dispatch-passcodes'
  * own `id`; it migrates forward unchanged into `partner_sessions.id` at the moment `bot-sessions`
  * successfully claims it (§6.2) — never regenerated.
  *
- * No rate limiting is applied here, unlike every other partner-facing endpoint in this codebase —
- * a deliberate, stated omission, not an oversight: this route's auth (a passcode) has no
- * `partner_account_id` to key a rate-limit bucket on until AFTER a candidate resolves, so limiting
- * by resolved account would not slow down a brute-force attempt against unresolved candidates
- * (the actual threat model here). This is flagged rather than silently worked around with an
- * imperfect fix — a real distributed/IP-based limiter for this specific threat is a follow-up
- * decision, not something to invent unilaterally beyond what B2B-78's approved spec covers.
+ * 2026-08-12 — a resolved-account rate limit is now applied, checked immediately AFTER the
+ * passcode resolves (bot_dispatch_create, 300/min, lib/partner/rate-limit.ts). This bounds
+ * legitimate high-frequency traffic and a successful-credential abuse scenario, but it does NOT
+ * solve brute-forcing the passcode itself — there is still no `partner_account_id` to key a bucket
+ * on until AFTER a candidate resolves, so an attacker guessing passcodes is unlimited up to that
+ * point. That gap is flagged, not silently worked around: a real IP-based or global limiter for
+ * unresolved attempts is a follow-up decision, not invented unilaterally here.
  */
 
 const DispatchSchema = z.object({
@@ -47,6 +48,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { error: { code: 'invalid_passcode', message: 'Passcode not recognized, revoked, or invalid.' } },
       { status: 401 }
+    )
+  }
+
+  const rateLimit = checkRateLimit(resolved.partnerAccountId, 'bot_dispatch_create')
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: { code: 'rate_limited', message: 'Too many requests. Try again shortly.' } },
+      { status: 429, headers: { 'Retry-After': String(rateLimit.retryAfterSeconds) } }
     )
   }
 

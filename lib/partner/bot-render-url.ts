@@ -27,7 +27,7 @@ export type RenderUrlHostResolution =
  * bot-dispatch reservation) without needing a real session id yet, and resolve it exactly once
  * per request either way.
  */
-export async function resolveWidgetRenderBaseUrl(
+export async function resolveBotRenderBaseUrl(
   accountKind: 'partner' | 'channel_partner',
   partnerAccountId: string
 ): Promise<RenderUrlHostResolution> {

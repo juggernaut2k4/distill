@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { requirePartnerApiKey } from '@/lib/partner/auth'
-import { resolveWalletGate } from '@/lib/partner/wallet-gate'
-import { generateTransitionMarkers } from '@/lib/content/transition-markers'
-import { getContentSource } from '@/lib/partner/content-sources'
-import { assertUrlSafe } from '@/lib/partner/ssrf'
+import { resolveWalletGate } from '@/lib/partner/bot-wallet-gate'
+import { generateTransitionMarkers } from '@/lib/content/bot-transition-markers'
+import { getContentSource } from '@/lib/partner/bot-content-sources'
+import { assertUrlSafe } from '@/lib/partner/bot-ssrf'
 import { resolveBotIdToAgentId } from '@/lib/partner/bot-id-resolution'
-import { resolveWidgetRenderBaseUrl } from '@/lib/partner/widget-render-url'
+import { resolveBotRenderBaseUrl } from '@/lib/partner/bot-render-url'
 import { CreateBotSessionSchema, DEFAULT_EXPECTED_DURATION_MINUTES } from '@/lib/partner/bot-session-schema'
 
 /**
@@ -35,12 +35,12 @@ import { CreateBotSessionSchema, DEFAULT_EXPECTED_DURATION_MINUTES } from '@/lib
  */
 
 export async function POST(request: NextRequest) {
-  const auth = await requirePartnerApiKey(request, 'widget_sessions_create')
+  const auth = await requirePartnerApiKey(request, 'bot_sessions_create')
   if (auth.error) return auth.error
 
   // B2B-79 §6.3 — checked before body parsing/claiming the reservation, so a sales-partner who
   // hasn't configured a domain yet never burns a bot-dispatch reservation retrying this call.
-  const renderBase = await resolveWidgetRenderBaseUrl(auth.accountKind, auth.partnerAccountId)
+  const renderBase = await resolveBotRenderBaseUrl(auth.accountKind, auth.partnerAccountId)
   if (!renderBase.ok) {
     return NextResponse.json(
       {
@@ -317,8 +317,9 @@ export async function POST(request: NextRequest) {
 
   const clioSessionRef = inserted.id as string
   // B2B-79 §6.3 — renderBase was already resolved (and gated) above, before the reservation was
-  // even claimed; reused here rather than re-queried.
-  const renderUrl = `${renderBase.baseUrl}/widget-render/${clioSessionRef}`
+  // even claimed; reused here rather than re-queried. 2026-08-12 — production sessions render on
+  // their own /bot-render route, a fork of /widget-render kept fully isolated from the demo.
+  const renderUrl = `${renderBase.baseUrl}/bot-render/${clioSessionRef}`
 
   const { error: traceLogError } = await supabase.from('partner_session_trace_logs').insert({
     clio_session_ref: clioSessionRef,
