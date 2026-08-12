@@ -13,13 +13,13 @@ import '../globals.css'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'Clio — AI Learning for Executives',
-  description: 'Personalized AI micro-learning for busy executives. 15 seconds a day. Zero jargon. Total confidence.',
+  title: 'Clio — Voice AI for Learning Platforms',
+  description: 'Turn your lessons into live, spoken sessions that actually answer questions — no rebuild, no recorded video.',
   manifest: '/manifest.webmanifest',
   openGraph: {
-    title: 'Clio — AI Learning for Executives',
-    description: 'Personalized AI micro-learning for busy executives. 15 seconds a day. Zero jargon. Total confidence.',
-    url: 'https://distill-peach.vercel.app',
+    title: 'Clio — Voice AI for Learning Platforms',
+    description: 'Turn your lessons into live, spoken sessions that actually answer questions — no rebuild, no recorded video.',
+    url: 'https://hello-clio.com',
     siteName: 'Clio',
     locale: 'en_US',
     type: 'website',
