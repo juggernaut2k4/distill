@@ -60,7 +60,7 @@ export function ChannelPartnerShell({
   children,
 }: {
   companyName: string
-  active: 'dashboard' | 'clients' | 'team' | 'settings' | 'showcase'
+  active: 'dashboard' | 'clients' | 'team' | 'settings' | 'showcase' | 'developer'
   /**
    * B2B-31 (docs/specs/B2B-31-requirement-document.md §4) — gates the 5th
    * "Showcase" nav tab. Defaults to `false` so every existing caller
@@ -75,11 +75,15 @@ export function ChannelPartnerShell({
 }) {
   // B2B-29 (docs/specs/B2B-29-requirement-document.md §6.8) — 4th nav tab,
   // "Settings", for the new Company info + Payment page.
-  const navItems: { key: 'dashboard' | 'clients' | 'team' | 'settings' | 'showcase'; label: string; href: string }[] = [
+  const navItems: { key: 'dashboard' | 'clients' | 'team' | 'settings' | 'showcase' | 'developer'; label: string; href: string }[] = [
     { key: 'dashboard', label: 'Dashboard', href: '/dashboard/channel-partner' },
     { key: 'clients', label: 'Clients', href: '/dashboard/channel-partner/clients' },
     { key: 'team', label: 'Team', href: '/dashboard/channel-partner/team' },
     { key: 'settings', label: 'Settings', href: '/dashboard/channel-partner/settings' },
+    // B2B-78 §4.B / B2B-79 §4 — one shared "Developer" tab covering passcodes, per-client API
+    // keys, bot voice aliases, and the (B2B-79-owned) custom domain screen. One page with four
+    // internal tabs, not four separate nav entries — see B2B-78 §4.B's own reasoning.
+    { key: 'developer', label: 'Developer', href: '/dashboard/channel-partner/developer' },
   ]
 
   // B2B-31 (§4) — 5th nav tab, conditionally rendered only for allowlisted accounts.
