@@ -54,8 +54,8 @@ const PILLARS = [
   {
     icon: MessageSquare,
     label: 'User experience',
-    headline: 'Nobody wants to be lectured at',
-    body: "Learners want to ask a question the moment it comes up and get a real answer — not a timestamp three modules later that might address it. That's the entire difference between watching and understanding.",
+    headline: 'A finished video proves nothing',
+    body: "A completion checkmark doesn't say anyone understood the lesson, or that they'll open the app again. A learner who gets their question answered on the spot actually knows the material — and that's what makes them trust the platform enough to come back.",
   },
 ] as const
 
@@ -607,10 +607,10 @@ function BottomCTA() {
     >
       <div className="cta-content max-w-3xl mx-auto px-4 md:px-6 text-center">
         <h2 className={`${display.className} text-3xl md:text-5xl lg:text-6xl font-bold text-white mb-6`}>
-          Curious what voice does to completion rates?
+          What does real understanding do to retention?
         </h2>
         <p className="text-base md:text-xl text-[#94A3B8] mb-10">
-          Tell us about your platform — we&apos;ll show you exactly how Clio fits.
+          Tell us about your platform — we&apos;ll show you what happens when learners actually get it, and why they come back.
         </p>
         <Link href="/partner-inquiry">
           <Button size="lg" className="gap-2">
