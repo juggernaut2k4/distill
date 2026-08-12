@@ -50,16 +50,17 @@ const TENANT_SCOPED_PATTERNS = [
   /^\/questionnaire$/,
   /^\/partner-questionnaire\/.+/,
   /^\/partner-render\/.+/,
-  // B2B-71: same defensive reasoning as /partner-render — today's widget render_url is always built
-  // from NEXT_PUBLIC_APP_URL (Clio's own domain), never a partner's white-label host, but this entry
-  // means the gap can't resurface if a future change starts serving widget-render URLs under a
-  // partner's own domain.
+  // B2B-79 (docs/specs/B2B-79-requirement-document.md §6.3) — no longer dormant. A channel_partner
+  // (sales-partner) account's render_url is now genuinely built from that account's own verified
+  // custom_domain (lib/partner/widget-render-url.ts), not always NEXT_PUBLIC_APP_URL — this entry
+  // is what actually routes a request arriving on a verified tenant host to the right session. A
+  // direct partner's render_url is unaffected (still NEXT_PUBLIC_APP_URL), so this pattern still
+  // matches both cases correctly via resolveTenantFromHost, unchanged.
   /^\/widget-render\/.+/,
   /^\/api\/hume-token$/,
-  // B2B-75: same defensive reasoning as /api/hume-token above — widget render URLs are always built
-  // from NEXT_PUBLIC_APP_URL today, so this is dormant, but adding it here means the ElevenLabs
-  // token route can never become the odd one out if a future change serves widget-render under a
-  // partner's own domain. (Note the pre-existing, out-of-scope omission of
+  // B2B-75/B2B-79: same reasoning as /api/hume-token above — the ElevenLabs token route must be
+  // reachable on a sales-partner's own verified domain too, now that widget-render URLs genuinely
+  // are served there for that account kind. (Note the pre-existing, out-of-scope omission of
   // /api/openai-realtime-token from this list — logged in BACKLOG.md, deliberately not fixed here.)
   /^\/api\/elevenlabs-token$/,
   /^\/api\/partner\/render\/end-session$/,

@@ -6,6 +6,7 @@ import { generateTransitionMarkers } from '@/lib/content/transition-markers'
 import { getContentSource } from '@/lib/partner/content-sources'
 import { assertUrlSafe } from '@/lib/partner/ssrf'
 import { resolveBotIdToAgentId } from '@/lib/partner/bot-id-resolution'
+import { resolveWidgetRenderBaseUrl } from '@/lib/partner/widget-render-url'
 import { CreateBotSessionSchema, DEFAULT_EXPECTED_DURATION_MINUTES } from '@/lib/partner/bot-session-schema'
 
 /**
@@ -18,9 +19,10 @@ import { CreateBotSessionSchema, DEFAULT_EXPECTED_DURATION_MINUTES } from '@/lib
  * reusing its same shared helpers (`getContentSource`/`assertUrlSafe`/`generateTransitionMarkers`/
  * `resolveWalletGate`) directly rather than duplicating or forking that logic.
  *
- * `widget-sessions/route.ts` itself is untouched by this file — this is a new, standalone route.
- * Direct partners and any sales-partner not using the two-stage flow continue calling
- * `widget-sessions` unchanged (§9).
+ * This is a new, standalone route — it does not call any part of `widget-sessions/route.ts`'s own
+ * request handling. Direct partners and any sales-partner not using the two-stage flow continue
+ * calling `widget-sessions` unchanged (§9); that route DOES also gain B2B-79's render_url domain
+ * gate (§6.3 of that document), applied there as its own small, separate edit.
  *
  * The reservation's own `id` (== the `session_id` the caller sends) becomes `partner_sessions.id`
  * unchanged — never regenerated (§6.2). A `session_id` is single-use for claiming: the atomic
@@ -35,6 +37,21 @@ import { CreateBotSessionSchema, DEFAULT_EXPECTED_DURATION_MINUTES } from '@/lib
 export async function POST(request: NextRequest) {
   const auth = await requirePartnerApiKey(request, 'widget_sessions_create')
   if (auth.error) return auth.error
+
+  // B2B-79 §6.3 — checked before body parsing/claiming the reservation, so a sales-partner who
+  // hasn't configured a domain yet never burns a bot-dispatch reservation retrying this call.
+  const renderBase = await resolveWidgetRenderBaseUrl(auth.accountKind, auth.partnerAccountId)
+  if (!renderBase.ok) {
+    return NextResponse.json(
+      {
+        error: {
+          code: 'domain_not_configured',
+          message: 'Configure and verify a custom domain in Developer settings > Domain before creating sessions.',
+        },
+      },
+      { status: 422 }
+    )
+  }
 
   const body = await request.json().catch(() => null)
   const parsed = CreateBotSessionSchema.safeParse(body)
@@ -262,10 +279,9 @@ export async function POST(request: NextRequest) {
   }
 
   const clioSessionRef = inserted.id as string
-  // B2B-79 owns render_url's real domain resolution (per-sales-partner custom domain) — placeholder
-  // shared-domain construction here, to be replaced by that document's §6.3 gate/resolution.
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
-  const renderUrl = `${appUrl}/widget-render/${clioSessionRef}`
+  // B2B-79 §6.3 — renderBase was already resolved (and gated) above, before the reservation was
+  // even claimed; reused here rather than re-queried.
+  const renderUrl = `${renderBase.baseUrl}/widget-render/${clioSessionRef}`
 
   const { error: traceLogError } = await supabase.from('partner_session_trace_logs').insert({
     clio_session_ref: clioSessionRef,

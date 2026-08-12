@@ -6,6 +6,7 @@ import { generateTransitionMarkers } from '@/lib/content/transition-markers'
 import { getContentSource } from '@/lib/partner/content-sources'
 import { assertUrlSafe } from '@/lib/partner/ssrf'
 import { CreateWidgetSessionSchema, DEFAULT_EXPECTED_DURATION_MINUTES } from '@/lib/partner/widget-session-schema'
+import { resolveWidgetRenderBaseUrl } from '@/lib/partner/widget-render-url'
 
 /**
  * POST /api/partner/v1/widget-sessions
@@ -29,6 +30,25 @@ import { CreateWidgetSessionSchema, DEFAULT_EXPECTED_DURATION_MINUTES } from '@/
 export async function POST(request: NextRequest) {
   const auth = await requirePartnerApiKey(request, 'widget_sessions_create')
   if (auth.error) return auth.error
+
+  // B2B-79 §6.3 — extends the same domain-mandatory gate `bot-sessions` enforces to this existing
+  // endpoint too, per that document's explicit recommendation: D16's "no exceptions, no shared
+  // fallback offered" describes the sales-partner relationship itself, not one endpoint — leaving
+  // this endpoint exempt would let any sales-partner simply keep calling it to avoid ever
+  // configuring a domain. Confirmed safe before shipping: every live channel_partner account has
+  // custom_domain_status = 'none' today, so no real integration is broken by this.
+  const renderBase = await resolveWidgetRenderBaseUrl(auth.accountKind, auth.partnerAccountId)
+  if (!renderBase.ok) {
+    return NextResponse.json(
+      {
+        error: {
+          code: 'domain_not_configured',
+          message: 'Configure and verify a custom domain in Developer settings > Domain before creating sessions.',
+        },
+      },
+      { status: 422 }
+    )
+  }
 
   const body = await request.json().catch(() => null)
   const parsed = CreateWidgetSessionSchema.safeParse(body)
@@ -191,14 +211,14 @@ export async function POST(request: NextRequest) {
       .limit(1)
     const original = originalRows?.[0] ?? null
     if (original) {
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
       return NextResponse.json(
         {
           clio_session_ref: original.id,
           status: original.status,
           // B2B-71 (docs/specs/B2B-71-requirement-document.md §6.2) — widget sessions render on
           // their own dedicated route, not the shared /partner-render path meeting-bot sessions use.
-          render_url: `${appUrl}/widget-render/${original.id}`,
+          // B2B-79 §6.3 — renderBase was already resolved (and gated) above, before this insert.
+          render_url: `${renderBase.baseUrl}/widget-render/${original.id}`,
           reseller_unique_id,
         },
         { status: 201 }
@@ -212,10 +232,9 @@ export async function POST(request: NextRequest) {
   }
 
   const clioSessionRef = inserted.id as string
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
   // B2B-71 (docs/specs/B2B-71-requirement-document.md §6.2) — same reasoning as the idempotent-
-  // replay branch above.
-  const renderUrl = `${appUrl}/widget-render/${clioSessionRef}`
+  // replay branch above. B2B-79 §6.3 — renderBase was already resolved (and gated) above.
+  const renderUrl = `${renderBase.baseUrl}/widget-render/${clioSessionRef}`
 
   const { error: traceLogError } = await supabase.from('partner_session_trace_logs').insert({
     clio_session_ref: clioSessionRef,
