@@ -125,13 +125,23 @@ export async function POST(request: NextRequest) {
   }
 
   // §6.2/§6.4/§9 — atomically claim the reservation. The `status = 'reserved'` condition is what
-  // actually serializes a concurrent double-claim; a 0-row result means not-found, expired, or
+  // actually serializes a concurrent double-claim. Scoped to the CALLER'S OWN partner_account_id
+  // (QA fix, 2026-08-11/12 — confirmed live via a real cross-tenant test during B2B-77/78/79
+  // QA): the original version of this UPDATE had no partner_account_id filter at all, so any
+  // sales-partner holding any valid API key could flip ANY other sales-partner's reservation to
+  // 'claimed' merely by knowing/guessing its session_id — permanently burning the real owner's
+  // reservation (they'd get `session_already_claimed` on their own legitimate retry) while the
+  // unauthorized caller got a generic `session_not_found`. The old post-claim check below (now
+  // removed) that compared `claimed.partner_account_id !== auth.partnerAccountId` ran only AFTER
+  // the row had already been mutated, so it could never actually prevent the damage — scoping the
+  // UPDATE itself is the real fix. A 0-row result means not-found, wrong-tenant, expired, or
   // already claimed by another call, and the follow-up SELECT below distinguishes which.
   const nowIso = new Date().toISOString()
   const { data: claimedRows } = await supabase
     .from('bot_dispatch_reservations')
     .update({ status: 'claimed', claimed_at: nowIso })
     .eq('id', session_id)
+    .eq('partner_account_id', auth.partnerAccountId)
     .eq('status', 'reserved')
     .gt('expires_at', nowIso)
     .select('id, partner_account_id, client_id, end_user_name')
@@ -141,12 +151,15 @@ export async function POST(request: NextRequest) {
   if (!claimed) {
     const { data: existingRows } = await supabase
       .from('bot_dispatch_reservations')
-      .select('status, expires_at')
+      .select('status, expires_at, partner_account_id')
       .eq('id', session_id)
       .limit(1)
     const existing = existingRows?.[0] ?? null
 
-    if (!existing) {
+    // No row at all, OR a row that belongs to a different sales-partner entirely — both surface
+    // as the identical `session_not_found`, never confirming existence of another account's
+    // session_id (same no-info-leak convention as every other auth check in this codebase).
+    if (!existing || existing.partner_account_id !== auth.partnerAccountId) {
       return NextResponse.json({ error: { code: 'session_not_found', message: 'session_id was not found.' } }, { status: 422 })
     }
     if (existing.status === 'claimed') {
@@ -157,15 +170,35 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: { code: 'session_expired', message: 'This session_id has expired. Call bot-dispatch again.' } }, { status: 422 })
   }
 
-  // Reservation resolved to a different account than the authenticated caller — treated
-  // identically to not-found (never confirm existence of another account's session_id).
-  if (claimed.partner_account_id !== auth.partnerAccountId) {
-    return NextResponse.json({ error: { code: 'session_not_found', message: 'session_id was not found.' } }, { status: 422 })
+  // From here on, `claimed` is guaranteed to belong to `auth.partnerAccountId` (enforced by the
+  // UPDATE's own WHERE clause above) — no separate ownership re-check needed.
+
+  // QA fix (2026-08-11/12): every validation failure below this point used to leave the
+  // reservation permanently stuck at status='claimed' with no partner_sessions row ever created —
+  // confirmed live (a bad bot_id silently and permanently burned the reservation). A sales-partner
+  // integration that made one correctable mistake (wrong bot_id, wrong client_id, an
+  // unregistered content_source, an unsafe content URL) had no way to retry with the SAME
+  // session_id — they'd have to call bot-dispatch all over again, defeating the two-stage design's
+  // whole point of a cheap, retryable reservation. Every branch below now reverts the claim back
+  // to 'reserved' before returning its error, so the caller can immediately retry bot-sessions
+  // with corrected content against the same session_id, right up until it actually succeeds (only
+  // a genuine wallet-gate failure past this point is terminal, since a real partner_sessions row
+  // has been created by then — unchanged, matches widget-sessions' own existing behavior).
+  async function revertClaim(): Promise<void> {
+    const { error: revertError } = await supabase
+      .from('bot_dispatch_reservations')
+      .update({ status: 'reserved', claimed_at: null })
+      .eq('id', session_id)
+      .eq('status', 'claimed')
+    if (revertError) {
+      console.error('[partner/bot-sessions] Failed to revert claim after validation failure (non-fatal):', revertError.message)
+    }
   }
 
   // The reservation's own client_id (resolved from the bot-dispatch passcode) is the source of
   // truth for which client this session is for — client_id in this body must agree with it.
   if (claimed.client_id !== endClientId) {
+    await revertClaim()
     return NextResponse.json(
       { error: { code: 'client_scope_mismatch', message: 'client_id does not match the client this session_id was reserved for.' } },
       { status: 403 }
@@ -176,6 +209,7 @@ export async function POST(request: NextRequest) {
   if (bot_id) {
     resolvedAgentId = await resolveBotIdToAgentId(auth.partnerAccountId, bot_id)
     if (!resolvedAgentId) {
+      await revertClaim()
       return NextResponse.json(
         {
           error: {
@@ -191,12 +225,14 @@ export async function POST(request: NextRequest) {
   // §6.3 — content-source tenant-scoped resolution, identical to widget-sessions' own check.
   const source = await getContentSource(content_source_id as string, auth.partnerAccountId)
   if (!source) {
+    await revertClaim()
     return NextResponse.json(
       { error: { code: 'content_source_not_found', message: 'content_source_id not found for this account.' } },
       { status: 422 }
     )
   }
   if (source.authType === 'presigned_url' || source.authType === 'mtls') {
+    await revertClaim()
     return NextResponse.json(
       {
         error: {
@@ -212,6 +248,7 @@ export async function POST(request: NextRequest) {
   for (let i = 0; i < content_pages.length; i++) {
     const safety = await assertUrlSafe(content_pages[i].url)
     if (!safety.ok) {
+      await revertClaim()
       return NextResponse.json(
         {
           error: {

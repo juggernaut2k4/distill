@@ -398,15 +398,29 @@ export async function extractInsightsForPartnerSession(partnerSessionId: string)
   })
 
   // B2B-70 v2.0 (docs/specs/B2B-70-requirement-document.md §6.4) — "no leftovers": once our own
-  // findings have been recorded (the recordInsightsReadyEvent() call immediately above), a widget
+  // findings have been recorded (the recordInsightsReadyEvent() call immediately above), a
   // session's reseller-supplied content is purged from partner_sessions — content_pages/
   // content_to_explain/content_title/content_subtitle, plus assembled_prompt_snapshot (the one
-  // derived artifact that embeds the same material verbatim, lib/partner/live-render.ts). Scoped to
-  // delivery_channel='widget' only — meeting-bot sessions are completely unaffected, per Arun's own
-  // explicit instruction not to change anything about the existing inline-content flow. Best-effort:
-  // logged, never thrown — a purge failure must never revert or block the insights write that
-  // precedes it.
-  if (session.delivery_channel === 'widget') {
+  // derived artifact that embeds the same material verbatim, lib/partner/live-render.ts).
+  //
+  // History (recorded per Arun's own instruction that this paper trail matters, docs/specs/
+  // B2B-77-requirement-document.md §6.4 point 3): originally scoped to delivery_channel='widget'
+  // only, "per Arun's own explicit instruction not to change anything about the existing
+  // inline-content flow." Arun himself reversed that instruction on 2026-08-11 — the content purge
+  // now runs unconditionally for BOTH channels, confirmed in B2B-77 §7's own acceptance test.
+  //
+  // B2B-77 §6.4 points 1-2 (docs/specs/B2B-77-requirement-document.md) — this purge is ALSO now
+  // extended to null end_user_role/end_user_industry/conversation_language, for BOTH channels.
+  // QA fix, 2026-08-11/12: confirmed live in production that this extension had never actually
+  // been implemented despite B2B-77 being approved and marked required, not optional, remediation
+  // — end_user_role/end_user_industry/conversation_language were still being written at session
+  // creation and never nulled by any purge job on either code path, and meeting-bot sessions got no
+  // purge of any kind. This directly enforces the standing PII rule
+  // (feedback_no_end_user_pii_persistence.md / C4): no end_user-identifying data may outlive the
+  // session it was collected for, with end_user_name as the one approved, unaffected exception.
+  // Best-effort: logged, never thrown — a purge failure must never revert or block the insights
+  // write that precedes it.
+  {
     const { error: purgeError } = await supabase
       .from('partner_sessions')
       .update({
@@ -415,10 +429,13 @@ export async function extractInsightsForPartnerSession(partnerSessionId: string)
         content_title: null,
         content_subtitle: null,
         assembled_prompt_snapshot: null,
+        end_user_role: null,
+        end_user_industry: null,
+        conversation_language: null,
       })
       .eq('id', partnerSessionId)
     if (purgeError) {
-      console.error(`[partner-session-insights-extractor] Content purge failed for widget session ${partnerSessionId} (non-fatal):`, purgeError.message)
+      console.error(`[partner-session-insights-extractor] No-leftovers purge failed for session ${partnerSessionId} (non-fatal):`, purgeError.message)
     }
   }
 
@@ -531,11 +548,13 @@ export async function markInsightsExtractionFailed(partnerSessionId: string, err
       resellerUniqueId: embeddedSession?.reseller_unique_id ?? null,
     })
 
-    // B2B-70 v2.0 (docs/specs/B2B-70-requirement-document.md §6.4) — same "no leftovers" purge as
-    // the success path in extractInsightsForPartnerSession() above: a permanently-failed extraction
-    // still had its findings-attempt "sent" (the extraction_status:'failed' event itself is a
-    // finding), so a widget session's content is no more needed here than after a success.
-    if (embeddedSession?.delivery_channel === 'widget') {
+    // B2B-70 v2.0 / B2B-77 §6.4 — same "no leftovers" purge as the success path in
+    // extractInsightsForPartnerSession() above (see that call site's comment for the full history
+    // and reasoning): a permanently-failed extraction still had its findings-attempt "sent" (the
+    // extraction_status:'failed' event itself is a finding), so the content and end_user_*
+    // PII fields are no more needed here than after a success. Runs unconditionally for both
+    // delivery channels, per Arun's 2026-08-11 reversal — no `delivery_channel` guard.
+    {
       const { error: purgeError } = await supabase
         .from('partner_sessions')
         .update({
@@ -544,10 +563,13 @@ export async function markInsightsExtractionFailed(partnerSessionId: string, err
           content_title: null,
           content_subtitle: null,
           assembled_prompt_snapshot: null,
+          end_user_role: null,
+          end_user_industry: null,
+          conversation_language: null,
         })
         .eq('id', partnerSessionId)
       if (purgeError) {
-        console.error(`[partner-session-insights-extractor] Content purge failed for widget session ${partnerSessionId} (non-fatal):`, purgeError.message)
+        console.error(`[partner-session-insights-extractor] No-leftovers purge failed for session ${partnerSessionId} (non-fatal):`, purgeError.message)
       }
     }
   }
