@@ -39,7 +39,7 @@ export default function MarketingNav() {
             Log in
           </Link>
           <Link
-            href="/partner-signup"
+            href="/partner-inquiry"
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#7C3AED] hover:bg-[#6D28D9] text-white text-sm font-semibold transition-colors"
           >
             Get started

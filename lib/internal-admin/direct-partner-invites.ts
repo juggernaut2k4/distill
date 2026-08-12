@@ -20,6 +20,8 @@ export interface DirectPartnerInviteRow {
   created_at: string
   accepted_at: string | null
   created_by_email: string
+  /** B2B-80 §6.2 — which account_kind this invite produces on acceptance. */
+  target_account_kind: 'partner' | 'channel_partner'
 }
 
 function computedStatus(row: { status: string; invite_token_expires_at: string }): DirectPartnerInviteRow['status'] {
@@ -42,7 +44,7 @@ export async function listDirectPartnerInvites(): Promise<DirectPartnerInviteRow
   const supabase = createSupabaseAdminClient()
   const { data } = await supabase
     .from('direct_partner_invites')
-    .select('id, label, status, invite_token_expires_at, created_at, accepted_at, internal_admin_users(email)')
+    .select('id, label, status, invite_token_expires_at, created_at, accepted_at, target_account_kind, internal_admin_users(email)')
     .order('created_at', { ascending: false })
 
   return (data ?? []).map((row) => {
@@ -55,32 +57,78 @@ export async function listDirectPartnerInvites(): Promise<DirectPartnerInviteRow
       created_at: row.created_at as string,
       accepted_at: (row.accepted_at as string | null) ?? null,
       created_by_email: (creator as { email?: string } | null)?.email ?? '',
+      target_account_kind: (row.target_account_kind as 'partner' | 'channel_partner' | null) ?? 'partner',
     }
   })
 }
 
+/**
+ * B2B-80 (docs/specs/B2B-80-requirement-document.md §6.2) — targetAccountKind/sourceLeadId are new,
+ * optional parameters. Default 'partner' preserves this function's existing direct-partner call
+ * site with zero change to its own behavior. When sourceLeadId is set, the originating
+ * sales_partner_leads row is flipped to status='invited' (with invite_id set) in the same call —
+ * the UI's "Invite" action expects this to happen atomically with invite creation, not as a
+ * separate step.
+ */
 export async function issueDirectPartnerInvite(
   label: string | null,
-  createdByInternalAdminUserId: string
+  createdByInternalAdminUserId: string,
+  targetAccountKind: 'partner' | 'channel_partner' = 'partner',
+  sourceLeadId?: string
 ): Promise<{ success: boolean; acceptUrl: string | null; error: string | null }> {
   const supabase = createSupabaseAdminClient()
   const { token, tokenHash } = generateInviteToken()
   const expiresAt = inviteExpiresAt()
 
-  const { error } = await supabase.from('direct_partner_invites').insert({
-    label,
-    status: 'pending',
-    invite_token_hash: tokenHash,
-    invite_token_expires_at: expiresAt,
-    created_by_internal_admin_user_id: createdByInternalAdminUserId,
-  })
+  const { data: inserted, error } = await supabase
+    .from('direct_partner_invites')
+    .insert({
+      label,
+      status: 'pending',
+      invite_token_hash: tokenHash,
+      invite_token_expires_at: expiresAt,
+      created_by_internal_admin_user_id: createdByInternalAdminUserId,
+      target_account_kind: targetAccountKind,
+      source_lead_id: sourceLeadId ?? null,
+    })
+    .select('id')
+    .single()
 
-  if (error) {
-    return { success: false, acceptUrl: null, error: error.message }
+  if (error || !inserted) {
+    return { success: false, acceptUrl: null, error: error?.message ?? 'Failed to create invite.' }
+  }
+
+  if (sourceLeadId) {
+    const { error: leadUpdateError } = await supabase
+      .from('sales_partner_leads')
+      .update({ status: 'invited', invite_id: inserted.id })
+      .eq('id', sourceLeadId)
+    if (leadUpdateError) {
+      // Non-fatal — the invite itself was created successfully; only the lead's own bookkeeping
+      // failed to record it, matching this file's existing no-transactional-rollback discipline
+      // (markDirectPartnerInviteAccepted's own race-loss handling below is the same pattern).
+      console.error(`[direct-partner-invites] Failed to flip lead ${sourceLeadId} to invited:`, leadUpdateError.message)
+    }
   }
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
   return { success: true, acceptUrl: `${appUrl}/partner-invite/accept?token=${token}`, error: null }
+}
+
+/**
+ * B2B-80 (docs/specs/B2B-80-requirement-document.md §6.2) — the one new lookup the webhook's
+ * accept-time branch needs: which account_kind THIS specific invite should produce. Separate from
+ * lookupDirectPartnerInviteByToken (which validates token/expiry) since the webhook already has a
+ * validated inviteId by the time it needs this.
+ */
+export async function getDirectPartnerInviteTargetKind(inviteId: string): Promise<'partner' | 'channel_partner'> {
+  const supabase = createSupabaseAdminClient()
+  const { data } = await supabase
+    .from('direct_partner_invites')
+    .select('target_account_kind')
+    .eq('id', inviteId)
+    .maybeSingle()
+  return (data?.target_account_kind as 'partner' | 'channel_partner' | undefined) ?? 'partner'
 }
 
 /** Revoke — only a genuinely pending (not expired) row may be revoked. */

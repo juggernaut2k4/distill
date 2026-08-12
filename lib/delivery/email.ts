@@ -1431,3 +1431,63 @@ function buildAgendaEmailHtml(
 </body>
 </html>`
 }
+
+/**
+ * B2B-80 (docs/specs/B2B-80-requirement-document.md §6.4). Byte-for-byte the same HTML/text
+ * template structure as `sendLowBalanceAlertEmail()` above — sent to every active super-admin the
+ * instant a new `/partner-inquiry` submission lands, so it gets seen promptly rather than
+ * discovered on the next incidental dashboard visit. Fired synchronously from the submission
+ * route itself — no Inngest job, single low-volume send.
+ */
+export async function sendNewSalesPartnerLeadEmail(
+  toEmail: string,
+  leadName: string,
+  companyName: string,
+  leadEmail: string
+): Promise<EmailResult> {
+  if (isPlaceholder || !resend) {
+    console.log('[MOCK] sendNewSalesPartnerLeadEmail', { toEmail, leadName, companyName, leadEmail })
+    return { success: true, messageId: 'mock-new-sales-partner-lead-id' }
+  }
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
+
+  try {
+    const result = await resend.emails.send({
+      from: FROM,
+      to: toEmail,
+      subject: `New sales-partner inquiry — ${companyName}`,
+      html: `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="background:#080808;color:#ffffff;font-family:Inter,system-ui,sans-serif;margin:0;padding:0;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;padding:40px 24px;">
+    <tr><td>
+      <p style="color:#7C3AED;font-size:12px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin:0 0 32px;">CLIO</p>
+      <h1 style="color:#ffffff;font-size:28px;font-weight:800;margin:0 0 12px;">New sales-partner inquiry.</h1>
+      <p style="color:#94A3B8;font-size:16px;line-height:1.7;margin:0 0 32px;">
+        <strong style="color:#ffffff;">${leadName}</strong> from <strong style="color:#ffffff;">${companyName}</strong>
+        (${leadEmail}) submitted an inquiry to become a sales-partner.
+      </p>
+      <div style="background:#111111;border:1px solid #222222;border-radius:12px;padding:32px;text-align:center;">
+        <a href="${appUrl}/dashboard/admin/sales-partner-leads" style="background:#7C3AED;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:700;display:inline-block;">Review lead →</a>
+      </div>
+    </td></tr>
+  </table>
+</body>
+</html>`,
+      text: `${leadName} from ${companyName} (${leadEmail}) submitted a sales-partner inquiry. Review it at ${appUrl}/dashboard/admin/sales-partner-leads`,
+    })
+
+    logEmailResult('sendNewSalesPartnerLeadEmail', toEmail, result)
+    if (result.error) {
+      return { success: false, error: result.error.message }
+    }
+
+    return { success: true, messageId: result.data?.id }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error(`[email:sendNewSalesPartnerLeadEmail] EXCEPTION to=${toEmail}:`, message)
+    return { success: false, error: message }
+  }
+}

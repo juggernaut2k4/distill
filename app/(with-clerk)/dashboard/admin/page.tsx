@@ -1,7 +1,7 @@
 import { currentUser } from '@clerk/nextjs/server'
 import { redirect, notFound } from 'next/navigation'
 import Link from 'next/link'
-import { Building2, LayoutTemplate, Bug, Shield, Link2, Users, LucideIcon } from 'lucide-react'
+import { Building2, LayoutTemplate, Bug, Shield, Link2, Users, UserPlus, LucideIcon } from 'lucide-react'
 import { requireSuperAdmin } from '@/lib/internal-admin/auth'
 import DashboardShell from '@/components/dashboard/DashboardShell'
 import DemoAccessCard from './DemoAccessCard'
@@ -37,6 +37,7 @@ const ADMIN_LINKS: AdminLinkCard[] = [
   { href: '/dashboard/admin/glitches', icon: Bug, title: 'Glitches', description: 'Internal bug and issue tracker.' },
   { href: '/dashboard/admin/team', icon: Shield, title: 'Team', description: 'Manage super-admins and sales-partner access.' },
   { href: '/dashboard/admin/partner-invites', icon: Link2, title: 'Partner invites', description: 'Manage partner invite links and their status.' },
+  { href: '/dashboard/admin/sales-partner-leads', icon: UserPlus, title: 'Sales-partner leads', description: 'Inquiries submitted via the public /partner-inquiry form.' },
   { href: '/dashboard/admin/sales-partners', icon: Users, title: 'Sales-partners', description: 'Reseller roster and usage.' },
 ]
 

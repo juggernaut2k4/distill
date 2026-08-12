@@ -59,7 +59,7 @@ function Hero() {
             </p>
 
             <div className="flex flex-col sm:flex-row gap-4 mb-10">
-              <Link href="/partner-signup">
+              <Link href="/partner-inquiry">
                 <Button size="lg" className="gap-2">
                   Get started
                   <ArrowRight size={20} />
