@@ -33,6 +33,8 @@ const EXPECTED_LINKS = [
   { href: '/dashboard/admin/glitches', title: 'Glitches', description: 'Internal bug and issue tracker.' },
   { href: '/dashboard/admin/team', title: 'Team', description: 'Manage super-admins and sales-partner access.' },
   { href: '/dashboard/admin/partner-invites', title: 'Partner invites', description: 'Manage partner invite links and their status.' },
+  // B2B-80 — new 7th entry, inserted between partner-invites and sales-partners.
+  { href: '/dashboard/admin/sales-partner-leads', title: 'Sales-partner leads', description: 'Inquiries submitted via the public /partner-inquiry form.' },
   { href: '/dashboard/admin/sales-partners', title: 'Sales-partners', description: 'Reseller roster and usage.' },
 ]
 
@@ -43,13 +45,13 @@ describe('B2B-40 — app/dashboard/admin/page.tsx (AdminHomePage) — source-lev
     expect(pageSource).toContain('if (admin.error) notFound()')
   })
 
-  it('AT-6: ADMIN_LINKS contains exactly the six §4.B entries, with exact href/title/description, in the exact specified order', () => {
+  it('AT-6: ADMIN_LINKS contains exactly the seven §4.B + B2B-80 entries, with exact href/title/description, in the exact specified order', () => {
     const arrayMatch = pageSource.match(/const ADMIN_LINKS: AdminLinkCard\[\] = \[([\s\S]*?)\n\]/)
     expect(arrayMatch).not.toBeNull()
     const arrayBody = arrayMatch![1]
 
-    // Exactly 6 entries.
-    expect((arrayBody.match(/href:/g) ?? []).length).toBe(6)
+    // Exactly 7 entries (6 original + B2B-80's Sales-partner leads).
+    expect((arrayBody.match(/href:/g) ?? []).length).toBe(7)
 
     let cursor = -1
     for (const link of EXPECTED_LINKS) {
@@ -64,8 +66,8 @@ describe('B2B-40 — app/dashboard/admin/page.tsx (AdminHomePage) — source-lev
     }
   })
 
-  it('AT-6: each card reuses the same icon DashboardShell.tsx uses for the same destination (Building2/LayoutTemplate/Bug/Shield/Link2/Users)', () => {
-    const expectedIcons = ['Building2', 'LayoutTemplate', 'Bug', 'Shield', 'Link2', 'Users']
+  it('AT-6: each card reuses the same icon DashboardShell.tsx uses for the same destination (Building2/LayoutTemplate/Bug/Shield/Link2/UserPlus/Users)', () => {
+    const expectedIcons = ['Building2', 'LayoutTemplate', 'Bug', 'Shield', 'Link2', 'UserPlus', 'Users']
     for (const icon of expectedIcons) {
       expect(pageSource).toContain(`icon: ${icon},`)
     }

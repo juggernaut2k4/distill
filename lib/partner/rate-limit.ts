@@ -24,7 +24,13 @@ interface Bucket {
 
 const buckets = new Map<string, Bucket>()
 
-export type RateLimitClass = 'sessions_create' | 'reads' | 'oauth_token' | 'widget_sessions_create'
+export type RateLimitClass =
+  | 'sessions_create'
+  | 'reads'
+  | 'oauth_token'
+  | 'widget_sessions_create'
+  | 'bot_dispatch_create'
+  | 'bot_sessions_create'
 
 const LIMITS: Record<RateLimitClass, { capacity: number; refillPerMs: number }> = {
   sessions_create: { capacity: 60, refillPerMs: 60 / 60_000 }, // 60/min
@@ -34,6 +40,13 @@ const LIMITS: Record<RateLimitClass, { capacity: number; refillPerMs: number }> 
   // sessions_create: a reseller's in-app "Learn with AI" button is expected to be clicked far more
   // often per minute than the meeting-bot flow's one-per-scheduled-meeting pattern.
   widget_sessions_create: { capacity: 300, refillPerMs: 300 / 60_000 }, // 300/min
+  // 2026-08-12 — production two-stage pipeline (B2B-78), same 300/min ceiling as
+  // widget_sessions_create: same "in-app button, clicked often" traffic shape. bot-dispatch is the
+  // cheaper, more-frequently-retried stage 1 call (passcode auth, no wallet gate), so it gets its
+  // own bucket rather than sharing bot_sessions_create's — a burst of retried bot-dispatch calls
+  // must never starve a sales-partner's real bot-sessions traffic.
+  bot_dispatch_create: { capacity: 300, refillPerMs: 300 / 60_000 }, // 300/min
+  bot_sessions_create: { capacity: 300, refillPerMs: 300 / 60_000 }, // 300/min
 }
 
 /** Returns { allowed, retryAfterSeconds } for a given partner account + route class. Mutates in-memory bucket state. */

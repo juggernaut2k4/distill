@@ -24,6 +24,7 @@ const isPublicRoute = createRouteMatcher([
   '/walkthrough/(.*)',        // Public walkthrough page shared by Recall.ai bot
   '/partner-render/(.*)',     // B2B-02: placeholder render stub, loaded headlessly by the meeting bot on a partner's behalf — no Clerk session available
   '/widget-render/(.*)',      // B2B-71: dedicated widget-channel render route, loaded by a reseller's own iframe — no Clerk session available, mirrors /partner-render
+  '/bot-render/(.*)',         // 2026-08-12: production bot-sessions render route, a fully isolated fork of /widget-render — same no-Clerk-session reasoning
   '/partner-questionnaire/(.*)', // B2B-05 fix: pre-existing gap — this end-user-facing, no-auth route (B2B-03) was missing from this list; see build report
   '/test-harness-render/(.*)', // B2B-32: public, unauthenticated — fetched by the real safeFetchPartnerPage() pipeline, mirrors /partner-render and /showcase-render
   '/demo', // "Learn with AI" demo catalog on test.hello-clio.com — public, no sign-in, per Arun's direct instruction
@@ -51,13 +52,18 @@ const TENANT_SCOPED_PATTERNS = [
   /^\/questionnaire$/,
   /^\/partner-questionnaire\/.+/,
   /^\/partner-render\/.+/,
-  // B2B-79 (docs/specs/B2B-79-requirement-document.md §6.3) — no longer dormant. A channel_partner
-  // (sales-partner) account's render_url is now genuinely built from that account's own verified
-  // custom_domain (lib/partner/widget-render-url.ts), not always NEXT_PUBLIC_APP_URL — this entry
-  // is what actually routes a request arriving on a verified tenant host to the right session. A
-  // direct partner's render_url is unaffected (still NEXT_PUBLIC_APP_URL), so this pattern still
-  // matches both cases correctly via resolveTenantFromHost, unchanged.
+  // B2B-79 (docs/specs/B2B-79-requirement-document.md §6.3) — dormant for widget-sessions today
+  // (2026-08-12: the domain-gate on widget-sessions itself was reverted per Arun's direct
+  // instruction to keep the demo/widget path fully independent of the production domain track —
+  // see the git history on app/api/partner/v1/widget-sessions/route.ts). This pattern stays listed
+  // regardless, same defensive reasoning as /partner-render below: if a future change ever starts
+  // serving widget-render URLs under a partner's own domain again, the gap can't resurface silently.
   /^\/widget-render\/.+/,
+  // 2026-08-12 — production bot-sessions' own render route. NOT dormant: bot-sessions/route.ts's
+  // render_url genuinely is built from a sales-partner's own verified custom_domain
+  // (lib/partner/bot-render-url.ts) — this entry is what actually routes a request arriving on a
+  // verified tenant host to the right session.
+  /^\/bot-render\/.+/,
   /^\/api\/hume-token$/,
   // B2B-75/B2B-79: same reasoning as /api/hume-token above — the ElevenLabs token route must be
   // reachable on a sales-partner's own verified domain too, now that widget-render URLs genuinely

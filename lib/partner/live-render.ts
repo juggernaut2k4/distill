@@ -196,6 +196,13 @@ export interface PartnerSessionRow {
   // English (every pre-B2B-62 session, and every new session that omits it) — byte-identical to
   // today's behavior. Source content stays English regardless; only affects spoken output.
   conversationLanguage: string | null
+  // 2026-08-12 — additive, optional (so existing PartnerSessionRow literals across the test suite
+  // don't all need updating): the ElevenLabs agent id resolved and stored at session-creation time
+  // (bot-sessions/route.ts's resolveBotIdToAgentId(), or widget-sessions' own per-session voice
+  // selection). Undefined/null for any session that never set this column. Added so
+  // bot-render/page.tsx can read a session's own resolved agent directly, instead of a global
+  // default.
+  elevenlabsAgentId?: string | null
 }
 
 export async function getPartnerSession(clioSessionRef: string): Promise<PartnerSessionRow | null> {
@@ -207,7 +214,7 @@ export async function getPartnerSession(clioSessionRef: string): Promise<Partner
   const { data: rows } = await supabase
     .from('partner_sessions')
     .select(
-      'id, partner_account_id, content_ref, partner_topic_ref, partner_end_user_ref, status, test_mode, content_source_id, content_pages, content_to_explain, content_title, content_subtitle, end_user_role, end_user_name, end_user_industry, provider_bot_id, conversation_language'
+      'id, partner_account_id, content_ref, partner_topic_ref, partner_end_user_ref, status, test_mode, content_source_id, content_pages, content_to_explain, content_title, content_subtitle, end_user_role, end_user_name, end_user_industry, provider_bot_id, conversation_language, elevenlabs_agent_id'
     )
     .eq('id', clioSessionRef)
     .limit(1)
@@ -234,6 +241,7 @@ export async function getPartnerSession(clioSessionRef: string): Promise<Partner
     endUserIndustry: (data.end_user_industry as string | null) ?? null,
     providerBotId: (data.provider_bot_id as string | null) ?? null,
     conversationLanguage: (data.conversation_language as string | null) ?? null,
+    elevenlabsAgentId: (data.elevenlabs_agent_id as string | null) ?? null,
   }
 }
 
