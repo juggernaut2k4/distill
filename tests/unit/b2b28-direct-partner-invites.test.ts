@@ -30,6 +30,7 @@ vi.mock('@/lib/supabase', () => ({
         eq: ReturnType<typeof vi.fn>
         order: ReturnType<typeof vi.fn>
         maybeSingle: ReturnType<typeof vi.fn>
+        single: ReturnType<typeof vi.fn>
         then: (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) => Promise<unknown>
       } = {
         insert: vi.fn(() => {
@@ -47,6 +48,13 @@ vi.mock('@/lib/supabase', () => ({
         eq: vi.fn(() => builder),
         order: vi.fn(() => builder),
         maybeSingle: vi.fn(() => Promise.resolve({ data: state.singleData })),
+        // B2B-80 — issueDirectPartnerInvite() now chains .insert(...).select('id').single() to
+        // read back the inserted row's id (needed to link a source lead, when one is given).
+        single: vi.fn(() =>
+          Promise.resolve(
+            state.insertError ? { data: null, error: { message: state.insertError } } : { data: { id: 'mock-invite-id' }, error: null }
+          )
+        ),
         then: (resolve, reject) => {
           if (op === 'insert') return Promise.resolve({ error: state.insertError }).then(resolve, reject)
           if (op === 'select') return Promise.resolve({ data: state.listData }).then(resolve, reject)

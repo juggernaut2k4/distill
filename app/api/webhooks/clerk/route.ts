@@ -6,7 +6,7 @@ import { sendSignupWelcomeEmail } from '@/lib/delivery/email'
 import { inngest } from '@/inngest/client'
 import { OnboardingSchema, saveOnboardingProfile } from '@/lib/onboarding'
 import { createOrClaimPartnerAccount, UNNAMED_PARTNER_PLACEHOLDER } from '@/lib/partner/signup'
-import { lookupDirectPartnerInviteByToken, markDirectPartnerInviteAccepted } from '@/lib/internal-admin/direct-partner-invites'
+import { lookupDirectPartnerInviteByToken, markDirectPartnerInviteAccepted, getDirectPartnerInviteTargetKind } from '@/lib/internal-admin/direct-partner-invites'
 
 interface ClerkEmailAddress {
   email_address: string
@@ -107,26 +107,10 @@ export async function POST(request: Request) {
     }).catch((err: unknown) => console.error('[clerk-webhook] Failed to emit clio/user.created:', err))
   }
 
-  // B2B-25: partner self-serve signup — new branch, sibling to the existing
-  // ONBOARD-DATA-01 unsafeMetadata branch below, checked first since the two
-  // are mutually exclusive by signup_intent. Replaces the retired
-  // Clerk-Organizations flow (docs/specs/B2B-25-requirement-document.md §6.3).
-  // B2B-28 (docs/specs/B2B-28-requirement-document.md §6.8) — simplified:
-  // manages_multiple_clients is no longer read at all; every completed
-  // /partner-signup signup now produces a sales-partner (channel_partner)
-  // account, no exceptions.
-  // B2B-29 (docs/specs/B2B-29-requirement-document.md §6.5.1) — no company
-  // name is captured before signup anymore; there is nothing left to be
-  // missing, so the prior hard-stop-on-empty-name branch is removed. Every
-  // account created here is seeded with UNNAMED_PARTNER_PLACEHOLDER
-  // (lib/partner/signup-constants.ts).
-  if (event.data.unsafe_metadata?.signup_intent === 'partner') {
-    const result = await createOrClaimPartnerAccount(id, UNNAMED_PARTNER_PLACEHOLDER, primaryEmail, 'channel_partner')
-    if (!result.success) {
-      console.error('[clerk-webhook] createOrClaimPartnerAccount failed:', result.error)
-    }
-    return NextResponse.json({ received: true })
-  }
+  // B2B-80 (docs/specs/B2B-80-requirement-document.md §6.3) — the self-serve
+  // `signup_intent === 'partner'` branch (B2B-25/28/29) is retired along with
+  // `/partner-signup` itself: sales-partner accounts are now invite-only,
+  // created exclusively via the `direct_partner_invite` branch below.
 
   // B2B-28 (docs/specs/B2B-28-requirement-document.md §6.8) — new sibling
   // branch, mutually exclusive by signup_intent, for the invite-only
@@ -157,7 +141,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ received: true })
     }
 
-    const result = await createOrClaimPartnerAccount(id, UNNAMED_PARTNER_PLACEHOLDER, primaryEmail, 'partner')
+    // B2B-80 (docs/specs/B2B-80-requirement-document.md §6.2) — this branch now serves both
+    // direct-partner and sales-partner invites; the invite row's own stored target_account_kind
+    // decides which, rather than always assuming 'partner'.
+    const targetAccountKind = await getDirectPartnerInviteTargetKind(inviteId)
+    const result = await createOrClaimPartnerAccount(id, UNNAMED_PARTNER_PLACEHOLDER, primaryEmail, targetAccountKind)
     if (result.success && !result.alreadyMember) {
       await markDirectPartnerInviteAccepted(inviteId, result.partnerAccountId as string)
     }

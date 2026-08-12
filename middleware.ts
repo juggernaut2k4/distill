@@ -8,10 +8,10 @@ const isPublicRoute = createRouteMatcher([
   '/',
   '/sign-in(.*)',
   '/sign-up(.*)',
-  '/partner-signup(.*)', // B2B-25: self-serve partner signup wrapper (Clio company-name step + Clerk <SignUp/>, no Clerk Organizations)
   '/invite/accept(.*)', // B2B-21: internal-admin invite acceptance — renders its own sign-in prompt (mirrors /partner-signup precedent)
   '/team-invite/accept(.*)', // B2B-26: sales-partner team invite acceptance — same pattern as /invite/accept
   '/partner-invite/accept(.*)', // B2B-28: direct-partner invite acceptance — same pattern as /invite/accept and /team-invite/accept
+  '/partner-inquiry(.*)', // B2B-80: public, unauthenticated sales-partner lead-capture form — never touches Clerk, no account created on submit
   '/questionnaire',            // B2B-05: exact string, no wildcard — see middleware.ts note below
   '/api/webhooks/(.*)',
   '/api/recall/webhook(.*)',  // Recall.ai webhook — no user auth
@@ -20,6 +20,7 @@ const isPublicRoute = createRouteMatcher([
   '/api/clio/chat/completions', // Custom LLM endpoint — called by Hume's Custom-LLM bridge (no user auth)
   '/api/admin/seed-topics',    // Admin seed — checked via secret header; Clerk session also accepted
   '/api/admin/seed-topic-cache', // Role topic cache seeder — no user session needed
+  '/api/partner-inquiry', // B2B-80: public lead-capture submission — no Clerk session available
   '/walkthrough/(.*)',        // Public walkthrough page shared by Recall.ai bot
   '/partner-render/(.*)',     // B2B-02: placeholder render stub, loaded headlessly by the meeting bot on a partner's behalf — no Clerk session available
   '/widget-render/(.*)',      // B2B-71: dedicated widget-channel render route, loaded by a reseller's own iframe — no Clerk session available, mirrors /partner-render

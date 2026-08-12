@@ -22,6 +22,7 @@ interface InviteRow {
   created_at: string
   accepted_at: string | null
   created_by_email: string
+  target_account_kind: 'partner' | 'channel_partner'
 }
 
 function StatusBadge({ status }: { status: InviteRow['status'] }) {
@@ -55,6 +56,7 @@ export default function PartnerInvitesClient() {
 
   const [formOpen, setFormOpen] = useState(false)
   const [label, setLabel] = useState('')
+  const [targetAccountKind, setTargetAccountKind] = useState<'partner' | 'channel_partner'>('partner')
   const [generating, setGenerating] = useState(false)
   const [generateError, setGenerateError] = useState<string | null>(null)
 
@@ -90,7 +92,7 @@ export default function PartnerInvitesClient() {
       const res = await fetch('/api/admin/partner-invites', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ label: label.trim() || null }),
+        body: JSON.stringify({ label: label.trim() || null, target_account_kind: targetAccountKind }),
       })
       const data = await res.json()
       if (!res.ok) {
@@ -99,6 +101,7 @@ export default function PartnerInvitesClient() {
       }
       setRevealedUrl(data.acceptUrl)
       setLabel('')
+      setTargetAccountKind('partner')
       setFormOpen(false)
     } catch {
       setGenerateError("Couldn't generate this invite. Try again.")
@@ -181,6 +184,24 @@ export default function PartnerInvitesClient() {
             </button>
           </div>
 
+          <label className="block text-[#94A3B8] text-xs font-semibold uppercase tracking-wide mb-1.5">Invite type</label>
+          <div className="flex gap-2 mb-4">
+            {(['partner', 'channel_partner'] as const).map((kind) => (
+              <button
+                key={kind}
+                type="button"
+                onClick={() => setTargetAccountKind(kind)}
+                className={`flex-1 text-sm font-medium px-3 py-2 rounded-lg border transition-colors ${
+                  targetAccountKind === kind
+                    ? 'border-[#7C3AED] bg-[#7C3AED]/10 text-white'
+                    : 'border-[#333333] text-[#94A3B8] hover:border-[#475569]'
+                }`}
+              >
+                {kind === 'partner' ? 'Direct partner' : 'Sales-partner'}
+              </button>
+            ))}
+          </div>
+
           <label className="block text-[#94A3B8] text-xs font-semibold uppercase tracking-wide mb-1.5">
             Label (optional, for your own reference — never shown to the invitee)
           </label>
@@ -249,6 +270,9 @@ export default function PartnerInvitesClient() {
               <div key={row.id} className="px-3 py-3 rounded-lg bg-[#0A0A0A] border border-[#1A1A1A]">
                 <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-2">
                   <span className="text-white text-sm flex-1 min-w-0 truncate">{row.label ?? '—'}</span>
+                  <span className="text-[#475569] text-xs whitespace-nowrap">
+                    {row.target_account_kind === 'channel_partner' ? 'Sales-partner' : 'Direct partner'}
+                  </span>
                   <StatusBadge status={row.status} />
                 </div>
                 <div className="text-[#475569] text-xs mb-2">

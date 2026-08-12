@@ -10,7 +10,13 @@ import { listDirectPartnerInvites, issueDirectPartnerInvite } from '@/lib/intern
  * B2B-28 (docs/specs/B2B-28-requirement-document.md §6.3). `requireSuperAdmin()` only.
  */
 
-const IssueSchema = z.object({ label: z.string().trim().max(200).optional().nullable() })
+const IssueSchema = z.object({
+  label: z.string().trim().max(200).optional().nullable(),
+  // B2B-80 §4.B — the "Direct partner" / "Sales-partner" selector on this existing screen, and the
+  // lead-list "Invite" action, both post through this same route.
+  target_account_kind: z.enum(['partner', 'channel_partner']).optional(),
+  source_lead_id: z.string().uuid().optional(),
+})
 
 export async function GET() {
   const admin = await requireSuperAdmin()
@@ -35,7 +41,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Validation failed', details: parsed.error.flatten() }, { status: 422 })
   }
 
-  const result = await issueDirectPartnerInvite(parsed.data.label ?? null, admin.internalAdminUserId as string)
+  const result = await issueDirectPartnerInvite(
+    parsed.data.label ?? null,
+    admin.internalAdminUserId as string,
+    parsed.data.target_account_kind ?? 'partner',
+    parsed.data.source_lead_id
+  )
   if (!result.success) {
     console.error('[admin/partner-invites] Failed to issue invite:', result.error)
     return NextResponse.json({ error: "Couldn't generate this invite. Try again." }, { status: 500 })
