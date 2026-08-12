@@ -20,6 +20,8 @@ export type PlaygroundEndpointId =
   | 'sessions_create'
   | 'sessions_get'
   | 'widget_sessions_create'
+  | 'bot_dispatch'
+  | 'bot_sessions_create'
   | 'usage'
   | 'wallet'
 
@@ -219,6 +221,123 @@ export const ENDPOINTS: EndpointDoc[] = [
       { status: '402', meaning: 'card_required / trial_exhausted / funding_required / balance_exhausted' },
       { status: '403', meaning: 'account_suspended' },
       { status: '422', meaning: 'validation failure, invalid_reseller_id, client_id_required, invalid_client_id, content_source_not_found, or content_source_url_rejected' },
+      { status: '429', meaning: 'rate limit exceeded, Retry-After header present' },
+    ],
+    playgroundDisabled: false,
+  },
+  {
+    id: 'bot_dispatch',
+    category: 'Sessions',
+    method: 'POST',
+    path: '/api/partner/v1/bot-dispatch',
+    purpose:
+      'Sales-partner accounts only. Reserves a session the instant your end user initiates something (e.g. a button click), before you have necessarily assembled what content to teach — call bot-sessions moments later with the returned session_id to actually start the session. Authenticated with a passcode, not your API key.',
+    rateLimit: 'No dedicated rate limit — call it once per real end-user action, not in a retry loop.',
+    requestFields: [
+      { field: 'end_user_name', type: 'string', required: 'Yes', notes: '' },
+      {
+        field: 'passcode',
+        type: 'string',
+        required: 'Yes',
+        notes: 'Generated per client in Developer settings > Passcodes — a different, lighter-weight credential from your API key. It identifies which client this dispatch is for; it cannot itself create or act on a session.',
+      },
+    ],
+    exampleRequestBody: { end_user_name: 'Jordan Lee', passcode: 'XK7P-4QRT9M' },
+    exampleResponse: { session_id: 'uuid', status: 'reserved', expires_at: 'ISO 8601' },
+    responseNotes: [
+      'session_id is Clio-issued — you never construct one yourself. Send it, unchanged, as the session_id field on your next bot-sessions call.',
+      'The reservation expires (expires_at, ~15 minutes out) if bot-sessions never claims it — call bot-dispatch again to get a fresh one.',
+    ],
+    otherResponses: [
+      { status: '401', meaning: 'invalid_passcode — not recognized, revoked, or malformed' },
+      { status: '422', meaning: 'validation failure' },
+    ],
+    playgroundDisabled: false,
+    // The passcode is a body field, not an Authorization header — this endpoint has no Bearer
+    // auth at all (same reasoning as oauth_token's own noAuthRequired above).
+    noAuthRequired: true,
+  },
+  {
+    id: 'bot_sessions_create',
+    category: 'Sessions',
+    method: 'POST',
+    path: '/api/partner/v1/bot-sessions',
+    purpose:
+      'Sales-partner accounts only. Stage 2 of the bot-dispatch flow — claims the reservation from bot-dispatch and starts the actual live session, with the same content/wallet-gate behavior as widget-sessions above. Authenticated with your own per-client API key (Developer settings > API Keys), not a whole-account key.',
+    rateLimit: '60 requests/minute per partner account (same class as widget-sessions).',
+    requestFields: [
+      {
+        field: 'session_id',
+        type: 'string (UUID)',
+        required: 'Yes',
+        notes: 'From bot-dispatch\'s response — Clio-issued, single-use for claiming. A second call with an already-claimed session_id is rejected, not silently accepted.',
+      },
+      { field: 'content_pages', type: 'array', required: 'Yes', notes: 'One or more pages — see below.' },
+      { field: 'content_source_id', type: 'string (UUID)', required: 'Yes', notes: 'Registered via content-sources.' },
+      { field: 'content_title', type: 'string', required: 'No', notes: 'Session-level title.' },
+      { field: 'content_subtitle', type: 'string', required: 'No', notes: 'Session-level subtitle.' },
+      {
+        field: 'content_to_explain',
+        type: 'string',
+        required: 'No',
+        notes: 'A short overview only, up to 5000 chars. Put your actual long-form content in content_pages instead — split it across as many pages as you need (one per topic/section), each up to 6000 chars. There is no limit on how many pages you send.',
+      },
+      { field: 'expected_duration_minutes', type: 'integer', required: 'No', notes: 'Default 30. Used for the wallet/billing gate.' },
+      { field: 'end_user_role', type: 'string', required: 'No', notes: '' },
+      { field: 'end_user_industry', type: 'string', required: 'No', notes: '' },
+      { field: 'language', type: 'string', required: 'No', notes: 'Spoken delivery language.' },
+      { field: 'reseller_id', type: 'string (UUID)', required: 'Yes', notes: 'Must match the account resolved from your API key.' },
+      {
+        field: 'client_id',
+        type: 'string (UUID)',
+        required: 'Yes',
+        notes: 'Your per-client API key is already scoped to one client — this field must match it exactly, or the call is rejected (client_scope_mismatch). It is a cross-check, not a separate credential.',
+      },
+      {
+        field: 'bot_id',
+        type: 'string',
+        required: 'No',
+        notes: 'Your own name for a voice, set in Developer settings > Bot Voices (e.g. "english_bot") — never a literal provider agent ID. Omit it to use your account\'s default voice.',
+      },
+      {
+        field: 'partner_end_user_ref',
+        type: 'string',
+        required: 'No',
+        notes: 'Free-form, your own choice — 1–256 printable-ASCII chars. Your own ID for this specific end user, for your own reporting; Clio never validates or looks anything up with it.',
+      },
+      {
+        field: 'partner_reference',
+        type: 'string',
+        required: 'No',
+        notes: 'Free-form, your own choice — 1–256 printable-ASCII chars, echoed on every usage webhook. A short human-readable tag is a good pattern (e.g. "cohort-week1"). Does NOT provide duplicate-session protection — a repeated value does not block a second session. Use reseller_unique_id below if you need that.',
+      },
+      { field: 'reseller_unique_id', type: 'string', required: 'No', notes: 'Idempotency key — a retry with the same value returns the original session.' },
+    ],
+    exampleRequestBody: {
+      session_id: '5b1e2b8e-0000-0000-0000-000000000000',
+      content_source_id: '11111111-1111-1111-1111-111111111111',
+      content_pages: [
+        { url: 'https://content.partner.example.com/module-1.html', media_type: 'html', title: 'Module 1', transition_trigger: 'after module 1', content_text: 'Narration for module 1.' },
+        { url: 'https://content.partner.example.com/module-2.html', media_type: 'html', title: 'Module 2', transition_trigger: 'after module 2', content_text: 'Narration for module 2.' },
+      ],
+      reseller_id: '22222222-2222-2222-2222-222222222222',
+      client_id: '33333333-3333-3333-3333-333333333333',
+      bot_id: 'english_bot',
+      partner_reference: 'cohort-week1',
+    },
+    exampleResponse: { session_id: 'uuid', status: 'widget_active', render_url: 'string', reseller_unique_id: 'string (only if sent)' },
+    responseNotes: [
+      'end_user_name is not sent here — it came from bot-dispatch and is already attached to session_id.',
+      'render_url resolves to your own configured custom domain (Developer settings > Domain) — a verified domain is required before this call succeeds.',
+    ],
+    otherResponses: [
+      { status: '401', meaning: 'invalid_api_key / revoked_api_key' },
+      { status: '402', meaning: 'card_required / trial_exhausted / funding_required / balance_exhausted' },
+      { status: '403', meaning: 'account_suspended / client_scope_mismatch' },
+      {
+        status: '422',
+        meaning: 'validation failure, session_not_found, session_expired, session_already_claimed, bot_id_not_configured, domain_not_configured, invalid_reseller_id, invalid_client_id, content_source_not_found, or content_source_url_rejected',
+      },
       { status: '429', meaning: 'rate limit exceeded, Retry-After header present' },
     ],
     playgroundDisabled: false,
