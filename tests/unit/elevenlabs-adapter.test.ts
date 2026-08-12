@@ -708,7 +708,13 @@ describe('lib/voice/widget-elevenlabs-prompt-rules', () => {
 
   it('exports its own version constant, distinct from the OpenAI widget prompt', async () => {
     const { WIDGET_ELEVENLABS_PROMPT_VERSION } = await import('@/lib/voice/widget-elevenlabs-prompt-rules')
-    expect(WIDGET_ELEVENLABS_PROMPT_VERSION).toBe('widget-el-v5')
+    expect(WIDGET_ELEVENLABS_PROMPT_VERSION).toBe('widget-el-v6')
+  })
+
+  it('rule 3b gives a worked example and is explicitly distinguished from rule 3f\'s generic "any other questions?"', async () => {
+    const { WIDGET_ELEVENLABS_PROMPT_TEMPLATE } = await import('@/lib/voice/widget-elevenlabs-prompt-rules')
+    expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).toContain('for example, on a page about what makes Claude different')
+    expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).toContain('This is never the generic "do you have any questions?"')
   })
 
   it('G23 names the native silence-detection mechanism, distinct from G22\'s real note', async () => {

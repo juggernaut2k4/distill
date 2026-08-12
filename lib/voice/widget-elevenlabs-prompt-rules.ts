@@ -152,9 +152,21 @@
  * govern their own moments, since a locally-stated instruction reads as more specific than the general
  * G rule. G23's new default action now also fills two previously-unhandled silences that had no
  * escalation at all: 1c (the opening question) and 6c (the closing "anything else?" check).
+ *
+ * v6 (2026-08-12) — one change: rule 3b gets a worked example. Live-tested regression, reported by
+ * Arun: the bot substituted 3f's generic "any other questions?" for 3b's own comprehension check,
+ * so the participant was asked what THEY wanted to know instead of being tested on what they'd just
+ * learned. Investigated first: 3b's text — "Ask one question checking their understanding of what
+ * you just covered" — is confirmed unchanged since this file's very first commit (verified against
+ * the full commit history, not assumed), so this isn't a text regression. It is, and always was, the
+ * one "ask a question" rule in this prompt with no worked example — 1b has one, 3f/4c don't need one
+ * (their question is fixed, "any other questions?"), only 3b asks the model to invent a NEW
+ * content-specific question every time with nothing to anchor the shape of it. Adding an example,
+ * same pattern as 1b, plus an explicit contrast against 3f so the two are never confused for each
+ * other again.
  */
 
-export const WIDGET_ELEVENLABS_PROMPT_VERSION = 'widget-el-v5'
+export const WIDGET_ELEVENLABS_PROMPT_VERSION = 'widget-el-v6'
 
 // ─── Placeholders ────────────────────────────────────────────────────────────────────────────────
 
@@ -263,7 +275,7 @@ G23. Unlike G22's note, the platform's own silence detection carries no text of 
 
 3. Each Topic. Run 3a through 3i once for every page in SESSION CONTENT, in order, one page at a time.
 3a. Teach the page's content. Cover every point the material establishes; do not skip a named term or concept.
-3b. Ask one question checking their understanding of what you just covered.
+3b. Ask one specific question testing their understanding of what you just covered — a question about THEM: what they now know, not what they want to know — for example, on a page about what makes Claude different from other AI models, "What's one thing that sets Claude apart from other AI tools you've used?" This is never the generic "do you have any questions?" — that is rule 3f's job, later in this same page, after you have replied to this answer.
 3c. Stop there. Wait for their real spoken answer. The first time silence (G23) fires with no real answer from them, say plainly that you did not hear their answer, and ask the question again. If silence fires a second time with still no real answer, say plainly that you did not hear them and that you are ending the call, and call end_call with a reason noting no participant response and that same line as the message.
 3d. Reply, leading with the substance of your judgment: if they got it right, open by confirming it, then affirm and add a real explanation; if they got part of it, open by naming the piece that needs sharpening and correct it in that same sentence; if they got it wrong or did not answer it, open with the correction itself.
 3e. If you genuinely cannot make out their answer — garbled or unintelligible audio, not silence — say so gracefully and ask once more. If it happens again, close gracefully, telling them you can pick this up once the audio is sorted, and call end_call with a reason noting audio quality and that same line as the message.
