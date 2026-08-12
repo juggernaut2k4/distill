@@ -41,6 +41,7 @@ import { glitchInstancesPurge } from '@/inngest/glitch-instances-purge'
 import { partnerSessionTraceLogFinalizer, partnerSessionTraceLogPurge } from '@/inngest/partner-session-trace-log'
 import { demoDispatchMinutesConsumer } from '@/inngest/demo-dispatch-minutes-consumer'
 import { partnerParticipantsEmptyDebounce } from '@/inngest/partner-participants-empty-debounce'
+import { botDispatchReservationCleanup, botDispatchReservationPurge } from '@/inngest/bot-dispatch-reservation-cleanup'
 
 /**
  * POST /api/inngest
@@ -60,5 +61,5 @@ import { partnerParticipantsEmptyDebounce } from '@/inngest/partner-participants
  */
 export const { GET, POST, PUT } = serve({
   client: inngest,
-  functions: [dailyDelivery, weeklyDigest, feedbackProcessor, sessionReminder, sessionMeetingSetup, sessionPlanGenerator, sessionAgendaEmail, trialExpiryJob, sessionContentPipeline, sessionContentCron, updateLearningProfile, catalogRefresh, curriculumQueueRegenerate, curriculumRecommendationAccepted, curriculumQueueCron, curriculumGenerator, sessionDesignerAuto, sessionQualityEvaluator, scheduleSetupNudge, analyzeIceBreakerResponse, adaptPlan, sessionTimerJob, voiceGapWatchdog, humeNativeNightlyCleanup, rtv03AccuracyEvaluator, templateFixGenerator, humeActionItemExtractor, humeActionItemBackstopSweep, partnerWebhookDispatcher, partnerContentGeneration, partnerContentCleanup, partnerTrialCutoffJob, partnerTrialStuckSessionBackstopSweep, partnerLiveCutoffJob, partnerSessionInsightsExtractor, partnerSessionInsightsBackstopSweep, partnerSessionInsightsPurge, partnerSignupReminder, glitchInstancesPurge, partnerSessionTraceLogFinalizer, partnerSessionTraceLogPurge, demoDispatchMinutesConsumer, partnerParticipantsEmptyDebounce],
+  functions: [dailyDelivery, weeklyDigest, feedbackProcessor, sessionReminder, sessionMeetingSetup, sessionPlanGenerator, sessionAgendaEmail, trialExpiryJob, sessionContentPipeline, sessionContentCron, updateLearningProfile, catalogRefresh, curriculumQueueRegenerate, curriculumRecommendationAccepted, curriculumQueueCron, curriculumGenerator, sessionDesignerAuto, sessionQualityEvaluator, scheduleSetupNudge, analyzeIceBreakerResponse, adaptPlan, sessionTimerJob, voiceGapWatchdog, humeNativeNightlyCleanup, rtv03AccuracyEvaluator, templateFixGenerator, humeActionItemExtractor, humeActionItemBackstopSweep, partnerWebhookDispatcher, partnerContentGeneration, partnerContentCleanup, partnerTrialCutoffJob, partnerTrialStuckSessionBackstopSweep, partnerLiveCutoffJob, partnerSessionInsightsExtractor, partnerSessionInsightsBackstopSweep, partnerSessionInsightsPurge, partnerSignupReminder, glitchInstancesPurge, partnerSessionTraceLogFinalizer, partnerSessionTraceLogPurge, demoDispatchMinutesConsumer, partnerParticipantsEmptyDebounce, botDispatchReservationCleanup, botDispatchReservationPurge],
 })
