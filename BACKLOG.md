@@ -188,6 +188,11 @@ Full detail on each item lives in this session's memory (`project_pre_production
 
 ## P0 — Blockers (fix first)
 
+### INFRA-01 — Inngest account hit its free tier usage limit
+**Status:** Not started — Arun got the Inngest usage-limit email 2026-08-13. Not yet diagnosed; explicitly deferred by Arun ("note this down so we can fix it first if we face any issues when we start back again"), pick up before other work resumes.
+**What:** `app/api/inngest/route.ts` registers 44 functions. Several are named after B2C-era daily-tip/curriculum features (`daily-delivery`, `weekly-digest`, `feedback-processor`, `session-reminder`, `curriculum-generator`, `curriculum-queue-cron`, `catalog-refresh`, `adapt-plan`, `update-learning-profile`) that CLAUDE.md says were retired along with the B2C product — worth checking whether any are still on active cron schedules and quietly burning quota for a dead product before assuming an upgrade is needed.
+**Next:** pull the actual Inngest dashboard usage breakdown (which functions/runs are consuming quota), confirm or rule out the stale-cron hypothesis, then fix or upgrade based on what's actually driving it. Full context: `project_inngest_free_tier_limit_2026_08_13.md` (session memory).
+
 ### BILL-01 — Demo wallet has two disconnected minute-counters + opaque credit-exhausted error
 **Status:** Not started — root cause identified 2026-08-09/10 during live B2B-75/76 widget testing. Temporarily unblocked with a manual data credit (not a fix — see below). Defer real fix until current widget testing session is complete, per Arun's direct instruction.
 **What:** The "Clio Internal — Public Demo" account's `partner_wallets` row carries two entirely separate, disconnected minute-tracking mechanisms:
