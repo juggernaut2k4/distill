@@ -35,6 +35,9 @@ import { COLORS, SHELL_CONTENT_STYLE } from '../configurator/design-tokens'
  */
 export { COLORS, Card, PrimaryButton, SecondaryButton, SHELL_CONTENT_STYLE }
 
+// Disabled 2026-08-12 per Arun's direct instruction — see BACKLOG.md "Showcase tab full removal".
+const SHOWCASE_TAB_ENABLED = false
+
 export function NoChannelPartnerAccount() {
   return (
     <div
@@ -87,7 +90,14 @@ export function ChannelPartnerShell({
   ]
 
   // B2B-31 (§4) — 5th nav tab, conditionally rendered only for allowlisted accounts.
-  if (showShowcaseTab) {
+  //
+  // Disabled 2026-08-12 per Arun's direct instruction (BACKLOG.md — "Showcase tab full removal"):
+  // Showcase is an internal demo-prep tool, not a partner-facing feature, and shouldn't be offered
+  // to sales-partners at all. `showShowcaseTab` still resolves per-account exactly as before (callers
+  // are unchanged) but the nav entry itself is now unconditionally suppressed via SHOWCASE_TAB_ENABLED
+  // — routes and code stay intact and reachable by direct URL, this is deliberately reversible, not a
+  // deletion. Flip this back to `true` (or remove the guard) to restore the tab.
+  if (showShowcaseTab && SHOWCASE_TAB_ENABLED) {
     navItems.push({ key: 'showcase', label: 'Showcase', href: '/dashboard/channel-partner/showcase' })
   }
 

@@ -124,6 +124,17 @@ no auth), so neither required CEO escalation — both are logged here as candida
   bot exception at all). **Explicitly deprioritized by Arun 2026-08-02**: "lets discuss more once the
   last [transition-silence fix] is done... its not priority." Do not pick this up until that item
   closes and Arun revisits it directly.
+- **Showcase tab full removal (channel-partner dashboard)** — **2026-08-12**: during a sales-partner
+  dashboard tab review, Arun confirmed Showcase (`/dashboard/channel-partner/showcase` — an internal
+  demo-prep tool: title/subtitle/script content + a Visualization sub-tab, used to prep a canned demo
+  for prospective partners, gated behind an allowlist toggle so ordinary sales-partners never see it)
+  isn't a partner-facing feature and shouldn't be offered. Per Arun: disable it now (nav tab hidden,
+  routes/code left intact and reversible), full deletion deferred to a later pass. Nav entry disabled
+  in `app/(with-clerk)/dashboard/channel-partner/_shared.tsx` (`ChannelPartnerShell`'s `showShowcaseTab`
+  push is now a no-op) — `showcase/page.tsx`, `showcase/visualization/page.tsx`,
+  `ShowcaseContentClient.tsx`, `ShowcaseVisualizationClient.tsx`, and the `showcase_access_enabled`
+  gate/API routes are all untouched and still reachable by direct URL for an allowlisted account (i.e.
+  Arun himself, if still used for demo prep) until this item is picked back up.
 
 ---
 
