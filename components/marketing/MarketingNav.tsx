@@ -33,13 +33,7 @@ export default function MarketingNav() {
         {/* Right actions */}
         <div className="flex items-center gap-3">
           <Link
-            href="/sign-in"
-            className="text-sm text-[#94A3B8] hover:text-white transition-colors px-3 py-2"
-          >
-            Log in
-          </Link>
-          <Link
-            href="/partner-inquiry"
+            href="/#waitlist"
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#7C3AED] hover:bg-[#6D28D9] text-white text-sm font-semibold transition-colors"
           >
             Get started

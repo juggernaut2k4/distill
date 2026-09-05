@@ -767,6 +767,71 @@ export async function sendPartnerSignupReminderEmail(email: string, orgName: str
   }
 }
 
+// ─── WAITLIST-01 — Homepage Waitlist ──────────────────────────────────────────
+
+/**
+ * Sends the new-waitlist-signup admin notification (WAITLIST-01,
+ * docs/specs/WAITLIST-01-requirement-document.md §6.4). Same dark-theme HTML template structure
+ * as `sendLowBalanceAlertEmail`/`sendDemoLowBalanceAlertEmail` — CLIO wordmark, H1, body
+ * paragraph, one purple CTA button. Called from `submitWaitlistSignup()` in
+ * lib/partner/waitlist.ts, once per active super-admin email, failure-tolerant (caught and
+ * logged by the caller, never blocks the visitor's 200 response).
+ * @param toEmail - an active `internal_admin_users` super-admin email address
+ * @param name - the name the visitor entered on the waitlist form
+ * @param signupEmail - the email the visitor entered on the waitlist form
+ * @returns Success/failure result
+ */
+export async function sendNewWaitlistSignupEmail(
+  toEmail: string,
+  name: string,
+  signupEmail: string
+): Promise<EmailResult> {
+  if (isPlaceholder || !resend) {
+    console.log('[MOCK] sendNewWaitlistSignupEmail', { toEmail, name, signupEmail })
+    return { success: true, messageId: 'mock-waitlist-signup-id' }
+  }
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
+
+  try {
+    const result = await resend.emails.send({
+      from: FROM,
+      to: toEmail,
+      subject: `New waitlist signup — ${name}`,
+      html: `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="background:#080808;color:#ffffff;font-family:Inter,system-ui,sans-serif;margin:0;padding:0;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;padding:40px 24px;">
+    <tr><td>
+      <p style="color:#7C3AED;font-size:12px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin:0 0 32px;">CLIO</p>
+      <h1 style="color:#ffffff;font-size:28px;font-weight:800;margin:0 0 12px;">New waitlist signup.</h1>
+      <p style="color:#94A3B8;font-size:16px;line-height:1.7;margin:0 0 32px;">
+        ${name} (${signupEmail}) just joined the Clio waitlist.
+      </p>
+      <div style="background:#111111;border:1px solid #222222;border-radius:12px;padding:32px;text-align:center;">
+        <a href="${appUrl}/dashboard/admin/waitlist" style="background:#7C3AED;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:700;display:inline-block;">View waitlist →</a>
+      </div>
+    </td></tr>
+  </table>
+</body>
+</html>`,
+      text: `${name} (${signupEmail}) just joined the Clio waitlist. View at ${appUrl}/dashboard/admin/waitlist`,
+    })
+
+    logEmailResult('sendNewWaitlistSignupEmail', toEmail, result)
+    if (result.error) {
+      return { success: false, error: result.error.message }
+    }
+
+    return { success: true, messageId: result.data?.id }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error(`[email:sendNewWaitlistSignupEmail] EXCEPTION to=${toEmail}:`, message)
+    return { success: false, error: message }
+  }
+}
+
 // ─── Private HTML builders ────────────────────────────────────────────────────
 
 function buildDailyEmailHtml(user: User, item: ContentItem): string {

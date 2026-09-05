@@ -39,6 +39,7 @@ const ADMIN_LINKS: AdminLinkCard[] = [
   { href: '/dashboard/admin/partner-invites', icon: Link2, title: 'Partner invites', description: 'Manage partner invite links and their status.' },
   { href: '/dashboard/admin/sales-partner-leads', icon: UserPlus, title: 'Sales-partner leads', description: 'Inquiries submitted via the public /partner-inquiry form.' },
   { href: '/dashboard/admin/sales-partners', icon: Users, title: 'Sales-partners', description: 'Reseller roster and usage.' },
+  { href: '/dashboard/admin/waitlist', icon: Users, title: 'Waitlist', description: 'People who joined the homepage waitlist.' },
 ]
 
 export default async function AdminHomePage() {

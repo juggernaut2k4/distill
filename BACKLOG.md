@@ -284,6 +284,59 @@ These two never sync. Concretely hit 2026-08-09: admin dashboard showed "411 dem
 
 ## P1 — Core Features (next sprint)
 
+### WAITLIST-01 — Homepage waitlist (narrowed scope)
+**Status:** Done — built 2026-09-05 to `docs/specs/WAITLIST-01-requirement-document.md` (approved
+2026-09-05, all 12 sections complete, Section 11 empty). This entry originally bundled the $10
+demo-passcode flow (see original text below, retained for history); that flow was split out as its
+own not-started entry, `DEMO-PASSCODE-01`, per the BA spec's Section 10.
+**What shipped:** Homepage `<section id="waitlist">` (name + email form) inserted between
+`Testimonials` and `BottomCTA` in `app/(with-clerk)/(marketing)/page.tsx`; `MarketingNav`'s "Log
+in" link removed and "Get started" repointed to `/#waitlist`; `Hero` and `BottomCTA` primary CTAs
+repointed from `/partner-inquiry` to `/#waitlist` ("Join the waitlist"); a single small secondary
+link to `/partner-inquiry` retained under the waitlist form. New `waitlist_signups` Supabase table
+(migration `118_waitlist01_signups.sql`, hard `UNIQUE` constraint on email — a duplicate submit
+resolves to a friendly "You're already on the list" state, not an error) with public
+`POST /api/waitlist` (honeypot-protected) and super-admin-only `GET`/`DELETE
+/api/admin/waitlist[/id]` routes, `lib/partner/waitlist.ts`, a Resend admin-notification email
+(`sendNewWaitlistSignupEmail` in `lib/delivery/email.ts`), and a new
+`/dashboard/admin/waitlist` admin page (flat list + inline two-step delete confirm) linked from
+the admin index.
+**Explicitly out of scope this round (see `DEMO-PASSCODE-01` below):** the $10 demo-passcode
+purchase flow, Stripe checkout for it, and passcode generation/email.
+
+<details>
+<summary>Original combined entry (2026-07-07, superseded 2026-09-05 — kept for history)</summary>
+
+**What (per Arun's direct instructions, 2026-07-07):**
+1. Homepage (`app/(with-clerk)/(marketing)/page.tsx` + `components/marketing/MarketingNav.tsx`): remove the "Log in" nav link (admin unaffected — still reaches `/dashboard/admin` via `/sign-in` directly, just not linked publicly). Add a waitlist signup section (name + email) to the existing homepage — existing page content/pillars stay, this is additive plus the nav removal. Recommended (Arun delegated the call): consolidate the existing "Get started" → `/partner-inquiry` CTA and the new waitlist into one conversion point rather than two competing forms — waitlist becomes primary; `/partner-inquiry` either retires or becomes a secondary/follow-up step, CEO/BA to confirm exact mechanics.
+2. Admin: email notification (Resend) to hello.arunprakash83@gmail.com the instant someone joins the waitlist. Admin dashboard page listing waitlist entries (model off the existing `/dashboard/admin/sales-partner-leads` list-view pattern) with a delete action per entry.
+3. Public "See the demo for $10" flow: CTA on site → explicit callout that the resulting passcode is usable only twice (shown before payment) → Stripe Checkout, $10 one-time (test mode for now, Arun will flip to live mode himself before real users) → on successful payment, generate a passcode restricted to exactly 2 uses, no expiry date → email the buyer immediately with the passcode and the demo page URL → they visit the demo page, enter name + passcode to get in.
+**Reusable infra already in the codebase (do not rebuild from scratch):** `lib/demo/passcode-accounts.ts` (passcode generation/validation core), `app/(demo)/demo/[slug]` (existing public demo catalog/render page), `/dashboard/admin/sales-partner-leads` (existing admin leads-list UI pattern to model the waitlist admin view on), Resend already wired for transactional email, Stripe already integrated (this is a new one-time $10 price/product, separate from existing subscription/usage billing).
+**New surfaces needed:** waitlist DB table + API route, admin waitlist list/delete page + API routes, Stripe checkout route for the $10 demo product + webhook handling for it, passcode-purchase confirmation email template, likely an extension to the passcode model to support "exactly 2 uses, no expiry" if the existing passcode infra doesn't already support that exact shape (existing demo-access passcodes are minutes-balance based, not use-count based — confirm during BA spec whether to extend the existing table/logic or add a parallel one).
+**Approvals:** Arun answered all clarifying questions directly 2026-07-07 and explicitly delegated full CEO → BA → approval → build ownership — "go through ceo and take care of all approvals and build fully then let me know so i can test it." No outstanding open questions blocking BA spec Section 11 as of dispatch.
+
+</details>
+
+### DEMO-PASSCODE-01 — Paid ($10) demo-passcode flow
+**Status:** Not started. Split out of `WAITLIST-01` on 2026-09-05 per that spec's Section 10 (out
+of scope for the narrowed waitlist build) — no BA spec written yet.
+**What:** Public "See the demo for $10" flow: CTA on site → explicit callout that the resulting
+passcode is usable only twice (shown before payment) → Stripe Checkout, $10 one-time (test mode
+for now, Arun will flip to live mode himself before real users) → on successful payment, generate
+a passcode restricted to exactly 2 uses, no expiry date → email the buyer immediately with the
+passcode and the demo page URL → they visit the demo page, enter name + passcode to get in.
+**Reusable infra already in the codebase (do not rebuild from scratch):** `lib/demo/passcode-accounts.ts`
+(passcode generation/validation core), `app/(demo)/demo/[slug]` (existing public demo catalog/render
+page), Resend already wired for transactional email, Stripe already integrated (this is a new
+one-time $10 price/product, separate from existing subscription/usage billing).
+**New surfaces needed:** Stripe checkout route for the $10 demo product + webhook handling for it,
+passcode-purchase confirmation email template, likely an extension to the passcode model to support
+"exactly 2 uses, no expiry" if the existing passcode infra doesn't already support that exact shape
+(existing demo-access passcodes are minutes-balance based, not use-count based — confirm during BA
+spec whether to extend the existing table/logic or add a parallel one).
+**Next step:** needs a Feature Brief (CEO agent) and full BA spec before any code — per the standard
+gate, not started per Arun's explicit instruction that this flow was intentionally deferred.
+
 ### PIPE-01 — Two Content-Generation Pipelines Running in Parallel
 **Status:** Not started — needs a decision on which pipeline to keep.
 **What:** There are two separate background jobs that both generate session content, registered at the same time. The older one still runs every hour against all scheduled sessions, which doesn't match the intended design (content should generate right when a user approves their plan, not on a recurring sweep). Having both running risks duplicate work and conflicting content.

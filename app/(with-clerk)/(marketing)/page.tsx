@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import MarketingNav from '@/components/marketing/MarketingNav'
+import WaitlistForm from '@/components/marketing/WaitlistForm'
 
 gsap.registerPlugin(ScrollTrigger, SplitText)
 
@@ -159,9 +160,9 @@ function Hero() {
             </p>
 
             <div className="hero-cta flex flex-col sm:flex-row gap-4 mb-10">
-              <Link href="/partner-inquiry">
+              <Link href="/#waitlist">
                 <Button size="lg" className="gap-2">
-                  Talk to us
+                  Join the waitlist
                   <ArrowRight size={20} />
                 </Button>
               </Link>
@@ -581,6 +582,32 @@ function Testimonials() {
   )
 }
 
+// ─── Waitlist ─────────────────────────────────────────────────────────────────
+
+/**
+ * WAITLIST-01 (docs/specs/WAITLIST-01-requirement-document.md §4.B) — new homepage waitlist
+ * section, inserted between Testimonials and BottomCTA. `#080808` background continues the
+ * page's existing alternation pattern (Testimonials above it is `#0a0a0a`).
+ */
+function WaitlistSection() {
+  return (
+    <section id="waitlist" className="py-16 md:py-28 bg-[#080808]">
+      <div className="max-w-2xl mx-auto px-4 md:px-6">
+        <h2 className={`${display.className} text-3xl md:text-5xl font-bold text-white text-center mb-4`}>
+          Be first to know when Clio&apos;s ready for you.
+        </h2>
+        <p className="text-base md:text-xl text-[#475569] text-center mb-10 md:mb-12">
+          Join the waitlist — we&apos;ll reach out the moment we&apos;re ready to bring on new partners.
+        </p>
+
+        <Card className="p-6 md:p-9">
+          <WaitlistForm />
+        </Card>
+      </div>
+    </section>
+  )
+}
+
 // ─── Bottom CTA ───────────────────────────────────────────────────────────────
 
 function BottomCTA() {
@@ -612,9 +639,9 @@ function BottomCTA() {
         <p className="text-base md:text-xl text-[#94A3B8] mb-10">
           Tell us about your platform — we&apos;ll show you what happens when learners actually get it, and why they come back.
         </p>
-        <Link href="/partner-inquiry">
+        <Link href="/#waitlist">
           <Button size="lg" className="gap-2">
-            Contact us
+            Join the waitlist
             <ArrowRight size={20} />
           </Button>
         </Link>
@@ -638,6 +665,7 @@ export default function LandingPage() {
       <PillarsSection />
       <HowItWorks />
       <Testimonials />
+      <WaitlistSection />
       <BottomCTA />
     </main>
   )
