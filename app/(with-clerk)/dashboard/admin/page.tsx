@@ -1,7 +1,7 @@
 import { currentUser } from '@clerk/nextjs/server'
 import { redirect, notFound } from 'next/navigation'
 import Link from 'next/link'
-import { Building2, LayoutTemplate, Bug, Shield, Link2, Users, UserPlus, LucideIcon } from 'lucide-react'
+import { Building2, LayoutTemplate, Bug, Shield, Link2, Users, UserPlus, Ticket, LucideIcon } from 'lucide-react'
 import { requireSuperAdmin } from '@/lib/internal-admin/auth'
 import DashboardShell from '@/components/dashboard/DashboardShell'
 import DemoAccessCard from './DemoAccessCard'
@@ -40,6 +40,7 @@ const ADMIN_LINKS: AdminLinkCard[] = [
   { href: '/dashboard/admin/sales-partner-leads', icon: UserPlus, title: 'Sales-partner leads', description: 'Inquiries submitted via the public /partner-inquiry form.' },
   { href: '/dashboard/admin/sales-partners', icon: Users, title: 'Sales-partners', description: 'Reseller roster and usage.' },
   { href: '/dashboard/admin/waitlist', icon: Users, title: 'Waitlist', description: 'People who joined the homepage waitlist.' },
+  { href: '/dashboard/admin/public-demo-passcodes', icon: Ticket, title: 'Public demo passcodes', description: 'Every $10 demo purchase and passcode redemption.' },
 ]
 
 export default async function AdminHomePage() {

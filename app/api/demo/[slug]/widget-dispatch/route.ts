@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { getDemoTopicBySlug, flattenBlocksToNarrationText } from '@/app/(demo)/demo/_content'
 import { resolveDemoPasscodeToAccount } from '@/lib/demo/passcode-accounts'
+import { resolvePublicDemoPasscode, consumePublicDemoPasscodeUse } from '@/lib/demo/public-buyer-passcode'
 import { ELEVENLABS_VOICE_OPTIONS, DEFAULT_ELEVENLABS_VOICE_OPTION, getElevenLabsAgentIdForVoice, getElevenLabsLanguageForVoice } from '@/lib/voice/elevenlabs-agents'
 
 /**
@@ -46,11 +47,22 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
     return NextResponse.json({ error: { code: 'incorrect_passcode', message: 'Incorrect passcode.' } }, { status: 401 })
   }
 
-  const resolved = await resolveDemoPasscodeToAccount(parsed.data.passcode)
-  if (!resolved) {
-    return NextResponse.json({ error: { code: 'incorrect_passcode', message: 'Incorrect passcode.' } }, { status: 401 })
+  // Step 1 — try the existing B2B-39 reseller/admin passcode model FIRST (unchanged priority/behavior
+  // for every existing caller of this route).
+  const resolvedReseller = await resolveDemoPasscodeToAccount(parsed.data.passcode)
+  let billedAccountId: string | null = null
+  let publicPasscode: Awaited<ReturnType<typeof resolvePublicDemoPasscode>> = null
+
+  if (resolvedReseller) {
+    billedAccountId = resolvedReseller.partnerAccountId
+  } else {
+    // Step 2 — DEMO-PASSCODE-01 (docs/specs/DEMO-PASSCODE-01-requirement-document.md §6.6). Falls
+    // through to the new public-buyer model only when the reseller model doesn't match.
+    publicPasscode = await resolvePublicDemoPasscode(parsed.data.passcode)
+    if (!publicPasscode) {
+      return NextResponse.json({ error: { code: 'incorrect_passcode', message: 'Incorrect passcode.' } }, { status: 401 })
+    }
   }
-  const billedAccountId = resolved.partnerAccountId
 
   const supabase = createSupabaseAdminClient()
   const demoPartnerAccountId = process.env.DEMO_PARTNER_ACCOUNT_ID
@@ -65,21 +77,30 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
   // Duplicate-dispatch guard — mirrors the Meeting tab dispatch route's own (B2B-44 Fix 5a), scoped
   // to this slug's most recent WIDGET session only (a widget session never passes through
   // 'requested'/'bot_dispatch_failed'/'bot_active' — it is created directly as 'widget_active').
-  const { data: latestWidgetRows } = await supabase
-    .from('partner_sessions')
-    .select('id, status')
-    .eq('partner_reference', params.slug)
-    .eq('partner_account_id', demoPartnerAccountId)
-    .eq('delivery_channel', 'widget')
-    .order('created_at', { ascending: false })
-    .limit(1)
-  const latestWidget = latestWidgetRows?.[0] ?? null
+  //
+  // DEMO-PASSCODE-01 (docs/specs/DEMO-PASSCODE-01-requirement-document.md §6.6, Known Constraint 5):
+  // skipped entirely for the public-buyer path (billedAccountId is null). This guard is actually a
+  // per-slug lock scoped to the fixed internal DEMO_PARTNER_ACCOUNT_ID, not a per-billed-account
+  // lock — skipping it for a public buyer means their dispatch on a given slug is never blocked by
+  // an already-active session on that same slug, whether that active session belongs to a reseller's
+  // own test, the admin, or another public buyer. Accepted, documented trade-off — see spec §9.
+  if (billedAccountId) {
+    const { data: latestWidgetRows } = await supabase
+      .from('partner_sessions')
+      .select('id, status')
+      .eq('partner_reference', params.slug)
+      .eq('partner_account_id', demoPartnerAccountId)
+      .eq('delivery_channel', 'widget')
+      .order('created_at', { ascending: false })
+      .limit(1)
+    const latestWidget = latestWidgetRows?.[0] ?? null
 
-  if (latestWidget && latestWidget.status === 'widget_active') {
-    return NextResponse.json(
-      { error: { code: 'session_already_active', message: 'A widget session is already active for this topic. End it before starting a new one.' } },
-      { status: 409 }
-    )
+    if (latestWidget && latestWidget.status === 'widget_active') {
+      return NextResponse.json(
+        { error: { code: 'session_already_active', message: 'A widget session is already active for this topic. End it before starting a new one.' } },
+        { status: 409 }
+      )
+    }
   }
 
   // Content-page URLs must resolve on the demo/test-harness host — /demo/* only renders there.
@@ -151,14 +172,36 @@ export async function POST(request: NextRequest, { params }: { params: { slug: s
   }
 
   if (upstreamStatus === 201 && upstreamBody.status === 'widget_active' && upstreamBody.clio_session_ref && upstreamBody.render_url) {
-    const { error: demoDispatchError } = await supabase.from('demo_dispatches').insert({
-      clio_session_ref: upstreamBody.clio_session_ref,
-      billed_partner_account_id: billedAccountId,
-      demo_passcode_id: resolved.passcodeId,
-      slug: params.slug,
-    })
-    if (demoDispatchError) {
-      console.error('[demo/widget-dispatch] Failed to insert demo_dispatches row (non-blocking):', demoDispatchError.message)
+    if (billedAccountId) {
+      // resolvedReseller is guaranteed non-null here (billedAccountId is only ever set from it).
+      const { error: demoDispatchError } = await supabase.from('demo_dispatches').insert({
+        clio_session_ref: upstreamBody.clio_session_ref,
+        billed_partner_account_id: billedAccountId,
+        demo_passcode_id: resolvedReseller!.passcodeId,
+        slug: params.slug,
+      })
+      if (demoDispatchError) {
+        console.error('[demo/widget-dispatch] Failed to insert demo_dispatches row (non-blocking):', demoDispatchError.message)
+      }
+    } else if (publicPasscode) {
+      // DEMO-PASSCODE-01 (docs/specs/DEMO-PASSCODE-01-requirement-document.md §6.6) — public-buyer-
+      // only steps, best-effort/non-blocking, matching this route's own convention for the
+      // demo_dispatches insert above. The consume-use step deliberately happens only after a
+      // successful upstream dispatch, not at the initial auth-check step — a use is spent by a
+      // session that actually happened. See §9 for the resulting, accepted race window.
+      const newUsesRemaining = await consumePublicDemoPasscodeUse(publicPasscode.id)
+      if (newUsesRemaining === null) {
+        console.error('[demo/widget-dispatch] consumePublicDemoPasscodeUse found uses_remaining already 0 (race) for passcode', publicPasscode.id)
+      }
+      const { error: redemptionError } = await supabase.from('public_demo_passcode_redemptions').insert({
+        passcode_id: publicPasscode.id,
+        redeemed_name: parsed.data.end_user_name,
+        slug: params.slug,
+        clio_session_ref: upstreamBody.clio_session_ref,
+      })
+      if (redemptionError) {
+        console.error('[demo/widget-dispatch] Failed to insert public_demo_passcode_redemptions row (non-blocking):', redemptionError.message)
+      }
     }
 
     return NextResponse.json({ status: 'dispatched', clio_session_ref: upstreamBody.clio_session_ref, render_url: upstreamBody.render_url })

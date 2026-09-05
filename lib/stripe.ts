@@ -451,6 +451,51 @@ export async function createPlanSubscriptionCheckout(
   return session.url
 }
 
+// ─── DEMO-PASSCODE-01 — public $10 demo-passcode purchase (mode: "payment") ─────────────
+// docs/specs/DEMO-PASSCODE-01-requirement-document.md §6.4. Follows
+// createPlanSubscriptionCheckout()'s pattern (a real, pre-created Stripe Price resolved from an env
+// var — NOT createTestBlockCheckoutSession's ad-hoc price_data pattern) per the spec's explicit
+// "price ID must come from an env var, never inlined" requirement.
+
+/**
+ * Creates a Stripe Checkout session for the public $10 demo-passcode purchase. Fully public/
+ * unauthenticated — no partner_account_id, no partner_wallets/wallet_ledger involvement of any kind.
+ * `customer_creation: 'always'` forces Stripe's own hosted Checkout page to collect the buyer's
+ * email — no custom pre-payment form is built.
+ * @param successUrl - optional override for the post-checkout redirect
+ * @param cancelUrl - optional override for the cancel redirect
+ * @returns Stripe Checkout URL (real or mock)
+ */
+export async function createPublicDemoPasscodeCheckoutSession(
+  successUrl?: string,
+  cancelUrl?: string
+): Promise<string> {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
+  const resolvedSuccess = successUrl ?? `${appUrl}/?public_demo_passcode=success`
+  const resolvedCancel = cancelUrl ?? `${appUrl}/?public_demo_passcode=cancelled`
+
+  const priceId = process.env.STRIPE_PUBLIC_DEMO_PASSCODE_PRICE_ID
+  const priceIdIsPlaceholder = !priceId || priceId.startsWith('PLACEHOLDER_')
+
+  if (isPlaceholder || !stripeClient || priceIdIsPlaceholder) {
+    console.log('[MOCK] createPublicDemoPasscodeCheckoutSession')
+    return `${appUrl}/?mock_public_demo_passcode=1`
+  }
+
+  const session = await stripeClient.checkout.sessions.create({
+    mode: 'payment',
+    payment_method_types: ['card'],
+    customer_creation: 'always',
+    line_items: [{ price: priceId, quantity: 1 }],
+    metadata: { purpose: 'public_demo_passcode' },
+    success_url: resolvedSuccess,
+    cancel_url: resolvedCancel,
+  })
+
+  if (!session.url) throw new Error('Stripe did not return a checkout URL for the public demo passcode session.')
+  return session.url
+}
+
 /**
  * Finds an existing `partner_wallets.stripe_customer_id` or creates one.
  * Requirement Doc Section 5.B.4's invoicing flow and the self-serve/

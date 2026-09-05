@@ -832,6 +832,73 @@ export async function sendNewWaitlistSignupEmail(
   }
 }
 
+// ─── DEMO-PASSCODE-01 — Public $10 Demo-Passcode Purchase ──────────────────────
+
+/**
+ * DEMO-PASSCODE-01 (docs/specs/DEMO-PASSCODE-01-requirement-document.md §6.7). Sent to a $10
+ * demo-passcode buyer immediately on successful Stripe checkout, via the checkout.session.completed
+ * webhook branch (§6.5). Contains the plaintext passcode — the only place it is ever shown; it is
+ * never persisted or displayed anywhere else, including the admin page (§4.C shows only
+ * passcode_prefix-free buyer/usage metadata, never the plaintext or even the prefix).
+ * @param toEmail - the buyer's email, collected by Stripe Checkout's own hosted email field
+ * @param passcode - the plaintext passcode, shown exactly once
+ * @returns Success/failure result
+ */
+export async function sendPublicDemoPasscodeEmail(
+  toEmail: string,
+  passcode: string
+): Promise<EmailResult> {
+  if (isPlaceholder || !resend) {
+    console.log('[MOCK] sendPublicDemoPasscodeEmail', { toEmail, passcode })
+    return { success: true, messageId: 'mock-public-demo-passcode-id' }
+  }
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
+
+  try {
+    const result = await resend.emails.send({
+      from: FROM,
+      to: toEmail,
+      subject: 'Your Clio demo passcode',
+      html: `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="background:#080808;color:#ffffff;font-family:Inter,system-ui,sans-serif;margin:0;padding:0;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;padding:40px 24px;">
+    <tr><td>
+      <p style="color:#7C3AED;font-size:12px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin:0 0 32px;">CLIO</p>
+      <h1 style="color:#ffffff;font-size:28px;font-weight:800;margin:0 0 12px;">Here's your demo passcode.</h1>
+      <p style="color:#94A3B8;font-size:16px;line-height:1.7;margin:0 0 24px;">
+        Thanks for your purchase. This passcode works twice and never expires — use it whenever you're
+        ready.
+      </p>
+      <div style="background:#111111;border:1px solid #222222;border-radius:12px;padding:24px;text-align:center;margin:0 0 32px;">
+        <span style="color:#ffffff;font-size:24px;font-weight:800;letter-spacing:0.05em;font-family:monospace;">${passcode}</span>
+      </div>
+      <p style="color:#94A3B8;font-size:16px;line-height:1.7;margin:0 0 32px;">
+        Pick any course at the link below, open the "Widget Demo" tab, enter your name and this
+        passcode, and start your session.
+      </p>
+      <div style="background:#111111;border:1px solid #222222;border-radius:12px;padding:32px;text-align:center;">
+        <a href="${appUrl}/demo" style="background:#7C3AED;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:700;display:inline-block;">See the demo →</a>
+      </div>
+    </td></tr>
+  </table>
+</body>
+</html>`,
+      text: `Here's your demo passcode: ${passcode}\n\nThis passcode works twice and never expires. Pick any course at ${appUrl}/demo, open the "Widget Demo" tab, enter your name and this passcode, and start your session.`,
+    })
+
+    logEmailResult('sendPublicDemoPasscodeEmail', toEmail, result)
+    if (result.error) return { success: false, error: result.error.message }
+    return { success: true, messageId: result.data?.id }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error(`[email:sendPublicDemoPasscodeEmail] EXCEPTION to=${toEmail}:`, message)
+    return { success: false, error: message }
+  }
+}
+
 // ─── Private HTML builders ────────────────────────────────────────────────────
 
 function buildDailyEmailHtml(user: User, item: ContentItem): string {

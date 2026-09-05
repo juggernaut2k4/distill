@@ -318,24 +318,38 @@ purchase flow, Stripe checkout for it, and passcode generation/email.
 </details>
 
 ### DEMO-PASSCODE-01 — Paid ($10) demo-passcode flow
-**Status:** Not started. Split out of `WAITLIST-01` on 2026-09-05 per that spec's Section 10 (out
-of scope for the narrowed waitlist build) — no BA spec written yet.
-**What:** Public "See the demo for $10" flow: CTA on site → explicit callout that the resulting
-passcode is usable only twice (shown before payment) → Stripe Checkout, $10 one-time (test mode
-for now, Arun will flip to live mode himself before real users) → on successful payment, generate
-a passcode restricted to exactly 2 uses, no expiry date → email the buyer immediately with the
-passcode and the demo page URL → they visit the demo page, enter name + passcode to get in.
-**Reusable infra already in the codebase (do not rebuild from scratch):** `lib/demo/passcode-accounts.ts`
-(passcode generation/validation core), `app/(demo)/demo/[slug]` (existing public demo catalog/render
-page), Resend already wired for transactional email, Stripe already integrated (this is a new
-one-time $10 price/product, separate from existing subscription/usage billing).
-**New surfaces needed:** Stripe checkout route for the $10 demo product + webhook handling for it,
-passcode-purchase confirmation email template, likely an extension to the passcode model to support
-"exactly 2 uses, no expiry" if the existing passcode infra doesn't already support that exact shape
-(existing demo-access passcodes are minutes-balance based, not use-count based — confirm during BA
-spec whether to extend the existing table/logic or add a parallel one).
-**Next step:** needs a Feature Brief (CEO agent) and full BA spec before any code — per the standard
-gate, not started per Arun's explicit instruction that this flow was intentionally deferred.
+**Status:** Done — built 2026-09-05 to `docs/specs/DEMO-PASSCODE-01-requirement-document.md`
+(approved, all 12 sections complete, Section 11 empty).
+**What shipped:** New homepage CTA (`components/marketing/PublicDemoPasscodeCTA.tsx`, rendered from
+`PublicDemoPasscodeSection()` in `app/(with-clerk)/(marketing)/page.tsx`, placed directly after
+`<WaitlistSection />` and before `<BottomCTA />`) — "Already convinced? See the demo for $10.",
+pre-payment "works twice and never expires" disclosure, `POST /api/public-demo-passcode/checkout`
+→ Stripe Checkout (`mode: 'payment'`, `STRIPE_PUBLIC_DEMO_PASSCODE_PRICE_ID`,
+`createPublicDemoPasscodeCheckoutSession()` in `lib/stripe.ts`, mock-mode-safe). New Stripe webhook
+branch in `app/api/webhooks/stripe/route.ts` (`purpose === 'public_demo_passcode'`, inserted between
+the `demo_topup_purchase` and `plan_subscription` branches) generates a 2-use passcode
+(`lib/demo/public-buyer-passcode.ts`, structurally separate from B2B-39's `passcode-accounts.ts`),
+inserts a `public_demo_passcodes` row (migration
+`119_demo_passcode01_public_buyer_passcodes.sql`, plus sibling table
+`public_demo_passcode_redemptions` and a `consume_public_demo_passcode_use` atomic-decrement RPC),
+and emails the plaintext passcode once via `sendPublicDemoPasscodeEmail` in `lib/delivery/email.ts`.
+`app/api/demo/[slug]/widget-dispatch/route.ts` now falls through to the new public-buyer passcode
+model after the existing B2B-39 reseller/admin resolution misses, per Known Constraint 5: skips the
+duplicate-dispatch guard and all `demo_dispatches`/minutes-billing entirely for that path, and
+consumes one use + logs a `public_demo_passcode_redemptions` row (best-effort, non-blocking) only
+after a successful dispatch. New read-only admin page `/dashboard/admin/public-demo-passcodes`
+(`PublicDemoPasscodesClient.tsx`, modeled on `WaitlistClient.tsx`, backed by
+`GET /api/admin/public-demo-passcodes` / `lib/demo/public-demo-passcodes.ts`) lists issued
+passcodes and the redemption log, linked from the admin index.
+**Known gap (flagged for Arun, not blocking):** `.env.local.example` could not be edited by this
+build — this session's sandbox permissions deny access to that path outright (not a
+Read-before-Edit issue, a hard deny). The new env var
+`STRIPE_PUBLIC_DEMO_PASSCODE_PRICE_ID=PLACEHOLDER_STRIPE_PUBLIC_DEMO_PASSCODE_PRICE_ID` needs to be
+added to that file by hand, next to the other `STRIPE_*_PRICE_ID` vars — the code already reads it
+correctly (falls back to mock mode when absent/placeholder, so nothing is broken without it).
+**Verification:** `npx tsc --noEmit` clean (zero errors in any file this build touched; two
+pre-existing, unrelated `@testing-library/react` type errors in `tests/unit/b2b57b-*` and
+`tests/unit/b2b61-partb-*` predate this change, confirmed via `git stash`).
 
 ### PIPE-01 — Two Content-Generation Pipelines Running in Parallel
 **Status:** Not started — needs a decision on which pipeline to keep.

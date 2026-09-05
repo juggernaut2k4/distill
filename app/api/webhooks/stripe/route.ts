@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { constructWebhookEvent, stripe } from '@/lib/stripe'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { getPlanTier, getIncludedAllowanceUsd } from '@/lib/billing/plan-tiers'
+import { generatePublicDemoPasscode } from '@/lib/demo/public-buyer-passcode'
+import { sendPublicDemoPasscodeEmail } from '@/lib/delivery/email'
 import type Stripe from 'stripe'
 
 type AdminSupabaseClient = ReturnType<typeof createSupabaseAdminClient>
@@ -247,6 +249,46 @@ export async function POST(request: NextRequest) {
 
           console.log(`[stripe-webhook] B2B-39 demo top-up purchase: +${demoTopupMinutes} min for partner ${partnerAccountId}, new demo_minutes_balance: ${newDemoMinutesBalance}`)
 
+          break
+        }
+
+        // ── DEMO-PASSCODE-01 — public $10 demo-passcode purchase (mode: "payment") ─────────
+        // docs/specs/DEMO-PASSCODE-01-requirement-document.md §6.5. This buyer has no partner
+        // account — neither wallet_ledger nor partner_wallets is touched at all.
+        if (session.metadata?.purpose === 'public_demo_passcode') {
+          const buyerEmail = session.customer_details?.email
+          if (!buyerEmail) {
+            console.warn('[stripe-webhook] public_demo_passcode checkout.session.completed missing buyer email:', session.id)
+            break
+          }
+
+          // Idempotency — mirrors walletLedgerAlreadyRecorded()'s role, but this feature has no
+          // wallet_ledger row to check; the natural idempotency key here is the UNIQUE
+          // stripe_checkout_session_id column on public_demo_passcodes itself.
+          const { data: existingPublicPasscode } = await supabase
+            .from('public_demo_passcodes')
+            .select('id')
+            .eq('stripe_checkout_session_id', session.id)
+            .maybeSingle()
+          if (existingPublicPasscode) break
+
+          const generatedPublicPasscode = generatePublicDemoPasscode()
+          const { error: publicPasscodeInsertError } = await supabase.from('public_demo_passcodes').insert({
+            passcode_hash: generatedPublicPasscode.passcodeHash,
+            passcode_prefix: generatedPublicPasscode.passcodePrefix,
+            buyer_email: buyerEmail,
+            stripe_checkout_session_id: session.id,
+          })
+          if (publicPasscodeInsertError) {
+            console.error('[stripe-webhook] Failed to insert public_demo_passcodes row:', publicPasscodeInsertError.message)
+            break
+          }
+
+          await sendPublicDemoPasscodeEmail(buyerEmail, generatedPublicPasscode.passcode).catch((err) =>
+            console.error('[stripe-webhook] sendPublicDemoPasscodeEmail failed:', err)
+          )
+
+          console.log(`[stripe-webhook] DEMO-PASSCODE-01 public demo passcode issued for ${buyerEmail}`)
           break
         }
 

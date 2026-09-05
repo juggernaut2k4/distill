@@ -16,6 +16,7 @@ import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import MarketingNav from '@/components/marketing/MarketingNav'
 import WaitlistForm from '@/components/marketing/WaitlistForm'
+import PublicDemoPasscodeCTA from '@/components/marketing/PublicDemoPasscodeCTA'
 
 gsap.registerPlugin(ScrollTrigger, SplitText)
 
@@ -608,6 +609,23 @@ function WaitlistSection() {
   )
 }
 
+// ─── Public demo passcode ───────────────────────────────────────────────────────
+
+/**
+ * DEMO-PASSCODE-01 (docs/specs/DEMO-PASSCODE-01-requirement-document.md §4.A) — small, secondary
+ * section for the public $10 demo-passcode purchase, placed directly after <WaitlistSection /> and
+ * before <BottomCTA />. `#0a0a0a` background continues the page's existing alternation pattern
+ * (WaitlistSection above it is `#080808`). Deliberately smaller type scale and no icon/illustration
+ * than WaitlistSection so it reads as a secondary, single-purpose strip, not a second hero moment.
+ */
+function PublicDemoPasscodeSection() {
+  return (
+    <section className="py-12 md:py-20 bg-[#0a0a0a]">
+      <PublicDemoPasscodeCTA />
+    </section>
+  )
+}
+
 // ─── Bottom CTA ───────────────────────────────────────────────────────────────
 
 function BottomCTA() {
@@ -666,6 +684,7 @@ export default function LandingPage() {
       <HowItWorks />
       <Testimonials />
       <WaitlistSection />
+      <PublicDemoPasscodeSection />
       <BottomCTA />
     </main>
   )
