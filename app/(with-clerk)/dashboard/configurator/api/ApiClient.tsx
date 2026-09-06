@@ -370,13 +370,13 @@ function QuickStartDoc() {
     <>
       <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 10 }}>How this works</h2>
       <p style={{ fontSize: 13, color: COLORS.textSecondary, lineHeight: 1.6, marginBottom: 16 }}>
-        Before the full endpoint list below, here's the whole model in two calls.
+        Before the full endpoint list below, here&apos;s the whole model in two calls.
       </p>
 
       <p style={{ fontSize: 12, fontWeight: 600, color: COLORS.cyan, marginBottom: 6 }}>1. One call out — you start a session</p>
       <p style={{ fontSize: 13, color: COLORS.textSecondary, lineHeight: 1.6, marginBottom: 16 }}>
         Call <code style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>POST /api/partner/v1/sessions</code> with a
-        meeting URL and your content/visualization pages. That's it — Clio joins the meeting and runs the live session from there.
+        meeting URL and your content/visualization pages. That&apos;s it — Clio joins the meeting and runs the live session from there.
       </p>
 
       <p style={{ fontSize: 12, fontWeight: 600, color: COLORS.cyan, marginBottom: 6 }}>2. One call back — you receive the results</p>
@@ -387,16 +387,16 @@ function QuickStartDoc() {
         <code style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>action_items</code> on the payload).
       </p>
       <p style={{ fontSize: 12, color: COLORS.textMuted, lineHeight: 1.6, marginBottom: 16 }}>
-        That same base URL also receives other event types (usage/billing events, covered separately) — check the payload's{' '}
+        That same base URL also receives other event types (usage/billing events, covered separately) — check the payload&apos;s{' '}
         <code style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>event_type</code> field to find{' '}
         <code style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>session.insights_ready</code> among them. See the{' '}
         <strong>Usage webhook</strong> entry on the left for the full payload shape.
       </p>
 
-      <p style={{ fontSize: 12, fontWeight: 600, color: COLORS.textSecondary, marginBottom: 6 }}>That's the whole flow</p>
+      <p style={{ fontSize: 12, fontWeight: 600, color: COLORS.textSecondary, marginBottom: 6 }}>That&apos;s the whole flow</p>
       <p style={{ fontSize: 13, color: COLORS.textSecondary, lineHeight: 1.6, marginBottom: 16 }}>
         <code style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>GET /sessions/:id</code> also exists, if you want to
-        check a session's status — it's optional, not a required third step.
+        check a session&apos;s status — it&apos;s optional, not a required third step.
       </p>
 
       <p style={{ fontSize: 13, color: COLORS.textSecondary, lineHeight: 1.6 }}>
