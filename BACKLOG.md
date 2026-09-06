@@ -284,6 +284,75 @@ These two never sync. Concretely hit 2026-08-09: admin dashboard showed "411 dem
 
 ## P1 — Core Features (next sprint)
 
+### API-ONBOARD-01 — Clarity pass on Integration + API docs/Playground for new partners
+**Status:** Built, `npx tsc --noEmit` clean, committed and pushed — 2026-09-06, via full
+CEO → BA → build chain, overnight per Arun's instruction ("tonight build all these we discussed").
+CEO Feature Brief at
+`.claude/agents/clio/feature-briefs/API-ONBOARD-01-integration-docs-clarity.md`; BA spec at
+`docs/specs/API-ONBOARD-01-requirement-document.md` (all 12 sections, Section 11 empty).
+**What shipped:**
+1. `app/(with-clerk)/dashboard/configurator/api/ApiClient.tsx` — new `'quickstart'` nav
+   selection, first item in the left nav (above the category groups), now the default view on
+   page load (previously defaulted to the first Auth endpoint). New `QuickStartDoc()` component
+   explains the whole model in plain language before the technical list: the one outbound call
+   (`POST /api/partner/v1/sessions` with meeting URL + content pages), the one inbound
+   `session.insights_ready` event (carrying `learner_insight`/`action_items`) pushed to the base
+   URL set on Integration, a note that the same webhook URL is shared with other (billing/usage)
+   event types — filter by `event_type` — and that `GET /sessions/:id` is optional/status-only,
+   not a required third step. All 9 existing endpoint docs and the webhook doc's field table are
+   unchanged. `WebhookDoc()`'s `Verify` section gained one plain-language sentence directly above
+   the existing `verificationRecipe` formula (formula text itself byte-for-byte unchanged).
+2. `app/(with-clerk)/dashboard/configurator/integration/IntegrationClient.tsx` —
+   `OutboundWebhooksCard`'s intro paragraph now leads with "this is where you receive the summary
+   and action items after each session ends," with the existing usage-events mention kept as
+   secondary (was: "for delivering usage events and any future integration calls," no mention of
+   session insights at all). `ApiCredentialsCard`'s copy was reviewed and left unchanged — already
+   clear per BA spec §4.B.
+**Verification:** `npx tsc --noEmit` clean — the only errors present (6, in
+`tests/unit/b2b57b-*` and `tests/unit/b2b61-partb-*`, unrelated `@testing-library/react` typing
+issues) are pre-existing, identical to the DOMAIN-GUIDE-01 baseline noted below.
+**Not built (explicitly out of scope, spec §4.C/§10/§12):** the usage/billing webhook's own
+framing or behavior (Arun is discussing that caveat tomorrow morning); any `lib/partner/webhooks.ts`
+or other API/route changes; redesigning the endpoint list order/categories or the Playground
+mechanics; `GO_LIVE_REQUIRED_STEPS`.
+**Live browser QA on `distill-peach.vercel.app` not yet done** — needs a real deploy first, same
+caveat as DOMAIN-GUIDE-01 below.
+
+<details>
+<summary>Original entry (2026-09-06, retained for history)</summary>
+
+**Status:** In progress — dispatched to CEO agent 2026-09-06 for full CEO → BA → build chain,
+overnight per Arun's instruction ("tonight build all these we discussed").
+**What (per the conversation this session walked through with Arun):** after DOMAIN-GUIDE-01
+(re-exposed Domain, led with custom domain, simplified DNS instructions), Arun and the Orchestrator
+walked through the next real step for a newly-invited partner: Integration (get API credentials,
+optionally set `outbound_base_url`) and the API docs/Playground (`/dashboard/configurator/api`,
+`ApiClient.tsx` + `content.ts`). Confirmed in conversation, not yet reflected as a clarity
+improvement in the product:
+1. The core mental model a new partner needs is simple — **one outbound call** (`POST
+   /api/partner/v1/sessions`, with meeting URL + content/visualization pages) to start a session,
+   and **one inbound call** (the `session.insights_ready` webhook, delivering `learner_insight`:
+   summary, topics of interest, engagement style, suggested next topics, plus `action_items`) after
+   the session ends. `GET /sessions/:id` exists but is optional/status-only, not part of the
+   expected flow. Today's docs page dives straight into a full endpoint list with no framing —
+   nothing currently explains this simple 1-out/1-in model before the technical detail.
+2. The live Playground (parameterize + fire real requests) already exists and works — confirmed in
+   conversation, no functional gap there. This work is about clarity/onboarding framing around it,
+   not new playground functionality.
+3. Integration section itself (`IntegrationClient.tsx`) should be checked for the same kind of
+   beginner-friendly framing DOMAIN-GUIDE-01 gave the Domain section — does a first-time partner
+   understand what "outbound_base_url" is FOR (receiving the insights webhook) without already
+   knowing the architecture?
+**Explicitly out of scope, per Arun's direct instruction**: the usage/billing webhook caveat
+(separate from `session.insights_ready`, fires independently for metering) — "we will discuss an
+about the billing caveat in detail tomorrow morning." Do not touch billing-webhook docs/behavior in
+this pass.
+**Goal, verbatim from Arun**: "CEO agent review and ensure it's easy for the user to understand and
+use ours." This is a comprehension/UX clarity pass, not a new-capability build — same spirit as
+DOMAIN-GUIDE-01.
+
+</details>
+
 ### DOMAIN-GUIDE-01 — Re-expose Domain setup, lead with custom domain, simplify DNS instructions
 **Status:** Built and `npx tsc --noEmit` clean, 2026-09-06 — via full CEO → BA → build chain. NOT
 committed, pushed, or deployed — awaiting Arun's review. Live browser QA on

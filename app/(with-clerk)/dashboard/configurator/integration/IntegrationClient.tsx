@@ -410,8 +410,9 @@ function OutboundWebhooksCard({
           {configured && <StatusBadge color={COLORS.green} label="Configured" />}
         </div>
         <p style={{ fontSize: 13, color: COLORS.textSecondary, marginBottom: 16 }}>
-          The base URL Clio uses to reach your systems — for delivering usage events and any future integration
-          calls, e.g. <code style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>https://api.yourcompany.com</code> →{' '}
+          The base URL Clio uses to reach your systems — this is where you receive the summary and action items after
+          each session ends, plus usage events, e.g.{' '}
+          <code style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>https://api.yourcompany.com</code> →{' '}
           <code style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>https://api.yourcompany.com/webhooks/usage</code>.
         </p>
         <div style={{ marginBottom: 12 }}>

@@ -22,7 +22,7 @@ import { ENDPOINTS, ENDPOINT_CATEGORIES, WEBHOOK_DOC, type EndpointDoc, type Pla
  */
 
 type ResponseState = { status: number; retryAfter: string | null; body: unknown } | { networkError: true } | null
-type NavSelection = PlaygroundEndpointId | 'webhook'
+type NavSelection = PlaygroundEndpointId | 'webhook' | 'quickstart'
 
 const PANE_HEIGHT = 'clamp(420px, calc(100vh - 220px), 900px)'
 
@@ -78,22 +78,23 @@ export default function ApiClient({
   basePath?: string
   navLabel?: string
 }) {
-  const [selectedId, setSelectedId] = useState<NavSelection>(ENDPOINTS[0].id)
+  const [selectedId, setSelectedId] = useState<NavSelection>('quickstart')
   const [playgroundOpen, setPlaygroundOpen] = useState(true)
   const [apiKey, setApiKey] = useState('')
   const [pathParamValue, setPathParamValue] = useState('')
-  const [editorValue, setEditorValue] = useState(() => (ENDPOINTS[0].exampleRequestBody ? JSON.stringify(ENDPOINTS[0].exampleRequestBody, null, 2) : ''))
+  const [editorValue, setEditorValue] = useState('')
   const [queryParamsValue, setQueryParamsValue] = useState('')
   const [validationError, setValidationError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const [response, setResponse] = useState<ResponseState>(null)
 
   const isWebhookSelected = selectedId === 'webhook'
-  const endpoint = isWebhookSelected ? null : ENDPOINTS.find((e) => e.id === selectedId)!
+  const isQuickStartSelected = selectedId === 'quickstart'
+  const endpoint = isWebhookSelected || isQuickStartSelected ? null : ENDPOINTS.find((e) => e.id === selectedId)!
 
   function selectEndpoint(id: NavSelection) {
     setSelectedId(id)
-    const next = id === 'webhook' ? null : ENDPOINTS.find((e) => e.id === id)!
+    const next = id === 'webhook' || id === 'quickstart' ? null : ENDPOINTS.find((e) => e.id === id)!
     setEditorValue(next?.exampleRequestBody ? JSON.stringify(next.exampleRequestBody, null, 2) : '')
     setQueryParamsValue('')
     setPathParamValue('')
@@ -179,6 +180,26 @@ export default function ApiClient({
 
       <div className={`api-docs-grid${playgroundOpen ? '' : ' collapsed'}`}>
         <nav className="api-docs-pane api-docs-nav" style={{ background: COLORS.surface, padding: '14px 10px', borderRight: `1px solid ${COLORS.borderSubtle}` }}>
+          <div style={{ marginBottom: 16 }}>
+            <button
+              onClick={() => selectEndpoint('quickstart')}
+              style={{
+                display: 'block',
+                width: '100%',
+                textAlign: 'left',
+                background: isQuickStartSelected ? COLORS.raised : 'transparent',
+                color: isQuickStartSelected ? COLORS.textPrimary : COLORS.textSecondary,
+                fontWeight: 700,
+                border: isQuickStartSelected ? `1px solid ${COLORS.cyan}` : '1px solid transparent',
+                borderRadius: 6,
+                padding: '6px 8px',
+                fontSize: 12,
+                cursor: 'pointer',
+              }}
+            >
+              ✦ Quick start
+            </button>
+          </div>
           {ENDPOINT_CATEGORIES.map((category) => (
             <div key={category} style={{ marginBottom: 16 }}>
               <p style={{ fontSize: 11, color: COLORS.textMuted, margin: '0 0 8px', textTransform: 'uppercase', letterSpacing: '0.03em' }}>{category}</p>
@@ -232,8 +253,8 @@ export default function ApiClient({
           </div>
         </nav>
 
-        <div className="api-docs-pane api-docs-middle" style={{ padding: 20, borderRight: playgroundOpen ? `1px solid ${COLORS.borderSubtle}` : 'none' }}>
-          {isWebhookSelected || !endpoint ? <WebhookDoc /> : <EndpointDocView endpoint={endpoint} />}
+        <div className="api-docs-pane api-docs-middle" style={{ padding: 20, borderRight: playgroundOpen && endpoint ? `1px solid ${COLORS.borderSubtle}` : 'none' }}>
+          {isQuickStartSelected ? <QuickStartDoc /> : isWebhookSelected || !endpoint ? <WebhookDoc /> : <EndpointDocView endpoint={endpoint} />}
         </div>
 
         {playgroundOpen && endpoint && (
@@ -322,7 +343,7 @@ export default function ApiClient({
             )}
           </div>
         )}
-        {!playgroundOpen && !isWebhookSelected && (
+        {!playgroundOpen && !isWebhookSelected && !isQuickStartSelected && (
           <button
             onClick={() => setPlaygroundOpen(true)}
             style={{
@@ -341,6 +362,48 @@ export default function ApiClient({
         )}
       </div>
     </ConfiguratorNavShell>
+  )
+}
+
+function QuickStartDoc() {
+  return (
+    <>
+      <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 10 }}>How this works</h2>
+      <p style={{ fontSize: 13, color: COLORS.textSecondary, lineHeight: 1.6, marginBottom: 16 }}>
+        Before the full endpoint list below, here's the whole model in two calls.
+      </p>
+
+      <p style={{ fontSize: 12, fontWeight: 600, color: COLORS.cyan, marginBottom: 6 }}>1. One call out — you start a session</p>
+      <p style={{ fontSize: 13, color: COLORS.textSecondary, lineHeight: 1.6, marginBottom: 16 }}>
+        Call <code style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>POST /api/partner/v1/sessions</code> with a
+        meeting URL and your content/visualization pages. That's it — Clio joins the meeting and runs the live session from there.
+      </p>
+
+      <p style={{ fontSize: 12, fontWeight: 600, color: COLORS.cyan, marginBottom: 6 }}>2. One call back — you receive the results</p>
+      <p style={{ fontSize: 13, color: COLORS.textSecondary, lineHeight: 1.6, marginBottom: 16 }}>
+        When the session ends, Clio sends a <code style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>session.insights_ready</code>{' '}
+        event to the base URL you set on the <strong>Integration</strong> page — a summary, topics of interest, engagement style,
+        suggested next topics, and any action items captured during the session (<code style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>learner_insight</code> and{' '}
+        <code style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>action_items</code> on the payload).
+      </p>
+      <p style={{ fontSize: 12, color: COLORS.textMuted, lineHeight: 1.6, marginBottom: 16 }}>
+        That same base URL also receives other event types (usage/billing events, covered separately) — check the payload's{' '}
+        <code style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>event_type</code> field to find{' '}
+        <code style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>session.insights_ready</code> among them. See the{' '}
+        <strong>Usage webhook</strong> entry on the left for the full payload shape.
+      </p>
+
+      <p style={{ fontSize: 12, fontWeight: 600, color: COLORS.textSecondary, marginBottom: 6 }}>That's the whole flow</p>
+      <p style={{ fontSize: 13, color: COLORS.textSecondary, lineHeight: 1.6, marginBottom: 16 }}>
+        <code style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>GET /sessions/:id</code> also exists, if you want to
+        check a session's status — it's optional, not a required third step.
+      </p>
+
+      <p style={{ fontSize: 13, color: COLORS.textSecondary, lineHeight: 1.6 }}>
+        Want the full detail, or to try a real request? Pick any endpoint on the left — the Playground on the right sends live requests
+        with your own credentials.
+      </p>
+    </>
   )
 }
 
@@ -495,6 +558,9 @@ function WebhookDoc() {
       <pre style={{ ...codeBlockStyle, marginBottom: 16 }}>{WEBHOOK_DOC.signatureHeader}</pre>
 
       <p style={{ fontSize: 12, fontWeight: 600, color: COLORS.textSecondary, marginBottom: 6 }}>Verify</p>
+      <p style={{ fontSize: 13, color: COLORS.textSecondary, marginBottom: 6 }}>
+        This confirms the request really came from Clio and wasn&apos;t altered in transit:
+      </p>
       <p style={{ fontSize: 13, color: COLORS.textSecondary, marginBottom: 16 }}>{WEBHOOK_DOC.verificationRecipe}</p>
 
       <p style={{ fontSize: 12, fontWeight: 600, color: COLORS.textSecondary, marginBottom: 6 }}>Retries</p>
