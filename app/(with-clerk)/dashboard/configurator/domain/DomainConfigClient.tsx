@@ -78,9 +78,13 @@ export default function DomainConfigClient({
   } else {
     content = (
       <>
-        <h1 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20 }}>Domain</h1>
-        <SubdomainCard partnerAccountId={activePartnerAccountId} settings={settings} onUpdated={load} />
+        <h1 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>Domain</h1>
+        <p style={{ fontSize: 13, color: COLORS.textSecondary, marginBottom: 20 }}>
+          Your own domain means your end users only ever see your brand — never ours. We recommend
+          setting one up below.
+        </p>
         <CustomDomainCard partnerAccountId={activePartnerAccountId} settings={settings} onUpdated={load} />
+        <SubdomainCard partnerAccountId={activePartnerAccountId} settings={settings} onUpdated={load} />
       </>
     )
   }
@@ -207,6 +211,10 @@ function SubdomainCard({
           <p style={{ fontSize: 14, fontWeight: 600 }}>Your Clio subdomain</p>
           <StatusBadge color={COLORS.green} label="Live" />
         </div>
+        <p style={{ fontSize: 12, color: COLORS.textSecondary, marginBottom: 8 }}>
+          Want to get started right now without touching DNS? Claim a free subdomain — you can
+          switch to your own domain any time.
+        </p>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ fontSize: 14 }}>{settings.subdomain_slug}.{settings.root_domain}</span>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -220,7 +228,11 @@ function SubdomainCard({
 
   return (
     <Card style={{ marginBottom: 16 }}>
-      <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Your Clio subdomain</p>
+      <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Your Clio subdomain</p>
+      <p style={{ fontSize: 12, color: COLORS.textSecondary, marginBottom: 12 }}>
+        Want to get started right now without touching DNS? Claim a free subdomain — you can
+        switch to your own domain any time.
+      </p>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
         <input
           value={slug}
@@ -240,6 +252,15 @@ function SubdomainCard({
   )
 }
 
+function RecommendedBadge() {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 600, color: COLORS.purple, marginBottom: 8 }}>
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: COLORS.purple, display: 'inline-block' }} />
+      RECOMMENDED
+    </span>
+  )
+}
+
 function CustomDomainCard({
   partnerAccountId,
   settings,
@@ -254,8 +275,6 @@ function CustomDomainCard({
   const [removeConfirming, setRemoveConfirming] = useState(false)
   const [copied, setCopied] = useState(false)
   const removeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const muted = !settings.subdomain_slug
 
   async function copyUrl() {
     if (!settings.custom_domain_url) return
@@ -320,39 +339,48 @@ function CustomDomainCard({
     }).then(onUpdated)
   }
 
+  const recommendedStyle = { border: `2px solid ${COLORS.purple}`, marginBottom: 16 }
+
   if (settings.custom_domain_status === 'none') {
     return (
-      <Card style={{ opacity: muted ? 0.6 : 1 }}>
+      <Card style={recommendedStyle}>
+        <RecommendedBadge />
         <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Custom domain</p>
-        {muted ? (
-          <p style={{ fontSize: 13, color: COLORS.textSecondary }}>Add your own domain once your subdomain is set.</p>
-        ) : (
-          <>
-            <p style={{ fontSize: 13, color: COLORS.textSecondary, marginBottom: 12 }}>
-              Use your own domain instead of the subdomain above. Your subdomain keeps working either way.
-            </p>
-            <input
-              value={domain}
-              onChange={(e) => setDomain(e.target.value)}
-              placeholder="learning.acme.com"
-              style={{ width: '100%', background: COLORS.raised, border: `1px solid ${COLORS.borderStrong}`, borderRadius: 8, padding: 10, color: COLORS.textPrimary, fontSize: 13, marginBottom: 12 }}
-            />
-            <PrimaryButton disabled={!domain.trim()} onClick={add}>Add domain</PrimaryButton>
-          </>
-        )}
+        <p style={{ fontSize: 13, color: COLORS.textSecondary, marginBottom: 12 }}>
+          Use your own domain so your end users always see your brand. You don&apos;t need a Clio
+          subdomain first — you can add your own domain right now.
+        </p>
+        <input
+          value={domain}
+          onChange={(e) => setDomain(e.target.value)}
+          placeholder="learning.acme.com"
+          style={{ width: '100%', background: COLORS.raised, border: `1px solid ${COLORS.borderStrong}`, borderRadius: 8, padding: 10, color: COLORS.textPrimary, fontSize: 13, marginBottom: 12 }}
+        />
+        <PrimaryButton disabled={!domain.trim()} onClick={add}>Add domain</PrimaryButton>
       </Card>
     )
   }
 
   if (settings.custom_domain_status === 'pending_verification') {
     return (
-      <Card>
+      <Card style={recommendedStyle}>
+        <RecommendedBadge />
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <p style={{ fontSize: 14, fontWeight: 600 }}>Custom domain</p>
           <StatusBadge color={COLORS.amber} label="Pending" />
         </div>
         <p style={{ fontSize: 14, marginBottom: 12 }}>{settings.custom_domain}</p>
-        <p style={{ fontSize: 12, color: COLORS.textSecondary, marginBottom: 6 }}>Add this DNS record at your domain registrar:</p>
+        <p style={{ fontSize: 13, color: COLORS.textSecondary, marginBottom: 12 }}>
+          One more step: you need to add a DNS record for this domain. A CNAME record is just an
+          instruction that tells the internet &quot;when someone visits this domain, send them to
+          Clio&quot; — it&apos;s the standard way to point a domain you own at a service like ours.
+        </p>
+        <p style={{ fontSize: 13, color: COLORS.textSecondary, marginBottom: 12 }}>
+          Log into wherever you manage DNS for this domain — usually the same place you bought it
+          or manage your website (for example GoDaddy, Namecheap, Cloudflare, or Google Domains) —
+          and add the record shown below.
+        </p>
+        <p style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 6 }}>Here&apos;s the exact record to add:</p>
         <div style={{ marginBottom: 12 }}>
           <div style={{ display: 'flex', gap: 16, fontSize: 11, color: COLORS.textMuted, marginBottom: 4 }}>
             <span style={{ width: 60 }}>Type</span>
@@ -373,14 +401,19 @@ function CustomDomainCard({
             {removeConfirming ? 'Click again to remove' : 'Remove domain'}
           </SecondaryButton>
         </div>
-        <p style={{ fontSize: 12, color: COLORS.textMuted }}>DNS changes can take up to 48 hours to propagate.</p>
+        <p style={{ fontSize: 12, color: COLORS.textMuted }}>
+          DNS changes usually take effect within a few minutes to a few hours, though occasionally
+          up to 48 hours. This doesn&apos;t check itself — click &quot;Recheck verification&quot;
+          above once you&apos;ve added the record to see if it&apos;s picked up.
+        </p>
       </Card>
     )
   }
 
   if (settings.custom_domain_status === 'verified') {
     return (
-      <Card>
+      <Card style={recommendedStyle}>
+        <RecommendedBadge />
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <p style={{ fontSize: 14, fontWeight: 600 }}>Custom domain</p>
           <StatusBadge color={COLORS.green} label="Verified" />
@@ -398,7 +431,8 @@ function CustomDomainCard({
 
   // 'failed'
   return (
-    <Card>
+    <Card style={recommendedStyle}>
+      <RecommendedBadge />
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <p style={{ fontSize: 14, fontWeight: 600 }}>Custom domain</p>
         <StatusBadge color={COLORS.red} label="Failed" />

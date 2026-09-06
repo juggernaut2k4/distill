@@ -284,6 +284,74 @@ These two never sync. Concretely hit 2026-08-09: admin dashboard showed "411 dem
 
 ## P1 — Core Features (next sprint)
 
+### DOMAIN-GUIDE-01 — Re-expose Domain setup, lead with custom domain, simplify DNS instructions
+**Status:** Built and `npx tsc --noEmit` clean, 2026-09-06 — via full CEO → BA → build chain. NOT
+committed, pushed, or deployed — awaiting Arun's review. Live browser QA on
+`distill-peach.vercel.app` not yet done (needs a real deploy first).
+**What shipped:** CEO Feature Brief at
+`.claude/agents/clio/feature-briefs/DOMAIN-GUIDE-01-lead-with-custom-domain.md`; BA spec at
+`docs/specs/DOMAIN-GUIDE-01-requirement-document.md` (all 12 sections, Section 11/14 empty).
+`lib/partner/configurator-sections.ts`'s `VISIBLE_SECTIONS` now includes `'domain'` (was
+`['integration', 'payment']`, now `['integration', 'payment', 'domain']`) — verified every
+downstream consumer (`DashboardPanel.tsx`, `ConfiguratorSurface.tsx`, both `page.tsx` route
+guards, the channel-partner client configure page, `wizard.ts`) already reads this array
+generically, so no other file needed a change. `GO_LIVE_REQUIRED_STEPS` deliberately left
+unchanged at `['integration', 'payment']` — explicit BA decision (spec §6.1): this pass is
+visibility/comprehension, not a go-live gating change, and widening it would require touching
+hardcoded `requiredReady`/`REQUIRED_LABELS` logic in `GoLivePanel.tsx` and
+`ConfiguratorSurface.tsx`, well outside this feature's scope; logged as a possible future,
+separate Feature Brief (spec §12) if Arun wants real gating later.
+`DomainConfigClient.tsx` rewritten per spec: custom-domain card now renders first (previously
+second) with a persistent "RECOMMENDED" badge + 2px purple border across all four status branches;
+subdomain card now second, with a new "get started right now without touching DNS" framing
+sentence, otherwise fully unchanged and still fully usable. The old subdomain-first gate on the
+custom-domain card (`muted = !settings.subdomain_slug`) is removed entirely — verified directly
+against `lib/partner/domain-settings.ts`'s `addCustomDomain()` that it has no dependency on a
+subdomain existing, so a partner can now add their own domain immediately with no subdomain
+prerequisite. The `pending_verification` DNS instructions are fully rewritten in plain language:
+a CNAME explainer, a "log into wherever you manage DNS" paragraph naming GoDaddy/Namecheap/
+Cloudflare/Google Domains as examples, the same live per-row record data (unchanged source,
+`settings.custom_domain_verification`), and a reframed propagation/manual-recheck closing
+paragraph replacing the old bare "up to 48 hours" warning. `verified`/`failed` branches unchanged
+apart from the badge/border. No changes to `lib/partner/domain-settings.ts`,
+`lib/partner/vercel-domains.ts`, `NAV_GROUPS`, `DashboardPanel.tsx`, or the underlying
+`none | pending_verification | verified | failed` state machine — confirmed out of scope per spec
+§11. No Tailwind introduced; inline `style={{}}` pattern preserved throughout.
+**Verification:** `npx tsc --noEmit` clean — diffed against a `git stash` baseline, the only
+errors present (6, in `tests/unit/b2b57b-*` and `tests/unit/b2b61-partb-*`, unrelated
+`@testing-library/react` typing issues) are identical before and after this change.
+**Not built (explicitly out of scope, spec §11/§12):** adding `domain` to
+`GO_LIVE_REQUIRED_STEPS`; handling the `409 domain_already_configured` client response
+differently; any redesign of the Type/Name/Value record table layout.
+
+<details>
+<summary>Original entry (2026-09-06, retained for history)</summary>
+
+**Status:** In progress — dispatched to CEO agent 2026-09-06 for full CEO → BA → build chain.
+**What (per Arun's direct instructions, 2026-09-06):** he wants a newly-invited partner's first
+real activity to be setting up their own domain (not our shared `hello-clio.com` subdomain) so no
+content ever renders under our domain. Two concrete asks:
+1. **Re-expose the `domain` section** in `lib/partner/configurator-sections.ts`'s `VISIBLE_SECTIONS`
+   (currently hidden — `['integration', 'payment']` only). One-line change per the file's own
+   designed hide/show toggle, but confirm nothing else assumed it stays hidden before flipping it.
+2. **Rewrite the guidance in `DomainConfigClient.tsx`** to be genuinely beginner-friendly, and
+   **re-order/re-emphasize custom domain as the recommended primary path**, with the shared
+   subdomain (`theircompany.hello-clio.com`) presented as a secondary/quick-start fallback rather
+   than the default lead option (current code order is the reverse — subdomain first, custom domain
+   second, and the custom-domain card is just a raw Type/Name/Value table with no explanation of
+   what a CNAME record is, where to add it, or realistic wait-time framing).
+**Content direction already agreed with Arun in conversation** (Orchestrator drafted, Arun
+confirmed by saying "lets fix it"): explain what a CNAME record is in plain language, tell them to
+log into wherever they manage DNS for their domain (name a few examples — GoDaddy, Namecheap,
+Cloudflare, Google Domains — without assuming any one of them), keep the exact CNAME target
+(`cname.vercel-dns.com`) but explain it rather than just tabulate it, and reframe the "DNS changes
+can take up to 48 hours" line as reassurance/expectation-setting rather than a bare warning.
+**No backend/API changes anticipated** — `lib/partner/domain-settings.ts`, `lib/partner/vercel-domains.ts`,
+and the underlying Vercel Domains API integration are already correct and untouched; this is a
+visibility toggle + a copy/layout/ordering pass on the existing screen.
+
+</details>
+
 ### WAITLIST-INVITE-01 — One-click email invite from the waitlist admin page
 **Status:** Built and `npx tsc --noEmit` clean, 2026-09-06 — via full CEO → BA → build chain. NOT
 committed, pushed, or deployed — awaiting Arun's review. Live browser QA on

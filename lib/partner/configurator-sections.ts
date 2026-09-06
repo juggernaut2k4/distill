@@ -24,7 +24,7 @@ export type ConfiguratorStatus = Record<ConfiguratorSection, boolean>
 // remain fully intact (governance: hide, never delete) — this allowlist is
 // the single toggle. Re-enabling a hidden section later is a one-line edit
 // here; no other file needs to change.
-export const VISIBLE_SECTIONS: ConfiguratorSection[] = ['integration', 'payment']
+export const VISIBLE_SECTIONS: ConfiguratorSection[] = ['integration', 'payment', 'domain']
 
 // B2B-23 §8 / B2B-24 §6.1 — Go-Live's required set for the API-driven
 // milestone. Single source of truth for both the server gate
