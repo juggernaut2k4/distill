@@ -284,6 +284,67 @@ These two never sync. Concretely hit 2026-08-09: admin dashboard showed "411 dem
 
 ## P1 — Core Features (next sprint)
 
+### API-ONBOARD-03 — Integration guide: schema recommendation, dashboards, insights usage
+**Status:** Built and verified (`npx tsc --noEmit` clean on the changed files, `npm run build` shows
+`✓ Compiled successfully`, `/dashboard/configurator/api` builds at its normal size) — 2026-09-06.
+**Not committed/pushed** — Arun asked to review the actual drafted content first, given the volume
+of new writing; holding for his go-ahead before it ships.
+**Placement decision (CEO agent, resolving the brief's open placement question):** a new, dedicated
+nav entry **"Integration guide"**, positioned between **Quick start** and the endpoint category list
+in the left nav of `/dashboard/configurator/api`. Reasoning: Quick Start is deliberately a terse
+2-call overview; the Usage webhook entry is a wire-format reference (fields, signature, retries); this
+guide is a third, distinct thing — "what do I actually build on my end" — substantial enough (SQL,
+dashboard recommendations, a business-value section) that folding it into either existing surface
+would either dilute Quick Start or bloat the Usage webhook page past its focused purpose. Section 11
+would otherwise be empty aside from this one placement call, which the CEO agent is resolving per its
+standing authority to make product-shape/content-ambiguity calls and document them.
+**What was built:**
+- `app/(with-clerk)/dashboard/configurator/api/content.ts` — new exported `INTEGRATION_GUIDE_DOC`
+  constant, hand-authored (not AI-generated per the repo's own file-header rule), covering all 5
+  points from the brief. Every field name in the SQL/table below is transcribed from
+  `WebhookPayload` in `lib/partner/webhooks.ts`, not invented.
+- `app/(with-clerk)/dashboard/configurator/api/ApiClient.tsx` — new `IntegrationGuideDoc()` render
+  component, new `'integration-guide'` nav-selection state, new nav button under the existing
+  Quick Start/Webhooks button group.
+**Content drafted (relayed to Arun for review before shipping):**
+1. States plainly that `clio_session_ref` is the shared primary key across all 3 events.
+2. Plain-language upsert-as-you-go pattern (create the row on whichever event arrives first, fill in
+   the rest as the other 2 land, never overwrite an earlier event's columns with nulls).
+3. A portable (non-Supabase-specific) `CREATE TABLE clio_sessions (...)` statement — nullable
+   columns for anything that only arrives on one event type.
+4. 5 concrete recommended dashboards (session volume, completion rate, avg voice minutes,
+   engagement-style distribution, most frequent topics of interest).
+5. A business-value section built on Arun's own example: `suggested_next_topics` per end user drives
+   direct next-course recommendations; aggregated `topics_of_interest` across all sessions signals
+   a partner's own content team/contributors where real demand exists for new material.
+**What (per Arun's direct instruction, 2026-09-06):** now that the docs are narrowed to the 3
+session-scoped webhook events (`session.completed`, `usage.voice_minute`, `session.insights_ready`
+— all carrying `clio_session_ref` as the natural primary key), add a genuine integration guide to
+the partner-facing API docs covering:
+1. **Explicitly state `clio_session_ref` is the primary key** to key their own storage on — it's
+   the shared identifier across all 3 events for a given session.
+2. **What they need to do on their end** — plain-language description of the recommended pattern:
+   receive each event, upsert a row keyed by `clio_session_ref`, merge in whatever fields that
+   event carries (so a session's row fills in progressively as its 3 events arrive, not requiring
+   all 3 before the row exists).
+3. **A ready-to-run SQL `CREATE TABLE` statement** (generic/portable SQL, not Supabase-specific)
+   they can literally copy to stand up their own local table, with columns matching the union of
+   fields across all 3 events (`clio_session_ref`, `status`/completed timestamp, `voice_minutes`,
+   `test_mode`, `learner_insight` fields — summary/topics_of_interest/engagement_style/
+   suggested_next_topics — `action_items`, `extraction_status`, etc.) — nullable where a field only
+   arrives on one event type.
+4. **Recommended dashboards** — concrete suggestions for what to build from this data (e.g. session
+   volume/completion trends, average voice minutes, engagement-style distribution, most common
+   topics of interest).
+5. **How to turn the data into insights** — specifically, Arun's own example: how the
+   `learner_insight`/`suggested_next_topics` data can drive recommending new courses to end users,
+   or signal their own content team/contributors where to build more material in a given domain.
+**Where this lives**: extend the existing `/dashboard/configurator/api` docs surface (same page
+API-ONBOARD-01/02 already touched) — CEO/BA to decide exact placement (new nav section vs. folded
+into Quick Start) and document the choice.
+**Explicitly out of scope**: no functional/API changes — this is a substantial new documentation
+content addition, written carefully (not rushed), same governance chain as everything else.
+
 ### API-ONBOARD-02 — Hide GET /sessions/:id and usage.llm_generation_call from partner-facing docs
 **Status:** Shipped, verified, committed and pushed to `main` — 2026-09-06, via full CEO → BA →
 build chain. Commit `9d65d63`. BA spec at

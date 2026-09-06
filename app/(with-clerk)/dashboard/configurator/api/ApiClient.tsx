@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import type { AdminPartnerAccount } from '@/lib/partner/admin-accounts'
 import { ConfiguratorNavShell, PrimaryButton, COLORS, type BillingHealth } from '../_shared'
-import { ENDPOINTS, ENDPOINT_CATEGORIES, WEBHOOK_DOC, type EndpointDoc, type PlaygroundEndpointId } from './content'
+import { ENDPOINTS, ENDPOINT_CATEGORIES, WEBHOOK_DOC, INTEGRATION_GUIDE_DOC, type EndpointDoc, type PlaygroundEndpointId } from './content'
 
 /**
  * B2B-16/B2B-07 unification (2026-08-10) — the docs page and the separate
@@ -22,7 +22,7 @@ import { ENDPOINTS, ENDPOINT_CATEGORIES, WEBHOOK_DOC, type EndpointDoc, type Pla
  */
 
 type ResponseState = { status: number; retryAfter: string | null; body: unknown } | { networkError: true } | null
-type NavSelection = PlaygroundEndpointId | 'webhook' | 'quickstart'
+type NavSelection = PlaygroundEndpointId | 'webhook' | 'quickstart' | 'integration-guide'
 
 const PANE_HEIGHT = 'clamp(420px, calc(100vh - 220px), 900px)'
 
@@ -90,11 +90,12 @@ export default function ApiClient({
 
   const isWebhookSelected = selectedId === 'webhook'
   const isQuickStartSelected = selectedId === 'quickstart'
-  const endpoint = isWebhookSelected || isQuickStartSelected ? null : ENDPOINTS.find((e) => e.id === selectedId)!
+  const isIntegrationGuideSelected = selectedId === 'integration-guide'
+  const endpoint = isWebhookSelected || isQuickStartSelected || isIntegrationGuideSelected ? null : ENDPOINTS.find((e) => e.id === selectedId)!
 
   function selectEndpoint(id: NavSelection) {
     setSelectedId(id)
-    const next = id === 'webhook' || id === 'quickstart' ? null : ENDPOINTS.find((e) => e.id === id)!
+    const next = id === 'webhook' || id === 'quickstart' || id === 'integration-guide' ? null : ENDPOINTS.find((e) => e.id === id)!
     setEditorValue(next?.exampleRequestBody ? JSON.stringify(next.exampleRequestBody, null, 2) : '')
     setQueryParamsValue('')
     setPathParamValue('')
@@ -199,6 +200,25 @@ export default function ApiClient({
             >
               ✦ Quick start
             </button>
+            <button
+              onClick={() => selectEndpoint('integration-guide')}
+              style={{
+                display: 'block',
+                width: '100%',
+                textAlign: 'left',
+                background: isIntegrationGuideSelected ? COLORS.raised : 'transparent',
+                color: isIntegrationGuideSelected ? COLORS.textPrimary : COLORS.textSecondary,
+                fontWeight: 600,
+                border: isIntegrationGuideSelected ? `1px solid ${COLORS.cyan}` : '1px solid transparent',
+                borderRadius: 6,
+                padding: '6px 8px',
+                marginTop: 4,
+                fontSize: 12,
+                cursor: 'pointer',
+              }}
+            >
+              Integration guide
+            </button>
           </div>
           {ENDPOINT_CATEGORIES.map((category) => (
             <div key={category} style={{ marginBottom: 16 }}>
@@ -254,7 +274,15 @@ export default function ApiClient({
         </nav>
 
         <div className="api-docs-pane api-docs-middle" style={{ padding: 20, borderRight: playgroundOpen && endpoint ? `1px solid ${COLORS.borderSubtle}` : 'none' }}>
-          {isQuickStartSelected ? <QuickStartDoc /> : isWebhookSelected || !endpoint ? <WebhookDoc /> : <EndpointDocView endpoint={endpoint} />}
+          {isQuickStartSelected ? (
+            <QuickStartDoc />
+          ) : isIntegrationGuideSelected ? (
+            <IntegrationGuideDoc />
+          ) : isWebhookSelected || !endpoint ? (
+            <WebhookDoc />
+          ) : (
+            <EndpointDocView endpoint={endpoint} />
+          )}
         </div>
 
         {playgroundOpen && endpoint && (
@@ -343,7 +371,7 @@ export default function ApiClient({
             )}
           </div>
         )}
-        {!playgroundOpen && !isWebhookSelected && !isQuickStartSelected && (
+        {!playgroundOpen && !isWebhookSelected && !isQuickStartSelected && !isIntegrationGuideSelected && (
           <button
             onClick={() => setPlaygroundOpen(true)}
             style={{
@@ -561,6 +589,69 @@ function WebhookDoc() {
 
       <p style={{ fontSize: 12, fontWeight: 600, color: COLORS.textSecondary, marginBottom: 6 }}>Retries</p>
       <p style={{ fontSize: 13, color: COLORS.textSecondary, marginBottom: 16 }}>{WEBHOOK_DOC.retrySchedule}</p>
+    </>
+  )
+}
+
+function IntegrationGuideDoc() {
+  return (
+    <>
+      <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 10 }}>Integration guide</h2>
+      <p style={{ fontSize: 13, color: COLORS.textSecondary, lineHeight: 1.6, marginBottom: 20 }}>
+        You receive exactly 3 webhook events per session. This is what to actually build on your end to store, use, and report on them.
+      </p>
+
+      <p style={{ fontSize: 12, fontWeight: 600, color: COLORS.cyan, marginBottom: 6 }}>Your primary key: clio_session_ref</p>
+      <p style={{ fontSize: 13, color: COLORS.textSecondary, lineHeight: 1.6, marginBottom: 20 }}>{INTEGRATION_GUIDE_DOC.primaryKeyNote}</p>
+
+      <p style={{ fontSize: 12, fontWeight: 600, color: COLORS.cyan, marginBottom: 6 }}>What to do on your end</p>
+      <ol style={{ fontSize: 13, color: COLORS.textSecondary, lineHeight: 1.6, marginBottom: 20, paddingLeft: 20 }}>
+        {INTEGRATION_GUIDE_DOC.whatToDo.map((step, i) => (
+          <li key={i} style={{ marginBottom: 6 }}>
+            {step}
+          </li>
+        ))}
+      </ol>
+
+      <p style={{ fontSize: 12, fontWeight: 600, color: COLORS.cyan, marginBottom: 6 }}>Table to stand up (copy and run as-is)</p>
+      <pre style={{ ...codeBlockStyle, marginBottom: 8 }}>{INTEGRATION_GUIDE_DOC.createTableSql}</pre>
+      <ul style={{ fontSize: 12, color: COLORS.textMuted, lineHeight: 1.6, marginBottom: 20, paddingLeft: 20 }}>
+        {INTEGRATION_GUIDE_DOC.createTableNotes.map((n, i) => (
+          <li key={i} style={{ marginBottom: 4 }}>
+            {n}
+          </li>
+        ))}
+      </ul>
+
+      <p style={{ fontSize: 12, fontWeight: 600, color: COLORS.cyan, marginBottom: 6 }}>Dashboards worth building from this table</p>
+      <div style={{ overflowX: 'auto', marginBottom: 20 }}>
+        <table style={tableStyle}>
+          <thead>
+            <tr>
+              <th style={thStyle}>Dashboard</th>
+              <th style={thStyle}>How</th>
+            </tr>
+          </thead>
+          <tbody>
+            {INTEGRATION_GUIDE_DOC.dashboards.map((d) => (
+              <tr key={d.title}>
+                <td style={{ ...tdStyle, fontWeight: 600 }}>{d.title}</td>
+                <td style={tdStyle}>{d.detail}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <p style={{ fontSize: 12, fontWeight: 600, color: COLORS.cyan, marginBottom: 6 }}>Turning this into insights, not just records</p>
+      <p style={{ fontSize: 13, color: COLORS.textSecondary, lineHeight: 1.6, marginBottom: 10 }}>{INTEGRATION_GUIDE_DOC.insightsToValue.lead}</p>
+      <ul style={{ fontSize: 13, color: COLORS.textSecondary, lineHeight: 1.6, marginBottom: 8, paddingLeft: 20 }}>
+        {INTEGRATION_GUIDE_DOC.insightsToValue.points.map((p, i) => (
+          <li key={i} style={{ marginBottom: 8 }}>
+            {p}
+          </li>
+        ))}
+      </ul>
     </>
   )
 }

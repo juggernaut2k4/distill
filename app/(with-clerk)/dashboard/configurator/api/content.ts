@@ -443,3 +443,67 @@ export const WEBHOOK_DOC = {
   verificationRecipe: 'HMAC-SHA256(signing_secret, `${t}.${raw_body}`), constant-time compare, reject if |now - t| > 300s.',
   retrySchedule: '1m, 5m, 30m, 2h, 6h (5 attempts total, then marked exhausted).',
 }
+
+// API-ONBOARD-03 (BACKLOG.md) — genuine integration guide: what clio_session_ref means, the
+// upsert-as-you-go storage pattern, a copy-pasteable table schema, recommended dashboards, and how
+// to turn learner_insight/action_items into real product decisions. Placement decided by CEO agent
+// (2026-09-06): its own nav entry ("Integration guide"), positioned between Quick start and the
+// endpoint categories — Quick start is a 2-call overview, Usage webhook is the wire-format
+// reference; this is the missing "what do I actually build" middle step, too substantial to fold
+// into either. Every field name below is transcribed from WebhookPayload in lib/partner/webhooks.ts
+// — not invented.
+export const INTEGRATION_GUIDE_DOC = {
+  primaryKeyNote:
+    'A session sends you up to 3 separate webhook calls — session.completed, usage.voice_minute, and session.insights_ready — each arriving independently, in no guaranteed order, sometimes minutes apart. Every one of them carries clio_session_ref, and it is the same value on all 3. Store your own data keyed on clio_session_ref and you have one row per session that all 3 events write into, instead of 3 disconnected records you have to reconcile later.',
+  whatToDo: [
+    'Receive the webhook call at the endpoint you registered as your outbound_base_url (POST {your outbound_base_url}/webhooks/usage).',
+    'Verify the Clio-Signature header before trusting the body — see the verification recipe on the Usage webhook page. Reject anything that fails.',
+    'Upsert (insert-or-update) a row in your own table keyed on clio_session_ref: if no row exists yet for that clio_session_ref, create one; if it already exists, update it. Do not wait for all 3 events before creating the row — the first event to arrive creates it, the other 2 fill in more columns as they land.',
+    'Only set the columns that this particular event type carries (see the table below) — leave every other column untouched on that upsert, so an earlier event\'s data is never overwritten with nulls by a later one.',
+    'Treat a row as "complete" once all 3 events have landed, but treat it as safely readable and usable at any point before that — a session that only has session.completed so far is still a real, queryable row.',
+  ],
+  createTableSql: `CREATE TABLE clio_sessions (
+  clio_session_ref     VARCHAR(64) PRIMARY KEY,
+
+  -- from session.completed
+  status                VARCHAR(32),
+  completed_at          TIMESTAMP,
+
+  -- from usage.voice_minute
+  voice_minutes          NUMERIC(10,2),
+  test_mode               BOOLEAN DEFAULT FALSE,
+
+  -- from session.insights_ready
+  extraction_status       VARCHAR(32),
+  insights_summary        TEXT,
+  topics_of_interest      TEXT,   -- JSON array, e.g. ["pricing","onboarding"]
+  engagement_style        VARCHAR(64),
+  suggested_next_topics   TEXT,   -- JSON array
+  action_items            TEXT,   -- JSON array of { "text": "..." }
+
+  -- present on every event
+  partner_reference        VARCHAR(256),
+  last_updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);`,
+  createTableNotes: [
+    'Standard SQL — works as-is on Postgres, MySQL, and most other relational databases. Swap TEXT for a native JSON/JSONB column if your database has one; JSON arrays are stored as text here for portability.',
+    'Every column below status/completed_at is nullable on purpose — a row can (and usually will) exist with only some of the 3 events processed so far.',
+    'clio_session_ref is the primary key, not an auto-generated id — Clio issues it, you never construct or increment it yourself.',
+  ],
+  dashboards: [
+    { title: 'Session volume over time', detail: 'Count of clio_sessions rows by completed_at (day/week) — your basic adoption/usage trend line.' },
+    { title: 'Completion rate', detail: 'Share of rows where status indicates a completed session vs. one that never finished — flags drop-off.' },
+    { title: 'Average voice minutes per session', detail: 'AVG(voice_minutes) — a proxy for how deeply end users are engaging, and a rough cost signal.' },
+    { title: 'Engagement-style distribution', detail: 'GROUP BY engagement_style — see how your audience splits (e.g. more question-driven vs. more passive-listening sessions).' },
+    { title: 'Most frequent topics of interest', detail: 'Tally topics_of_interest across all rows — your single clearest signal of what people actually care about, independent of what you assumed they\'d care about.' },
+  ],
+  insightsToValue: {
+    lead:
+      'topics_of_interest and suggested_next_topics are not just session metadata — aggregated across many sessions, they are a direct, evidence-based signal of demand, not a guess.',
+    points: [
+      'Per end user: read suggested_next_topics on that person\'s own row and recommend those specific courses to them directly — a next-step suggestion grounded in what they actually asked about and engaged with in the session, not a generic "you might also like."',
+      'Across all your end users: aggregate topics_of_interest and count how often each topic appears. A topic showing up constantly, with no course covering it yet, is a direct signal to your own content team or contributors — build material here, because real people in real sessions are already asking for it.',
+      'This turns the webhook data from "a record of what happened" into an input for two decisions you\'d otherwise be guessing at: what to recommend next to one person, and what to build next for everyone.',
+    ],
+  },
+}
