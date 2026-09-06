@@ -45,6 +45,10 @@ export interface EndpointDoc {
   playgroundDisabledReason?: string
   /** oauth_token is how you GET a credential — it takes no Authorization header itself. */
   noAuthRequired?: boolean
+  /** Defaults to true (visible) when omitted. Set false to hide from the ApiClient.tsx nav/docs
+   *  surface without deleting the entry — PlaygroundClient.tsx still reads the full, unfiltered
+   *  ENDPOINTS array and depends on every id (including hidden ones) continuing to resolve. */
+  partnerVisible?: boolean
 }
 
 export const ENDPOINTS: EndpointDoc[] = [
@@ -168,6 +172,10 @@ export const ENDPOINTS: EndpointDoc[] = [
       { status: '404', meaning: 'not_found — identical whether the ref does not exist or belongs to a different partner' },
     ],
     playgroundDisabled: false,
+    // API-ONBOARD-02 (2026-09-06, Arun's direct instruction): hidden from the partner-facing
+    // ApiClient.tsx docs/nav surface for now. Not deleted — PlaygroundClient.tsx's live route
+    // still defaults to and resolves this id from the unfiltered ENDPOINTS array.
+    partnerVisible: false,
   },
   {
     id: 'widget_sessions_create',
@@ -354,7 +362,7 @@ export const ENDPOINTS: EndpointDoc[] = [
       { param: 'to', type: 'ISO 8601 string', default: 'now', notes: '' },
       {
         param: 'event_type',
-        type: '"usage.voice_minute" | "usage.llm_generation_call" | "session.completed"',
+        type: '"usage.voice_minute" | "session.completed"',
         default: '(all types)',
         notes: 'session.completed always returns an empty events array.',
       },
@@ -413,15 +421,14 @@ export const ENDPOINT_CATEGORIES: EndpointCategory[] = ['Auth', 'Content', 'Sess
 // your own outbound_base_url, not something you call.
 export const WEBHOOK_DOC = {
   path: 'POST {your outbound_base_url}/webhooks/usage',
-  eventTypes: ['usage.voice_minute', 'usage.llm_generation_call', 'session.completed', 'session.insights_ready'],
+  eventTypes: ['usage.voice_minute', 'session.completed', 'session.insights_ready'],
   payloadFields: [
     { field: 'event_id', notes: 'Unique per delivery attempt.' },
-    { field: 'event_type', notes: 'One of the four types above.' },
+    { field: 'event_type', notes: 'One of the types above.' },
     { field: 'clio_session_ref', notes: '' },
     { field: 'partner_reference', notes: 'Echoed from your session-creation request, if you sent one.' },
     { field: 'quantity', notes: 'usage.* events only.' },
     { field: 'unit', notes: '"minutes" | "calls" — usage.* events only.' },
-    { field: 'generation_type', notes: 'usage.llm_generation_call only.' },
     { field: 'occurred_at', notes: 'When the event actually happened.' },
     { field: 'dispatched_at', notes: 'When this delivery attempt was sent.' },
     { field: 'test_mode', notes: 'true for any session created with a test-mode key — filter these out of real billing.' },

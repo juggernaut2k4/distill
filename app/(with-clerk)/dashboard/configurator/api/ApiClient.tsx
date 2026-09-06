@@ -203,7 +203,7 @@ export default function ApiClient({
           {ENDPOINT_CATEGORIES.map((category) => (
             <div key={category} style={{ marginBottom: 16 }}>
               <p style={{ fontSize: 11, color: COLORS.textMuted, margin: '0 0 8px', textTransform: 'uppercase', letterSpacing: '0.03em' }}>{category}</p>
-              {ENDPOINTS.filter((e) => e.category === category).map((e) => {
+              {ENDPOINTS.filter((e) => e.category === category && e.partnerVisible !== false).map((e) => {
                 const isActive = e.id === selectedId
                 return (
                   <button
@@ -394,10 +394,6 @@ function QuickStartDoc() {
       </p>
 
       <p style={{ fontSize: 12, fontWeight: 600, color: COLORS.textSecondary, marginBottom: 6 }}>That&apos;s the whole flow</p>
-      <p style={{ fontSize: 13, color: COLORS.textSecondary, lineHeight: 1.6, marginBottom: 16 }}>
-        <code style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>GET /sessions/:id</code> also exists, if you want to
-        check a session&apos;s status — it&apos;s optional, not a required third step.
-      </p>
 
       <p style={{ fontSize: 13, color: COLORS.textSecondary, lineHeight: 1.6 }}>
         Want the full detail, or to try a real request? Pick any endpoint on the left — the Playground on the right sends live requests
