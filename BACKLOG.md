@@ -284,6 +284,44 @@ These two never sync. Concretely hit 2026-08-09: admin dashboard showed "411 dem
 
 ## P1 — Core Features (next sprint)
 
+### API-ONBOARD-02 — Hide GET /sessions/:id and usage.llm_generation_call from partner-facing docs
+**Status:** Shipped, verified, committed and pushed to `main` — 2026-09-06, via full CEO → BA →
+build chain. Commit `9d65d63`. BA spec at
+`docs/specs/API-ONBOARD-02-requirement-document.md` (all 12 sections, Section 11 empty).
+**What shipped:**
+1. `app/(with-clerk)/dashboard/configurator/api/content.ts` — added `partnerVisible?: boolean` to
+   `EndpointDoc`, set `false` only on the `sessions_get` entry (object otherwise unchanged, still in
+   `ENDPOINTS`, `'sessions_get'` still in `PlaygroundEndpointId`). Removed the three
+   `usage.llm_generation_call` doc-only string literals: the `usage` endpoint's `event_type` query
+   param type, `WEBHOOK_DOC.eventTypes`, and the `generation_type` payload-field row.
+2. `app/(with-clerk)/dashboard/configurator/api/ApiClient.tsx` — nav filter now also excludes
+   `partnerVisible === false`; removed the Quick Start pane's one paragraph mentioning
+   `GET /sessions/:id`, no replacement text.
+3. Explicitly untouched, confirmed by direct grep/read: the real
+   `GET /api/partner/v1/sessions/:clio_session_ref` route, `lib/partner/webhooks.ts`,
+   `lib/partner/content-generation.ts`, `lib/partner/usage-log.ts`, `UsageLogClient.tsx`, and
+   `PlaygroundClient.tsx` (confirmed it still reads the full unfiltered `ENDPOINTS` array and
+   defaults to `sessions_get`).
+**Verification:** `npx tsc --noEmit` clean (2 pre-existing unrelated `@testing-library/react`
+errors confirmed via `git stash` diff to predate this change); a real `npm run build` showed
+`✓ Compiled successfully` with zero new errors.
+**Original context (per Arun's direct instruction, 2026-09-06):** to avoid confusing new partners in this
+initial delivery phase, remove/hide two things from the partner-facing API docs
+(`app/(with-clerk)/dashboard/configurator/api/`, both the `QuickStartDoc()` panel added in
+API-ONBOARD-01 and the full endpoint list/nav): the `GET /api/partner/v1/sessions/:id` status
+endpoint (optional, not part of the expected flow, unnecessary to surface right now), and the
+`usage.llm_generation_call` webhook event (not applicable — Clio is not generating content or
+visualization for clients in this delivery phase). **Docs/UI only — the underlying API route and
+webhook event dispatch logic must keep working exactly as they do today; nothing about actual
+functionality changes.** Same "hide, don't delete" governance principle already used elsewhere in
+this codebase (`VISIBLE_SECTIONS`, `SHOWCASE_TAB_ENABLED`).
+**Explicitly confirmed with Arun, not yet acted on**: the mental model is 1 outbound client POST
++ up to 3 inbound webhook calls per session (`usage.voice_minute`, `session.completed`,
+`session.insights_ready`) + 1 separate account-level `wallet.low_balance` webhook — a deeper
+discussion of consolidating/simplifying the multiple-inbound-calls-per-session pattern is
+explicitly deferred to after this docs change lands ("We will talk about the multiple inbound
+calls in detail once this done").
+
 ### API-ONBOARD-01 — Clarity pass on Integration + API docs/Playground for new partners
 **Status:** Built, `npx tsc --noEmit` clean, committed and pushed — 2026-09-06, via full
 CEO → BA → build chain, overnight per Arun's instruction ("tonight build all these we discussed").
