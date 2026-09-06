@@ -284,6 +284,31 @@ These two never sync. Concretely hit 2026-08-09: admin dashboard showed "411 dem
 
 ## P1 — Core Features (next sprint)
 
+### WAITLIST-INVITE-01 — One-click email invite from the waitlist admin page
+**Status:** Built and `npx tsc --noEmit` clean, 2026-09-06 — via full CEO → BA → build chain. NOT
+committed, pushed, or deployed — awaiting Arun's review. Live browser QA on
+`distill-peach.vercel.app` not yet done (needs a real deploy first).
+**What shipped:** BA spec at `docs/specs/WAITLIST-INVITE-01-requirement-document.md` (all 12
+sections, Section 11 empty). Per-row "Invite" button on `/dashboard/admin/waitlist` that calls new
+`POST /api/admin/waitlist/[id]/invite` — reuses `issueDirectPartnerInvite()` (extended with a new
+optional `sourceWaitlistId` 5th param, fully backward-compatible with its existing callers) to
+create a `direct_partner_invites` row and then sends a new `sendWaitlistInviteEmail()` (Resend,
+`lib/delivery/email.ts`) containing the `/partner-invite/accept` link. New migration
+`supabase/migrations/120_waitlistinvite01_source_waitlist_id.sql` adds a nullable
+`direct_partner_invites.source_waitlist_id` column (FK to `waitlist_signups`) plus a partial unique
+index that closes the double-click/race case as a `409`. `GET /api/admin/waitlist` now returns each
+row's invite status (`pending`/`accepted`/`expired`/`revoked`/`null`) so the row shows a plain-text
+status label instead of the button once invited — no re-invite action in this iteration.
+**Confirmed unmodified (verified via `git status`/diff, not just claimed):**
+`/dashboard/admin/partner-invites`, its API route, the `sales_partner_leads` invite flow,
+`/partner-invite/accept`, `lib/partner/signup.ts`.
+**Flagged, not fixed (out of scope per spec §9/§10):** deleting a waitlist row that already has a
+linked invite will hit a foreign-key violation today (`ON DELETE NO ACTION` on the new column) and
+surface the existing generic "Couldn't delete this entry" message — accurate but not specific about
+why. A clean, separate follow-up if it ever comes up in practice.
+**Not built (explicitly out of scope, spec §10):** resend/re-invite action, bulk "invite all,"
+pre-invite check against existing partner accounts, `target_account_kind` selector on this screen.
+
 ### WAITLIST-01 — Homepage waitlist (narrowed scope)
 **Status:** Done — built 2026-09-05 to `docs/specs/WAITLIST-01-requirement-document.md` (approved
 2026-09-05, all 12 sections complete, Section 11 empty). This entry originally bundled the $10

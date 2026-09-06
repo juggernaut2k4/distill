@@ -1,6 +1,7 @@
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { sendNewWaitlistSignupEmail } from '@/lib/delivery/email'
 import { getActiveSuperAdminEmails } from '@/lib/partner/sales-partner-leads'
+import { getDirectPartnerInvitesBySourceWaitlistIds } from '@/lib/internal-admin/direct-partner-invites'
 
 /**
  * WAITLIST-01 (docs/specs/WAITLIST-01-requirement-document.md §6.2) — CRUD + notification helpers
@@ -55,6 +56,9 @@ export interface WaitlistSignup {
   name: string
   email: string
   created_at: string
+  /** WAITLIST-INVITE-01 (docs/specs/WAITLIST-INVITE-01-requirement-document.md §6.4) — null means no
+   *  invite has been issued yet for this row. */
+  invite: { status: 'pending' | 'accepted' | 'revoked' | 'expired'; created_at: string } | null
 }
 
 export async function listWaitlistSignups(): Promise<WaitlistSignup[]> {
@@ -64,12 +68,20 @@ export async function listWaitlistSignups(): Promise<WaitlistSignup[]> {
     .select('id, name, email, created_at')
     .order('created_at', { ascending: false })
 
-  return (data ?? []).map((row) => ({
-    id: row.id as string,
-    name: row.name as string,
-    email: row.email as string,
-    created_at: row.created_at as string,
-  }))
+  const rows = data ?? []
+  const invites = await getDirectPartnerInvitesBySourceWaitlistIds(rows.map((row) => row.id as string))
+  const inviteByWaitlistId = new Map(invites.map((invite) => [invite.sourceWaitlistId, invite]))
+
+  return rows.map((row) => {
+    const invite = inviteByWaitlistId.get(row.id as string)
+    return {
+      id: row.id as string,
+      name: row.name as string,
+      email: row.email as string,
+      created_at: row.created_at as string,
+      invite: invite ? { status: invite.status, created_at: invite.createdAt } : null,
+    }
+  })
 }
 
 export async function deleteWaitlistSignup(id: string): Promise<{ success: boolean; found: boolean }> {

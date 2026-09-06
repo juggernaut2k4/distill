@@ -1450,6 +1450,68 @@ export async function sendPartnerTeamInviteEmail(
 }
 
 /**
+ * WAITLIST-INVITE-01 (docs/specs/WAITLIST-INVITE-01-requirement-document.md §6.6) — one-click invite
+ * email sent when a super-admin clicks "Invite" on a waitlist_signups row. Same dark-void/#7C3AED-CTA
+ * HTML skeleton as sendInternalStaffInviteEmail/sendPartnerTeamInviteEmail. Non-blocking best-effort
+ * send — the underlying direct_partner_invites row is already created and valid regardless of whether
+ * this send succeeds (app/api/admin/waitlist/[id]/invite/route.ts §6.3).
+ * @param toEmail - the waitlist signup's own email address (waitlist_signups.email)
+ * @param name - the waitlist signup's own name (waitlist_signups.name)
+ * @param acceptUrl - the full `/partner-invite/accept?token=...` URL
+ */
+export async function sendWaitlistInviteEmail(
+  toEmail: string,
+  name: string,
+  acceptUrl: string
+): Promise<EmailResult> {
+  if (isPlaceholder || !resend) {
+    console.log('[MOCK] sendWaitlistInviteEmail', { toEmail, name, acceptUrl })
+    return { success: true, messageId: 'mock-waitlist-invite-id' }
+  }
+
+  try {
+    const result = await resend.emails.send({
+      from: FROM,
+      to: toEmail,
+      subject: `You're invited to Clio`,
+      html: `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="background:#080808;color:#ffffff;font-family:Inter,system-ui,sans-serif;margin:0;padding:0;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;padding:40px 24px;">
+    <tr><td>
+      <p style="color:#7C3AED;font-size:12px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin:0 0 32px;">CLIO</p>
+      <h1 style="color:#ffffff;font-size:28px;font-weight:800;margin:0 0 12px;">You're invited to Clio, ${name}.</h1>
+      <p style="color:#94A3B8;font-size:16px;line-height:1.7;margin:0 0 8px;">
+        Thanks for joining the Clio waitlist. You're invited to set up your partner account now.
+      </p>
+      <p style="color:#94A3B8;font-size:16px;line-height:1.7;margin:0 0 32px;">
+        This invite expires in 7 days.
+      </p>
+      <div style="background:#111111;border:1px solid #222222;border-radius:12px;padding:32px;text-align:center;">
+        <a href="${acceptUrl}" style="background:#7C3AED;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:700;display:inline-block;">Accept your invite →</a>
+      </div>
+    </td></tr>
+  </table>
+</body>
+</html>`,
+      text: `Thanks for joining the Clio waitlist, ${name}. You're invited to set up your partner account now. This invite expires in 7 days. Accept your invite: ${acceptUrl}`,
+    })
+
+    logEmailResult('sendWaitlistInviteEmail', toEmail, result)
+    if (result.error) {
+      return { success: false, error: result.error.message }
+    }
+
+    return { success: true, messageId: result.data?.id }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error(`[email:sendWaitlistInviteEmail] EXCEPTION to=${toEmail}:`, message)
+    return { success: false, error: message }
+  }
+}
+
+/**
  * B2B-21 Requirement Doc §6.6 — courtesy notification when a super-admin
  * adds another super-admin email. Non-blocking best-effort send, same
  * pattern as `sendInternalStaffInviteEmail`. No token/accept step is needed

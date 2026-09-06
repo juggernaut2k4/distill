@@ -69,13 +69,30 @@ export async function listDirectPartnerInvites(): Promise<DirectPartnerInviteRow
  * sales_partner_leads row is flipped to status='invited' (with invite_id set) in the same call —
  * the UI's "Invite" action expects this to happen atomically with invite creation, not as a
  * separate step.
+ *
+ * WAITLIST-INVITE-01 (docs/specs/WAITLIST-INVITE-01-requirement-document.md §6.2) — sourceWaitlistId
+ * is a new, optional 5th parameter appended after sourceLeadId, so every existing caller (which never
+ * passes it) is unaffected. errorCode/inviteId/createdAt are new, optional return fields.
  */
 export async function issueDirectPartnerInvite(
   label: string | null,
   createdByInternalAdminUserId: string,
   targetAccountKind: 'partner' | 'channel_partner' = 'partner',
-  sourceLeadId?: string
-): Promise<{ success: boolean; acceptUrl: string | null; error: string | null }> {
+  sourceLeadId?: string,
+  sourceWaitlistId?: string
+): Promise<{
+  success: boolean
+  acceptUrl: string | null
+  error: string | null
+  /** New — set only when the insert failed because of the new unique index (§6.1), so callers can
+   *  distinguish "already invited" (409) from any other failure (500). Undefined for every existing
+   *  caller's failure paths, which never touch source_waitlist_id. */
+  errorCode?: 'duplicate_source_waitlist'
+  /** New — the newly-created invite row's own id and created_at, so the new route (§6.3) can build
+   *  its response without a second read-back query. Both undefined on failure. */
+  inviteId?: string
+  createdAt?: string
+}> {
   const supabase = createSupabaseAdminClient()
   const { token, tokenHash } = generateInviteToken()
   const expiresAt = inviteExpiresAt()
@@ -90,11 +107,15 @@ export async function issueDirectPartnerInvite(
       created_by_internal_admin_user_id: createdByInternalAdminUserId,
       target_account_kind: targetAccountKind,
       source_lead_id: sourceLeadId ?? null,
+      source_waitlist_id: sourceWaitlistId ?? null,
     })
-    .select('id')
+    .select('id, created_at')
     .single()
 
   if (error || !inserted) {
+    if (sourceWaitlistId && error?.code === '23505') {
+      return { success: false, acceptUrl: null, error: error.message, errorCode: 'duplicate_source_waitlist' }
+    }
     return { success: false, acceptUrl: null, error: error?.message ?? 'Failed to create invite.' }
   }
 
@@ -112,7 +133,42 @@ export async function issueDirectPartnerInvite(
   }
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://distill-peach.vercel.app'
-  return { success: true, acceptUrl: `${appUrl}/partner-invite/accept?token=${token}`, error: null }
+  return {
+    success: true,
+    acceptUrl: `${appUrl}/partner-invite/accept?token=${token}`,
+    error: null,
+    inviteId: inserted.id as string,
+    createdAt: inserted.created_at as string,
+  }
+}
+
+/**
+ * WAITLIST-INVITE-01 (docs/specs/WAITLIST-INVITE-01-requirement-document.md §6.4) — batched lookup of
+ * every direct_partner_invites row sourced from a given set of waitlist_signups ids, for
+ * listWaitlistSignups() (lib/partner/waitlist.ts) to join by id without N+1 queries. Reuses
+ * computedStatus() (above) rather than duplicating the pending-vs-expired lazy-read-time logic.
+ */
+export interface WaitlistInviteStatus {
+  sourceWaitlistId: string
+  status: DirectPartnerInviteRow['status'] // 'pending' | 'accepted' | 'revoked' | 'expired'
+  createdAt: string
+}
+
+export async function getDirectPartnerInvitesBySourceWaitlistIds(
+  waitlistIds: string[]
+): Promise<WaitlistInviteStatus[]> {
+  if (waitlistIds.length === 0) return []
+  const supabase = createSupabaseAdminClient()
+  const { data } = await supabase
+    .from('direct_partner_invites')
+    .select('source_waitlist_id, status, invite_token_expires_at, created_at')
+    .in('source_waitlist_id', waitlistIds)
+
+  return (data ?? []).map((row) => ({
+    sourceWaitlistId: row.source_waitlist_id as string,
+    status: computedStatus(row as { status: string; invite_token_expires_at: string }),
+    createdAt: row.created_at as string,
+  }))
 }
 
 /**
