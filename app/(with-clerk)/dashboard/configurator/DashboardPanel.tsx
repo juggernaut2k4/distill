@@ -373,7 +373,14 @@ function WalletArea({
       ) : (
         <>
           <p className="mb-1 text-sm font-semibold text-white">${billingHealth.balance_usd.toFixed(2)} available</p>
-          {nextBillingLabel && <p className="mb-3 text-xs text-[#94A3B8]">Next billing {nextBillingLabel}</p>}
+          {nextBillingLabel && (
+            <p className={billingHealth.voice_rate_usd !== null ? 'text-xs text-[#94A3B8]' : 'mb-3 text-xs text-[#94A3B8]'}>
+              Next billing {nextBillingLabel}
+            </p>
+          )}
+          {billingHealth.voice_rate_usd !== null && (
+            <p className="mb-3 text-xs text-[#94A3B8]">${billingHealth.voice_rate_usd.toFixed(2)}/min for voice</p>
+          )}
           <button
             type="button"
             onClick={() => onSelect('payment')}

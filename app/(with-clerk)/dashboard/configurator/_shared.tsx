@@ -104,6 +104,10 @@ export interface BillingHealth {
   // `0` balance) — see `_billing-health.ts`.
   balance_usd: number | null
   next_billing_date: string | null
+  // PRICING-01 (docs/specs/PRICING-01-requirement-document.md §6.5) — this
+  // partner's own effective voice_minute rate; null only when balance_usd is
+  // also null (no wallet yet, §4.C).
+  voice_rate_usd: number | null
 }
 
 // Fixed factual copy — LOCKED by CEO (Requirement Doc Section 4.5). No dollar

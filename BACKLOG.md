@@ -284,6 +284,71 @@ These two never sync. Concretely hit 2026-08-09: admin dashboard showed "411 dem
 
 ## P1 — Core Features (next sprint)
 
+### PRICING-01 — $0.30/min usage pricing + admin-only per-partner discount override
+**Status:** Built and verified 2026-09-06 (`npx tsc --noEmit` clean — only 6 pre-existing, unrelated
+`@testing-library/react` errors in two test files, confirmed via `git stash` comparison; `npm run
+build` shows `✓ Compiled successfully`, both re-confirmed independently by the CEO agent, not just
+the developer agent's own claim). **Not committed, not pushed, migration not applied to the live
+database** — held for Arun's review per this being real billing/pricing logic, and per the spec's own
+explicit requirement that the $0.30 default-rate migration needs his separate go-ahead before it
+changes what every partner is actually billed.
+Full chain: CEO Feature Brief → `docs/specs/PRICING-01-feature-brief.md` → BA Requirement Document
+(12/12 sections, Section 11 empty) → `docs/specs/PRICING-01-requirement-document.md` → built to spec.
+**Architecture decision (CEO, evidence-based — see feature brief's Known Constraints):** this is two
+new/changed rows in the already-built `billing_rate_versions` table (migration 075), not a new
+billing engine. `resolveEffectiveRate()`/`applyWalletDecrement()` (`lib/partner/webhooks.ts`) needed
+zero code changes — they already implement "partner-specific override wins over platform default,
+versioned, never mutated in place," which is exactly what both the $0.30 base rate and the
+per-partner discount need. Minute bundles are prepaid top-ups (existing `checkout_topup` mechanism),
+not a `plan_tiers_and_topups` (B2B-13) Plan subscription — that system is completely untouched, runs
+in parallel.
+**What shipped:**
+- `lib/billing/minute-bundles.ts` (new) — `MINUTE_BUNDLES` catalog (Starter 500min/$150, Growth
+  1500min/$450, Pro 5000min/$1500, Scale 10000min/$3000), replaces `PaymentConfigClient.tsx`'s old
+  flat-dollar `TOPUP_PRESETS_USD`; custom top-up field kept unchanged.
+- `supabase/migrations/121_pricing01_voice_minute_default_and_override_capability.sql` (new,
+  **written but NOT applied**) — closes the current placeholder `voice_minute` default row
+  (`$0.015`, cost-basis-only) and opens the real `$0.30` default at a documented `rate_basis`, not a
+  placeholder label. Needs Arun's explicit go-ahead to apply.
+- `app/api/admin/sales-partners/[id]/rate/route.ts` (new) — GET/PUT/DELETE, `requireSuperAdmin()`-
+  gated (hard-rejects `internal_staff` — a rate override is financial data, not an operational task).
+  PUT re-reads the live standard rate at request time (never hardcodes `0.30`) and rejects any
+  override that isn't genuinely below it (422 `rate_not_below_standard`).
+- `SalesPartnerDetailClient.tsx` — new "Voice rate" card (between Usage and Team) showing the
+  standard rate, or the active override + when it was set, with inline set/change/clear controls, no
+  modal, matching this file's existing patterns.
+- `DashboardPanel.tsx` / `_billing-health.ts` / `_shared.tsx` — the partner's own Wallet card now
+  shows their actual effective per-minute rate (`$0.30/min for voice`, or their override figure) —
+  plain number only, identical styling regardless of override, never any language implying a
+  discount exists or was granted. Only appears once a wallet exists (not before any funding).
+**Never public, never partner-self-serve** — confirmed by design: the only two surfaces touching an
+override are the super-admin-gated `/rate` routes and the discounted partner's own plain rate number.
+**Original brief (per Arun's direct instructions, 2026-09-06, after a full cost/pricing analysis session):**
+1. **Base pricing: $0.30/minute** (66.7% margin on the real, confirmed $0.10/min voice cost —
+   ElevenLabs, the sole active production provider). No mandatory or optional one-time setup fee —
+   pure usage-based pricing.
+2. **Prepaid minute-bundle tiers**, sold at that flat $0.30/min rate: Starter (500 min → $150),
+   Growth (1,500 min → $450), Pro (5,000 min → $1,500), Scale (10,000 min → $3,000).
+3. **Admin-only discount override, NOT public**: Arun wants the ability to grant a specific
+   sales-partner account a discounted per-minute rate (e.g., $0.25 or $0.20/min instead of the
+   standard $0.30) for larger-volume deals, negotiated case by case. This must be settable only
+   from an admin screen — never listed, advertised, or self-serve-selectable anywhere on the
+   public site or in the partner's own dashboard pricing display. His exact words: "i dont want to
+   list anywhere in the site. maybe that is a special feature for the admin alone to give this for
+   their sales partners."
+4. **Tax:** all prices above are exclusive of tax — Stripe Tax handles calculation/collection at
+   checkout separately, not baked into these numbers.
+**Check before building — do not duplicate or conflict with existing wallet/billing infra**: this
+codebase already has a `plan_tiers_and_topups` migration (B2B-13) and existing
+`PaymentConfigClient.tsx` topup-preset flow (`TOPUP_PRESETS_USD`). Read that existing system fully
+first and decide whether this new $0.30/min tier structure extends/replaces it, or is a genuinely
+separate new pricing layer — document the decision, don't build a parallel system that conflicts
+with what's already there without a clear reason.
+**Cost basis reference (already computed, real data, not to be re-derived)**: ElevenLabs
+$0.085–$0.10/min real cost (90-day usage: $24.39/294 min), used conservatively at $0.10/min as the
+pricing baseline. $45/month fixed Vercel+Clerk overhead, shared across the full subscriber base
+(not a per-tier deduction).
+
 ### API-ONBOARD-03 — Integration guide: schema recommendation, dashboards, insights usage
 **Status:** Built and verified (`npx tsc --noEmit` clean on the changed files, `npm run build` shows
 `✓ Compiled successfully`, `/dashboard/configurator/api` builds at its normal size) — 2026-09-06.

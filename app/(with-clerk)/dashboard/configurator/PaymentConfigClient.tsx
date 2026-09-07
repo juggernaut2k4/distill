@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import type { AdminPartnerAccount } from '@/lib/partner/admin-accounts'
 import { ConfiguratorShell, COLORS, Card, PrimaryButton, SecondaryButton } from './_shared'
 import { PLAN_TIERS, getIncludedAllowanceUsd, getPlanPriceUsd, type PlanTierKey, type PlanBillingPeriod } from '@/lib/billing/plan-tiers'
+import { MINUTE_BUNDLES, formatBundleLabel } from '@/lib/billing/minute-bundles'
 
 /**
  * B2B-20 §6 — Payment configuration, extracted verbatim (behavior-preserving)
@@ -25,7 +26,6 @@ import { PLAN_TIERS, getIncludedAllowanceUsd, getPlanPriceUsd, type PlanTierKey,
  * `embedded` → bare content; otherwise wrapped in `<ConfiguratorShell>`.
  */
 
-const TOPUP_PRESETS_USD = [50, 100, 250, 500]
 const TOPUP_MIN_USD = 20
 const TOPUP_MAX_USD = 50000
 
@@ -290,21 +290,21 @@ export default function PaymentConfigClient({
       <Card>
         <p style={{ fontSize: 12, color: COLORS.textSecondary, marginBottom: 12 }}>One-time top-up via Stripe Checkout.</p>
         <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-          {TOPUP_PRESETS_USD.map((amount) => (
+          {MINUTE_BUNDLES.map((bundle) => (
             <SecondaryButton
-              key={amount}
+              key={bundle.key}
               disabled={busy !== null}
-              onClick={() => onPresetClick(amount)}
+              onClick={() => onPresetClick(bundle.priceUsd)}
               style={{
                 padding: '6px 14px',
                 fontSize: 12,
-                borderWidth: selectedPreset === amount ? 2 : 1,
-                borderColor: selectedPreset === amount ? COLORS.purple : COLORS.borderStrong,
+                borderWidth: selectedPreset === bundle.priceUsd ? 2 : 1,
+                borderColor: selectedPreset === bundle.priceUsd ? COLORS.purple : COLORS.borderStrong,
                 opacity: busy !== null ? 0.4 : 1,
                 cursor: busy !== null ? 'not-allowed' : 'pointer',
               }}
             >
-              ${amount}
+              {formatBundleLabel(bundle)}
             </SecondaryButton>
           ))}
         </div>

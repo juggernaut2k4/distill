@@ -22,7 +22,7 @@ vi.mock('@clerk/nextjs', () => ({
 }))
 
 const ACCOUNTS: AdminPartnerAccount[] = [{ id: 'acct-1', name: 'Acme Co' } as AdminPartnerAccount]
-const BILLING_HEALTHY: BillingHealth = { state: 'healthy', balance_usd: 100, next_billing_date: null }
+const BILLING_HEALTHY: BillingHealth = { state: 'healthy', balance_usd: 100, next_billing_date: null, voice_rate_usd: null }
 
 function mockFetchOnce(response: unknown, opts: { ok?: boolean } = {}) {
   const ok = opts.ok ?? true

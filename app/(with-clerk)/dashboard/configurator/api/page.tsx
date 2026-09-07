@@ -42,7 +42,7 @@ export default async function ApiPage({ searchParams }: { searchParams: { partne
       <ApiClient
         accounts={[]}
         activePartnerAccountId=""
-        billingHealth={{ state: 'healthy', balance_usd: null, next_billing_date: null }}
+        billingHealth={{ state: 'healthy', balance_usd: null, next_billing_date: null, voice_rate_usd: null }}
       />
     )
   }

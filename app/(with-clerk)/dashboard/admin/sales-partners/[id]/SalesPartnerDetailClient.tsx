@@ -17,6 +17,13 @@ import Link from 'next/link'
  * breakdown, inserted between the Clients and Team cards. `usage.error`
  * drives this card's own independent error state (Part E §8) — a usage-query
  * failure never blocks the Clients/Team sections from rendering.
+ *
+ * "Voice rate" card added by PRICING-01
+ * (docs/specs/PRICING-01-requirement-document.md §4.A, §6.4) — inserted
+ * between the Usage and Team cards. Makes its own independent fetch to
+ * GET /api/admin/sales-partners/[id]/rate on mount, with its own
+ * loading/error state — a rate-load failure never blocks the
+ * Clients/Team/Usage cards from rendering.
  */
 
 interface ClientRow {
@@ -54,6 +61,209 @@ interface DetailData {
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+interface RateData {
+  standard_rate_usd: number
+  override: { rate_usd: number; effective_from: string } | null
+}
+
+/**
+ * PRICING-01 §4.A, §6.4 — Voice rate card. Independent fetch/loading/error
+ * state from the rest of this page (§6.4) — a load failure here must never
+ * block the Clients/Team/Usage cards.
+ */
+function VoiceRateCard({ partnerAccountId }: { partnerAccountId: string }) {
+  const [rate, setRate] = useState<RateData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
+
+  const [editing, setEditing] = useState(false)
+  const [inputValue, setInputValue] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [clearing, setClearing] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [savedMessage, setSavedMessage] = useState(false)
+
+  async function load() {
+    setLoading(true)
+    setLoadError(false)
+    try {
+      const res = await fetch(`/api/admin/sales-partners/${partnerAccountId}/rate`)
+      if (!res.ok) throw new Error('failed')
+      const json = await res.json()
+      setRate(json)
+    } catch {
+      setLoadError(true)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [partnerAccountId])
+
+  useEffect(() => {
+    if (!savedMessage) return
+    const timer = setTimeout(() => setSavedMessage(false), 3000)
+    return () => clearTimeout(timer)
+  }, [savedMessage])
+
+  function openEditor(prefill?: number) {
+    setInputValue(prefill != null ? String(prefill) : '')
+    setSaveError(null)
+    setEditing(true)
+  }
+
+  function cancelEditor() {
+    setEditing(false)
+    setSaveError(null)
+  }
+
+  const trimmed = inputValue.trim()
+  const numericValue = trimmed === '' ? NaN : Number(trimmed)
+  const standardRateUsd = rate?.standard_rate_usd ?? 0.3
+  const inputValid = !Number.isNaN(numericValue) && numericValue > 0 && numericValue < standardRateUsd
+  const showInputError = trimmed !== '' && !inputValid
+
+  async function saveRate() {
+    if (!inputValid) return
+    setBusy(true)
+    setSaveError(null)
+    try {
+      const res = await fetch(`/api/admin/sales-partners/${partnerAccountId}/rate`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rate_usd: numericValue }),
+      })
+      if (!res.ok) throw new Error('failed')
+      const json = await res.json()
+      setRate({ standard_rate_usd: standardRateUsd, override: { rate_usd: json.rate_usd, effective_from: json.effective_from } })
+      setEditing(false)
+      setSavedMessage(true)
+    } catch {
+      setSaveError("Couldn't save. Try again.")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function clearOverride() {
+    setClearing(true)
+    setSaveError(null)
+    try {
+      const res = await fetch(`/api/admin/sales-partners/${partnerAccountId}/rate`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('failed')
+      setRate({ standard_rate_usd: standardRateUsd, override: null })
+      setSavedMessage(true)
+    } catch {
+      setSaveError("Couldn't save. Try again.")
+    } finally {
+      setClearing(false)
+    }
+  }
+
+  return (
+    <div className="bg-[#111111] border border-[#222222] rounded-xl p-4 md:p-6">
+      <h2 className="text-white text-lg font-semibold mb-3">Voice rate</h2>
+
+      {loading ? (
+        <p className="text-[#94A3B8] text-sm">Loading…</p>
+      ) : loadError || !rate ? (
+        <p className="text-[#EF4444] text-sm">Couldn&apos;t load rate. Try refreshing.</p>
+      ) : (
+        <>
+          {rate.override ? (
+            <>
+              <p className="text-white text-sm">
+                ${rate.override.rate_usd.toFixed(2)}/min — custom rate (standard is ${rate.standard_rate_usd.toFixed(2)}/min)
+              </p>
+              <p className="text-[#94A3B8] text-xs mb-3">Set {formatDate(rate.override.effective_from)}</p>
+            </>
+          ) : (
+            <p className="text-white text-sm mb-3">${rate.standard_rate_usd.toFixed(2)}/min — standard rate</p>
+          )}
+
+          {!editing && (
+            <div className="flex items-center gap-4">
+              <button
+                type="button"
+                onClick={() => openEditor(rate.override?.rate_usd)}
+                className="text-xs font-semibold text-[#7C3AED] transition-colors hover:text-[#A855F7]"
+              >
+                {rate.override ? 'Change rate' : 'Set custom rate'}
+              </button>
+              {rate.override && (
+                <button
+                  type="button"
+                  disabled={clearing}
+                  onClick={clearOverride}
+                  className="text-xs font-semibold text-[#94A3B8] transition-colors hover:text-white disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {clearing ? 'Clearing…' : 'Clear override'}
+                </button>
+              )}
+            </div>
+          )}
+
+          {editing && (
+            <div className="mt-1">
+              <div className="flex items-center gap-2 mb-1">
+                <div style={{ position: 'relative' }}>
+                  <span
+                    style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}
+                    className="text-[#94A3B8] text-sm"
+                  >
+                    $
+                  </span>
+                  <input
+                    type="number"
+                    step="0.0001"
+                    autoFocus
+                    disabled={busy}
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
+                    style={{ paddingLeft: 22 }}
+                    className="w-32 py-2 pr-2 bg-[#1A1A1A] border border-[#333333] rounded-lg text-white text-sm"
+                  />
+                </div>
+                <span className="text-[#94A3B8] text-sm">/min</span>
+                <button
+                  type="button"
+                  disabled={busy || !inputValid}
+                  onClick={saveRate}
+                  className="text-xs font-semibold text-[#7C3AED] transition-colors hover:text-[#A855F7] disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {busy ? 'Saving…' : 'Save'}
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={cancelEditor}
+                  className="text-xs font-semibold text-[#94A3B8] transition-colors hover:text-white disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Cancel
+                </button>
+              </div>
+              {showInputError && (
+                <p className="text-[#EF4444] text-xs">Enter a rate below the standard ${standardRateUsd.toFixed(2)}/min.</p>
+              )}
+              {!showInputError && (
+                <p className="text-[#94A3B8] text-xs">
+                  Standard rate is ${standardRateUsd.toFixed(2)}/min. Enter a lower negotiated rate.
+                </p>
+              )}
+            </div>
+          )}
+
+          {saveError && <p className="text-[#EF4444] text-xs mt-2">{saveError}</p>}
+          {savedMessage && <p className="text-[#10B981] text-xs mt-2">✓ Rate updated.</p>}
+        </>
+      )}
+    </div>
+  )
 }
 
 export default function SalesPartnerDetailClient({ id }: { id: string }) {
@@ -192,6 +402,8 @@ export default function SalesPartnerDetailClient({ id }: { id: string }) {
             </>
           )}
         </div>
+
+        <VoiceRateCard partnerAccountId={sales_partner.id} />
 
         <div className="bg-[#111111] border border-[#222222] rounded-xl p-4 md:p-6">
           <h2 className="text-white text-lg font-semibold mb-3">Team</h2>
