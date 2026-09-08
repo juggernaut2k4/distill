@@ -188,6 +188,19 @@ Full detail on each item lives in this session's memory (`project_pre_production
 
 ## P0 — Blockers (fix first)
 
+### B2B-82-GATE — Manual ElevenLabs dashboard step required before widget name-greeting fix deploys
+**Status:** Not started — logged 2026-09-08 as part of CEO review of B2B-82 (widget-channel
+participant greeting silently not personalizing on ElevenLabs). Not a build blocker — the dev fix
+itself is unblocked — but a **deploy** blocker: this fix adds `first_message` as a second overridden
+field on the ElevenLabs adapter's `overrides.agent` object (alongside the existing `prompt.prompt`
+override). ElevenLabs throws on connect for any override field whose Security-tab toggle is off.
+**Arun must manually enable the "First message" override toggle on the ElevenLabs agent's Security
+tab before this code is deployed** — same class of mandatory manual step as B2B-75 §12.1's three
+existing ones ("each fails in a way that looks like something else"). Skipping this does not degrade
+to "greeting still missing" — it breaks every widget ElevenLabs connection outright, worse than the
+bug being fixed. See `.claude/agents/clio/feature-briefs/B2B-82-widget-elevenlabs-name-greeting-first-message-conflict.md`
+§2 for full detail. **Do not deploy B2B-82's code change until this is confirmed enabled.**
+
 ### INFRA-01 — Inngest account hit its free tier usage limit
 **Status:** Not started — Arun got the Inngest usage-limit email 2026-08-13. Not yet diagnosed; explicitly deferred by Arun ("note this down so we can fix it first if we face any issues when we start back again"), pick up before other work resumes.
 **What:** `app/api/inngest/route.ts` registers 44 functions. Several are named after B2C-era daily-tip/curriculum features (`daily-delivery`, `weekly-digest`, `feedback-processor`, `session-reminder`, `curriculum-generator`, `curriculum-queue-cron`, `catalog-refresh`, `adapt-plan`, `update-learning-profile`) that CLAUDE.md says were retired along with the B2C product — worth checking whether any are still on active cron schedules and quietly burning quota for a dead product before assuming an upgrade is needed.
