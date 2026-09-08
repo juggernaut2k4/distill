@@ -20,7 +20,12 @@ import type { VoiceSessionAdapter } from './adapter'
  *
  * THE TWO THINGS OVERRIDDEN: `overrides.agent.prompt.prompt` and, as of the name-greeting/
  * first_message conflict fix (2026-09-08), `overrides.agent.firstMessage` — nothing else (Known
- * Constraint C3, amended). Voice, model, TTS settings, language, knowledge base and tool ids all stay
+ * Constraint C3, amended). This adapter has accepted an optional `firstMessage` config field and
+ * conditionally spread it into the override since B2B-82; B2B-82 itself, however, never wired a real
+ * caller to actually supply that field — `WidgetRenderClient.tsx`'s `ElevenLabsAdapter.create({...})`
+ * call site only started passing `firstMessage` as of B2B-83 (2026-09-08, same day), which is the fix
+ * that makes this override reach a real session for the first time. Voice, model, TTS settings,
+ * language, knowledge base and tool ids all stay
  * exactly as Arun's base agent has them configured. This is not merely "unnecessary to send" —
  * ElevenLabs THROWS when an override arrives for a field whose Security-tab toggle is off, so each
  * extra field is an additional way to break every session — now true of two fields instead of one,
@@ -34,7 +39,10 @@ import type { VoiceSessionAdapter } from './adapter'
  * was pre-empted and never landed. `firstMessage` here is the server-computed, name-substituted
  * literal string from `assembleWidgetElevenLabsFirstMessage()`
  * (lib/voice/widget-elevenlabs-prompt-rules.ts); rule 1a is rewritten there to stop instructing a
- * second, redundant greeting once this override is in place.
+ * second, redundant greeting — correct only once page.tsx actually calls the assembler and threads
+ * its output down to this adapter's `firstMessage` field, which is what B2B-83 (2026-09-08) fixes;
+ * until then rule 1a's "already greeted" premise did not match reality and the model was left with
+ * no greeting instruction at all (see B2B-83's own root-cause note for how that was caught).
  *
  * WHY NOT THE OLD ADAPTER: `git show 7a0020a^:lib/voice/elevenlabs-adapter.ts` (93 lines, deleted
  * 2026-07-13) built its `onSpeakVerified` billing signal on an `isOpen()` poll — it fired on

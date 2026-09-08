@@ -4,7 +4,7 @@ import { getPromptConfig } from '@/lib/partner/prompt-config'
 import { getWidgetVoiceProvider, getElevenLabsAgentId } from '@/lib/voice/provider-config'
 import { createSupabaseAdminClient } from '@/lib/supabase'
 import { assembleWidgetOpenAIPrompt } from '@/lib/voice/widget-prompt-rules'
-import { assembleWidgetElevenLabsPrompt } from '@/lib/voice/widget-elevenlabs-prompt-rules'
+import { assembleWidgetElevenLabsPrompt, assembleWidgetElevenLabsFirstMessage } from '@/lib/voice/widget-elevenlabs-prompt-rules'
 import WidgetRenderClient from './WidgetRenderClient'
 
 /**
@@ -162,6 +162,23 @@ export default async function WidgetRenderPage({
   const elevenlabsVoiceInstructions =
     voiceProvider === 'elevenlabs' ? assembleWidgetElevenLabsPrompt(promptInput) : null
 
+  // B2B-83 — completes B2B-82's name-greeting/first_message fix, which built
+  // `assembleWidgetElevenLabsFirstMessage()` and `ElevenLabsAdapterConfig.firstMessage` support but
+  // never actually called the assembler or threaded its output down to `<WidgetRenderClient>`, so
+  // ElevenLabs never received an override and spoke its own static dashboard-configured first
+  // message instead. Computed the same way `elevenlabsVoiceInstructions` above is: only for the
+  // elevenlabs provider, using the same `session.endUserName` / `theme.assistantDisplayName` inputs
+  // already used elsewhere in this file, plus `promptConfig.openingGreeting` (falls back to the
+  // assembler's own local default when the partner hasn't configured one).
+  const elevenlabsFirstMessage =
+    voiceProvider === 'elevenlabs'
+      ? assembleWidgetElevenLabsFirstMessage({
+          openingGreeting: promptConfig.openingGreeting,
+          participantName: session.endUserName ?? undefined,
+          assistantName: theme.assistantDisplayName ?? undefined,
+        })
+      : null
+
   const elevenlabsAgentId = voiceProvider === 'elevenlabs' ? await getElevenLabsAgentId() : null
 
   // B2B-75 §6.8.4 — FAIL CLOSED, never fall back to a different provider. A session quietly running
@@ -182,6 +199,7 @@ export default async function WidgetRenderPage({
       openaiVoiceInstructions={openaiVoiceInstructions}
       elevenlabsAgentId={elevenlabsAgentId}
       elevenlabsVoiceInstructions={elevenlabsVoiceInstructions}
+      elevenlabsFirstMessage={elevenlabsFirstMessage}
     />
   )
 }

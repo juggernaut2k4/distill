@@ -180,9 +180,23 @@
  *    ElevenLabs' own spoken firstMessage. The "introduce yourself" half is kept alive, retargeted at
  *    introducing what the session covers, so 1a still gives the model a concrete next action rather
  *    than becoming a no-op step.
+ *
+ * v8 (2026-09-08, B2B-83) — two fixes found while wiring up v7's design (v7 built
+ * `assembleWidgetElevenLabsFirstMessage()` and rule 1a's rewrite correctly, but the actual call sites
+ * in widget-render/page.tsx and WidgetRenderClient.tsx never invoked the assembler or threaded its
+ * output through, so `overrides.agent.firstMessage` was never actually sent and ElevenLabs kept
+ * speaking its own static dashboard first message — see lib/voice/elevenlabs-adapter.ts's own v8
+ * note; that call-site wiring is fixed there, not in this file):
+ * 1. A same-day live test (with v7's rule text live but firstMessage still unwired) surfaced a
+ *    second, independent wording defect in rule 1a itself: its second sentence — "Move straight into
+ *    introducing what this session covers" — reads almost identically to 1d's job (the topic
+ *    overview), giving the model nothing to distinguish it from 1b's single feeling-question. The
+ *    observed session order (greeting → topic overview → feeling check) is consistent with the model
+ *    reading 1a as "do 1d's job now." Reworded to point unambiguously at 1b: "Move straight into
+ *    asking how they feel about today's topic (rule 1b)." No other rule text changes.
  */
 
-export const WIDGET_ELEVENLABS_PROMPT_VERSION = 'widget-el-v7'
+export const WIDGET_ELEVENLABS_PROMPT_VERSION = 'widget-el-v8'
 
 // ─── Placeholders ────────────────────────────────────────────────────────────────────────────────
 
@@ -278,7 +292,7 @@ G22. If you receive a note that the session has reached its maximum length, that
 G23. Unlike G22's note, the platform's own silence detection carries no text of its own — it simply prompts you to continue speaking with no new real spoken turn from them since your last question. That absence IS the "silence" the rules below refer to. If the participant is silent, unresponsive, or does not reply after you have already tried once to re-engage them, call end_call with a reason noting no participant response, and set its message to a warm farewell such as "Since I haven't heard from you, I'm going to end our session now. Have a great day!"]
 
 1. Opening.
-1a. Your first message already greeted ${WIDGET_ELEVENLABS_PARTICIPANT_NAME_PLACEHOLDER} by name — do not greet them again. Move straight into introducing what this session covers.
+1a. Your first message already greeted ${WIDGET_ELEVENLABS_PARTICIPANT_NAME_PLACEHOLDER} by name — do not greet them again. Move straight into asking how they feel about today's topic (rule 1b).
 1b. Ask one short, warm question linking today's topic to how they feel about it — for example, "How are you feeling about [topic] today — something you already deal with, or pretty new ground?"
 1c. Stop there. Wait for their real spoken answer.
 1d. Once they answer, the next thing you say is the overview of today's session, naming each topic in SESSION CONTENT in order, with your reaction to their answer carried inside its opening sentence — for example, "That's a great place to start from, so here's how we'll spend our time: first ..., then ..., and finally ..."
@@ -478,9 +492,13 @@ export interface AssembleWidgetElevenLabsFirstMessageInput {
 }
 
 /**
- * B2B-82 — computes the literal string sent as `overrides.agent.firstMessage` on
- * `Conversation.startSession(...)` (lib/voice/elevenlabs-adapter.ts). ElevenLabs speaks this text
- * directly, before the model ever takes a turn — there is no LLM interpretation step for it, unlike
+ * B2B-82 — computes the literal string this build sends as `overrides.agent.firstMessage` on
+ * `Conversation.startSession(...)` (lib/voice/elevenlabs-adapter.ts). B2B-82 built this function and
+ * the adapter-side override support correctly, but never actually called it from a real page —
+ * `app/(with-clerk)/widget-render/[clio_session_ref]/page.tsx` is the only caller, wired up by
+ * B2B-83 (2026-09-08); before that fix this function existed but its output never reached a real
+ * session. ElevenLabs speaks this text directly, before the model ever takes a turn — there is no
+ * LLM interpretation step for it, unlike
  * the rest of this file's assembled prompt (which the model reads and acts on) or
  * `DEFAULT_JOIN_GREETING`'s own mid-call, system-prompt-injected text. Both `mode` values on
  * `openingGreeting` therefore resolve to the SAME substitution here: 'literal' vs 'instruction' only

@@ -146,6 +146,12 @@ export interface WidgetRenderClientProps {
   // voiceProvider === 'elevenlabs'.
   elevenlabsAgentId: string | null
   elevenlabsVoiceInstructions: string | null
+  // B2B-83 — the server-computed, name-substituted literal opening line from
+  // assembleWidgetElevenLabsFirstMessage() (lib/voice/widget-elevenlabs-prompt-rules.ts), sent as
+  // overrides.agent.firstMessage below. null unless voiceProvider === 'elevenlabs'. Completes the
+  // B2B-82 fix, which built the assembler and the adapter-side override support but never actually
+  // threaded the computed value down to this component.
+  elevenlabsFirstMessage: string | null
 }
 
 // Same anti-stall floor `PartnerRenderClient.tsx`'s own advance_tab uses — ported because it uses
@@ -247,6 +253,7 @@ export default function WidgetRenderClient({
   openaiVoiceInstructions,
   elevenlabsAgentId,
   elevenlabsVoiceInstructions,
+  elevenlabsFirstMessage,
 }: WidgetRenderClientProps) {
   const count = inlinePages.length
 
@@ -690,6 +697,7 @@ export default function WidgetRenderClient({
           adapter = await ElevenLabsAdapter.create({
             conversationToken,
             instructions: elevenlabsVoiceInstructions ?? '',
+            firstMessage: elevenlabsFirstMessage ?? undefined,
             userId: clioSessionRef,
             tools,
             onDiagnostic: (label, detail) => {
