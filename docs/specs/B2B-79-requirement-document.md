@@ -1,9 +1,13 @@
 # B2B-79 — Inline Iframe Delivery & Mandatory Per-Sales-Partner Custom Domains
 # Requirement Document
-Version: 1.0
-Status: APPROVED (CEO, 2026-08-11) — cleared for Dev, per the CEO→BA→Dev gate; Section 11 is empty
-Author: Business Analyst Agent
-Date: 2026-08-11
+Version: 1.1
+Status: APPROVED (CEO, 2026-08-11); AMENDED (CEO, 2026-08-12) — §6.3's widget-sessions domain-gate
+recommendation was reverted in production the same day per Arun's explicit instruction (commit
+`9f60a11`). Section 11 is still empty; nothing here is newly open, but §6.3 no longer describes
+shipped behavior on `widget-sessions` and has been corrected in place with a full paper trail rather
+than silently edited.
+Author: Business Analyst Agent (v1.0), CEO (v1.1 amendment)
+Date: 2026-08-11 (amended 2026-08-12)
 
 Source Feature Brief: `.claude/agents/clio/feature-briefs/B2B-79-inline-widget-delivery-reseller-custom-domains.md`
 Source brainstorm: `docs/2026-08-10-voice-language-brainstorm.md`, D15–D18.
@@ -242,9 +246,14 @@ UI-blocking-spinner treatment, same result.
 
 ### 6.3 `render_url` domain resolution (the actual behavioral change this brief makes)
 
-`bot-sessions` (B2B-78) and, per this document's recommendation below, `widget-sessions`/`sessions` when
-called by a `channel_partner`-authenticated caller, must resolve the response's `render_url` host as
-follows, replacing today's unconditional `NEXT_PUBLIC_APP_URL`:
+**Amended 2026-08-12 — the widget-sessions half of this section was reverted same-day, commit
+`9f60a11`, "per Arun's explicit instruction." Recorded here in full, not silently edited out, per
+this project's own standing practice of keeping a dated paper trail when a CEO-approved
+recommendation gets reopened (see B2B-77 §6.4 point 3 for the precedent this follows).**
+
+`bot-sessions` (B2B-78) — and, per this document's v1.0 recommendation below, `widget-sessions`/
+`sessions` when called by a `channel_partner`-authenticated caller — was specified to resolve the
+response's `render_url` host as follows, replacing the prior unconditional `NEXT_PUBLIC_APP_URL`:
 
 1. If `auth.accountKind === 'channel_partner'`: read that account's own `custom_domain`/
    `custom_domain_status`. If `custom_domain_status !== 'verified'`, **reject the call outright** — 422
@@ -256,16 +265,43 @@ follows, replacing today's unconditional `NEXT_PUBLIC_APP_URL`:
    already threads that through for meeting-bot/widget render URLs (out of scope to verify/change here —
    direct-partner render-url resolution is untouched by this brief).
 
-**Recommendation, stated explicitly since it has real rollout impact:** this document recommends the
-`domain_not_configured` gate apply to **every** endpoint that can produce a `channel_partner`'s
-`render_url`, not just the new `bot-sessions` — including the existing `widget-sessions`. Reasoning: C1's
-own wording ("no exceptions, no shared fallback offered") describes a requirement on the sales-partner
-relationship, not a requirement scoped to one endpoint; leaving `widget-sessions` exempt would let any
-sales-partner simply keep calling the older endpoint to avoid ever configuring a domain, defeating the
-entire trust argument this brief exists to satisfy. This costs nothing today — zero real sales-partner
-accounts currently have a verified domain (the feature didn't exist to set one), so there is no live
-integration this newly breaks; it only prevents one from ever starting without a domain, which is exactly
-the intended behavior.
+**v1.0's recommendation (CEO-approved at the time):** apply the `domain_not_configured` gate to
+**every** endpoint that can produce a `channel_partner`'s `render_url`, not just the new
+`bot-sessions` — including the existing `widget-sessions`. Reasoning given then: C1's "no exceptions,
+no shared fallback offered" describes a requirement on the sales-partner relationship, not a
+requirement scoped to one endpoint, and — the specific claim that turned out to be the gap —
+*"zero real sales-partner accounts currently have a verified domain... so there is no live
+integration this newly breaks."*
+
+**What that claim missed, corrected 2026-08-12:** it reasoned about *real sales-partner* accounts
+only. It did not check whether `widget-sessions`/`widget-dispatch` — the existing, already-live route
+this gate was being retrofitted onto — is itself called by anything running as a `channel_partner`-
+authenticated caller today, independent of whether that caller is a "real" external sales-partner.
+The demo/showcase tooling (`test.hello-clio.com`, B2B-31/B2B-39) is exactly that case, and the gate
+was live against it — accepting real calls that would have returned `domain_not_configured` — for
+roughly 10 hours (2026-08-12T03:17:48Z–13:36:19Z, `d22ccf5` to `9f60a11`).
+
+**Confirmed via Vercel runtime logs for that exact window, not assumed: zero actual impact
+occurred.** No call to `widget-sessions` and no `domain_not_configured`/422 response happened during
+those ~10 hours — the window's only traffic was 90 routine `/api/inngest` cron hits, one `/sign-in`,
+and one bot probe against `/wp-admin/install.php`. Nobody exercised the demo or created a widget
+session while the broken gate was live. This is a "caught before it mattered" case, not a "broke,
+then fixed" one — logged accurately here rather than overstated, since the difference matters for
+how seriously to weigh this in a retro. **Per Arun's explicit instruction, commit `9f60a11` reverted the
+`widget-sessions` half of this gate entirely** — `widget-sessions`, `widget-dispatch`, and the demo
+tab now resolve `render_url` exactly as they did before this brief, with no domain requirement of any
+kind, and are to be treated as **architecturally independent of the sales-partner/domain production
+track going forward**, not merely reconnected to it with a carve-out. `bot-sessions` (B2B-78, the new
+route this brief was actually built for) and the sales-partner self-service domain routes (§6.1/§6.2
+above) are unaffected — the gate stands, unchanged, on `bot-sessions` only.
+
+**Lesson for future "this costs nothing, zero live impact" claims in this codebase, stated plainly
+so it isn't re-learned the hard way a second time:** "zero real \[external customer type\] accounts
+are affected" is not the same claim as "zero live callers are affected." Internal tooling (demo,
+showcase, test harnesses) routinely authenticates through the same account-kind machinery real
+customers do, and a scope-widening change to shared, already-live infrastructure needs to be checked
+against internal callers explicitly, not just external ones, before it can honestly be called
+zero-impact.
 
 **Middleware activation:** `middleware.ts`'s `TENANT_SCOPED_PATTERNS` already lists `/widget-render/.+`
 as a dormant entry, its own comment explaining it's inert only because render URLs are "always built from

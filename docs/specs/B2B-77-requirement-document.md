@@ -1,11 +1,21 @@
 # B2B-77 — Application-Wide Role Model (end_user / client / sales-partner / internal_staff / admin)
 # Requirement Document
-Version: 1.2
+Version: 1.3
 Status: APPROVED (CEO, 2026-08-11) — cleared for Dev, per the CEO→BA→Dev gate; Section 11 is empty.
 All three items Arun answered directly are folded in below with full reasoning and, per his explicit
 instruction on Q2, a complete paper trail rather than a silent restoration.
-Author: Business Analyst Agent
-Date: 2026-08-11
+Author: Business Analyst Agent (v1.0-1.2), CEO (v1.3 amendment)
+Date: 2026-08-11 (v1.3 amended 2026-08-12)
+
+Changelog: v1.3 — CEO-resolved the one item the QA pass surfaced as unaddressed by this document: §7's
+bare-`sales_partner`-token acceptance test predates B2B-80 and didn't anticipate B2B-80's
+`sales_partner_leads` table. Added it as an explicit, reasoned exception (same reasoning already
+applied to B2B-78's `reseller_id`/`reseller_unique_id`) rather than requiring a rename of shipped,
+working code. No other content changed; Section 11 remains empty. Separately, and NOT part of this
+document's own scope: the same QA pass found this document's §6.4 PII-purge remediation had been
+approved but never actually implemented in `inngest/partner-session-insights-extractor.ts` — that is a
+build-fidelity bug in the code, not a defect in this document's own specification, and is being fixed
+and tracked as its own commit (`1e52ecf`), not as a further revision here.
 
 Changelog: v1.2 — folds in Arun's direct answers to v1.1's three §11 open questions, closing Section 11.
 **Q1 (transcript PII):** Arun confirmed option (c), accepted-risk with a retention/access-control
@@ -400,10 +410,22 @@ genuinely open in v1.1, pending Arun's own decision; it has since been answered 
 
 ✓ Given a fresh grep of the codebase for the bare token `sales_partner` (excluding `channel_partner` and
 the already-renamed `internal_staff_assignments`), when run after this brief closes, then the only hits
-are: the historical/comment references inside migration files documenting the rename itself, and the
+are: the historical/comment references inside migration files documenting the rename itself, the
 UI-copy strings in `app/(with-clerk)/dashboard/channel-partner/clients/[id]/SalesPartnerDetailClient.tsx`
 and `app/api/admin/sales-partners/[id]/route.ts` (both of which correctly refer to the *external reseller*
-entity, not `internal_admin_users`).
+entity, not `internal_admin_users`), and — added 2026-08-12, CEO-resolved, not a violation — B2B-80's
+`sales_partner_leads` table and its column/route/component family
+(`app/partner-inquiry/*`, `app/dashboard/admin/sales-partner-leads/*`,
+`app/api/admin/sales-partner-leads/*`). **Reasoning:** this acceptance test's own bare-token avoidance
+existed for exactly one reason — colliding with `internal_admin_users.role`'s old `'sales_partner'`
+value (B2B-21). That value no longer exists (renamed to `'internal_staff'`, migration 094, confirmed
+live) by the time B2B-80 was built, so there is no longer any collision for a *new* bare-token use to
+create. Renaming an already-shipped, correctly-functioning table for a test written before the
+collision reason it guards against became moot would be exactly the kind of unforced, benefit-free
+rename this project has repeatedly declined to make elsewhere (B2B-78 §6.1's `reseller_id`/
+`reseller_unique_id` decision is the direct precedent, reasoned the same way). This is the one narrow,
+explicit, dated exception to this test — no other new bare `sales_partner` usage is permitted without
+the same reasoning being re-applied and stated, not assumed.
 
 ✓ Given a Clerk-authenticated sales-partner viewing their own `/dashboard/channel-partner/*` pages, when
 any API response under `/api/channel-partner/*` is inspected, then no response body contains the string
