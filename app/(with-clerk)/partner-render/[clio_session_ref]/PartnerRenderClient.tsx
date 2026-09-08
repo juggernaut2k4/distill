@@ -305,6 +305,18 @@ export default function PartnerRenderClient({
         // with no other value possible.
         connectStartRef.current = Date.now()
 
+        // B2B-81 — instrumentation only, no behavior change to the wait/cap itself. Logs how long
+        // waitForPlaybackCaughtUp() actually took, keyed by topic index, so "first 1-2 topics feel
+        // slower" can be checked against real data (brief §2/§3). Shared by both advance_tab sites.
+        const logPlaybackWait = (topicIndex: number, waitMs: number) => {
+          fetch('/api/partner/render/voice-diagnostic-capture', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ clio_session_ref: clioSessionRef, label: 'playback_caughtup_wait', detail: { topicIndex, waitMs } }),
+            keepalive: true,
+          }).catch(() => {})
+        }
+
         // Tool handlers differ per mode. Option 2 keeps its exact prior behavior;
         // inline mode: only advance_tab (plus the transcript phrase-match backup below)
         // advances the page. B2B-58 — show_visual used to be wired identically to
@@ -334,7 +346,9 @@ export default function PartnerRenderClient({
             // audio hadn't drained cleanly. Now fire-and-forget: return immediately so she's never
             // blocked on it, while the wait + actual page move still happen right after.
             void (async () => {
+              const waitStartedAt = Date.now()
               await adapterRef.current?.waitForPlaybackCaughtUp?.()
+              logPlaybackWait(idx, Date.now() - waitStartedAt) // B2B-81
               if (marker) advanceOnTransition(marker)
             })()
             return 'Advanced.'
@@ -363,7 +377,9 @@ export default function PartnerRenderClient({
             // (see inlineTools.advance_tab above for the full rationale).
             const idx = Math.min(currentIdx + 1, count - 1)
             void (async () => {
+              const waitStartedAt = Date.now()
               await adapterRef.current?.waitForPlaybackCaughtUp?.()
+              logPlaybackWait(currentIdx, Date.now() - waitStartedAt) // B2B-81
               goToSection(idx)
             })()
             const title = sections?.[idx]?.section.meta.subtopicTitle ?? `section ${idx + 1}`

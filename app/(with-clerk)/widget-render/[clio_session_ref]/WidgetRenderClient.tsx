@@ -479,12 +479,31 @@ export default function WidgetRenderClient({
           if (now - lastPerformAdvanceAtRef.current < PHRASE_ADVANCE_DEBOUNCE_MS) return
           lastPerformAdvanceAtRef.current = now
           armPostToolNudge()
+          // B2B-81 — captured before the mutation below so the diagnostic log (see the wait block
+          // just below) reflects the topic whose narration this wait was actually draining, not the
+          // topic being advanced to.
+          const fromTopicIndex = progressIndexRef.current
           progressIndexRef.current = computeNextProgressIndex(progressIndexRef.current, count)
           // Same fire-and-forget playback-catch-up wait PartnerRenderClient.tsx's own advance_tab
           // uses (VoiceSessionAdapter.waitForPlaybackCaughtUp — no-op for Hume) — the visual
           // advance must never get ahead of what the participant has actually heard.
           void (async () => {
+            const waitStartedAt = Date.now()
             await adapterRef.current?.waitForPlaybackCaughtUp?.()
+            // B2B-81 — instrumentation only, no behavior change to the wait/cap itself. Records how
+            // long this wait actually took, keyed by the topic being narrated when it started, so
+            // the "first 1-2 topics feel slower" hypothesis can be checked against real per-topic
+            // session data instead of guessed at (see the B2B-81 feature brief §2/§3).
+            fetch('/api/partner/render/voice-diagnostic-capture', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                clio_session_ref: clioSessionRef,
+                label: 'playback_caughtup_wait',
+                detail: { topicIndex: fromTopicIndex, waitMs: Date.now() - waitStartedAt },
+              }),
+              keepalive: true,
+            }).catch(() => {})
             scrollToIndex(progressIndexRef.current)
           })()
         }
@@ -522,7 +541,23 @@ export default function WidgetRenderClient({
             // topic 2 while explaining topic 1"). "Wait for response" is off for this tool, so
             // awaiting here does not block the model's own turn-taking — it only delays when the
             // SCREEN visibly updates, which is the entire point.
+            // B2B-81 — captured before the wait; scrollToIndex(idx) below is what mutates
+            // displayedIndexRef.current, so it's still the pre-advance (source) topic here.
+            const fromTopicIndex = displayedIndexRef.current
+            const waitStartedAt = Date.now()
             await adapterRef.current?.waitForPlaybackCaughtUp?.()
+            // B2B-81 — instrumentation only, no behavior change to the wait/cap itself. See the
+            // matching comment in performAdvance() above for the full rationale.
+            fetch('/api/partner/render/voice-diagnostic-capture', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                clio_session_ref: clioSessionRef,
+                label: 'playback_caughtup_wait',
+                detail: { topicIndex: fromTopicIndex, waitMs: Date.now() - waitStartedAt },
+              }),
+              keepalive: true,
+            }).catch(() => {})
             scrollToIndex(idx)
             return 'Visual is showing.'
           },
