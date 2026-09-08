@@ -478,7 +478,7 @@ export interface AssembleWidgetElevenLabsFirstMessageInput {
 }
 
 /**
- * B2B-80 — computes the literal string sent as `overrides.agent.firstMessage` on
+ * B2B-82 — computes the literal string sent as `overrides.agent.firstMessage` on
  * `Conversation.startSession(...)` (lib/voice/elevenlabs-adapter.ts). ElevenLabs speaks this text
  * directly, before the model ever takes a turn — there is no LLM interpretation step for it, unlike
  * the rest of this file's assembled prompt (which the model reads and acts on) or

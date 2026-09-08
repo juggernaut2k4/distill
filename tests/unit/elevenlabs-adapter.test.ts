@@ -167,11 +167,11 @@ describe('ElevenLabsAdapter — startSession options', () => {
     }
   })
 
-  // B2B-80 — firstMessage is now a legitimate, OPTIONAL second override field (name-greeting/
+  // B2B-82 — firstMessage is now a legitimate, OPTIONAL second override field (name-greeting/
   // first_message conflict fix). It must still be absent by default (a caller that doesn't set
   // config.firstMessage gets the exact original single-field override), and present, alongside
   // prompt.prompt unchanged, when a caller does set it.
-  describe('firstMessage override (B2B-80)', () => {
+  describe('firstMessage override (B2B-82)', () => {
     it('is absent from overrides.agent when config.firstMessage is not provided (default, unchanged behaviour)', async () => {
       const { options } = await createAdapter()
       expect(options.overrides).toEqual({ agent: { prompt: { prompt: INSTRUCTIONS } } })
@@ -743,7 +743,7 @@ describe('lib/voice/widget-elevenlabs-prompt-rules', () => {
     expect(WIDGET_ELEVENLABS_PROMPT_VERSION).toBe('widget-el-v7')
   })
 
-  it('B2B-80: rule 1a no longer instructs greeting by name (that now happens in firstMessage), but still gives a concrete next action', async () => {
+  it('B2B-82: rule 1a no longer instructs greeting by name (that now happens in firstMessage), but still gives a concrete next action', async () => {
     const { WIDGET_ELEVENLABS_PROMPT_TEMPLATE } = await import('@/lib/voice/widget-elevenlabs-prompt-rules')
     expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).not.toContain('1a. Greet')
     expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).toContain('Your first message already greeted')
@@ -811,7 +811,7 @@ describe('lib/voice/widget-elevenlabs-prompt-rules', () => {
   })
 })
 
-// ─── B2B-80 — assembleWidgetElevenLabsFirstMessage() ──────────────────────────────────────────
+// ─── B2B-82 — assembleWidgetElevenLabsFirstMessage() ──────────────────────────────────────────
 
 describe('lib/voice/widget-elevenlabs-prompt-rules — assembleWidgetElevenLabsFirstMessage()', () => {
   it('falls back to the local default greeting when openingGreeting is not configured (null/undefined)', async () => {

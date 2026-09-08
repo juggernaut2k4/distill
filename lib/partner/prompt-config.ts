@@ -54,7 +54,7 @@ export const DEFAULT_JOIN_GREETING: DualModePromptField = {
 }
 
 /**
- * B2B-80 (widget ElevenLabs channel — `overrides.agent.firstMessage`/first_message pre-empting the
+ * B2B-82 (widget ElevenLabs channel — `overrides.agent.firstMessage`/first_message pre-empting the
  * name greeting) — default configurable opening line, used whenever
  * `PartnerPromptConfig.openingGreeting` is null (partner never configured this field). Unlike
  * `DEFAULT_JOIN_GREETING` (mid-call, injected into the LLM's own system prompt and interpreted by
