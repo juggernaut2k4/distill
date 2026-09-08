@@ -164,9 +164,25 @@
  * content-specific question every time with nothing to anchor the shape of it. Adding an example,
  * same pattern as 1b, plus an explicit contrast against 3f so the two are never confused for each
  * other again.
+ *
+ * v7 (2026-09-08) — name-greeting/first_message conflict fix. Root cause: ElevenLabs speaks its own
+ * static, un-personalized `overrides.agent.firstMessage` (when set) or the base agent's own
+ * dashboard-configured first message (when not) as the literal opening line BEFORE the model ever
+ * takes a turn — rule 1a's "Greet [PARTICIPANT_NAME]" instruction only ever reached the model on its
+ * FIRST turn, by which point the un-personalized first message had already been spoken, so the name
+ * greeting was pre-empted and never landed. Two changes, and only these two:
+ * 1. `assembleWidgetElevenLabsFirstMessage()` (new export below) computes a server-side, per-session,
+ *    name-substituted literal string for `overrides.agent.firstMessage` — see
+ *    lib/voice/elevenlabs-adapter.ts's own v7-note for the adapter-side half of this fix.
+ * 2. Rule 1a is rewritten from "Greet [PARTICIPANT_NAME] and introduce yourself" to explicitly say
+ *    the greeting already happened (in firstMessage) and NOT to repeat it — otherwise the model,
+ *    still literally reading "Greet X" on its first real turn, would greet a SECOND time right after
+ *    ElevenLabs' own spoken firstMessage. The "introduce yourself" half is kept alive, retargeted at
+ *    introducing what the session covers, so 1a still gives the model a concrete next action rather
+ *    than becoming a no-op step.
  */
 
-export const WIDGET_ELEVENLABS_PROMPT_VERSION = 'widget-el-v6'
+export const WIDGET_ELEVENLABS_PROMPT_VERSION = 'widget-el-v7'
 
 // ─── Placeholders ────────────────────────────────────────────────────────────────────────────────
 
@@ -262,7 +278,7 @@ G22. If you receive a note that the session has reached its maximum length, that
 G23. Unlike G22's note, the platform's own silence detection carries no text of its own — it simply prompts you to continue speaking with no new real spoken turn from them since your last question. That absence IS the "silence" the rules below refer to. If the participant is silent, unresponsive, or does not reply after you have already tried once to re-engage them, call end_call with a reason noting no participant response, and set its message to a warm farewell such as "Since I haven't heard from you, I'm going to end our session now. Have a great day!"]
 
 1. Opening.
-1a. Greet ${WIDGET_ELEVENLABS_PARTICIPANT_NAME_PLACEHOLDER} and introduce yourself.
+1a. Your first message already greeted ${WIDGET_ELEVENLABS_PARTICIPANT_NAME_PLACEHOLDER} by name — do not greet them again. Move straight into introducing what this session covers.
 1b. Ask one short, warm question linking today's topic to how they feel about it — for example, "How are you feeling about [topic] today — something you already deal with, or pretty new ground?"
 1c. Stop there. Wait for their real spoken answer.
 1d. Once they answer, the next thing you say is the overview of today's session, naming each topic in SESSION CONTENT in order, with your reaction to their answer carried inside its opening sentence — for example, "That's a great place to start from, so here's how we'll spend our time: first ..., then ..., and finally ..."
@@ -427,4 +443,61 @@ export function assembleWidgetElevenLabsPrompt(input: AssembleWidgetElevenLabsPr
     .split(WIDGET_ELEVENLABS_AUDIENCE_PLACEHOLDER).join(audienceDescription)
     .split(WIDGET_ELEVENLABS_CONTEXT_PLACEHOLDER).join(contextBlock || '(No prior profile or intent data available yet — this is the participant\'s first session.)')
     .split(WIDGET_ELEVENLABS_SESSION_CONTENT_PLACEHOLDER).join(sessionContent ?? '')
+}
+
+// ─── First message (name-greeting/first_message conflict fix, v7) ────────────────────────────────
+
+/**
+ * Local, deliberately duplicated copy of `DEFAULT_OPENING_GREETING`
+ * (lib/partner/prompt-config.ts) — same duplication-over-cross-file-coupling precedent this file's
+ * own header already documents for rule CONTENT (it copies rather than imports from
+ * widget-prompt-rules.ts). Importing the real constant from lib/partner/prompt-config.ts would pull
+ * that module's `@/lib/supabase` -> `next/headers` import chain into every module that touches this
+ * file's exports, including tests/unit/bot-elevenlabs-prompt-rules.test.ts's cross-module
+ * version-constant comparison, which does not mock `@/lib/supabase` today. Kept in sync by hand with
+ * `DEFAULT_OPENING_GREETING`; `tests/unit/partner-prompt-config.test.ts` and this file's own tests
+ * both assert the literal text, so the two drifting apart would fail a test immediately.
+ */
+const LOCAL_DEFAULT_OPENING_GREETING: WidgetElevenLabsDualModePromptField = {
+  mode: 'literal',
+  text: "Hi {firstName}, I'm {assistantName}. Let's get started.",
+}
+
+export interface AssembleWidgetElevenLabsFirstMessageInput {
+  /** `PartnerPromptConfig.openingGreeting` (lib/partner/prompt-config.ts), passed through unmodified
+   *  — same structural-typing pass-through this file's other assembler already relies on for
+   *  `promptBehavior`. `null`/`undefined` (partner never configured it) falls back to
+   *  `LOCAL_DEFAULT_OPENING_GREETING`. */
+  openingGreeting?: WidgetElevenLabsDualModePromptField | null
+  /** Falls back to 'there' when unavailable — exactly like the join-greeting route
+   *  (app/api/partner/render/join-greeting/[clio_session_ref]/route.ts) already falls back to
+   *  'there' for its own {firstName} substitution when `endUserName` is null. */
+  participantName?: string
+  /** Falls back to 'Clio', matching `assembleWidgetElevenLabsPrompt()`'s own default. */
+  assistantName?: string
+}
+
+/**
+ * B2B-82 — computes the literal string sent as `overrides.agent.firstMessage` on
+ * `Conversation.startSession(...)` (lib/voice/elevenlabs-adapter.ts). ElevenLabs speaks this text
+ * directly, before the model ever takes a turn — there is no LLM interpretation step for it, unlike
+ * the rest of this file's assembled prompt (which the model reads and acts on) or
+ * `DEFAULT_JOIN_GREETING`'s own mid-call, system-prompt-injected text. Both `mode` values on
+ * `openingGreeting` therefore resolve to the SAME substitution here: 'literal' vs 'instruction' only
+ * means something to an LLM deciding how to phrase text it reads, and first_message is never read by
+ * one — it is only ever the platform's own spoken output. The `mode` field is retained on
+ * `openingGreeting`'s shape purely so it can share `PartnerPromptConfig`'s existing dual-mode
+ * plumbing (validation, defaulting, DB storage) rather than needing a bespoke single-mode type.
+ *
+ * Same substitution pattern already used in
+ * app/api/partner/render/join-greeting/[clio_session_ref]/route.ts: `.split('{firstName}').join(...)`.
+ */
+export function assembleWidgetElevenLabsFirstMessage(input: AssembleWidgetElevenLabsFirstMessageInput): string {
+  const field = input.openingGreeting ?? LOCAL_DEFAULT_OPENING_GREETING
+  const firstName = input.participantName?.trim() || 'there'
+  const resolvedAssistantName = input.assistantName?.trim() || 'Clio'
+
+  return field.text
+    .split('{firstName}').join(firstName)
+    .split('{assistantName}').join(resolvedAssistantName)
 }

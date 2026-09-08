@@ -1967,6 +1967,14 @@ here must not be modified.
 - **Any edit to `lib/voice/widget-prompt-rules.ts`** (C6).
 - **Overriding voice, model, TTS settings, first message, language, knowledge base, or tool IDs on
   the ElevenLabs agent** — only `agent.prompt.prompt` is overridden (C3).
+  **Amended 2026-09-08:** `first_message` (`overrides.agent.firstMessage`) is now ALSO overridden.
+  Root cause: ElevenLabs speaks the base agent's own static, un-personalized first message as the
+  literal opening line before the model ever acts on the prompt's rule 1a name-greeting instruction,
+  so the personalized greeting was pre-empted and never landed. Fix computes a server-side,
+  name-substituted `firstMessage` (`assembleWidgetElevenLabsFirstMessage()`,
+  `lib/voice/widget-elevenlabs-prompt-rules.ts`) and rewrites rule 1a to stop instructing a second,
+  redundant greeting now that the first one is handled by this override. Voice, model, TTS settings,
+  language, knowledge base and tool IDs remain unoverridden, unchanged from C3's original scope.
 - **Making ElevenLabs the active widget provider on deploy** — it ships selectable, not selected.
 - **WebRTC transport** — the WebSocket signed-URL path is used (§6.4). WebRTC remains available as a
   future change if latency ever warrants it.

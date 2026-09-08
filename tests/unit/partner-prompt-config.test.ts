@@ -42,6 +42,7 @@ import {
   isValidInstructionText,
   CLIO_DEFAULT_PROMPT_CONFIG,
   DEFAULT_JOIN_GREETING,
+  DEFAULT_OPENING_GREETING,
 } from '@/lib/partner/prompt-config'
 
 describe('lib/partner/prompt-config', () => {
@@ -200,6 +201,92 @@ describe('lib/partner/prompt-config', () => {
       expect(text).not.toContain('clio')
       expect(DEFAULT_JOIN_GREETING.mode).toBe('instruction')
       expect(DEFAULT_JOIN_GREETING.text).toContain('{firstName}')
+    })
+  })
+
+  describe('openingGreeting field (widget ElevenLabs first_message fix)', () => {
+    it('DEFAULT_OPENING_GREETING is literal mode and carries both substitution tokens', () => {
+      expect(DEFAULT_OPENING_GREETING.mode).toBe('literal')
+      expect(DEFAULT_OPENING_GREETING.text).toContain('{firstName}')
+      expect(DEFAULT_OPENING_GREETING.text).toContain('{assistantName}')
+    })
+
+    it('CLIO_DEFAULT_PROMPT_CONFIG.openingGreeting is null (unconfigured by default)', () => {
+      expect(CLIO_DEFAULT_PROMPT_CONFIG.openingGreeting).toBeNull()
+    })
+
+    it('getPromptConfig reads a configured opening_greeting row (literal mode)', async () => {
+      state.rows['partner-a'] = {
+        partner_account_id: 'partner-a',
+        tone_persona: null, deferral_phrasing: null, closing_confirmation_question: null,
+        goodbye_line: null, join_greeting: null,
+        opening_greeting: { mode: 'literal', text: 'Hey {firstName}, great to have you.' },
+        verification_question_style: null, inter_section_recap_style: null,
+      }
+      const config = await getPromptConfig('partner-a')
+      expect(config.openingGreeting).toEqual({ mode: 'literal', text: 'Hey {firstName}, great to have you.' })
+    })
+
+    it('getPromptConfig treats a missing opening_greeting column/key on the row as unset, not a crash', async () => {
+      state.rows['partner-a'] = {
+        partner_account_id: 'partner-a',
+        tone_persona: null, deferral_phrasing: null, closing_confirmation_question: null,
+        goodbye_line: null, join_greeting: null,
+        // opening_greeting deliberately absent — simulates a pre-migration row/select.
+        verification_question_style: null, inter_section_recap_style: null,
+      }
+      const config = await getPromptConfig('partner-a')
+      expect(config.openingGreeting).toBeNull()
+    })
+
+    it('a malformed opening_greeting is treated as unset (never throws), other fields on the row still render', async () => {
+      state.rows['partner-a'] = {
+        partner_account_id: 'partner-a',
+        tone_persona: { mode: 'literal', text: 'Valid tone.' },
+        deferral_phrasing: null, closing_confirmation_question: null, goodbye_line: null,
+        join_greeting: null,
+        opening_greeting: { mode: 'not-a-real-mode', text: 'broken' },
+        verification_question_style: null, inter_section_recap_style: null,
+      }
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const config = await getPromptConfig('partner-a')
+      warnSpy.mockRestore()
+      expect(config.openingGreeting).toBeNull()
+      expect(config.tonePersona).toEqual({ mode: 'literal', text: 'Valid tone.' })
+    })
+
+    it('upsertPromptConfig accepts a literal-mode openingGreeting and rejects an invalid one', async () => {
+      const ok = await upsertPromptConfig('partner-a', {
+        openingGreeting: { mode: 'literal', text: "Hi {firstName}, I'm {assistantName}." },
+      })
+      expect(ok.ok).toBe(true)
+      if (ok.ok) expect(ok.data.openingGreeting).toEqual({ mode: 'literal', text: "Hi {firstName}, I'm {assistantName}." })
+
+      const bad = await upsertPromptConfig('partner-b', {
+        openingGreeting: { mode: 'bogus-mode' as never, text: 'Invalid.' },
+      })
+      expect(bad).toEqual({ ok: false, error: 'invalid_prompt_field' })
+    })
+
+    it('upsertPromptConfig accepts an instruction-mode openingGreeting too (dual-mode shape, both modes valid)', async () => {
+      const result = await upsertPromptConfig('partner-a', {
+        openingGreeting: { mode: 'instruction', text: 'Greet {firstName} warmly, in your own words.' },
+      })
+      expect(result.ok).toBe(true)
+      if (result.ok) expect(result.data.openingGreeting?.mode).toBe('instruction')
+    })
+
+    it('a key present with value null clears openingGreeting back to default (null)', async () => {
+      state.rows['partner-a'] = {
+        partner_account_id: 'partner-a',
+        tone_persona: null, deferral_phrasing: null, closing_confirmation_question: null,
+        goodbye_line: null, join_greeting: null,
+        opening_greeting: { mode: 'literal', text: 'Existing greeting.' },
+        verification_question_style: null, inter_section_recap_style: null,
+      }
+      const result = await upsertPromptConfig('partner-a', { openingGreeting: null })
+      expect(result.ok).toBe(true)
+      if (result.ok) expect(result.data.openingGreeting).toBeNull()
     })
   })
 })

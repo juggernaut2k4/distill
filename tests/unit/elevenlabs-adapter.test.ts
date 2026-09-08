@@ -159,12 +159,44 @@ describe('ElevenLabsAdapter — startSession options', () => {
     expect(options.overrides).toEqual({ agent: { prompt: { prompt: INSTRUCTIONS } } })
   })
 
-  it('never sends tts, conversation, asr, llm, toolIds, knowledgeBase, firstMessage or language anywhere in the options', async () => {
+  it('never sends tts, conversation, asr, llm, toolIds, knowledgeBase or language anywhere in the options', async () => {
     const { options } = await createAdapter()
     const serialized = JSON.stringify(options)
-    for (const forbidden of ['tts', 'voiceId', 'asr', 'keywords', 'llm', 'toolIds', 'knowledgeBase', 'firstMessage', 'language', 'textOnly']) {
+    for (const forbidden of ['tts', 'voiceId', 'asr', 'keywords', 'llm', 'toolIds', 'knowledgeBase', 'language', 'textOnly']) {
       expect(serialized).not.toContain(`"${forbidden}"`)
     }
+  })
+
+  // B2B-82 — firstMessage is now a legitimate, OPTIONAL second override field (name-greeting/
+  // first_message conflict fix). It must still be absent by default (a caller that doesn't set
+  // config.firstMessage gets the exact original single-field override), and present, alongside
+  // prompt.prompt unchanged, when a caller does set it.
+  describe('firstMessage override (B2B-82)', () => {
+    it('is absent from overrides.agent when config.firstMessage is not provided (default, unchanged behaviour)', async () => {
+      const { options } = await createAdapter()
+      expect(options.overrides).toEqual({ agent: { prompt: { prompt: INSTRUCTIONS } } })
+      expect('firstMessage' in (options.overrides as { agent: Record<string, unknown> }).agent).toBe(false)
+      expect(JSON.stringify(options)).not.toContain('"firstMessage"')
+    })
+
+    it('sends overrides.agent.firstMessage alongside prompt.prompt, unmodified, when config.firstMessage is provided', async () => {
+      const { ElevenLabsAdapter } = await import('@/lib/voice/elevenlabs-adapter')
+      const { config } = makeConfig()
+      const FIRST_MESSAGE = "Hi Aryan, I'm Clio. Let's get started."
+      await ElevenLabsAdapter.create({ ...config, firstMessage: FIRST_MESSAGE })
+      const options = sdk.lastOptions!
+      expect(options.overrides).toEqual({
+        agent: { prompt: { prompt: INSTRUCTIONS }, firstMessage: FIRST_MESSAGE },
+      })
+    })
+
+    it('omits firstMessage when it is an empty string, same as when unset', async () => {
+      const { ElevenLabsAdapter } = await import('@/lib/voice/elevenlabs-adapter')
+      const { config } = makeConfig()
+      await ElevenLabsAdapter.create({ ...config, firstMessage: '' })
+      const options = sdk.lastOptions!
+      expect(options.overrides).toEqual({ agent: { prompt: { prompt: INSTRUCTIONS } } })
+    })
   })
 
   it('does not include dynamicVariables at all (§6.5.1 — considered and deliberately rejected)', async () => {
@@ -708,7 +740,15 @@ describe('lib/voice/widget-elevenlabs-prompt-rules', () => {
 
   it('exports its own version constant, distinct from the OpenAI widget prompt', async () => {
     const { WIDGET_ELEVENLABS_PROMPT_VERSION } = await import('@/lib/voice/widget-elevenlabs-prompt-rules')
-    expect(WIDGET_ELEVENLABS_PROMPT_VERSION).toBe('widget-el-v6')
+    expect(WIDGET_ELEVENLABS_PROMPT_VERSION).toBe('widget-el-v7')
+  })
+
+  it('B2B-82: rule 1a no longer instructs greeting by name (that now happens in firstMessage), but still gives a concrete next action', async () => {
+    const { WIDGET_ELEVENLABS_PROMPT_TEMPLATE } = await import('@/lib/voice/widget-elevenlabs-prompt-rules')
+    expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).not.toContain('1a. Greet')
+    expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).toContain('Your first message already greeted')
+    expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).toContain('do not greet them again')
+    expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).toContain('introducing what this session covers')
   })
 
   it('rule 3b gives a worked example and is explicitly distinguished from rule 3f\'s generic "any other questions?"', async () => {
@@ -768,5 +808,66 @@ describe('lib/voice/widget-elevenlabs-prompt-rules', () => {
   it('rule 4 asks whether there are more questions before returning to the taught page', async () => {
     const { WIDGET_ELEVENLABS_PROMPT_TEMPLATE } = await import('@/lib/voice/widget-elevenlabs-prompt-rules')
     expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).toContain('ask if they have any other questions on this')
+  })
+})
+
+// ─── B2B-82 — assembleWidgetElevenLabsFirstMessage() ──────────────────────────────────────────
+
+describe('lib/voice/widget-elevenlabs-prompt-rules — assembleWidgetElevenLabsFirstMessage()', () => {
+  it('falls back to the local default greeting when openingGreeting is not configured (null/undefined)', async () => {
+    const { assembleWidgetElevenLabsFirstMessage } = await import('@/lib/voice/widget-elevenlabs-prompt-rules')
+    expect(assembleWidgetElevenLabsFirstMessage({ openingGreeting: null, participantName: 'Aryan', assistantName: 'Clio' }))
+      .toBe("Hi Aryan, I'm Clio. Let's get started.")
+    expect(assembleWidgetElevenLabsFirstMessage({ participantName: 'Aryan', assistantName: 'Clio' }))
+      .toBe("Hi Aryan, I'm Clio. Let's get started.")
+  })
+
+  it('substitutes {firstName}, falling back to "there" when no participant name is available', async () => {
+    const { assembleWidgetElevenLabsFirstMessage } = await import('@/lib/voice/widget-elevenlabs-prompt-rules')
+    expect(assembleWidgetElevenLabsFirstMessage({})).toBe("Hi there, I'm Clio. Let's get started.")
+    expect(assembleWidgetElevenLabsFirstMessage({ participantName: '   ' })).toBe("Hi there, I'm Clio. Let's get started.")
+  })
+
+  it('substitutes {assistantName}, falling back to "Clio" when no assistant name is available', async () => {
+    const { assembleWidgetElevenLabsFirstMessage } = await import('@/lib/voice/widget-elevenlabs-prompt-rules')
+    expect(assembleWidgetElevenLabsFirstMessage({ participantName: 'Aryan', assistantName: '  ' }))
+      .toBe("Hi Aryan, I'm Clio. Let's get started.")
+    expect(assembleWidgetElevenLabsFirstMessage({ participantName: 'Aryan', assistantName: 'Marin' }))
+      .toBe("Hi Aryan, I'm Marin. Let's get started.")
+  })
+
+  it('substitutes a partner-configured literal openingGreeting verbatim (both tokens)', async () => {
+    const { assembleWidgetElevenLabsFirstMessage } = await import('@/lib/voice/widget-elevenlabs-prompt-rules')
+    const out = assembleWidgetElevenLabsFirstMessage({
+      openingGreeting: { mode: 'literal', text: 'Hey {firstName}! {assistantName} here — ready?' },
+      participantName: 'Priya',
+      assistantName: 'Marin',
+    })
+    expect(out).toBe('Hey Priya! Marin here — ready?')
+  })
+
+  it('substitutes a partner-configured instruction-mode openingGreeting the same way as literal — first_message has no LLM interpretation step', async () => {
+    const { assembleWidgetElevenLabsFirstMessage } = await import('@/lib/voice/widget-elevenlabs-prompt-rules')
+    const literalOut = assembleWidgetElevenLabsFirstMessage({
+      openingGreeting: { mode: 'literal', text: 'Welcome, {firstName}.' },
+      participantName: 'Priya',
+    })
+    const instructionOut = assembleWidgetElevenLabsFirstMessage({
+      openingGreeting: { mode: 'instruction', text: 'Welcome, {firstName}.' },
+      participantName: 'Priya',
+    })
+    expect(instructionOut).toBe('Welcome, Priya.')
+    expect(instructionOut).toBe(literalOut)
+  })
+
+  it('substitutes every occurrence when a token appears more than once, and never throws on minimal input', async () => {
+    const { assembleWidgetElevenLabsFirstMessage } = await import('@/lib/voice/widget-elevenlabs-prompt-rules')
+    const out = assembleWidgetElevenLabsFirstMessage({
+      openingGreeting: { mode: 'literal', text: '{firstName}, {firstName}! It is {assistantName}, {assistantName}.' },
+      participantName: 'Sam',
+      assistantName: 'Clio',
+    })
+    expect(out).toBe('Sam, Sam! It is Clio, Clio.')
+    expect(() => assembleWidgetElevenLabsFirstMessage({})).not.toThrow()
   })
 })
