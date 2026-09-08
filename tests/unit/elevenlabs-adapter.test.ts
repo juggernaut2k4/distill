@@ -740,7 +740,7 @@ describe('lib/voice/widget-elevenlabs-prompt-rules', () => {
 
   it('exports its own version constant, distinct from the OpenAI widget prompt', async () => {
     const { WIDGET_ELEVENLABS_PROMPT_VERSION } = await import('@/lib/voice/widget-elevenlabs-prompt-rules')
-    expect(WIDGET_ELEVENLABS_PROMPT_VERSION).toBe('widget-el-v8')
+    expect(WIDGET_ELEVENLABS_PROMPT_VERSION).toBe('widget-el-v9')
   })
 
   it('B2B-82: rule 1a no longer instructs greeting by name (that now happens in firstMessage), but still gives a concrete next action', async () => {
@@ -760,6 +760,28 @@ describe('lib/voice/widget-elevenlabs-prompt-rules', () => {
     const { WIDGET_ELEVENLABS_PROMPT_TEMPLATE } = await import('@/lib/voice/widget-elevenlabs-prompt-rules')
     expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).toContain('for example, on a page about what makes Claude different')
     expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).toContain('This is never the generic "do you have any questions?"')
+  })
+
+  it('B2B-84: rule 1h names itself as the one place a tool call and what follows are NOT one continuous utterance, citing 3h and 4a by number for contrast', async () => {
+    const { WIDGET_ELEVENLABS_PROMPT_TEMPLATE } = await import('@/lib/voice/widget-elevenlabs-prompt-rules')
+    expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).toContain(
+      '1h. When show_visual returns, this is the ONE place in the entire session where a tool call and what comes after it are NOT one continuous utterance. Everywhere else — rule 3h\'s move to the next topic, rule 4a\'s mid-answer jump — you fold the tool call into the sentence you are already saying, exactly as G18 and G21 have you do by default. Here you do the opposite: topic 1\'s teaching (rule 3a) is a new turn, spoken as if nothing had been said since show_visual returned — never words carried over from the overview, and never appended onto the same reply that named the final topic in 1f. Go to rule 3.'
+    )
+    expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).not.toContain('topic 1 begins as its own fresh start, never in the same breath as the overview')
+  })
+
+  it('B2B-84: rule 3b states its question always comes first, and rule 3f\'s question can never substitute for or precede it', async () => {
+    const { WIDGET_ELEVENLABS_PROMPT_TEMPLATE } = await import('@/lib/voice/widget-elevenlabs-prompt-rules')
+    expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).toContain(
+      'On every page, this question always comes first — rule 3f\'s question can never substitute for it, and never comes before it.'
+    )
+  })
+
+  it('B2B-84: rule 3f carries an explicit gate — it can only ever be the SECOND question on a page, never a stand-in for 3b, with an instruction to go back and ask 3b first if it has not yet fired', async () => {
+    const { WIDGET_ELEVENLABS_PROMPT_TEMPLATE } = await import('@/lib/voice/widget-elevenlabs-prompt-rules')
+    expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).toContain(
+      'Before asking this, confirm to yourself that 3b\'s question has already been asked AND answered on this page. If it has not, you have not taught this page correctly yet — go back and ask 3b\'s question now, not this one. This question can only ever be the SECOND question asked on a page. It is never the first, and it is never a stand-in for 3b\'s question.'
+    )
   })
 
   it('G23 names the native silence-detection mechanism, distinct from G22\'s real note', async () => {
