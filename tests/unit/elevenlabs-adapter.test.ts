@@ -740,7 +740,7 @@ describe('lib/voice/widget-elevenlabs-prompt-rules', () => {
 
   it('exports its own version constant, distinct from the OpenAI widget prompt', async () => {
     const { WIDGET_ELEVENLABS_PROMPT_VERSION } = await import('@/lib/voice/widget-elevenlabs-prompt-rules')
-    expect(WIDGET_ELEVENLABS_PROMPT_VERSION).toBe('widget-el-v7')
+    expect(WIDGET_ELEVENLABS_PROMPT_VERSION).toBe('widget-el-v8')
   })
 
   it('B2B-82: rule 1a no longer instructs greeting by name (that now happens in firstMessage), but still gives a concrete next action', async () => {
@@ -748,7 +748,12 @@ describe('lib/voice/widget-elevenlabs-prompt-rules', () => {
     expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).not.toContain('1a. Greet')
     expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).toContain('Your first message already greeted')
     expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).toContain('do not greet them again')
-    expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).toContain('introducing what this session covers')
+  })
+
+  it('B2B-83: rule 1a points unambiguously at rule 1b (the feeling question), not rule 1d (the topic overview) — v7\'s "introducing what this session covers" wording was ambiguous enough to plausibly cause the overview to run before the feeling check', async () => {
+    const { WIDGET_ELEVENLABS_PROMPT_TEMPLATE } = await import('@/lib/voice/widget-elevenlabs-prompt-rules')
+    expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).not.toContain('introducing what this session covers')
+    expect(WIDGET_ELEVENLABS_PROMPT_TEMPLATE).toContain('Move straight into asking how they feel about today\'s topic (rule 1b)')
   })
 
   it('rule 3b gives a worked example and is explicitly distinguished from rule 3f\'s generic "any other questions?"', async () => {
