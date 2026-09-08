@@ -22,6 +22,7 @@ export interface PartnerPromptConfig {
   closingConfirmationQuestion: DualModePromptField | null
   goodbyeLine: DualModePromptField | null
   joinGreeting: DualModePromptField | null
+  openingGreeting: DualModePromptField | null
   verificationQuestionStyle: string | null
   interSectionRecapStyle: string | null
 }
@@ -32,6 +33,7 @@ export const CLIO_DEFAULT_PROMPT_CONFIG: PartnerPromptConfig = {
   closingConfirmationQuestion: null,
   goodbyeLine: null,
   joinGreeting: null,
+  openingGreeting: null,
   verificationQuestionStyle: null,
   interSectionRecapStyle: null,
 }
@@ -49,6 +51,22 @@ export const CLIO_DEFAULT_PROMPT_CONFIG: PartnerPromptConfig = {
 export const DEFAULT_JOIN_GREETING: DualModePromptField = {
   mode: 'instruction',
   text: 'The participant, {firstName}, just joined the call. Greet them warmly by name in one short, natural sentence, then continue exactly where you were before they joined — do not restart, re-introduce yourself, or repeat anything already covered.',
+}
+
+/**
+ * B2B-80 (widget ElevenLabs channel — `overrides.agent.firstMessage`/first_message pre-empting the
+ * name greeting) — default configurable opening line, used whenever
+ * `PartnerPromptConfig.openingGreeting` is null (partner never configured this field). Unlike
+ * `DEFAULT_JOIN_GREETING` (mid-call, injected into the LLM's own system prompt and interpreted by
+ * it), this field's substituted text is sent verbatim as ElevenLabs' own `first_message` — spoken
+ * directly by the platform before the model ever takes a turn, with no LLM interpretation step.
+ * Literal mode by default for that reason. Falls back to 'there' for {firstName} exactly like
+ * `DEFAULT_JOIN_GREETING` already does when the participant's name is unavailable (see
+ * `assembleWidgetElevenLabsFirstMessage()` in lib/voice/widget-elevenlabs-prompt-rules.ts).
+ */
+export const DEFAULT_OPENING_GREETING: DualModePromptField = {
+  mode: 'literal',
+  text: "Hi {firstName}, I'm {assistantName}. Let's get started.",
 }
 
 const PROMPT_FIELD_MODES: PromptFieldMode[] = ['literal', 'instruction']
@@ -72,7 +90,7 @@ export function isValidInstructionText(value: unknown): value is string {
 // (Section 4.7 — verification_question_style/inter_section_recap_style have
 // no literal mode by design).
 const DUAL_MODE_FIELDS = new Set<keyof PartnerPromptConfig>([
-  'tonePersona', 'deferralPhrasing', 'closingConfirmationQuestion', 'goodbyeLine', 'joinGreeting',
+  'tonePersona', 'deferralPhrasing', 'closingConfirmationQuestion', 'goodbyeLine', 'joinGreeting', 'openingGreeting',
 ])
 const INSTRUCTION_ONLY_FIELDS = new Set<keyof PartnerPromptConfig>([
   'verificationQuestionStyle', 'interSectionRecapStyle',
@@ -84,6 +102,7 @@ const COLUMN_BY_FIELD: Record<keyof PartnerPromptConfig, string> = {
   closingConfirmationQuestion: 'closing_confirmation_question',
   goodbyeLine: 'goodbye_line',
   joinGreeting: 'join_greeting',
+  openingGreeting: 'opening_greeting',
   verificationQuestionStyle: 'verification_question_style',
   interSectionRecapStyle: 'inter_section_recap_style',
 }
@@ -92,7 +111,7 @@ const COLUMN_BY_FIELD: Record<keyof PartnerPromptConfig, string> = {
 // parser can resolve it — a computed `string` (e.g. Object.values(...).join())
 // is widened to plain `string` and defeats that parser, per the same
 // constraint theme.ts's own literal .select(...) calls already respect.
-const SELECT_COLUMNS = 'tone_persona, deferral_phrasing, closing_confirmation_question, goodbye_line, join_greeting, verification_question_style, inter_section_recap_style'
+const SELECT_COLUMNS = 'tone_persona, deferral_phrasing, closing_confirmation_question, goodbye_line, join_greeting, opening_greeting, verification_question_style, inter_section_recap_style'
 
 function rowToConfig(data: Record<string, unknown> | null): PartnerPromptConfig {
   if (!data) return { ...CLIO_DEFAULT_PROMPT_CONFIG }
@@ -194,6 +213,7 @@ export async function upsertPromptConfig(
         closing_confirmation_question: merged.closingConfirmationQuestion,
         goodbye_line: merged.goodbyeLine,
         join_greeting: merged.joinGreeting,
+        opening_greeting: merged.openingGreeting,
         verification_question_style: merged.verificationQuestionStyle,
         inter_section_recap_style: merged.interSectionRecapStyle,
       },

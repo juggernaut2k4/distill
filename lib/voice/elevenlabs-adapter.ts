@@ -18,11 +18,23 @@ import type { VoiceSessionAdapter } from './adapter'
  * remains a documented one-field fallback: swap `conversationToken` for `signedUrl` and
  * `'webrtc'` for `'websocket'` — nothing else in this file changes.
  *
- * THE ONE THING OVERRIDDEN: `overrides.agent.prompt.prompt`, and nothing else (Known Constraint
- * C3). Voice, model, TTS settings, first message, language, knowledge base and tool ids all stay
+ * THE TWO THINGS OVERRIDDEN: `overrides.agent.prompt.prompt` and, as of the name-greeting/
+ * first_message conflict fix (2026-09-08), `overrides.agent.firstMessage` — nothing else (Known
+ * Constraint C3, amended). Voice, model, TTS settings, language, knowledge base and tool ids all stay
  * exactly as Arun's base agent has them configured. This is not merely "unnecessary to send" —
  * ElevenLabs THROWS when an override arrives for a field whose Security-tab toggle is off, so each
- * extra field would be an additional way to break every session.
+ * extra field is an additional way to break every session — now true of two fields instead of one,
+ * which is why `firstMessage` on `ElevenLabsAdapterConfig` is OPTIONAL: a session computed without
+ * it (the config field simply omitted) sends the identical single-field override this adapter always
+ * sent, so nothing about the original override contract changes for a caller that doesn't set it.
+ *
+ * WHY firstMessage NEEDED OVERRIDING AT ALL: the widget prompt's own rule 1a used to instruct the
+ * model to greet the participant by name, but ElevenLabs speaks the base agent's own static,
+ * un-personalized dashboard first message BEFORE the model ever takes a turn — the name greeting
+ * was pre-empted and never landed. `firstMessage` here is the server-computed, name-substituted
+ * literal string from `assembleWidgetElevenLabsFirstMessage()`
+ * (lib/voice/widget-elevenlabs-prompt-rules.ts); rule 1a is rewritten there to stop instructing a
+ * second, redundant greeting once this override is in place.
  *
  * WHY NOT THE OLD ADAPTER: `git show 7a0020a^:lib/voice/elevenlabs-adapter.ts` (93 lines, deleted
  * 2026-07-13) built its `onSpeakVerified` billing signal on an `isOpen()` poll — it fired on
@@ -59,6 +71,12 @@ export interface ElevenLabsAdapterConfig {
   /** The fully-assembled, widget-only ElevenLabs prompt (lib/voice/widget-elevenlabs-prompt-rules.ts),
    *  computed server-side in widget-render/page.tsx. Sent as overrides.agent.prompt.prompt. */
   instructions: string
+  /** OPTIONAL — the server-computed, name-substituted literal opening line from
+   *  `assembleWidgetElevenLabsFirstMessage()` (lib/voice/widget-elevenlabs-prompt-rules.ts). Sent as
+   *  overrides.agent.firstMessage. Omitted entirely (not sent as an empty/undefined override) when
+   *  not provided, so a caller that never sets it gets the exact same single-field override this
+   *  adapter always sent. */
+  firstMessage?: string
   /** Session ref — logging/reporting parity with Hume's and OpenAI's `userId`. */
   userId: string
   onConnect: (sessionId: string) => void
@@ -153,11 +171,15 @@ export class ElevenLabsAdapter implements VoiceSessionAdapter {
         conversationToken: this.config.conversationToken,
         // Explicit, never inference-dependent (§6.4).
         connectionType: 'webrtc' as const,
-        // EXACTLY this and nothing else (Known Constraint C3, §6.5). Do not add `llm`, `toolIds`,
-        // `knowledgeBase`, `firstMessage`, `language`, or any `tts`/`asr`/`conversation` field.
+        // EXACTLY these two fields and nothing else (Known Constraint C3, §6.5, amended for the
+        // name-greeting/first_message conflict fix). Do not add `llm`, `toolIds`, `knowledgeBase`,
+        // `language`, or any `tts`/`asr`/`conversation` field. `firstMessage` is spread in only when
+        // provided — never sent as an explicit `undefined` — so a caller that omits it gets the
+        // exact single-field override this adapter always sent.
         overrides: {
           agent: {
             prompt: { prompt: this.config.instructions },
+            ...(this.config.firstMessage ? { firstMessage: this.config.firstMessage } : {}),
           },
         },
         clientTools: this.buildClientTools(),
